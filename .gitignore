@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!*.example
+*.log
+dist/
+build/
+
+# Produkcyjne sekrety i konfiguracja lokalna
+docker-compose.yml
+
+# Lokalne backupy / historia
+.git-backup-before-prod-clean-*
