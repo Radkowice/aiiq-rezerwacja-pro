@@ -1,44 +1,51 @@
 .settings-grid {
-  display: grid;
-  gap: 20px;
-  margin-top: 20px;
+  column-count: 2;
+  column-gap: 16px;
+  margin-top: 16px;
 }
 
 .settings-card {
-  padding: 24px;
+  display: inline-block;
+  width: 100%;
+  min-width: 0;
+  margin: 0 0 16px;
+  padding: 20px;
   background: linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%);
   border: 1px solid rgba(15, 23, 42, 0.08);
   border-radius: 18px;
   box-shadow:
     0 8px 24px rgba(15, 23, 42, 0.05),
     0 2px 6px rgba(15, 23, 42, 0.03);
+  break-inside: avoid;
 }
 
 .settings-card h3 {
   margin: 0 0 8px;
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 800;
   color: #101828;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.03em;
 }
 
 .settings-desc {
-  margin: 0 0 18px;
+  margin: 0 0 14px;
   color: #667085;
   font-size: 14px;
-  line-height: 1.6;
+  line-height: 1.5;
 }
 
 .settings-row {
   display: grid;
-  grid-template-columns: repeat(2, minmax(240px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  align-items: start;
 }
 
 .settings-card .form-group {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  min-width: 0;
 }
 
 .settings-card .form-group label {
@@ -50,9 +57,9 @@
 
 .settings-card input,
 .settings-card select {
-  height: 48px;
+  height: 44px;
   width: 100%;
-  max-width: 360px;
+  max-width: 100%;
   padding: 0 14px;
   border: 1px solid #d0d5dd;
   border-radius: 12px;
@@ -63,7 +70,6 @@
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
-    transform 0.2s ease,
     background-color 0.2s ease;
   box-sizing: border-box;
 }
@@ -75,18 +81,22 @@
 
 .settings-card input:focus,
 .settings-card select:focus {
-  border-color: #7f1d1d;
-  box-shadow: 0 0 0 4px rgba(185, 28, 28, 0.10);
+  border-color: #28406b;
+  box-shadow: 0 0 0 4px rgba(40, 64, 107, 0.12);
   background: #fff;
 }
 
-.settings-card input[type="number"] {
-  max-width: 140px;
-  appearance: textfield;
+.settings-card input[type="number"],
+.settings-card input[type="time"] {
+  max-width: 180px;
 }
 
-.settings-card input[type="time"] {
-  max-width: 150px;
+.settings-card select {
+  max-width: 240px;
+}
+
+.settings-card input[type="number"] {
+  appearance: textfield;
 }
 
 .settings-card input[type="number"]::-webkit-outer-spin-button,
@@ -95,65 +105,68 @@
   margin: 0;
 }
 
+.settings-help {
+  max-width: 340px;
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #667085;
+}
+
 .settings-actions-card {
-  border: 1px solid rgba(185, 28, 28, 0.10);
-  background: linear-gradient(180deg, #ffffff 0%, #fff7f7 100%);
+  border: 1px solid rgba(40, 64, 107, 0.14);
+  background: linear-gradient(180deg, #ffffff 0%, #f7f9fc 100%);
 }
 
 .settings-actions {
   display: flex;
-  justify-content: flex-end;
-  margin-top: 10px;
+  justify-content: flex-start;
+  margin-top: 8px;
 }
 
-
-/* dodatkowa siatka dla nowych ustawieñ */
-.settings-row-3 {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(220px, 1fr));
-  gap: 16px;
-}
-
-/* ma³e opisy pod polami */
-.settings-help {
-  margin-top: 6px;
-  font-size: 12px;
-  line-height: 1.5;
-  color: #667085;
-}
-
-/* estetyka sekcji ustawieñ w panelu */
 section[data-section="ustawienia"] .panel-header {
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 
 section[data-section="ustawienia"] .panel-header h2 {
   margin-bottom: 4px;
 }
 
-@media (max-width: 992px) {
-  .settings-row,
-  .settings-row-3 {
-    grid-template-columns: 1fr;
+@media (max-width: 1200px) {
+  .settings-grid {
+    column-count: 1;
   }
 }
 
 @media (max-width: 768px) {
   .settings-grid {
-    gap: 16px;
+    column-count: 1;
+    column-gap: 0;
+    margin-top: 14px;
   }
 
   .settings-card {
+    margin-bottom: 14px;
     padding: 18px;
     border-radius: 16px;
   }
 
+  .settings-row {
+    grid-template-columns: 1fr;
+  }
+
   .settings-card input,
-  .settings-card select {
+  .settings-card select,
+  .settings-card input[type="number"],
+  .settings-card input[type="time"] {
     max-width: 100%;
   }
 
   .settings-actions {
     justify-content: stretch;
+  }
+
+  .settings-actions .btn {
+    width: 100%;
   }
 }
