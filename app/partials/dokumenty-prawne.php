@@ -72,15 +72,18 @@
         <span>Włącz dokumenty prawne w kalendarzu rezerwacji</span>
       </label>
 
-      <div class="legal-links-row">
-        <a href="/dokumenty/regulamin.html" target="_blank" rel="noopener">Podgląd regulaminu</a>
-        <a href="/dokumenty/polityka-prywatnosci.html" target="_blank" rel="noopener">Podgląd polityki prywatności</a>
-      </div>
+      <a class="btn" href="/dokumenty/regulamin.html" target="_blank" rel="noopener">
+  Podgląd regulaminu
+</a>
+
+<a class="btn" href="/dokumenty/polityka-prywatnosci.html" target="_blank" rel="noopener">
+  Podgląd polityki prywatności
+</a>
 
     <div class="settings-actions">
-  <button id="save-legal-documents-btn" type="button">
-    Zapisz dokumenty prawne
-  </button>
+ <button class="btn" type="button" id="save-legal-documents-btn">
+  Zapisz dokumenty prawne
+</button>
 </div>
 
 <p id="legal-documents-message" class="settings-help" aria-live="polite"></p>

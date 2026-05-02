@@ -8,9 +8,32 @@ section[data-section="dokumenty_prawne"] .panel-header h2 {
   margin-bottom: 4px;
 }
 
+/* Uk³ad tej zak³adki ma byæ pionowy, niezale¿ny od globalnego settings-grid */
+section[data-section="dokumenty_prawne"] .settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
+}
+
 section[data-section="dokumenty_prawne"] .settings-card {
-  background: var(--color-card);
+  width: 100%;
+  max-width: 100%;
+  background: transparent;
   border: 1px solid var(--color-border);
+  border-radius: var(--radius-main);
+  box-shadow: var(--shadow-main);
+  color: var(--color-text);
+}
+
+section[data-section="dokumenty_prawne"] .settings-card h3 {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+section[data-section="dokumenty_prawne"] .settings-desc {
+  color: var(--color-muted);
+  font-weight: 400;
 }
 
 .legal-editor-group {
@@ -22,7 +45,11 @@ section[data-section="dokumenty_prawne"] .settings-card {
   resize: vertical;
   font-family: inherit;
   font-size: 15px;
+  font-weight: 400;
   line-height: 1.65;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--color-border);
 }
 
 .legal-check-row {
@@ -40,13 +67,13 @@ section[data-section="dokumenty_prawne"] .settings-card {
   flex: 0 0 18px;
   margin-top: 2px;
   cursor: pointer;
-  accent-color: #7f1d1d;
+  accent-color: var(--color-primary);
 }
 
 .legal-check-row span {
   color: var(--color-text);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.45;
 }
 
@@ -59,109 +86,36 @@ section[data-section="dokumenty_prawne"] .settings-card {
 
 .legal-links-row a,
 #save-legal-documents-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 42px;
-  padding: 0 16px;
-  border: 1px solid #111827;
-  border-radius: 10px;
-  background: transparent;
-  color: var(--color-text);
+  width: auto;
   text-decoration: none;
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    transform 0.18s ease,
-    border-color 0.18s ease,
-    background 0.18s ease,
-    color 0.18s ease,
-    opacity 0.18s ease;
-}
-
-#save-legal-documents-btn {
-  padding: 0 18px;
-}
-
-.legal-links-row a:hover,
-#save-legal-documents-btn:hover {
-  background: #b8899c;
-  border-color: #ffffff;
-  color: #ffffff;
-  transform: translateY(-1px);
-}
-
-.legal-links-row a:active,
-#save-legal-documents-btn:active {
-  transform: translateY(0);
-}
-
-body.theme-dark .legal-links-row a,
-body.theme-dark #save-legal-documents-btn,
-body.dark-theme .legal-links-row a,
-body.dark-theme #save-legal-documents-btn,
-body[data-theme="dark"] .legal-links-row a,
-body[data-theme="dark"] #save-legal-documents-btn,
-html.theme-dark .legal-links-row a,
-html.theme-dark #save-legal-documents-btn,
-html.dark-theme .legal-links-row a,
-html.dark-theme #save-legal-documents-btn,
-html[data-theme="dark"] .legal-links-row a,
-html[data-theme="dark"] #save-legal-documents-btn {
-  border-color: rgba(255, 255, 255, 0.75);
-  color: var(--color-text);
-}
-
-body.theme-dark #save-legal-documents-btn:hover,
-body.dark-theme #save-legal-documents-btn:hover,
-body[data-theme="dark"] #save-legal-documents-btn:hover,
-html.theme-dark #save-legal-documents-btn:hover,
-html.dark-theme #save-legal-documents-btn:hover,
-html[data-theme="dark"] #save-legal-documents-btn:hover,
-body.theme-dark .legal-links-row a:hover,
-body.dark-theme .legal-links-row a:hover,
-body[data-theme="dark"] .legal-links-row a:hover,
-html.theme-dark .legal-links-row a:hover,
-html.dark-theme .legal-links-row a:hover,
-html[data-theme="dark"] .legal-links-row a:hover {
-  background: #3f0f22;
-  border-color: #ffffff;
-  color: #ffffff;
-  transform: translateY(-1px);
 }
 
 #legal-documents-message {
   display: block;
   margin: 12px 0 0;
   min-height: 20px;
-  color: #111827;
+  color: var(--color-text);
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 #legal-documents-message.success,
 #legal-documents-message.error {
-  color: #111827;
+  color: var(--color-text);
 }
 
-body.theme-dark #legal-documents-message,
-body.dark-theme #legal-documents-message,
-body[data-theme="dark"] #legal-documents-message,
-html.theme-dark #legal-documents-message,
-html.dark-theme #legal-documents-message,
-html[data-theme="dark"] #legal-documents-message,
-body.theme-dark #legal-documents-message.success,
-body.theme-dark #legal-documents-message.error,
-body.dark-theme #legal-documents-message.success,
-body.dark-theme #legal-documents-message.error,
-body[data-theme="dark"] #legal-documents-message.success,
-body[data-theme="dark"] #legal-documents-message.error,
-html.theme-dark #legal-documents-message.success,
-html.theme-dark #legal-documents-message.error,
-html.dark-theme #legal-documents-message.success,
-html.dark-theme #legal-documents-message.error,
-html[data-theme="dark"] #legal-documents-message.success,
-html[data-theme="dark"] #legal-documents-message.error {
-  color: var(--color-text);
+@media (max-width: 768px) {
+  section[data-section="dokumenty_prawne"] .settings-grid {
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  .legal-links-row {
+    flex-direction: column;
+  }
+
+  .legal-links-row a,
+  #save-legal-documents-btn {
+    width: 100%;
+  }
 }

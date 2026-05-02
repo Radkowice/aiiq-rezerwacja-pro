@@ -1,33 +1,81 @@
-.full-width-card {
-  grid-column: 1 / -1;
+/* ===== EMAIL — uk³ad zgodny z panelem ===== */
+
+section[data-section="email"] .settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin-top: 16px;
 }
+
+section[data-section="email"] .settings-card {
+  width: 100%;
+  min-width: 0;
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-main);
+  box-shadow: var(--shadow-main);
+  color: var(--color-text);
+}
+
+section[data-section="email"] .settings-card h3 {
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+section[data-section="email"] .settings-desc {
+  color: var(--color-muted);
+  font-weight: 400;
+}
+
+/* Edytor wiadomoœci */
 
 #booking-email-content {
   width: 100%;
   resize: vertical;
-  min-height: 180px;
-  font-size: 16px;
-  line-height: 1.5;
+  min-height: 260px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.6;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-small);
 }
 
 .email-toolbar {
-  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 12px 0 10px;
 }
 
 .email-toolbar button {
-  padding: 6px 10px;
-  margin-right: 5px;
+  min-width: 36px;
+  min-height: 34px;
+  padding: 0 10px;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-small);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
 }
+
+.email-toolbar button:hover {
+  border-color: var(--color-primary);
+}
+
+/* Emoji */
 
 .emoji-picker {
   display: none;
   margin-top: 8px;
   padding: 12px;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-main);
+  background: transparent;
   max-height: 220px;
   overflow-y: auto;
 }
@@ -40,45 +88,52 @@
   height: 36px;
   margin: 4px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-small);
   font-size: 20px;
   transition: transform 0.15s ease, background 0.15s ease;
 }
 
 .emoji-picker span:hover {
-  background: rgba(255,255,255,0.10);
-  transform: scale(1.15);
+  background: rgba(127, 127, 127, 0.12);
+  transform: scale(1.12);
 }
+
+/* Podgl¹d wiadomoœci */
 
 .email-preview-box {
   margin-top: 16px;
   padding: 16px;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 14px;
-  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-main);
+  background: transparent;
 }
 
 .email-preview-header {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
   margin-bottom: 10px;
-  opacity: 0.9;
+  color: var(--color-muted);
 }
 
 .email-preview-subject {
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 17px;
+  font-weight: 600;
   margin-bottom: 14px;
   padding-bottom: 10px;
-  border-bottom: 1px solid rgba(255,255,255,0.10);
+  color: var(--color-text);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .email-preview-content {
   font-size: 15px;
+  font-weight: 400;
   line-height: 1.6;
   min-height: 120px;
+  color: var(--color-text);
   word-break: break-word;
 }
+
+/* Has³o SMTP */
 
 .password-field {
   position: relative;
@@ -88,23 +143,26 @@
 
 .password-field input {
   width: 100%;
-  padding-right: 45px; /* miejsce na oczko */
+  padding-right: 45px;
 }
 
 .password-toggle {
   position: absolute;
   right: 10px;
-  background: none;
+  background: transparent;
   border: none;
   cursor: pointer;
   font-size: 16px;
-  opacity: 0.7;
-  transition: 0.2s;
+  color: var(--color-muted);
+  opacity: 0.8;
+  transition: opacity 0.2s ease;
 }
 
 .password-toggle:hover {
   opacity: 1;
 }
+
+/* Temat wiadomoœci */
 
 .subject-field {
   display: flex;
@@ -117,10 +175,38 @@
 }
 
 .subject-field .subject-emoji-btn {
-  padding: 6px 10px;
+  min-width: 38px;
+  min-height: 38px;
+  padding: 0 10px;
   cursor: pointer;
-  border-radius: 6px;
-  border: 1px solid rgba(255,255,255,0.12);
-  background: rgba(255,255,255,0.04);
+  border-radius: var(--radius-small);
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text);
+  font-weight: 500;
 }
 
+.subject-field .subject-emoji-btn:hover {
+  border-color: var(--color-primary);
+}
+
+/* Mobile */
+
+@media (max-width: 768px) {
+  section[data-section="email"] .settings-grid {
+    gap: 14px;
+    margin-top: 14px;
+  }
+
+  #booking-email-content {
+    min-height: 220px;
+  }
+
+  .email-toolbar {
+    gap: 6px;
+  }
+
+  .subject-field {
+    align-items: stretch;
+  }
+}
