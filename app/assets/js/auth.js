@@ -219,15 +219,24 @@ const logoEmpty = document.getElementById('account-logo-empty');
 
 if (logoPreview && logoEmpty) {
   const logoUrl = (branding.logo_url_front || '').trim();
+  const deleteLogoBtn = document.getElementById('delete-logo-front-btn');
 
   if (logoUrl) {
     logoPreview.src = logoUrl;
     logoPreview.style.display = 'block';
     logoEmpty.style.display = 'none';
+
+    if (deleteLogoBtn) {
+      deleteLogoBtn.style.display = 'inline-flex';
+    }
   } else {
     logoPreview.removeAttribute('src');
     logoPreview.style.display = 'none';
     logoEmpty.style.display = 'block';
+
+    if (deleteLogoBtn) {
+      deleteLogoBtn.style.display = 'none';
+    }
   }
 }
 
@@ -236,15 +245,24 @@ const faviconEmpty = document.getElementById('account-favicon-empty');
 
 if (faviconPreview && faviconEmpty) {
   const faviconUrl = (branding.favicon_url_front || '').trim();
+  const deleteFaviconBtn = document.getElementById('delete-favicon-front-btn');
 
   if (faviconUrl) {
     faviconPreview.src = faviconUrl;
     faviconPreview.style.display = 'block';
     faviconEmpty.style.display = 'none';
+
+    if (deleteFaviconBtn) {
+      deleteFaviconBtn.style.display = 'inline-flex';
+    }
   } else {
     faviconPreview.removeAttribute('src');
     faviconPreview.style.display = 'none';
     faviconEmpty.style.display = 'block';
+
+    if (deleteFaviconBtn) {
+      deleteFaviconBtn.style.display = 'none';
+    }
   }
 }
     

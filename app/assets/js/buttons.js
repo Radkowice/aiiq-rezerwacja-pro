@@ -176,6 +176,175 @@ const res = await apiFetch('/api/system/branding.php', {
     });
   }
   
+    // MOJE KONTO — usuwanie logo i favicony frontu
+  const deleteLogoFrontBtn = document.getElementById('delete-logo-front-btn');
+  const deleteFaviconFrontBtn = document.getElementById('delete-favicon-front-btn');
+
+  function showBrandingActionMessage(message, type = 'success') {
+    if (!accountMessage) return;
+
+    accountMessage.style.display = 'block';
+    accountMessage.textContent = message;
+    accountMessage.className = `message ${type}`;
+
+    setTimeout(() => {
+      accountMessage.textContent = '';
+      accountMessage.className = 'message';
+    }, 3000);
+  }
+
+  function clearLogoPreview() {
+    const logoInput = document.getElementById('account-logo');
+    const logoPreview = document.getElementById('account-logo-preview');
+    const logoEmpty = document.getElementById('account-logo-empty');
+    const deleteBtn = document.getElementById('delete-logo-front-btn');
+
+    if (logoInput) {
+      logoInput.value = '';
+    }
+
+    if (logoPreview) {
+      logoPreview.removeAttribute('src');
+      logoPreview.style.display = 'none';
+    }
+
+    if (logoEmpty) {
+      logoEmpty.textContent = 'Brak wgranego logo';
+      logoEmpty.style.display = 'block';
+    }
+
+    if (deleteBtn) {
+      deleteBtn.style.display = 'none';
+    }
+  }
+
+  function clearFaviconPreview() {
+    const faviconInput = document.getElementById('account-favicon');
+    const faviconPreview = document.getElementById('account-favicon-preview');
+    const faviconEmpty = document.getElementById('account-favicon-empty');
+    const deleteBtn = document.getElementById('delete-favicon-front-btn');
+
+    if (faviconInput) {
+      faviconInput.value = '';
+    }
+
+    if (faviconPreview) {
+      faviconPreview.removeAttribute('src');
+      faviconPreview.style.display = 'none';
+    }
+
+    if (faviconEmpty) {
+      faviconEmpty.textContent = 'Brak wgranej favicony';
+      faviconEmpty.style.display = 'block';
+    }
+
+    if (deleteBtn) {
+      deleteBtn.style.display = 'none';
+    }
+  }
+
+  async function confirmBrandingDelete(message) {
+    if (typeof openAdminConfirm === 'function') {
+      return await openAdminConfirm({
+        title: 'Potwierdź usunięcie',
+        message,
+        confirmText: 'Usuń',
+        cancelText: 'Anuluj',
+        danger: true
+      });
+    }
+
+    return window.confirm(message);
+  }
+
+  if (deleteLogoFrontBtn) {
+    deleteLogoFrontBtn.addEventListener('click', async () => {
+      const confirmed = await confirmBrandingDelete('Czy na pewno usunąć logo frontu kalendarza?');
+
+      if (!confirmed) {
+        return;
+      }
+
+      const defaultText = deleteLogoFrontBtn.textContent;
+      const startTime = Date.now();
+
+      try {
+        deleteLogoFrontBtn.disabled = true;
+        deleteLogoFrontBtn.textContent = 'Usuwanie...';
+
+        const res = await fetch('/api/system/delete-logo-front.php', {
+          method: 'POST',
+          credentials: 'include'
+        });
+
+        const text = await res.text();
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error('Serwer zwrócił nieprawidłową odpowiedź przy usuwaniu logo.');
+        }
+
+        if (!res.ok || data.success !== true) {
+          throw new Error(data.error || 'Nie udało się usunąć logo.');
+        }
+
+        clearLogoPreview();
+        showBrandingActionMessage('Logo usunięte.', 'success');
+      } catch (error) {
+        console.error('delete logo error:', error);
+        showBrandingActionMessage(error.message || 'Błąd usuwania logo.', 'error');
+      }
+
+      finishButtonState(deleteLogoFrontBtn, defaultText, startTime);
+    });
+  }
+
+  if (deleteFaviconFrontBtn) {
+    deleteFaviconFrontBtn.addEventListener('click', async () => {
+      const confirmed = await confirmBrandingDelete('Czy na pewno usunąć faviconę frontu kalendarza?');
+
+      if (!confirmed) {
+        return;
+      }
+
+      const defaultText = deleteFaviconFrontBtn.textContent;
+      const startTime = Date.now();
+
+      try {
+        deleteFaviconFrontBtn.disabled = true;
+        deleteFaviconFrontBtn.textContent = 'Usuwanie...';
+
+        const res = await fetch('/api/system/delete-favicon-front.php', {
+          method: 'POST',
+          credentials: 'include'
+        });
+
+        const text = await res.text();
+
+        let data;
+        try {
+          data = JSON.parse(text);
+        } catch {
+          throw new Error('Serwer zwrócił nieprawidłową odpowiedź przy usuwaniu favicony.');
+        }
+
+        if (!res.ok || data.success !== true) {
+          throw new Error(data.error || 'Nie udało się usunąć favicony.');
+        }
+
+        clearFaviconPreview();
+        showBrandingActionMessage('Favicon usunięta.', 'success');
+      } catch (error) {
+        console.error('delete favicon error:', error);
+        showBrandingActionMessage(error.message || 'Błąd usuwania favicony.', 'error');
+      }
+
+      finishButtonState(deleteFaviconFrontBtn, defaultText, startTime);
+    });
+  }
+  
   const saveReservationsStyleBtn = document.getElementById('save-reservations-style-btn');
 
 if (saveReservationsStyleBtn) {

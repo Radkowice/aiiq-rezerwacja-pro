@@ -131,28 +131,37 @@
     <div class="admin-card">
       <h3>Branding klienta</h3>
 
-      <div class="form-group">
-        <label for="account-logo">Logo</label>
-        <input type="file" id="account-logo" accept="image/*">
-        <small>Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 2 MB.</small>
-        <div class="branding-logo-preview-wrap">
-  <div class="branding-logo-preview-label">Aktualne logo</div>
-  <img id="account-logo-preview" class="branding-logo-preview" src="" alt="Aktualne logo" style="display:none;">
-  <div id="account-logo-empty" class="branding-logo-empty">Brak wgranego logo</div>
+     <div class="form-group">
+  <label for="account-logo">Logo</label>
+  <input type="file" id="account-logo" accept="image/*">
+  <small>Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 2 MB.</small>
+
+  <div class="branding-logo-preview-wrap">
+    <div class="branding-logo-preview-label">Aktualne logo</div>
+    <img id="account-logo-preview" class="branding-logo-preview" src="" alt="Aktualne logo" style="display:none;">
+    <div id="account-logo-empty" class="branding-logo-empty">Brak wgranego logo</div>
+
+    <button class="btn branding-remove-btn" type="button" id="delete-logo-front-btn" style="display:none;">
+      Usuń logo
+    </button>
+  </div>
 </div>
 
 <div class="form-group">
   <label for="account-favicon">Favicon frontu kalendarza</label>
   <input type="file" id="account-favicon" accept="image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon">
   <small>Dozwolone formaty: PNG, JPG, WEBP, ICO. Maksymalnie 512 KB.</small>
-</div>
 
-<div class="branding-favicon-preview-wrap">
-  <div class="branding-logo-preview-label">Aktualna favicon</div>
-  <img id="account-favicon-preview" class="branding-favicon-preview" src="" alt="Aktualna favicon" style="display:none;">
-  <div id="account-favicon-empty" class="branding-logo-empty">Brak wgranej favicony</div>
+  <div class="branding-favicon-preview-wrap">
+    <div class="branding-logo-preview-label">Aktualna favicon</div>
+    <img id="account-favicon-preview" class="branding-favicon-preview" src="" alt="Aktualna favicon" style="display:none;">
+    <div id="account-favicon-empty" class="branding-logo-empty">Brak wgranej favicony</div>
+
+    <button class="btn branding-remove-btn" type="button" id="delete-favicon-front-btn" style="display:none;">
+      Usuń faviconę
+    </button>
+  </div>
 </div>
-      </div>
       
      <div class="form-group">
         <label for="account-theme">Motyw panelu</label>
