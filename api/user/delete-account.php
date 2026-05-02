@@ -48,6 +48,60 @@ $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $serviceRoleKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
 $supabaseSchema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
+function deleteDirectoryRecursive(string $dir): void
+{
+    if ($dir === '' || !is_dir($dir)) {
+        return;
+    }
+
+    $items = scandir($dir);
+
+    if ($items === false) {
+        return;
+    }
+
+    foreach ($items as $item) {
+        if ($item === '.' || $item === '..') {
+            continue;
+        }
+
+        $path = $dir . DIRECTORY_SEPARATOR . $item;
+
+        if (is_dir($path) && !is_link($path)) {
+            deleteDirectoryRecursive($path);
+            @rmdir($path);
+        } else {
+            @unlink($path);
+        }
+    }
+
+    @rmdir($dir);
+}
+
+function deleteTenantFiles(string $tenantId): void
+{
+    $safeTenantId = preg_replace('/[^a-zA-Z0-9_-]/', '', $tenantId);
+
+    if ($safeTenantId === '') {
+        return;
+    }
+
+    $baseDir = realpath(__DIR__ . '/../../html/data');
+
+    if ($baseDir === false) {
+        return;
+    }
+
+    $tenantDirs = [
+        $baseDir . '/logo/' . $safeTenantId,
+        $baseDir . '/favicon/' . $safeTenantId,
+    ];
+
+    foreach ($tenantDirs as $dir) {
+        deleteDirectoryRecursive($dir);
+    }
+}
+
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
     http_response_code(500);
     echo json_encode([
@@ -178,7 +232,7 @@ if ($isLastUser) {
 
     curl_close($deleteTenantCh);
 
-    if ($deleteTenantCurlError || $deleteTenantHttpCode >= 400) {
+      if ($deleteTenantCurlError || $deleteTenantHttpCode >= 400) {
         http_response_code(500);
         echo json_encode([
             'success' => false,
@@ -186,6 +240,8 @@ if ($isLastUser) {
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
+
+    deleteTenantFiles($tenantId);
 } else {
     $deleteUserUrl = $supabaseUrl
         . '/rest/v1/users?tenant_id=eq.' . rawurlencode($tenantId)
