@@ -1,0 +1,218 @@
+/* ===== MOJE KONTO — style tylko dla tej sekcji ===== */
+
+[data-section="moje_konto"] {
+  --konto-bg: #f8fafc;
+  --konto-card: #ffffff;
+  --konto-text: #0f172a;
+  --konto-muted: #64748b;
+  --konto-border: #e2e8f0;
+  --konto-input-bg: #ffffff;
+}
+
+body.theme-gray [data-section="moje_konto"] {
+  --konto-bg: #eef2f7;
+  --konto-card: #ffffff;
+  --konto-text: #111827;
+  --konto-muted: #6b7280;
+  --konto-border: #d1d5db;
+  --konto-input-bg: #ffffff;
+}
+
+body.theme-dark [data-section="moje_konto"] {
+  --konto-bg: #0b1324;
+  --konto-card: #0f172a;
+  --konto-text: #e5e7eb;
+  --konto-muted: #94a3b8;
+  --konto-border: rgba(148, 163, 184, 0.18);
+  --konto-input-bg: #111827;
+}
+
+[data-section="moje_konto"] {
+  background: var(--konto-bg);
+  border-radius: 24px;
+  padding: 22px;
+}
+
+[data-section="moje_konto"] h2 {
+  margin: 0 0 22px;
+  font-size: 2rem;
+  font-weight: 800;
+  color: var(--konto-text);
+}
+
+[data-section="moje_konto"] .account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+[data-section="moje_konto"] .admin-card {
+  background: var(--konto-card);
+  border: 1px solid var(--konto-border);
+  border-radius: 20px;
+  padding: 20px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.05);
+}
+
+[data-section="moje_konto"] .admin-card h3 {
+  margin: 0 0 18px;
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: var(--konto-text);
+}
+
+[data-section="moje_konto"] .form-group {
+  margin-bottom: 14px;
+}
+
+[data-section="moje_konto"] label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--konto-text);
+}
+
+[data-section="moje_konto"] input,
+[data-section="moje_konto"] select,
+[data-section="moje_konto"] textarea {
+  width: 100%;
+  min-height: 46px;
+  padding: 12px 14px;
+  border: 1px solid var(--konto-border);
+  border-radius: 14px;
+  background: var(--konto-input-bg);
+  color: var(--konto-text);
+  font-size: 0.96rem;
+  box-sizing: border-box;
+}
+
+[data-section="moje_konto"] input::placeholder,
+[data-section="moje_konto"] textarea::placeholder {
+  color: var(--konto-muted);
+}
+
+[data-section="moje_konto"] input[readonly] {
+  opacity: 0.95;
+}
+
+[data-section="moje_konto"] input[type="checkbox"] {
+  width: auto;
+  min-height: auto;
+  margin-right: 8px;
+}
+
+[data-section="moje_konto"] input[type="range"] {
+  padding: 0;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* === HAS£A === */
+
+.password-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.password-field input {
+    width: 100%;
+    padding-right: 45px;
+}
+
+.toggle-password {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 16px;
+    opacity: 0.6;
+    transition: 0.2s;
+}
+
+.toggle-password:hover {
+    opacity: 1;
+}
+
+.password-strength {
+    margin-top: 8px;
+    font-size: 13px;
+    font-weight: 500;
+}
+
+.password-strength.weak {
+    color: #dc2626;
+}
+
+.password-strength.medium {
+    color: #f59e0b;
+}
+
+.password-strength.strong {
+    color: #16a34a;
+}
+
+.password-rules {
+    margin-top: 8px;
+    font-size: 12px;
+    opacity: 0.8;
+}
+
+.password-rule {
+    margin: 2px 0;
+}
+
+.password-rule.valid {
+    color: #16a34a;
+}
+
+.password-rule.invalid {
+    color: #dc2626;
+}
+
+.branding-logo-preview-wrap,
+.branding-favicon-preview-wrap {
+  margin-top: 12px;
+  margin-bottom: 18px;
+}
+
+.branding-logo-preview-label {
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.branding-logo-preview {
+  display: block;
+  max-width: 220px;
+  max-height: 120px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  padding: 8px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  border-radius: 10px;
+}
+
+.branding-favicon-preview {
+  display: block;
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  padding: 6px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.15);
+  border-radius: 8px;
+}
+
+.branding-logo-empty {
+  font-size: 13px;
+  color: #64748b;
+}
+

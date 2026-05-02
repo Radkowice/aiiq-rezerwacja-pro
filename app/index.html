@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="/favicon.png"> 
+  <title>AIIQ Kalendarz</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="assets/css/kalendarz.css"> 
+
+</head>
+<body>
+<div class="box">
+  <div class="front-branding">
+    <img id="frontLogo" class="front-logo" src="" alt="" style="display:none;">
+    <h1 id="serviceTitleFront">Rezerwacja konsultacji</h1>
+  </div>
+  
+  <div id="frontServiceBox" class="front-service-box hidden">
+  <div id="frontServiceText" class="front-service-text hidden">
+    <p id="frontServiceDescription"></p>
+  </div>
+
+  <div id="frontServicePaymentBox" class="front-service-payment-box hidden">
+   <div id="frontServicePriceRow" class="front-service-price-row hidden">
+  <span>Cena usługi</span>
+  <strong id="frontServicePrice"></strong>
+</div>
+
+    <div id="frontPaymentMessage" class="front-payment-message"></div>
+  </div>
+</div>
+
+  <input id="name" type="text" placeholder="Imię i nazwisko *">
+  <input id="email" type="email" placeholder="Adres e-mail *">
+ <input id="phone" name="phone" type="tel" placeholder="Numer telefonu * np 123456789" required>
+
+<input
+  type="text"
+  name="website"
+  id="website"
+  class="booking-honeypot"
+  tabindex="-1"
+  autocomplete="off"
+  aria-hidden="true"
+>
+
+<input
+  type="hidden"
+  name="form_started_at"
+  id="formStartedAt"
+  value=""
+>
+
+<label for="date">Wybierz datę *</label>
+  <br></br>
+ 
+  <div id="calendar"></div>
+<input type="hidden" id="date">
+  <div id="calendarLoader" style="display:none;">Ładowanie terminów...</div>
+  <select id="time">
+    <option value="">Wybierz godzinę *</option>
+  </select>
+
+ <textarea id="note" placeholder="Twoja wiadomość..."></textarea>
+
+<label class="front-consent">
+  <input type="checkbox" id="termsConsent">
+  <span>
+    Akceptuję
+    <a
+      id="frontTermsLink"
+      href="/legal/regulamin.html"
+      target="_blank"
+      rel="noopener"
+    >regulamin</a>
+    oraz
+    <a
+      id="frontPrivacyLink"
+      href="/legal/polityka-prywatnosci.html"
+      target="_blank"
+      rel="noopener"
+    >politykę prywatności</a>.
+  </span>
+</label>
+
+<div id="frontPaymentRedirectInfo" class="front-payment-redirect-info hidden">
+  Po kliknięciu „Zarezerwuj” zostaniesz przekierowany do płatności online.
+</div>
+
+<button id="bookBtn" type="button" onclick="saveBooking()">Zarezerwuj</button>
+  
+  <div id="successBox" class="success">Rezerwacja została zapisana, potwierdzenie wyślemy na email.</div>
+  <div id="errorBox" class="error-box"></div>
+</div>
+
+<script src="assets/js/app.js?v=4"></script>
+<footer class="front-footer">
+  <span>
+    © <a href="https://www.ai-iq.pl" target="_blank" rel="noopener">AI-IQ</a> • System rezerwacji
+  </span>
+
+ <nav class="front-legal-links" aria-label="Dokumenty prawne i informacje o aplikacji">
+  <a href="/legal/regulamin.html" target="_blank" rel="noopener">
+    Regulamin platformy
+  </a>
+  <span aria-hidden="true">•</span>
+  <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener">
+    Polityka prywatności platformy
+  </a>
+  <span aria-hidden="true">•</span>
+  <a href="/o-aplikacji.html" target="_blank" rel="noopener">
+    Informacje o aplikacji
+  </a>
+</nav>
+</footer>
+
+</body>
+</html>

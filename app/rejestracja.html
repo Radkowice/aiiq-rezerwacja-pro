@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rejestracja</title>
+  <link rel="stylesheet" href="assets/css/login.css">
+</head>
+<body>
+  <div class="auth-page">
+    <div class="auth-intro">
+      <h2>AI-IQ Rezerwacja Pro</h2>
+      <p>
+        Utwórz konto administratora i uzupełnij podstawowe dane firmy.
+      </p>
+    </div>
+
+    <div class="box register-box">
+      <h2>Utwórz konto administratora</h2>
+
+      <form id="registerForm">
+        <div class="register-section">
+          <h3>Dane konta</h3>
+
+          <input
+            type="text"
+            id="registerClientName"
+            placeholder="Nazwa publiczna / marka"
+            autocomplete="organization"
+            required
+          >
+
+          <input
+            type="email"
+            id="email"
+            placeholder="E-mail administratora"
+            autocomplete="email"
+            required
+          >
+
+          <input
+            type="password"
+            id="password"
+            placeholder="Hasło"
+            autocomplete="new-password"
+            required
+          >
+
+          <label class="password-toggle-row">
+            <input type="checkbox" onclick="togglePassword()">
+            <span>Pokaż hasło</span>
+          </label>
+        </div>
+
+        <div class="register-section">
+          <h3>Dane firmy / dane do FV</h3>
+
+          <input
+            type="text"
+            id="companyFullName"
+            placeholder="Pełna nazwa firmy"
+            autocomplete="organization"
+            required
+          >
+
+         <input
+  type="text"
+  id="companyOwnerName"
+  placeholder="Imię i nazwisko osoby kontaktowej"
+  autocomplete="name"
+  required
+>
+
+<small class="field-hint">
+  Wpisz imię i nazwisko
+</small>
+
+         <input
+  type="text"
+  id="companyTaxId"
+  placeholder="NIP 1111111111 lub 111-111-11-11"
+  inputmode="numeric"
+  autocomplete="off"
+  required
+>
+
+<small class="field-hint">
+  Wpisz NIP
+</small>
+
+         <textarea
+  id="companyAddress"
+  placeholder="Adres firmy: ulica i numer, miasto, kod pocztowy XX-XXX"
+  rows="3"
+  autocomplete="street-address"
+  required
+></textarea>
+
+<small class="field-hint">
+  ulica nr, Miejscowość, xx-xxx
+</small>
+          <input
+            type="email"
+            id="companyEmail"
+            placeholder="E-mail firmy — opcjonalnie"
+            autocomplete="email"
+          >
+
+          <small class="field-hint">
+            Jeśli zostawisz puste, użyjemy e-maila administratora
+          </small>
+
+        <input
+  type="tel"
+  id="companyPhone"
+  placeholder="Telefon firmy: 123456789 lub +48 123-456-789"
+  inputmode="tel"
+  autocomplete="tel"
+  required
+>
+
+<small class="field-hint">
+  Dozwolone formaty: 123456789, +48123456789, 123-456-789 lub +48 123-456-789
+</small>
+        </div>
+
+        <button type="submit">Utwórz konto</button>
+
+        <p class="error" id="err"></p>
+      </form>
+    </div>
+
+   <div class="auth-footer">
+  © 2026 <a href="https://www.ai-iq.pl" target="_blank" rel="noopener">AI-IQ</a> – Rezerwacja Pro. Wszelkie prawa zastrzeżone.
+</div>
+  </div>
+
+  <script src="assets/js/register.js"></script>
+</body>
+</html>

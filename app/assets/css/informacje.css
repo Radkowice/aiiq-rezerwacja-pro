@@ -1,0 +1,307 @@
+:root {
+  --primary: #111827;
+  --primary-soft: #1f2937;
+  --accent: #7a1f2b;
+  --accent-hover: #641724;
+
+  --text: #172033;
+  --muted: #4b5563;
+
+  --bg: #9faabd;
+  --bg-soft: #aeb8c8;
+
+  --card: #bdc7d6;
+  --card-soft: #aeb9c9;
+
+  --border: #6f7f95;
+  --border-strong: #526176;
+
+  --shadow-main:
+    12px 12px 28px rgba(51, 65, 85, 0.28),
+    -8px -8px 20px rgba(255, 255, 255, 0.22);
+
+  --shadow-soft:
+    7px 7px 16px rgba(51, 65, 85, 0.22),
+    -5px -5px 12px rgba(255, 255, 255, 0.18);
+
+  --shadow-inset:
+    inset 2px 2px 6px rgba(51, 65, 85, 0.18),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.22);
+
+  --radius-lg: 20px;
+  --radius-md: 13px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+  font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.16) 0, rgba(255, 255, 255, 0) 360px),
+    linear-gradient(180deg, #8f9bae 0%, #aab5c5 46%, #8d99ad 100%);
+}
+
+/* =========================
+   Strona informacji
+   ========================= */
+
+.info-page {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 34px 20px 24px;
+}
+
+.info-card {
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(188, 199, 215, 0.96), rgba(160, 173, 192, 0.94));
+  border: 1px solid rgba(82, 97, 118, 0.72);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-main);
+}
+
+.info-header {
+  padding: 30px 30px 20px;
+  border-bottom: 1px solid rgba(82, 97, 118, 0.6);
+  background:
+    linear-gradient(145deg, rgba(194, 205, 220, 0.9), rgba(151, 165, 186, 0.82));
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.info-header h1 {
+  margin: 0;
+  font-size: clamp(28px, 4vw, 36px);
+  line-height: 1.1;
+  color: var(--primary);
+  letter-spacing: -0.03em;
+  font-weight: 620;
+}
+
+.info-header p {
+  margin: 11px 0 0;
+  max-width: 720px;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.info-body {
+  padding: 28px 30px 30px;
+}
+
+.info-section {
+  padding: 20px;
+  border: 1px solid rgba(82, 97, 118, 0.62);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(194, 205, 220, 0.84), rgba(158, 172, 192, 0.78));
+  box-shadow: var(--shadow-soft);
+}
+
+.info-section + .info-section {
+  margin-top: 22px;
+}
+
+.info-section h2 {
+  margin: 0 0 10px;
+  font-size: 20px;
+  color: var(--primary);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.info-section p,
+.info-section li {
+  font-size: 15px;
+  line-height: 1.7;
+  color: var(--text);
+  font-weight: 400;
+}
+
+.info-section p {
+  margin: 0;
+}
+
+.info-section p + p {
+  margin-top: 10px;
+}
+
+.info-section ul {
+  margin: 10px 0 0;
+  padding-left: 20px;
+}
+
+.info-section li + li {
+  margin-top: 5px;
+}
+
+.info-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 7px 12px;
+  border-radius: 999px;
+  background:
+    linear-gradient(145deg, rgba(205, 216, 230, 0.94), rgba(159, 173, 193, 0.88));
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 600;
+  border: 1px solid rgba(82, 97, 118, 0.62);
+  box-shadow:
+    4px 4px 10px rgba(51, 65, 85, 0.18),
+    -3px -3px 8px rgba(255, 255, 255, 0.18);
+}
+
+.info-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.info-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  text-decoration: none;
+  font-size: 14px;
+  font-weight: 600;
+  border: 1px solid rgba(17, 24, 39, 0.78);
+  cursor: pointer;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    filter 0.16s ease;
+}
+
+.info-btn-primary {
+  background: transparent;
+  color: var(--primary);
+  box-shadow: var(--shadow-soft);
+}
+
+.info-btn-primary:hover {
+  transform: translateY(-1px);
+  border-color: #ffffff;
+  background: var(--accent);
+  color: #ffffff;
+  box-shadow:
+    9px 9px 20px rgba(51, 65, 85, 0.28),
+    -6px -6px 14px rgba(255, 255, 255, 0.22);
+}
+
+.info-btn-secondary {
+  background:
+    linear-gradient(145deg, rgba(31, 41, 55, 0.98), rgba(17, 24, 39, 1));
+  color: #ffffff;
+  border-color: rgba(17, 24, 39, 0.95);
+  box-shadow:
+    7px 7px 16px rgba(51, 65, 85, 0.3),
+    -4px -4px 10px rgba(255, 255, 255, 0.14);
+}
+
+.info-btn-secondary:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.04);
+  box-shadow:
+    9px 9px 20px rgba(51, 65, 85, 0.32),
+    -5px -5px 12px rgba(255, 255, 255, 0.18);
+}
+
+.info-btn:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 3px 3px 7px rgba(51, 65, 85, 0.24),
+    inset -3px -3px 7px rgba(255, 255, 255, 0.22);
+}
+
+.info-footer {
+  text-align: center;
+  padding: 20px 20px 8px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.info-footer a {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 550;
+}
+
+.info-footer a:hover {
+  text-decoration: underline;
+}
+
+code {
+  display: inline-block;
+  background:
+    linear-gradient(145deg, rgba(205, 216, 230, 0.96), rgba(162, 176, 196, 0.92));
+  border: 1px solid rgba(82, 97, 118, 0.62);
+  padding: 2px 7px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--primary);
+  box-shadow: var(--shadow-inset);
+}
+
+/* =========================
+   Responsywnoœæ
+   ========================= */
+
+@media (max-width: 640px) {
+  .info-page {
+    padding: 20px 12px 18px;
+  }
+
+  .info-header,
+  .info-body {
+    padding: 18px 16px;
+  }
+
+  .info-header h1 {
+    font-size: 26px;
+  }
+
+  .info-header p,
+  .info-section p,
+  .info-section li {
+    font-size: 14px;
+  }
+
+  .info-section {
+    padding: 16px;
+    border-radius: 14px;
+  }
+
+  .info-section h2 {
+    font-size: 18px;
+  }
+
+  .info-actions {
+    flex-direction: column;
+  }
+
+  .info-btn {
+    width: 100%;
+  }
+}

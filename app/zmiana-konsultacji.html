@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zmiana konsultacji</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+</head>
+<body>
+
+<div class="box">
+  <h1>Zmiana terminu konsultacji</h1>
+
+  <p id="infoBox"></p>
+
+  <label>Nowa data *</label>
+  <input id="date" type="date">
+
+  <select id="time">
+    <option value="">Wybierz godzinê *</option>
+  </select>
+
+  <button id="changeBtn">Zmieñ termin</button>
+
+  <div id="successBox" class="success"></div>
+  <div id="errorBox" class="error-box"></div>
+</div>
+
+<script src="assets/js/zmiana.js"></script>
+
+<div class="footer">
+  © AI-IQ • System rezerwacji
+</div>
+
+</body>
+</html>

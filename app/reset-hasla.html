@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" type="image/png" href="/favicon.png">
+<title>Reset hasła</title>
+<link rel="stylesheet" href="assets/css/login.css">
+</head>
+
+<body>
+
+<div class="login-page">
+
+  <div class="login-header">
+    <h2>AI-IQ Kalendarz Rezerwacji</h2>
+    <p>Odzyskiwanie dostępu do konta</p>
+  </div>
+
+  <div class="box login-box">
+    <h2>Reset hasła</h2>
+
+    <form onsubmit="event.preventDefault(); sendReset();">
+      <input type="email" id="email" placeholder="Podaj email" autocomplete="email">
+
+      <button type="submit" class="login-submit-btn">
+        Wyślij link resetu
+      </button>
+    </form>
+
+    <p class="login-reset-link">
+      <a href="logowanie.html">Powrót do logowania</a>
+    </p>
+
+    <p class="error" id="msg" aria-live="polite"></p>
+  </div>
+
+  <div class="login-footer">
+    © 2026 AI-IQ – Kalendarz Rezerwacji. Wszelkie prawa zastrzeżone.
+  </div>
+
+</div>
+
+<script src="assets/js/reset-hasla.js?v=2"></script>
+
+</body>
+</html>

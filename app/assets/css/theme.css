@@ -1,0 +1,687 @@
+/* ===== GLOBALNY SYSTEM MOTYWÓW ===== */
+
+/* JASNY (default) */
+:root,
+body.theme-light {
+  --color-bg: #f6f8fc;
+  --color-card: #ffffff;
+  --color-card-soft: #f8fafc;
+
+  --color-text: #182133;
+  --color-muted: #667085;
+
+  --color-border: #e6ebf3;
+
+  --color-success-bg: #ecfdf3;
+  --color-success-text: #027a48;
+
+  --color-danger-bg: #fef3f2;
+  --color-danger-text: #b42318;
+
+  --color-warning-bg: #fff7ed;
+  --color-warning-text: #b54708;
+}
+
+/* SZARY (poprawiony — nie wyblak³y) */
+body.theme-gray {
+  --color-bg: #e2e8f0;
+  --color-card: #cbd5e1;
+  --color-card-soft: #dbe3ee;
+
+  --color-text: #0f172a;
+  --color-muted: #334155;
+
+  --color-border: #94a3b8;
+
+  --color-success-bg: #bbf7d0;
+  --color-success-text: #065f46;
+
+  --color-danger-bg: #fecaca;
+  --color-danger-text: #7f1d1d;
+
+  --color-warning-bg: #fde68a;
+  --color-warning-text: #78350f;
+}
+
+/* CIEMNY */
+body.theme-dark {
+  --color-bg: #0b1120;
+  --color-card: #111827;
+  --color-card-soft: #1f2937;
+
+  --color-text: #e5e7eb;
+  --color-muted: #94a3b8;
+
+  --color-border: rgba(148, 163, 184, 0.18);
+
+  --color-success-bg: rgba(34,197,94,0.15);
+  --color-success-text: #22c55e;
+
+  --color-danger-bg: rgba(239,68,68,0.15);
+  --color-danger-text: #ef4444;
+
+  --color-warning-bg: rgba(234,179,8,0.15);
+  --color-warning-text: #eab308;
+}
+
+/* ===== GLOBALNE NADPISANIA MOTYWU DLA PANELU ADMINA ===== */
+
+html, body {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+body,
+.admin-page,
+.main-content {
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* KARTY / SEKCJE */
+.admin-card,
+.block-section,
+.panel-card:not([data-section="rezerwacje"]),
+.sidebar,
+.topbar,
+.settings-card,
+.account-card {
+  background: var(--color-card) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--color-border) !important;
+  box-shadow: var(--shadow-main) !important;
+}
+
+/* TABELA */
+.table:not(.rezerwacje-table),
+table:not(.rezerwacje-table) {
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
+.table:not(.rezerwacje-table) thead th,
+table:not(.rezerwacje-table) thead th {
+  background: var(--color-card-soft) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+.table:not(.rezerwacje-table) tbody td,
+.table:not(.rezerwacje-table) tbody th,
+table:not(.rezerwacje-table) tbody td,
+table:not(.rezerwacje-table) tbody th {
+  background: var(--color-card) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+.table:not(.rezerwacje-table) tbody tr:hover td,
+.table:not(.rezerwacje-table) tbody tr:hover th,
+table:not(.rezerwacje-table) tbody tr:hover td,
+table:not(.rezerwacje-table) tbody tr:hover th {
+  background: var(--color-card-soft) !important;
+}
+
+/* INPUTY / SELECTY / TEXTAREA */
+input,
+select,
+textarea {
+  background: var(--color-card) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-muted) !important;
+}
+
+label,
+.form-group label,
+small,
+.helper-text,
+.hint,
+.description {
+  color: var(--color-muted) !important;
+}
+
+/* MENU / SIDEBAR */
+.sidebar,
+.admin-sidebar,
+aside {
+  background: var(--color-card) !important;
+  color: var(--color-text) !important;
+  border-right: 1px solid var(--color-border) !important;
+}
+
+.sidebar a,
+.admin-sidebar a,
+aside a,
+.sidebar button,
+.admin-sidebar button,
+aside button {
+  color: var(--color-text) !important;
+}
+
+.sidebar a:hover,
+.admin-sidebar a:hover,
+aside a:hover,
+.sidebar button:hover,
+.admin-sidebar button:hover,
+aside button:hover {
+  background: var(--color-card-soft) !important;
+}
+
+.sidebar .active,
+.admin-sidebar .active,
+aside .active,
+.sidebar a.active,
+.admin-sidebar a.active,
+aside a.active {
+  background: var(--color-card-soft) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* MODALE */
+.modal,
+.modal-content,
+.admin-modal,
+.admin-confirm-modal {
+  background: var(--color-card) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.modal-overlay,
+.admin-confirm-overlay {
+  background: rgba(15, 23, 42, 0.6) !important;
+}
+
+/* KALENDARZ / DNI */
+.admin-day {
+  background: var(--color-card-soft) !important;
+  color: var(--color-text) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.admin-day.blocked {
+  background: var(--color-danger-bg) !important;
+  color: var(--color-danger-text) !important;
+  border-color: var(--color-danger-text) !important;
+}
+
+.admin-day.disabled {
+  background: var(--color-bg) !important;
+  color: var(--color-muted) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* STATUSY / KOMUNIKATY */
+
+.badge-warning,
+.status-warning,
+.row-pending {
+  background: var(--color-warning-bg) !important;
+  color: var(--color-warning-text) !important;
+}
+
+/* NAG£ÓWKI */
+h1, h2, h3, h4, h5, h6,
+.panel-header h2,
+.section-header h2,
+.section-header p {
+  color: var(--color-text) !important;
+}
+
+/* DELIKATNE LINIE / HR */
+hr {
+  border-color: var(--color-border) !important;
+}
+
+/* === BUTTONS === */
+--color-btn-danger: #dc2626;
+--color-btn-danger-hover: #b91c1c;
+
+--color-btn-success: #16a34a;
+--color-btn-success-hover: #15803d;
+
+--color-btn-text: #ffffff;
+
+/* === INPUT === */
+--color-input-bg: var(--color-card);
+--color-input-text: var(--color-text);
+--color-input-border: var(--color-border);
+
+/* === ICON === */
+--color-icon: var(--color-text);
+
+/* === GLOBAL BUTTON SYSTEM (FINAL) === */
+
+/* === DARK BUTTON STYLE === */
+
+/* === BUTTON SYSTEM – BASE (jak logout) === */
+
+/* FILE INPUT BUTTON FIX */
+input[type="file"]::file-selector-button {
+  background: var(--color-card);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+/* SELECT FIX */
+select {
+  background: var(--color-card);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+
+/* =========================================================
+   THEME FIX — czytelnoœæ tekstów w motywach, szczególnie dark
+   Dopisane globalnie, ¿eby twarde kolory z modu³ów nie zabija³y widocznoœci
+========================================================= */
+
+/* Nag³ówki kart i sekcji */
+body.theme-dark .settings-card h3,
+body.theme-dark .service-payments-card h3,
+body.theme-dark .integration-card h3,
+body.theme-dark .account-card h3,
+body.theme-dark .panel-card h2,
+body.theme-dark .panel-card h3,
+body.theme-dark .block-section h2,
+body.theme-dark .block-section h3,
+body.theme-dark .dash-value {
+  color: var(--color-text) !important;
+}
+
+/* Opisy, podpowiedzi, teksty pomocnicze */
+body.theme-dark .settings-desc,
+body.theme-dark .settings-help,
+body.theme-dark .service-payments-desc,
+body.theme-dark .service-payments-switch small,
+body.theme-dark .integration-status,
+body.theme-dark .dash-title,
+body.theme-dark .footer,
+body.theme-dark .confirm-message,
+body.theme-dark .account-help,
+body.theme-dark .settings-card p,
+body.theme-dark .panel-card p {
+  color: var(--color-muted) !important;
+}
+
+/* Labele i podpisy pól */
+body.theme-dark .settings-card label,
+body.theme-dark .settings-card .form-group label,
+body.theme-dark .service-payments-form-grid label > span,
+body.theme-dark .service-payments-switch strong,
+body.theme-dark .integration-switch,
+body.theme-dark .form-group label {
+  color: var(--color-text) !important;
+}
+
+/* Inputy/selecty/textarea w kartach */
+body.theme-dark .settings-card input,
+body.theme-dark .settings-card select,
+body.theme-dark .settings-card textarea,
+body.theme-dark .service-payments-form-grid input,
+body.theme-dark .service-payments-form-grid select,
+body.theme-dark .service-payments-form-grid textarea,
+body.theme-dark .account-card input,
+body.theme-dark .account-card select,
+body.theme-dark .account-card textarea {
+  background: var(--color-card-soft) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* Focus pól */
+body.theme-dark .settings-card input:focus,
+body.theme-dark .settings-card select:focus,
+body.theme-dark .settings-card textarea:focus,
+body.theme-dark .service-payments-form-grid input:focus,
+body.theme-dark .service-payments-form-grid select:focus,
+body.theme-dark .service-payments-form-grid textarea:focus,
+body.theme-dark .account-card input:focus,
+body.theme-dark .account-card select:focus,
+body.theme-dark .account-card textarea:focus {
+  background: var(--color-card-soft) !important;
+  color: var(--color-text) !important;
+  border-color: #60a5fa !important;
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18) !important;
+}
+
+/* Placeholdery */
+body.theme-dark input::placeholder,
+body.theme-dark textarea::placeholder {
+  color: var(--color-muted) !important;
+  opacity: 1;
+}
+
+/* Karty z gradientem z admin-ustawienia.css */
+body.theme-dark .settings-card,
+body.theme-dark .settings-actions-card,
+body.theme-dark .service-payments-card,
+body.theme-dark .integration-card {
+  background: var(--color-card) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* Stopka panelu */
+body.theme-dark .footer {
+  background: var(--color-card) !important;
+  border-top-color: var(--color-border) !important;
+}
+
+/* Modal confirm */
+body.theme-dark .confirm-message,
+body.theme-dark .confirm-message strong,
+body.theme-dark .confirm-title {
+  color: var(--color-text) !important;
+}
+
+/* Checkboxy */
+body.theme-dark .integration-switch input[type="checkbox"],
+body.theme-dark .service-payments-switch input[type="checkbox"] {
+  accent-color: #60a5fa;
+}
+
+/* =========================================================
+   THEME FIX — motyw szary
+========================================================= */
+
+body.theme-gray .settings-card h3,
+body.theme-gray .service-payments-card h3,
+body.theme-gray .integration-card h3,
+body.theme-gray .account-card h3,
+body.theme-gray .panel-card h2,
+body.theme-gray .panel-card h3,
+body.theme-gray .dash-value {
+  color: var(--color-text) !important;
+}
+
+body.theme-gray .settings-desc,
+body.theme-gray .settings-help,
+body.theme-gray .service-payments-desc,
+body.theme-gray .service-payments-switch small,
+body.theme-gray .integration-status,
+body.theme-gray .dash-title,
+body.theme-gray .footer,
+body.theme-gray .confirm-message,
+body.theme-gray .settings-card p,
+body.theme-gray .panel-card p {
+  color: var(--color-muted) !important;
+}
+
+body.theme-gray .settings-card label,
+body.theme-gray .settings-card .form-group label,
+body.theme-gray .service-payments-form-grid label > span,
+body.theme-gray .service-payments-switch strong,
+body.theme-gray .integration-switch,
+body.theme-gray .form-group label {
+  color: var(--color-text) !important;
+}
+
+body.theme-gray .settings-card input,
+body.theme-gray .settings-card select,
+body.theme-gray .settings-card textarea,
+body.theme-gray .service-payments-form-grid input,
+body.theme-gray .service-payments-form-grid select,
+body.theme-gray .service-payments-form-grid textarea,
+body.theme-gray .account-card input,
+body.theme-gray .account-card select,
+body.theme-gray .account-card textarea {
+  background: var(--color-card-soft) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+body.theme-gray .settings-card,
+body.theme-gray .settings-actions-card,
+body.theme-gray .service-payments-card,
+body.theme-gray .integration-card {
+  background: var(--color-card) !important;
+  color: var(--color-text) !important;
+  border-color: var(--color-border) !important;
+}
+
+/* =========================
+   SOFT 3D TEST — LIGHT + GRAY
+   Dark theme intentionally unchanged
+   ========================= */
+
+body.theme-light,
+body.theme-gray {
+  --shadow-main:
+    10px 10px 24px rgba(71, 85, 105, 0.18),
+    -8px -8px 20px rgba(255, 255, 255, 0.42);
+
+  --shadow-soft:
+    6px 6px 14px rgba(71, 85, 105, 0.14),
+    -5px -5px 12px rgba(255, 255, 255, 0.34);
+
+  --shadow-inset:
+    inset 2px 2px 5px rgba(71, 85, 105, 0.13),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.38);
+}
+
+/* Gray — mocniejszy, bardziej stalowy efekt */
+body.theme-gray .admin-card,
+body.theme-gray .block-section,
+body.theme-gray .panel-card:not([data-section="rezerwacje"]),
+body.theme-gray .sidebar,
+body.theme-gray .topbar,
+body.theme-gray .settings-card,
+body.theme-gray .account-card,
+body.theme-gray .info-card,
+body.theme-gray .service-card,
+body.theme-gray .legal-card {
+  background:
+    linear-gradient(145deg, rgba(214, 222, 234, 0.96), rgba(190, 202, 218, 0.92)) !important;
+  border-color: rgba(100, 116, 139, 0.62) !important;
+  box-shadow: var(--shadow-main) !important;
+}
+
+/* Light — subtelniejszy efekt, ¿eby nie bi³o po oczach */
+body.theme-light .admin-card,
+body.theme-light .block-section,
+body.theme-light .panel-card:not([data-section="rezerwacje"]),
+body.theme-light .sidebar,
+body.theme-light .topbar,
+body.theme-light .settings-card,
+body.theme-light .account-card,
+body.theme-light .info-card,
+body.theme-light .service-card,
+body.theme-light .legal-card {
+  background:
+    linear-gradient(145deg, rgba(250, 252, 255, 0.98), rgba(226, 232, 240, 0.94)) !important;
+  border-color: rgba(148, 163, 184, 0.58) !important;
+  box-shadow:
+    8px 8px 20px rgba(71, 85, 105, 0.12),
+    -6px -6px 16px rgba(255, 255, 255, 0.72) !important;
+}
+
+/* Sidebar */
+body.theme-gray .sidebar {
+  box-shadow:
+    12px 12px 28px rgba(71, 85, 105, 0.22),
+    -6px -6px 16px rgba(255, 255, 255, 0.26) !important;
+}
+
+body.theme-light .sidebar {
+  box-shadow:
+    10px 10px 24px rgba(71, 85, 105, 0.12),
+    -6px -6px 16px rgba(255, 255, 255, 0.68) !important;
+}
+
+/* Inputy */
+body.theme-gray input,
+body.theme-gray select,
+body.theme-gray textarea {
+  background:
+    linear-gradient(145deg, rgba(232, 238, 246, 0.98), rgba(208, 217, 229, 0.94)) !important;
+  border-color: rgba(100, 116, 139, 0.62) !important;
+  box-shadow: var(--shadow-inset) !important;
+}
+
+body.theme-light input,
+body.theme-light select,
+body.theme-light textarea {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(235, 240, 247, 0.95)) !important;
+  border-color: rgba(148, 163, 184, 0.58) !important;
+  box-shadow:
+    inset 2px 2px 5px rgba(71, 85, 105, 0.09),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.72) !important;
+}
+
+body.theme-gray input:focus,
+body.theme-gray select:focus,
+body.theme-gray textarea:focus,
+body.theme-light input:focus,
+body.theme-light select:focus,
+body.theme-light textarea:focus {
+  border-color: rgba(37, 99, 235, 0.55) !important;
+  box-shadow:
+    var(--shadow-inset),
+    0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+}
+
+/* Menu */
+body.theme-gray .menu-item,
+body.theme-light .menu-item {
+  border: 1px solid transparent;
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease;
+}
+
+body.theme-gray .menu-item:hover {
+  transform: translateY(-1px);
+  background:
+    linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(197, 209, 224, 0.88)) !important;
+  border-color: rgba(100, 116, 139, 0.42) !important;
+  box-shadow: var(--shadow-soft) !important;
+}
+
+body.theme-light .menu-item:hover {
+  transform: translateY(-1px);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(229, 235, 244, 0.92)) !important;
+  border-color: rgba(148, 163, 184, 0.44) !important;
+  box-shadow:
+    5px 5px 12px rgba(71, 85, 105, 0.10),
+    -4px -4px 10px rgba(255, 255, 255, 0.68) !important;
+}
+
+body.theme-gray .menu-item.active {
+  background:
+    linear-gradient(145deg, rgba(232, 238, 246, 0.98), rgba(197, 209, 224, 0.94)) !important;
+  border-color: rgba(17, 24, 39, 0.72) !important;
+  box-shadow:
+    inset 2px 2px 5px rgba(71, 85, 105, 0.18),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.36) !important;
+}
+
+body.theme-light .menu-item.active {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(226, 232, 240, 0.94)) !important;
+  border-color: rgba(17, 24, 39, 0.62) !important;
+  box-shadow:
+    inset 2px 2px 4px rgba(71, 85, 105, 0.12),
+    inset -2px -2px 4px rgba(255, 255, 255, 0.78) !important;
+}
+
+/* Przyciski */
+body.theme-gray button,
+body.theme-gray .admin-btn,
+body.theme-gray .save-btn,
+body.theme-gray .delete-btn,
+body.theme-gray .booking-view-btn,
+body.theme-gray .booking-history-download-btn,
+body.theme-light button,
+body.theme-light .admin-btn,
+body.theme-light .save-btn,
+body.theme-light .delete-btn,
+body.theme-light .booking-view-btn,
+body.theme-light .booking-history-download-btn {
+  box-shadow: var(--shadow-soft);
+  transition:
+    transform 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease;
+}
+
+body.theme-gray button:hover,
+body.theme-gray .admin-btn:hover,
+body.theme-gray .save-btn:hover,
+body.theme-gray .delete-btn:hover,
+body.theme-gray .booking-view-btn:hover,
+body.theme-gray .booking-history-download-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    8px 8px 18px rgba(71, 85, 105, 0.20),
+    -6px -6px 14px rgba(255, 255, 255, 0.34);
+}
+
+body.theme-light button:hover,
+body.theme-light .admin-btn:hover,
+body.theme-light .save-btn:hover,
+body.theme-light .delete-btn:hover,
+body.theme-light .booking-view-btn:hover,
+body.theme-light .booking-history-download-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    7px 7px 16px rgba(71, 85, 105, 0.13),
+    -5px -5px 12px rgba(255, 255, 255, 0.76);
+}
+
+body.theme-gray button:active,
+body.theme-gray .admin-btn:active,
+body.theme-gray .save-btn:active,
+body.theme-gray .delete-btn:active,
+body.theme-gray .booking-view-btn:active,
+body.theme-gray .booking-history-download-btn:active,
+body.theme-light button:active,
+body.theme-light .admin-btn:active,
+body.theme-light .save-btn:active,
+body.theme-light .delete-btn:active,
+body.theme-light .booking-view-btn:active,
+body.theme-light .booking-history-download-btn:active {
+  transform: translateY(1px);
+  box-shadow:
+    inset 3px 3px 7px rgba(71, 85, 105, 0.18),
+    inset -3px -3px 7px rgba(255, 255, 255, 0.38);
+}
+
+/* Tabele — bez zak³adki Rezerwacje, bo ona ma w³asne zmienne kolorów */
+body.theme-gray table:not(.rezerwacje-table) {
+  background:
+    linear-gradient(145deg, rgba(214, 222, 234, 0.96), rgba(194, 206, 222, 0.92)) !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.34);
+}
+
+body.theme-light table:not(.rezerwacje-table) {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(232, 238, 247, 0.94)) !important;
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, 0.78);
+}
+
+body.theme-gray table:not(.rezerwacje-table) thead th {
+  background:
+    linear-gradient(145deg, rgba(205, 216, 230, 0.98), rgba(184, 198, 216, 0.94)) !important;
+}
+
+body.theme-light table:not(.rezerwacje-table) thead th {
+  background:
+    linear-gradient(145deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.94)) !important;
+}

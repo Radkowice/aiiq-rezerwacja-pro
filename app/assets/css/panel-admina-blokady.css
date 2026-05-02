@@ -1,0 +1,489 @@
+/* ===== BLOKADY ===== */
+
+.block-section {
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: var(--radius-main);
+  background: var(--color-card);
+  border: 1px solid rgba(15, 23, 42, 0.04);
+  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+}
+
+.blocked-list-wrap {
+  margin-top: 0;
+}
+
+.blocked-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.blocked-list:empty::before {
+  content: "Brak blokad";
+  display: block;
+  padding: 16px 18px;
+  background: var(--color-card);
+  border: 1px dashed var(--border);
+  border-radius: 14px;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.blocked-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+.blocked-item:hover {
+  background: #fbfcfe;
+}
+
+.btn-unblock {
+  height: 40px;
+  padding: 0 14px;
+  border-radius: var(--radius-small);
+  border: 1px solid #f3c1c1;
+  background: var(--color-card);
+  color: #b42318;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.logout-btn {
+  background: var(--color-card);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  padding: 8px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.logout-btn:hover {
+  background: var(--color-btn-danger);
+  color: #98a2b3;
+}
+
+/* ===== KOMUNIKAT ===== */
+
+#block-message {
+  display: block;
+  margin: 12px 0 16px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+#block-message.success {
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #abefc6;
+}
+
+#block-message.error {
+  background: #fef3f2;
+  color: #b42318;
+  border: 1px solid #fecdca;
+}
+
+/* ===== KALENDARZ ADMINA ===== */
+
+.admin-calendar-wrap {
+  margin-bottom: 20px;
+}
+
+#adminCalendar .calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.admin-day {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ecfdf3;
+  color: #027a48;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.admin-day.blocked {
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.admin-day.disabled {
+  background: #f8fafc;
+  color: #98a2b3;
+  cursor: not-allowed;
+}
+
+/* ===== GODZINY ===== */
+
+.admin-time-slots {
+  margin-top: 18px;
+  padding: 18px;
+  background: var(--color-card);
+  border-radius: 14px;
+}
+
+.admin-time-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.btn-block-day {
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 10px;
+  background: #fef3f2;
+  color: #b42318;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-time-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
+  gap: 10px;
+}
+
+.admin-time {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  font-weight: 700;
+  background: #ecfdf3;
+  color: #027a48;
+  cursor: pointer;
+}
+
+.admin-time.blocked {
+  background: #fef3f2;
+  color: #b42318;
+}
+
+/* ===== TODAY ===== */
+
+.admin-day.today {
+  border: 2px solid #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+/* ===== SELECTED ===== */
+
+.admin-day.selected {
+  background: #28406b;
+  color: #ffffff;
+  border: 2px solid #1e2f4d;
+  box-shadow: 0 4px 10px rgba(40, 64, 107, 0.25);
+}
+
+/* PRIORITY – ¿eby selected wygra³ z blocked */
+
+.admin-day.selected.blocked {
+  background: #7f1d1d;
+  border-color: #5f1616;
+  color: #fff;
+}
+
+.confirm-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.confirm-modal.hidden {
+  display: none;
+}
+
+.confirm-modal-box {
+  background: var(--color-card);
+  padding: 20px;
+  border-radius: 10px;
+  width: 320px;
+  max-width: 90%;
+  text-align: center;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+}
+
+.confirm-modal-box h3 {
+  margin-bottom: 10px;
+}
+
+.confirm-modal-box p {
+  margin-bottom: 20px;
+  color: var(--color-text);
+}
+
+.confirm-modal-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.btn-secondary {
+  flex: 1;
+  padding: 10px;
+  background: #ddd;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-danger {
+  flex: 1;
+  padding: 10px;
+  background: var(--color-btn-danger);
+  color: var(--color-btn-text);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.btn-danger:hover {
+  background: var(--color-btn-danger-hover);
+}
+
+.btn-success {
+  flex: 1;
+  padding: 10px;
+  background: var(--color-btn-success);
+  background: var(--color-card);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--color-btn-text);
+}
+
+.btn-success:hover {
+  background: var(--color-btn-success-hover);
+}
+
+/* ===== BLOKADA OD–DO ===== */
+
+.block-range-box {
+  margin-top: 20px;
+  padding: 18px;
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+}
+
+.block-range-box .form-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(140px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.block-range-box .form-group label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.block-range-box input[type="date"] {
+  height: 42px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(15, 23, 42, 0.10);
+  font-size: 14px;
+}
+
+.block-range-box input[type="date"]:focus {
+  border-color: #28406b;
+  box-shadow: 0 0 0 4px rgba(40, 64, 107, 0.1);
+}
+
+.form-group-button {
+  display: flex;
+  align-items: flex-end;
+}
+
+.form-group-button button {
+  width: 100%;
+  height: 42px;
+  font-weight: 700;
+}
+
+/* MOBILE */
+
+@media (max-width: 640px) {
+  .block-range-box .form-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+.admin-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.admin-confirm-overlay.show {
+  display: flex;
+}
+
+.admin-confirm-modal {
+  width: 100%;
+  max-width: 420px;
+  background: var(--color-card);
+  border-radius: 18px;
+  padding: 24px;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  animation: popup 0.2s ease;
+}
+
+/* IKONA */
+.confirm-icon {
+  font-size: 36px;
+  margin-bottom: 10px;
+}
+
+/* TYTU£ */
+.confirm-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--color-text);
+}
+
+/* TREŒÆ */
+.confirm-message {
+  font-size: 15px;
+  color: #334155;
+  line-height: 1.5;
+}
+
+.confirm-message strong {
+  color: var(--color-text);
+}
+
+/* BUTTONY */
+.admin-confirm-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.admin-confirm-btn {
+  flex: 1;
+  padding: 12px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  transition: 0.2s;
+}
+
+.admin-confirm-btn:hover {
+  transform: translateY(-1px);
+}
+
+/* CANCEL */
+.admin-confirm-btn.cancel {
+  background: #e2e8f0;
+}
+
+/* VARIANTY */
+.admin-confirm-btn.ok.danger {
+  background: #dc2626;
+  color: #fff;
+}
+
+.admin-confirm-btn.ok.primary {
+  background: #1d4ed8;
+  color: #fff;
+}
+
+.admin-confirm-btn.ok.success {
+  background: #16a34a;
+  color: #fff;
+}
+
+/* BLOKADA SCROLL */
+body.modal-open {
+  overflow: hidden;
+}
+
+/* ANIMACJA */
+@keyframes popup {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.tooltip {
+  position: relative;
+}
+
+.tooltip::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 0;
+  bottom: 120%;
+  white-space: pre-line;
+  background: #111827;
+  color: #fff;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(5px);
+  transition: 0.2s ease;
+  min-width: 220px;
+  z-index: 999;
+}
+
+.tooltip:hover::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.warning-box {
+  background: #ffe5e5;
+  color: #b30000;
+  padding: 10px;
+  border-radius: 6px;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+input[type="date"] {
+  color-scheme: dark;
+}

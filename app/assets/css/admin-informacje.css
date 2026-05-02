@@ -1,0 +1,592 @@
+/* ===== INFORMACJE — soft 3D zgodny z panelem ===== */
+
+[data-section="informacje"] {
+  color: var(--color-text);
+  background:
+    linear-gradient(145deg, rgba(214, 222, 234, 0.96), rgba(190, 202, 218, 0.92));
+  border: 1px solid rgba(100, 116, 139, 0.62);
+  border-radius: 18px;
+  padding: 24px;
+  box-shadow:
+    10px 10px 24px rgba(71, 85, 105, 0.18),
+    -8px -8px 20px rgba(255, 255, 255, 0.38);
+
+  --info-card: var(--color-card);
+  --info-text: var(--color-text);
+  --info-muted: var(--color-muted);
+  --info-border: var(--color-border);
+  --info-input-bg: var(--color-input-bg, var(--color-card));
+
+  --info-shadow-main:
+    10px 10px 24px rgba(71, 85, 105, 0.18),
+    -8px -8px 20px rgba(255, 255, 255, 0.36);
+
+  --info-shadow-soft:
+    6px 6px 14px rgba(71, 85, 105, 0.14),
+    -5px -5px 12px rgba(255, 255, 255, 0.30);
+
+  --info-shadow-inset:
+    inset 2px 2px 5px rgba(71, 85, 105, 0.13),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.34);
+
+  --info-btn-bg: transparent;
+  --info-btn-text: var(--color-text);
+  --info-btn-border: #111827;
+  --info-btn-hover-bg: #7a1f2b;
+  --info-btn-hover-border: #ffffff;
+  --info-btn-hover-text: #ffffff;
+
+  --info-message-text: #111827;
+}
+
+body.theme-light [data-section="informacje"] {
+  background:
+    linear-gradient(145deg, rgba(250, 252, 255, 0.98), rgba(226, 232, 240, 0.94));
+  border-color: rgba(148, 163, 184, 0.58);
+  box-shadow:
+    8px 8px 20px rgba(71, 85, 105, 0.12),
+    -6px -6px 16px rgba(255, 255, 255, 0.72);
+
+  --info-card: rgba(250, 252, 255, 0.94);
+  --info-muted: var(--color-muted);
+  --info-border: rgba(148, 163, 184, 0.58);
+  --info-input-bg: rgba(255, 255, 255, 0.96);
+
+  --info-shadow-main:
+    8px 8px 20px rgba(71, 85, 105, 0.12),
+    -6px -6px 16px rgba(255, 255, 255, 0.72);
+
+  --info-shadow-soft:
+    5px 5px 12px rgba(71, 85, 105, 0.10),
+    -4px -4px 10px rgba(255, 255, 255, 0.68);
+
+  --info-shadow-inset:
+    inset 2px 2px 5px rgba(71, 85, 105, 0.09),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.72);
+}
+
+body.theme-gray [data-section="informacje"] {
+  background:
+    linear-gradient(145deg, rgba(214, 222, 234, 0.96), rgba(190, 202, 218, 0.92));
+  border-color: rgba(100, 116, 139, 0.62);
+  box-shadow:
+    10px 10px 24px rgba(71, 85, 105, 0.18),
+    -8px -8px 20px rgba(255, 255, 255, 0.36);
+
+  --info-card: rgba(214, 222, 234, 0.88);
+  --info-muted: var(--color-muted);
+  --info-border: rgba(100, 116, 139, 0.62);
+  --info-input-bg: rgba(232, 238, 246, 0.96);
+
+  --info-shadow-main:
+    10px 10px 24px rgba(71, 85, 105, 0.18),
+    -8px -8px 20px rgba(255, 255, 255, 0.34);
+
+  --info-shadow-soft:
+    6px 6px 14px rgba(71, 85, 105, 0.14),
+    -5px -5px 12px rgba(255, 255, 255, 0.30);
+
+  --info-shadow-inset:
+    inset 2px 2px 5px rgba(71, 85, 105, 0.13),
+    inset -2px -2px 5px rgba(255, 255, 255, 0.34);
+}
+
+/* Ciemny motyw zostaje bez mocnego 3D */
+body.theme-dark [data-section="informacje"] {
+  color: #e5e7eb;
+  background: var(--color-card);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  box-shadow: none;
+
+  --info-card: var(--color-card);
+  --info-text: #e5e7eb;
+  --info-muted: #cbd5e1;
+  --info-border: rgba(255, 255, 255, 0.45);
+  --info-input-bg: #111827;
+
+  --info-shadow-main: none;
+  --info-shadow-soft: none;
+  --info-shadow-inset: none;
+
+  --info-btn-bg: transparent;
+  --info-btn-text: #e5e7eb;
+  --info-btn-border: rgba(255, 255, 255, 0.75);
+  --info-btn-hover-bg: #3f0f22;
+  --info-btn-hover-border: #ffffff;
+  --info-btn-hover-text: #ffffff;
+
+  --info-message-text: #e5e7eb;
+}
+
+/* ===== NAGŁÓWEK ===== */
+
+.admin-info-section {
+  width: 100%;
+}
+
+.admin-info-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+
+.admin-info-eyebrow {
+  display: none;
+}
+
+.admin-info-header h1 {
+  margin: 0 0 12px;
+  font-size: 24px;
+  font-weight: 620;
+  color: var(--info-text);
+  letter-spacing: -0.02em;
+}
+
+.admin-info-header p {
+  display: block;
+  max-width: 720px;
+  margin: 0;
+  color: var(--info-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+/* ===== WERSJA APLIKACJI ===== */
+
+.admin-info-version-pill {
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  min-width: 250px;
+  padding: 18px 20px;
+  border: 1px solid var(--info-border);
+  border-radius: 16px;
+  background:
+    linear-gradient(145deg, rgba(232, 238, 246, 0.90), rgba(199, 211, 226, 0.78));
+  color: var(--info-text);
+  box-shadow: var(--info-shadow-soft);
+}
+
+body.theme-light .admin-info-version-pill {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(226, 232, 240, 0.88));
+}
+
+body.theme-dark .admin-info-version-pill {
+  background: var(--info-card);
+  box-shadow: none;
+}
+
+.admin-info-version-pill span {
+  color: var(--info-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.admin-info-version-pill strong {
+  color: var(--info-text);
+  font-size: 16px;
+  font-weight: 620;
+}
+
+/* ===== GRID / KARTY ===== */
+
+.admin-info-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(280px, 1fr));
+  gap: 18px;
+  align-items: start;
+}
+
+.admin-info-card,
+[data-section="informacje"] .settings-card,
+[data-section="informacje"] .admin-info-support-box {
+  background:
+    linear-gradient(145deg, rgba(224, 231, 241, 0.88), rgba(197, 209, 224, 0.78));
+  border: 1px solid var(--info-border);
+  border-radius: 16px;
+  padding: 20px;
+  color: var(--info-text);
+  box-shadow: var(--info-shadow-soft);
+}
+
+body.theme-light .admin-info-card,
+body.theme-light [data-section="informacje"] .settings-card,
+body.theme-light [data-section="informacje"] .admin-info-support-box {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(226, 232, 240, 0.88));
+}
+
+body.theme-dark .admin-info-card,
+body.theme-dark [data-section="informacje"] .settings-card,
+body.theme-dark [data-section="informacje"] .admin-info-support-box {
+  background: var(--info-card);
+  box-shadow: none;
+}
+
+.admin-info-main-card {
+  grid-row: auto;
+}
+
+.admin-info-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+
+.admin-info-card h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  font-weight: 620;
+  color: var(--info-text);
+  letter-spacing: -0.01em;
+}
+
+.admin-info-card p,
+.admin-info-muted {
+  margin: 0;
+  color: var(--info-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* ===== STATUS ABONAMENTU ===== */
+
+.admin-info-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--info-border);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--info-text);
+  font-size: 12px;
+  font-weight: 620;
+  white-space: nowrap;
+  box-shadow:
+    4px 4px 10px rgba(71, 85, 105, 0.10),
+    -3px -3px 8px rgba(255, 255, 255, 0.24);
+}
+
+body.theme-dark .admin-info-badge {
+  box-shadow: none;
+}
+
+.admin-info-badge.active {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-text);
+  color: var(--color-success-text);
+}
+
+.admin-info-badge.trial {
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-text);
+  color: var(--color-warning-text);
+}
+
+.admin-info-badge.overdue,
+.admin-info-badge.suspended {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-text);
+  color: var(--color-danger-text);
+}
+
+/* ===== LISTY INFORMACYJNE ===== */
+
+.admin-info-list {
+  display: grid;
+  gap: 0;
+  margin-top: 18px;
+}
+
+.admin-info-account-list {
+  margin-top: 12px;
+  margin-bottom: 16px;
+}
+
+.admin-info-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: center;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--info-border);
+}
+
+.admin-info-row:last-child {
+  border-bottom: 0;
+}
+
+.admin-info-row span {
+  color: var(--info-muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.admin-info-row strong {
+  color: var(--info-text);
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+}
+
+/* ===== FORMULARZ DANYCH FIRMY ===== */
+
+.admin-info-form-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.admin-info-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.admin-info-form-grid label.full {
+  grid-column: 1 / -1;
+}
+
+.admin-info-form-grid span {
+  color: var(--info-text);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.admin-info-form-grid input,
+.admin-info-form-grid select,
+.admin-info-form-grid textarea {
+  width: 100%;
+  min-height: 46px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border: 1px solid var(--info-border);
+  border-radius: 14px;
+  background:
+    linear-gradient(145deg, rgba(232, 238, 246, 0.98), rgba(208, 217, 229, 0.94));
+  color: var(--info-text);
+  font-size: 0.96rem;
+  font-weight: 400;
+  outline: none;
+  box-shadow: var(--info-shadow-inset);
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+body.theme-light .admin-info-form-grid input,
+body.theme-light .admin-info-form-grid select,
+body.theme-light .admin-info-form-grid textarea {
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(235, 240, 247, 0.95));
+}
+
+body.theme-dark .admin-info-form-grid input,
+body.theme-dark .admin-info-form-grid select,
+body.theme-dark .admin-info-form-grid textarea {
+  background: var(--info-input-bg);
+  box-shadow: none;
+}
+
+.admin-info-form-grid input::placeholder,
+.admin-info-form-grid textarea::placeholder {
+  color: var(--info-muted);
+  opacity: 0.85;
+}
+
+.admin-info-form-grid input:focus,
+.admin-info-form-grid select:focus,
+.admin-info-form-grid textarea:focus {
+  border-color: rgba(37, 99, 235, 0.55);
+  box-shadow:
+    var(--info-shadow-inset),
+    0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+body.theme-dark .admin-info-form-grid input:focus,
+body.theme-dark .admin-info-form-grid select:focus,
+body.theme-dark .admin-info-form-grid textarea:focus {
+  border-color: var(--info-text);
+  box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.16);
+}
+
+/* ===== PRZYCISK I KOMUNIKAT ===== */
+
+[data-section="informacje"] .admin-info-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+[data-section="informacje"] .admin-info-actions .btn,
+[data-section="informacje"] .admin-info-actions button {
+  min-height: 46px;
+  padding: 12px 20px;
+  border: 1px solid var(--info-btn-border);
+  border-radius: 14px;
+  background: var(--info-btn-bg);
+  color: var(--info-btn-text);
+  font-size: 0.96rem;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  box-sizing: border-box;
+  box-shadow: var(--info-shadow-soft);
+  transition:
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    opacity 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+body.theme-dark [data-section="informacje"] .admin-info-actions .btn,
+body.theme-dark [data-section="informacje"] .admin-info-actions button {
+  box-shadow: none;
+}
+
+[data-section="informacje"] .admin-info-actions .btn:hover,
+[data-section="informacje"] .admin-info-actions button:hover {
+  transform: translateY(-1px);
+  border-color: var(--info-btn-hover-border);
+  background: var(--info-btn-hover-bg);
+  color: var(--info-btn-hover-text);
+  box-shadow:
+    8px 8px 18px rgba(71, 85, 105, 0.20),
+    -6px -6px 14px rgba(255, 255, 255, 0.34);
+}
+
+body.theme-dark [data-section="informacje"] .admin-info-actions .btn:hover,
+body.theme-dark [data-section="informacje"] .admin-info-actions button:hover {
+  box-shadow: none;
+}
+
+[data-section="informacje"] .admin-info-actions .btn:disabled,
+[data-section="informacje"] .admin-info-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+}
+
+[data-section="informacje"] .admin-info-message {
+  min-height: 20px;
+  margin: 12px 0 0;
+  color: var(--info-message-text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+[data-section="informacje"] .admin-info-message.success,
+[data-section="informacje"] .admin-info-message.error {
+  color: var(--info-message-text);
+}
+
+/* ===== SUPPORT ===== */
+
+.admin-info-support-box {
+  margin-top: 14px;
+  padding: 14px;
+  border-radius: 14px;
+}
+
+.admin-info-support-box span {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--info-muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.admin-info-support-box strong {
+  color: var(--info-text);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+/* ===== RESPONSYWNOŚĆ ===== */
+
+@media (max-width: 1200px) {
+  .admin-info-grid {
+    grid-template-columns: repeat(2, minmax(280px, 1fr));
+  }
+
+  .admin-info-header {
+    flex-direction: column;
+  }
+
+  .admin-info-version-pill {
+    width: fit-content;
+  }
+}
+
+@media (max-width: 768px) {
+  [data-section="informacje"] {
+    padding: 18px;
+  }
+
+  .admin-info-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-info-version-pill {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  .admin-info-card-head {
+    flex-direction: column;
+  }
+
+  .admin-info-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .admin-info-row strong {
+    text-align: left;
+  }
+
+  [data-section="informacje"] .admin-info-actions {
+    justify-content: stretch;
+  }
+
+  [data-section="informacje"] .admin-info-actions .btn,
+  [data-section="informacje"] .admin-info-actions button {
+    width: 100%;
+  }
+}
+
+/* ===== WALIDACJA ===== */
+
+[data-section="informacje"] .admin-info-form-grid input.field-error,
+[data-section="informacje"] .admin-info-form-grid select.field-error,
+[data-section="informacje"] .admin-info-form-grid textarea.field-error {
+  border-color: #7f1d1d;
+  box-shadow:
+    var(--info-shadow-inset),
+    0 0 0 3px rgba(127, 29, 29, 0.14);
+}
+
+body.theme-dark [data-section="informacje"] .admin-info-form-grid input.field-error,
+body.theme-dark [data-section="informacje"] .admin-info-form-grid select.field-error,
+body.theme-dark [data-section="informacje"] .admin-info-form-grid textarea.field-error {
+  border-color: #fca5a5;
+  box-shadow: 0 0 0 3px rgba(252, 165, 165, 0.16);
+}

@@ -1,0 +1,158 @@
+/* =========================
+   Usługa i płatności
+   Bazuje wizualnie na admin-ustawienia.css
+========================= */
+
+section[data-section="usluga-platnosci"] .panel-header {
+  margin-bottom: 16px;
+}
+
+section[data-section="usluga-platnosci"] .panel-header h2 {
+  margin: 0;
+}
+
+.service-payments-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+}
+
+.service-payments-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.service-payments-card h3 {
+  margin: 0 0 8px;
+}
+
+.service-payments-desc {
+  margin: 0 0 18px;
+  color: #667085;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.service-payments-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 16px 18px;
+}
+
+.service-payments-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.service-payments-form-grid label.full {
+  grid-column: 1 / -1;
+}
+
+.service-payments-form-grid label > span {
+  font-size: 13px;
+  font-weight: 700;
+  color: #344054;
+}
+
+.service-payments-form-grid textarea {
+  min-height: 110px;
+  resize: vertical;
+}
+
+/* Checkbox jak w integracjach — mały, prosty, globalny klimat */
+.service-payments-switch {
+  display: inline-flex !important;
+  flex-direction: row !important;
+  align-items: flex-start;
+  justify-content: flex-start;
+  gap: 10px;
+  width: fit-content;
+  max-width: 100%;
+}
+
+.service-payments-switch > span {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.service-payments-switch strong {
+  font-size: 14px;
+  color: #344054;
+}
+
+.service-payments-switch small {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #667085;
+  font-weight: 500;
+}
+
+.service-payments-switch input[type="checkbox"] {
+  width: 18px !important;
+  height: 18px !important;
+  min-width: 18px !important;
+  max-width: 18px !important;
+  padding: 0 !important;
+  margin: 3px 0 0 !important;
+  border-radius: 4px !important;
+  accent-color: #7f1d1d;
+  cursor: pointer;
+  box-shadow: none !important;
+}
+
+.service-payments-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 18px;
+}
+
+/* Responsywność */
+@media (max-width: 900px) {
+  .service-payments-form-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .service-payments-actions {
+    justify-content: stretch;
+  }
+
+  .service-payments-actions .btn,
+  .service-payments-actions .btn-primary,
+  .service-payments-actions button {
+    width: 100%;
+  }
+}
+
+section[data-section="usluga-platnosci"] {
+  font-size: 16px;
+}
+
+section[data-section="usluga-platnosci"] label,
+section[data-section="usluga-platnosci"] label span,
+section[data-section="usluga-platnosci"] .service-payments-desc,
+section[data-section="usluga-platnosci"] .service-payments-switch small {
+  font-size: 16px;
+}
+
+section[data-section="usluga-platnosci"] input,
+section[data-section="usluga-platnosci"] select,
+section[data-section="usluga-platnosci"] textarea {
+  font-size: 16px;
+}
+
+section[data-section="usluga-platnosci"] #service-price-amount,
+section[data-section="usluga-platnosci"] #service-payment-time-limit-hours {
+  max-width: 150px;
+}
+
+section[data-section="usluga-platnosci"] input[type="number"] {
+  appearance: textfield;
+}
+
+section[data-section="usluga-platnosci"] input[type="number"]::-webkit-outer-spin-button,
+section[data-section="usluga-platnosci"] input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}

@@ -1,0 +1,497 @@
+function finishButtonState(button, defaultText, startTime, minTime = 3000) {
+  const elapsed = Date.now() - startTime;
+  const delay = Math.max(0, minTime - elapsed);
+
+  setTimeout(() => {
+    button.disabled = false;
+    button.textContent = defaultText;
+  }, delay);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const accountMessage = document.getElementById('account-message');
+
+  // MOJE KONTO — dane firmy
+  const saveAccountDataBtn = document.getElementById('save-company-btn');
+
+  if (saveAccountDataBtn) {
+    saveAccountDataBtn.addEventListener('click', async () => {
+      const startTime = Date.now();
+
+      try {
+        saveAccountDataBtn.disabled = true;
+        saveAccountDataBtn.textContent = 'Zapisywanie danych firmy...';
+
+        const client_name = document.getElementById('account-company-name')?.value || '';
+        const client_number = document.getElementById('account-client-number')?.value || '';
+        const company_id = document.getElementById('account-company-id')?.value || '';
+
+        const res = await apiFetch('/api/system/branding.php', {
+          method: 'POST',
+          body: JSON.stringify({
+            company_id,
+            client_name,
+            client_number
+          })
+        });
+
+        if (accountMessage) {
+          accountMessage.style.display = 'block';
+          accountMessage.textContent =
+            res && res.success ? 'Dane firmy zapisane' : (res?.error || 'Błąd zapisu');
+
+          accountMessage.className = `message ${res?.success ? 'success' : 'error'}`;
+
+          setTimeout(() => {
+            accountMessage.textContent = '';
+            accountMessage.className = 'message';
+          }, 3000);
+        }
+      } catch (err) {
+        console.error('save company data error:', err);
+
+        if (accountMessage) {
+          accountMessage.style.display = 'block';
+          accountMessage.textContent = 'Błąd serwera';
+          accountMessage.className = 'message error';
+
+          setTimeout(() => {
+            accountMessage.textContent = '';
+            accountMessage.className = 'message';
+          }, 3000);
+        }
+      }
+
+      finishButtonState(saveAccountDataBtn, 'Zapisz nazwę firmy', startTime);
+    });
+  }
+
+  // MOJE KONTO — branding
+  const saveBrandingBtn = document.getElementById('save-branding-btn');
+
+  if (saveBrandingBtn) {
+    saveBrandingBtn.addEventListener('click', async () => {
+      const startTime = Date.now();
+
+      try {
+        saveBrandingBtn.disabled = true;
+        saveBrandingBtn.textContent = 'Zapisywanie brandingu...';
+
+       const admin_theme = document.getElementById('account-theme')?.value || '';
+const service_title_front = document.getElementById('service-title-front')?.value || '';
+const company_id = document.getElementById('account-company-id')?.value || '';
+const logoInput = document.getElementById('account-logo');
+
+let logo_url_front = '';
+
+if (logoInput && logoInput.files && logoInput.files.length > 0) {
+  const formData = new FormData();
+  formData.append('logo', logoInput.files[0]);
+
+  const uploadRes = await fetch('/api/system/upload-logo-front.php', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData
+  });
+
+  const uploadData = await uploadRes.json();
+
+  if (!uploadRes.ok || uploadData.success !== true) {
+    throw new Error(uploadData.error || 'Nie udało się przesłać logo.');
+  }
+
+  logo_url_front = uploadData.logo_url_front || '';
+}
+
+const faviconInput = document.getElementById('account-favicon');
+
+let favicon_url_front = '';
+
+if (faviconInput && faviconInput.files && faviconInput.files.length > 0) {
+  const formData = new FormData();
+  formData.append('favicon', faviconInput.files[0]);
+
+  const uploadRes = await fetch('/api/system/upload-favicon-front.php', {
+    method: 'POST',
+    credentials: 'include',
+    body: formData
+  });
+
+  const uploadData = await uploadRes.json();
+
+  if (!uploadRes.ok || uploadData.success !== true) {
+    throw new Error(uploadData.error || 'Nie udało się przesłać favicony.');
+  }
+
+  favicon_url_front = uploadData.favicon_url_front || '';
+}
+
+const payload = {
+  company_id,
+  admin_theme,
+  service_title_front
+};
+
+if (logo_url_front) {
+  payload.logo_url_front = logo_url_front;
+}
+
+if (favicon_url_front) {
+  payload.favicon_url_front = favicon_url_front;
+}
+
+const res = await apiFetch('/api/system/branding.php', {
+  method: 'POST',
+  body: JSON.stringify(payload)
+});
+
+        if (accountMessage) {
+          accountMessage.style.display = 'block';
+          accountMessage.textContent =
+            res && res.success ? 'Branding zapisany' : (res?.error || 'Błąd zapisu brandingu');
+
+          accountMessage.className = `message ${res?.success ? 'success' : 'error'}`;
+
+          setTimeout(() => {
+            accountMessage.textContent = '';
+            accountMessage.className = 'message';
+          }, 3000);
+        }
+      } catch (err) {
+        console.error('save branding error:', err);
+
+        if (accountMessage) {
+          accountMessage.style.display = 'block';
+          accountMessage.textContent = 'Błąd serwera';
+          accountMessage.className = 'message error';
+
+          setTimeout(() => {
+            accountMessage.textContent = '';
+            accountMessage.className = 'message';
+          }, 3000);
+        }
+      }
+
+      finishButtonState(saveBrandingBtn, 'Zapisz branding', startTime);
+    });
+  }
+  
+  const saveReservationsStyleBtn = document.getElementById('save-reservations-style-btn');
+
+if (saveReservationsStyleBtn) {
+  saveReservationsStyleBtn.addEventListener('click', async () => {
+    const startTime = Date.now();
+
+    try {
+      saveReservationsStyleBtn.disabled = true;
+      saveReservationsStyleBtn.textContent = 'Zapisywanie wyglądu rezerwacji...';
+
+      const reservations_style = {
+        bg_color: document.getElementById('reservations-bg-color')?.value || '#ffffff',
+        card_color: document.getElementById('reservations-card-color')?.value || '#ffffff',
+        table_color: document.getElementById('reservations-table-color')?.value || '#ffffff',
+        header_color: document.getElementById('reservations-header-color')?.value || '#2563eb',
+        border_color: document.getElementById('reservations-border-color')?.value || '#d1d5db',
+        radius: document.getElementById('reservations-radius')?.value || '12'
+      };
+
+      const res = await apiFetch('/api/system/branding.php', {
+        method: 'POST',
+        body: JSON.stringify({
+          reservations_style
+        })
+      });
+
+      if (accountMessage) {
+        accountMessage.style.display = 'block';
+        accountMessage.textContent =
+          res && res.success ? 'Wygląd rezerwacji zapisany' : (res?.error || 'Błąd zapisu wyglądu rezerwacji');
+
+        accountMessage.className = `message ${res?.success ? 'success' : 'error'}`;
+
+        setTimeout(() => {
+          accountMessage.textContent = '';
+          accountMessage.className = 'message';
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('save reservations style error:', err);
+
+      if (accountMessage) {
+        accountMessage.style.display = 'block';
+        accountMessage.textContent = err.message || 'Błąd serwera';
+        accountMessage.className = 'message error';
+
+        setTimeout(() => {
+          accountMessage.textContent = '';
+          accountMessage.className = 'message';
+        }, 3000);
+      }
+    }
+
+    finishButtonState(saveReservationsStyleBtn, 'Zapisz wygląd rezerwacji', startTime);
+  });
+}
+
+// MOJE KONTO — wygląd kalendarza frontowego
+const saveFrontStyleBtn = document.getElementById('save-front-style-btn');
+
+if (saveFrontStyleBtn) {
+  saveFrontStyleBtn.addEventListener('click', async () => {
+    const startTime = Date.now();
+
+    try {
+      saveFrontStyleBtn.disabled = true;
+      saveFrontStyleBtn.textContent = 'Zapisywanie wyglądu kalendarza...';
+
+      const calendar_front_style = {
+        bg_color: document.getElementById('front-bg-color')?.value || '#ffffff',
+        card_color: document.getElementById('front-card-color')?.value || '#ffffff',
+        cell_color: document.getElementById('front-cell-color')?.value || '#ffffff',
+        active_color: document.getElementById('front-active-color')?.value || '#2563eb',
+        blocked_color: document.getElementById('front-blocked-color')?.value || '#e5e7eb',
+        radius: document.getElementById('front-radius')?.value || '16',
+        width: document.getElementById('front-width')?.value || '520'
+      };
+
+      const res = await apiFetch('/api/system/branding.php', {
+        method: 'POST',
+        body: JSON.stringify({
+          calendar_front_style
+        })
+      });
+
+      if (accountMessage) {
+        accountMessage.style.display = 'block';
+        accountMessage.textContent =
+          res && res.success ? 'Wygląd kalendarza frontowego zapisany' : (res?.error || 'Błąd zapisu wyglądu kalendarza');
+
+        accountMessage.className = `message ${res?.success ? 'success' : 'error'}`;
+
+        setTimeout(() => {
+          accountMessage.textContent = '';
+          accountMessage.className = 'message';
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('save front calendar style error:', err);
+
+      if (accountMessage) {
+        accountMessage.style.display = 'block';
+        accountMessage.textContent = err.message || 'Błąd serwera';
+        accountMessage.className = 'message error';
+
+        setTimeout(() => {
+          accountMessage.textContent = '';
+          accountMessage.className = 'message';
+        }, 3000);
+      }
+    }
+
+    finishButtonState(saveFrontStyleBtn, 'Zapisz wygląd kalendarza', startTime);
+  });
+}
+
+// MOJE KONTO — pola formularza frontowego
+const saveFormFieldsBtn = document.getElementById('save-form-fields-btn');
+
+if (saveFormFieldsBtn) {
+  saveFormFieldsBtn.addEventListener('click', async () => {
+    const startTime = Date.now();
+
+    try {
+      saveFormFieldsBtn.disabled = true;
+      saveFormFieldsBtn.textContent = 'Zapisywanie pól formularza...';
+
+      const calendar_form_fields = {
+        name_label: document.getElementById('label-name')?.value || 'Imię i nazwisko',
+        email_label: document.getElementById('label-email')?.value || 'E-mail',
+        phone_label: document.getElementById('label-phone')?.value || 'Telefon',
+        notes_label: document.getElementById('label-notes')?.value || 'Wiadomość',
+        show_email: true,
+        show_phone: !!document.getElementById('toggle-phone-field')?.checked,
+        show_notes: !!document.getElementById('toggle-notes-field')?.checked
+      };
+
+      const res = await apiFetch('/api/system/branding.php', {
+        method: 'POST',
+        body: JSON.stringify({
+          calendar_form_fields
+        })
+      });
+
+      if (accountMessage) {
+        accountMessage.style.display = 'block';
+        accountMessage.textContent =
+          res && res.success ? 'Pola formularza frontowego zapisane' : (res?.error || 'Błąd zapisu pól formularza');
+
+        accountMessage.className = `message ${res?.success ? 'success' : 'error'}`;
+
+        setTimeout(() => {
+          accountMessage.textContent = '';
+          accountMessage.className = 'message';
+        }, 3000);
+      }
+    } catch (err) {
+      console.error('save front form fields error:', err);
+
+      if (accountMessage) {
+        accountMessage.style.display = 'block';
+        accountMessage.textContent = err.message || 'Błąd serwera';
+        accountMessage.className = 'message error';
+
+        setTimeout(() => {
+          accountMessage.textContent = '';
+          accountMessage.className = 'message';
+        }, 3000);
+      }
+    }
+
+    finishButtonState(saveFormFieldsBtn, 'Zapisz pola formularza', startTime);
+  });
+}
+
+  // MOJE KONTO — zmiana e-maila
+  const changeEmailBtn = document.getElementById('change-email-btn');
+
+  if (changeEmailBtn) {
+    changeEmailBtn.addEventListener('click', async () => {
+      const startTime = Date.now();
+      const defaultText = 'Zapisz nowy e-mail';
+      const newEmailInput = document.getElementById('new-email');
+      const newEmail = newEmailInput?.value.trim();
+
+      if (!newEmail) {
+        if (accountMessage) {
+          accountMessage.textContent = 'Podaj nowy adres e-mail.';
+          accountMessage.className = 'message error';
+          setTimeout(() => {
+            accountMessage.textContent = '';
+          }, 3000);
+        }
+        return;
+      }
+
+      changeEmailBtn.disabled = true;
+      changeEmailBtn.textContent = 'Zapisywanie zamiany email...';
+
+      try {
+        const result = await apiFetch('/api/user/change-email.php', {
+          method: 'POST',
+          body: JSON.stringify({ email: newEmail })
+        });
+
+        if (accountMessage) {
+          if (result?.success) {
+            accountMessage.textContent = result.message || 'E-mail został zmieniony.';
+            accountMessage.className = 'message success';
+
+            const accountEmail = document.getElementById('account-email');
+            if (accountEmail) accountEmail.value = newEmail;
+            if (newEmailInput) newEmailInput.value = '';
+          } else {
+            accountMessage.textContent =
+              result?.message || result?.error || 'Nie udało się zmienić e-maila.';
+            accountMessage.className = 'message error';
+          }
+        }
+      } catch (error) {
+        if (accountMessage) {
+          accountMessage.textContent = error.message || 'Błąd zmiany e-maila.';
+          accountMessage.className = 'message error';
+        }
+      } finally {
+        if (accountMessage) {
+          setTimeout(() => {
+            accountMessage.textContent = '';
+          }, 3000);
+        }
+
+        finishButtonState(changeEmailBtn, defaultText, startTime, 3000);
+      }
+    });
+  }
+  
+  // EMAIL — ustawienia e-mail
+ 
+  // USTAWIENIA — zapis ustawień
+  const saveSettingsBtn = document.getElementById('save-settings-btn');
+
+  if (saveSettingsBtn) {
+    saveSettingsBtn.addEventListener('click', async () => {
+      const startTime = Date.now();
+      const defaultText = 'Zapisz ustawienia';
+      const settingsMessage = document.getElementById('settings-message');
+
+      try {
+        saveSettingsBtn.disabled = true;
+        saveSettingsBtn.textContent = 'Zapisywanie ustawień rezerwacji...';
+
+        const workStart = document.getElementById('work-start')?.value || '00:00';
+        const workEnd = document.getElementById('work-end')?.value || '23:59';
+
+        const payload = {
+          work_start: workStart,
+          work_end: workEnd,
+          consultation_duration: parseInt(
+            document.getElementById('consultation-duration')?.value || '60',
+            10
+          ),
+          consultation_break: parseInt(
+            document.getElementById('consultation-break')?.value || '0',
+            10
+          ),
+          booking_buffer: parseInt(
+            document.getElementById('booking-buffer')?.value || '0',
+            10
+          ),
+          booking_start_month_offset: parseInt(
+            document.getElementById('booking-start-month-offset')?.value || '0',
+            10
+          ),
+          booking_month_range: parseInt(
+            document.getElementById('booking-month-range')?.value || '1',
+            10
+          )
+        };
+
+        const res = await apiFetch('/api/system/settings.php', {
+          method: 'POST',
+          body: JSON.stringify(payload)
+        });
+
+        if (settingsMessage) {
+          settingsMessage.textContent = res?.success
+            ? 'Ustawienia zapisane'
+            : (res?.error || 'Błąd zapisu ustawień');
+
+          settingsMessage.className = `message ${res?.success ? 'success' : 'error'}`;
+          settingsMessage.style.display = 'block';
+
+          setTimeout(() => {
+            settingsMessage.textContent = '';
+            settingsMessage.className = 'message';
+            settingsMessage.style.display = 'none';
+          }, 3000);
+        }
+      } catch (err) {
+        console.error('save settings error:', err);
+
+        if (settingsMessage) {
+          settingsMessage.textContent = err.message || 'Błąd serwera';
+          settingsMessage.className = 'message error';
+          settingsMessage.style.display = 'block';
+
+          setTimeout(() => {
+            settingsMessage.textContent = '';
+            settingsMessage.className = 'message';
+            settingsMessage.style.display = 'none';
+          }, 3000);
+        }
+      }
+
+      finishButtonState(saveSettingsBtn, defaultText, startTime);
+    });
+  }
+});
+

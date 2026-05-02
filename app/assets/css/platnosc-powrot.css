@@ -1,0 +1,233 @@
+:root {
+  --payment-bg: #f4f7fb;
+  --payment-card: #ffffff;
+  --payment-text: #111827;
+  --payment-muted: #6b7280;
+  --payment-border: #e5e7eb;
+  --payment-primary: #2563eb;
+  --payment-primary-soft: #eff6ff;
+  --payment-radius: 24px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(37, 99, 235, 0.13), transparent 34%),
+    var(--payment-bg);
+  color: var(--payment-text);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.payment-return-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.payment-return-card {
+  width: min(100%, 620px);
+  background: var(--payment-card);
+  border: 1px solid var(--payment-border);
+  border-radius: var(--payment-radius);
+  padding: 34px;
+  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.13);
+  text-align: center;
+}
+
+.payment-return-logo-wrap {
+  min-height: 54px;
+  margin-bottom: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.payment-return-logo {
+  max-width: 180px;
+  max-height: 58px;
+  object-fit: contain;
+}
+
+.payment-return-logo-fallback {
+  min-width: 72px;
+  min-height: 42px;
+  padding: 0 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: #111827;
+  color: #ffffff;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.payment-return-icon {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--payment-primary-soft);
+  color: var(--payment-primary);
+  font-size: 32px;
+  font-weight: 900;
+}
+
+.payment-return-kicker {
+  margin: 0 0 8px;
+  color: var(--payment-primary);
+  font-size: 14px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.payment-return-card h1 {
+  margin: 0 0 14px;
+  font-size: clamp(25px, 4vw, 34px);
+  line-height: 1.15;
+  color: var(--payment-text);
+}
+
+.payment-return-lead {
+  max-width: 500px;
+  margin: 0 auto 22px;
+  color: #4b5563;
+  font-size: 16px;
+  line-height: 1.65;
+}
+
+.payment-return-details {
+  margin: 24px 0;
+  border: 1px solid var(--payment-border);
+  border-radius: 18px;
+  overflow: hidden;
+  background: #f9fafb;
+  text-align: left;
+}
+
+.payment-return-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--payment-border);
+}
+
+.payment-return-detail-row:last-child {
+  border-bottom: 0;
+}
+
+.payment-return-detail-row span {
+  color: var(--payment-muted);
+  font-size: 14px;
+}
+
+.payment-return-detail-row strong {
+  color: var(--payment-text);
+  font-size: 15px;
+  text-align: right;
+}
+
+.payment-return-message {
+  margin-top: 18px;
+  padding: 16px 18px;
+  border-radius: 18px;
+  background: #f9fafb;
+  color: #374151;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.payment-return-message p {
+  margin: 0 0 10px;
+}
+
+.payment-return-message p:last-child {
+  margin-bottom: 0;
+}
+
+.payment-return-actions {
+  margin-top: 26px;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.payment-return-btn {
+  min-height: 46px;
+  padding: 0 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 800;
+  transition:
+    transform 0.15s ease,
+    box-shadow 0.15s ease,
+    background-color 0.15s ease;
+}
+
+.payment-return-btn:hover {
+  transform: translateY(-1px);
+}
+
+.payment-return-btn.primary {
+  background: var(--payment-primary);
+  color: #ffffff;
+  box-shadow: 0 10px 24px rgba(37, 99, 235, 0.24);
+}
+
+.payment-return-btn.secondary {
+  background: #eef2ff;
+  color: #1d4ed8;
+}
+
+@media (max-width: 520px) {
+  .payment-return-page {
+    padding: 16px;
+  }
+
+  .payment-return-card {
+    padding: 26px 20px;
+    border-radius: 20px;
+  }
+
+  .payment-return-detail-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .payment-return-detail-row strong {
+    text-align: left;
+  }
+
+  .payment-return-actions {
+    flex-direction: column;
+  }
+
+  .payment-return-btn {
+    width: 100%;
+  }
+}

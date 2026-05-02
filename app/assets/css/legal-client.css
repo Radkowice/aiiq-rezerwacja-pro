@@ -1,0 +1,135 @@
+:root {
+  --legal-bg: #edf3fb;
+  --legal-card: #dbe6f2;
+  --legal-border: #8fa7bf;
+  --legal-text: #0f172a;
+  --legal-muted: #475569;
+  --legal-accent: #1f3f77;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--legal-bg);
+  color: var(--legal-text);
+  font-family: Arial, sans-serif;
+}
+
+.legal-client-page {
+  width: min(980px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 40px 0;
+}
+
+.legal-client-card {
+  border: 1px solid var(--legal-border);
+  border-radius: 18px;
+  background: var(--legal-card);
+  padding: 28px;
+}
+
+.legal-client-header {
+  margin-bottom: 24px;
+}
+
+.legal-client-back {
+  display: inline-flex;
+  margin-bottom: 20px;
+  color: var(--legal-accent);
+  text-decoration: none;
+  font-weight: 700;
+}
+
+.legal-client-back:hover {
+  text-decoration: underline;
+}
+
+.legal-client-eyebrow {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--legal-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.legal-client-header h1 {
+  margin: 0 0 8px;
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.legal-client-updated {
+  margin: 0;
+  color: var(--legal-muted);
+  font-size: 14px;
+}
+
+.legal-client-content {
+  border-top: 1px solid var(--legal-border);
+  padding-top: 22px;
+  font-size: 16px;
+  line-height: 1.75;
+  white-space: normal;
+}
+
+.legal-client-content p {
+  margin: 0 0 16px;
+}
+
+@media (max-width: 640px) {
+  .legal-client-page {
+    width: min(100% - 20px, 980px);
+    padding: 20px 0;
+  }
+
+  .legal-client-card {
+    padding: 20px;
+  }
+
+  .legal-client-header h1 {
+    font-size: 24px;
+  }
+}
+
+.legal-client-content {
+  max-width: 900px;
+  font-size: 16px;
+  line-height: 1.75;
+  letter-spacing: 0.005em;
+}
+
+.legal-client-content h2 {
+  margin: 30px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--legal-border);
+  font-size: 21px;
+  line-height: 1.35;
+  color: var(--legal-text);
+}
+
+.legal-client-content h2:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+
+.legal-client-content h3 {
+  margin: 24px 0 10px;
+  font-size: 18px;
+  line-height: 1.4;
+  color: var(--legal-text);
+}
+
+.legal-client-content p {
+  margin: 0 0 12px;
+}
+
+.legal-client-intro {
+  font-weight: 700;
+  font-size: 17px;
+}

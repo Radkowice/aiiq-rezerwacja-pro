@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="/favicon.png"> 
+  <title>AIIQ Kalendarz</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+ 
+
+</head>
+<body>
+
+<div class="box">
+  <h1>Rezerwacja konsultacji</h1>
+
+  <input id="name" type="text" placeholder="Imię i nazwisko *">
+  <input id="email" type="email" placeholder="Adres e-mail *">
+  <input id="phone" name="phone" type="tel" placeholder="Numer telefonu * np 123456789" required>
+  <label for="date">Wybierz datę *</label>
+  <br></br>
+  <input id="date" type="date">
+  <select id="time">
+    <option value="">Wybierz godzinę *</option>
+  </select>
+
+ 
+
+  
+
+  <textarea id="note" placeholder="Wiadomość / opis sprawy / opisz problemy w firmie"></textarea>
+
+  <button id="bookBtn" type="button" onclick="saveBooking()">Zarezerwuj</button>
+
+  <div id="successBox" class="success">Rezerwacja została zapisana, potwierdzenie wyślemy na email.</div>
+  <div id="errorBox" class="error-box"></div>
+</div>
+
+<script src="assets/js/app.js"></script>
+<div class="footer">
+  © AI-IQ • System rezerwacji • 
+  <a href="/informacje.html" target="_blank">Informacje</a>
+</div>
+
+</body>
+</html>

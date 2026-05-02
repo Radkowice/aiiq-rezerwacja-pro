@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Płatność jest przetwarzana</title>
+
+  <link rel="stylesheet" href="/assets/css/platnosc-powrot.css">
+</head>
+
+<body>
+  <main class="payment-return-page">
+    <section class="payment-return-card">
+
+      <div class="payment-return-logo-wrap">
+        <img
+          id="paymentReturnLogo"
+          class="payment-return-logo hidden"
+          src=""
+          alt="Logo"
+        >
+
+        <div id="paymentReturnLogoFallback" class="payment-return-logo-fallback">
+          AI-IQ
+        </div>
+      </div>
+
+      <div class="payment-return-icon" aria-hidden="true">
+        ✓
+      </div>
+
+    <p id="paymentReturnThanks" class="payment-return-kicker">
+  Dziękujemy za rezerwację
+</p>
+
+      <h1 id="paymentReturnTitle">
+        Twoja płatność jest przetwarzana
+      </h1>
+
+      <p class="payment-return-lead">
+        Twoja rezerwacja została przyjęta, a status płatności zostanie zaktualizowany po potwierdzeniu przez PayU.
+      </p>
+
+      <div class="payment-return-details">
+        <div class="payment-return-detail-row">
+          <span>Rezerwacja</span>
+          <strong id="paymentReturnServiceName">Ładowanie danych...</strong>
+        </div>
+
+        <div class="payment-return-detail-row">
+          <span>Data</span>
+          <strong id="paymentReturnDate">—</strong>
+        </div>
+
+        <div class="payment-return-detail-row">
+          <span>Godzina</span>
+          <strong id="paymentReturnTime">—</strong>
+        </div>
+      </div>
+
+      <div class="payment-return-message">
+        <p>
+          Jeżeli płatność została wykonana poprawnie, potwierdzenie otrzymasz wiadomością e-mail po zaksięgowaniu płatności.
+        </p>
+
+        <p>
+          Jeśli płatność została przerwana lub anulowana, wróć do formularza rezerwacji i spróbuj ponownie.
+        </p>
+      </div>
+
+      <div class="payment-return-actions">
+        <a class="payment-return-btn primary" href="/">
+          Wróć do rezerwacji
+        </a>
+
+        <a class="payment-return-btn secondary" href="https://www.ai-iq.pl" target="_blank" rel="noopener">
+          Obsługiwane przez AI-IQ
+        </a>
+      </div>
+
+    </section>
+  </main>
+  
+    <script src="/assets/js/platnosc-powrot.js"></script>
+  
+</body>
+</html>

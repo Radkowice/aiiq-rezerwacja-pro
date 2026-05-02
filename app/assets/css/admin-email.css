@@ -1,0 +1,126 @@
+.full-width-card {
+  grid-column: 1 / -1;
+}
+
+#booking-email-content {
+  width: 100%;
+  resize: vertical;
+  min-height: 180px;
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+.email-toolbar {
+  margin-bottom: 8px;
+}
+
+.email-toolbar button {
+  padding: 6px 10px;
+  margin-right: 5px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.emoji-picker {
+  display: none;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 12px;
+  background: rgba(255,255,255,0.04);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.emoji-picker span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin: 4px;
+  cursor: pointer;
+  border-radius: 8px;
+  font-size: 20px;
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.emoji-picker span:hover {
+  background: rgba(255,255,255,0.10);
+  transform: scale(1.15);
+}
+
+.email-preview-box {
+  margin-top: 16px;
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.04);
+}
+
+.email-preview-header {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 10px;
+  opacity: 0.9;
+}
+
+.email-preview-subject {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.10);
+}
+
+.email-preview-content {
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 120px;
+  word-break: break-word;
+}
+
+.password-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.password-field input {
+  width: 100%;
+  padding-right: 45px; /* miejsce na oczko */
+}
+
+.password-toggle {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  opacity: 0.7;
+  transition: 0.2s;
+}
+
+.password-toggle:hover {
+  opacity: 1;
+}
+
+.subject-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subject-field input {
+  flex: 1;
+}
+
+.subject-field .subject-emoji-btn {
+  padding: 6px 10px;
+  cursor: pointer;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04);
+}
+

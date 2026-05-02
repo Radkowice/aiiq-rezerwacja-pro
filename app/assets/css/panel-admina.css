@@ -1,0 +1,339 @@
+:root {
+  /* Kolory */
+  --color-bg: #f6f8fc;
+  --color-card: #ffffff;
+  --color-card-soft: #fbfcfe;
+  --color-text: #182133;
+  --color-muted: #667085;
+  --color-border: #e6ebf3;
+  --color-primary: #28406b;
+  --color-primary-hover: #22375c;
+
+  /* UI */
+  --radius-main: 14px;
+  --radius-small: 10px;
+
+  /* Shadow */
+  --shadow-main: 0 8px 24px rgba(15, 23, 42, 0.06);
+  --shadow-hover: 0 12px 32px rgba(15, 23, 42, 0.1);
+
+  /* Typography */
+  --font-main: Inter, Arial, sans-serif;
+  --font-weight-normal: 500;
+  --font-weight-medium: 600;
+  --font-weight-bold: 700;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: Inter, Arial, sans-serif;
+  line-height: 1.5;
+}
+
+.admin-page {
+  min-height: 100vh;
+  padding: 24px;
+}
+
+
+/* MAIN */
+.empty {
+  text-align: center;
+  color: var(--muted);
+  padding: 22px 16px !important;
+  font-weight: 600;
+}
+
+/* MESSAGE */
+
+.message {
+  min-height: 24px;
+  margin: 18px 0 0;
+  padding: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--danger);
+}
+
+.message.success {
+  color: var(--success-text);
+  background: var(--success-bg);
+  border: 1px solid var(--success-border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+/* FOOTER */
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(240px, 1fr));
+  gap: 16px 16px;
+  align-items: end;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.form-group label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.form-group-button {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+ 
+  /* ===== LAYOUT APP ===== */
+.admin-layout {
+  display: grid;
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 24px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  align-items: start;
+  transition: grid-template-columns 0.2s ease;
+}
+
+
+.main-content {
+  min-width: 0;
+  width: 100%;
+}
+
+.main-content {
+  min-width: 0;
+}
+
+  
+.hidden {
+  display: none !important;
+}
+
+body {
+  color: var(--color-text);
+  font-weight: 400;
+}
+
+.block-section {
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: var(--radius-main);
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-main);
+}
+
+.table thead th {
+  background: #f3f6fb;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.table tbody tr {
+  transition: background 0.15s ease;
+}
+
+.table tbody tr:hover {
+  background: #f9fbff;
+}
+
+.form-group-button {
+  align-self: end;
+}
+
+.form-group-button:empty {
+  display: none;
+}
+
+/* P³atnoœci OFF */
+.payments-disabled .col-payment {
+  display: none;
+}
+
+.row-paid {
+  background: #ecfdf3;
+}
+
+.row-pending {
+  background: #fff7ed;
+}
+
+.row-failed {
+  background: #fef2f2;
+}
+
+
+
+html, body {
+  height: 100%;
+}
+
+.admin-page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.admin-layout {
+  flex: 1;
+}
+
+ message:empty {
+  display: none;
+}
+
+.admin-calendar-wrap {
+  margin-bottom: 20px;
+}
+
+#adminCalendar .calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+#adminCalendar .calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+
+
+.admin-calendar-wrap {
+  margin-bottom: 20px;
+}
+
+#adminCalendar .calendar-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  gap: 12px;
+}
+
+#adminCalendar .calendar-header button {
+  width: 42px;
+  height: 42px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+#adminCalendar .calendar-header button:hover {
+  background: #f8fafc;
+}
+
+#adminCalendar .admin-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+#adminCalendar .admin-weekdays div {
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-muted);
+  padding: 6px 0;
+}
+
+#adminCalendar .calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.admin-day {
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ecfdf3;
+  color: #027a48;
+  border: 1px solid #abefc6;
+  border-radius: 10px;
+  cursor: pointer;
+  font-weight: 700;
+  transition: 0.2s ease;
+}
+
+.admin-day:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+}
+
+.admin-day.blocked {
+  background: #fef3f2;
+  color: #b42318;
+  border: 1px solid #fecdca;
+}
+
+.admin-day.disabled {
+  background: #f8fafc;
+  color: #98a2b3;
+  border: 1px solid #eaecf0;
+  cursor: not-allowed;
+  box-shadow: none;
+  transform: none;
+}
+
+.admin-day.empty {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  cursor: default;
+}
+
+.badge-r {
+  background: #e53935;
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 5px;
+  margin-left: 4px;
+  border-radius: 4px;
+}
+
+.admin-legend {
+  margin-top: 10px;
+  font-size: 13px;
+  color: #666;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.footer-link {
+  text-decoration: none;
+}
+
+
