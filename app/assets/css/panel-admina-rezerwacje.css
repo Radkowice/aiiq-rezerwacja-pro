@@ -710,3 +710,222 @@ body.theme-dark .calendar-status-toggle {
     width: 100%;
   }
 }
+
+/* ===== REZERWACJE — RESPONSYWNE KARTY / MA£E EKRANY ===== */
+
+@media (max-width: 1280px) {
+  .panel-card[data-section="rezerwacje"] .table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .rezerwacje-table {
+    min-width: 980px;
+  }
+
+  th.col-name,
+  td.col-name {
+    width: 180px;
+  }
+
+  th.col-contact,
+  td.col-contact {
+    width: 220px;
+  }
+
+  th.col-date,
+  td.col-date,
+  th.col-time,
+  td.col-time {
+    width: 115px;
+  }
+
+  th.col-desc,
+  td.col-desc {
+    min-width: 220px;
+  }
+
+  th.col-payment,
+  td.col-payment,
+  th.col-actions,
+  td.col-actions {
+    width: 125px;
+  }
+
+  #bookingList td {
+    padding: 12px 10px;
+    overflow-wrap: anywhere;
+    word-break: normal;
+  }
+}
+
+@media (max-width: 768px) {
+  .panel-card[data-section="rezerwacje"] .table-wrap {
+    overflow: visible;
+    border: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  .rezerwacje-table,
+  .rezerwacje-table thead,
+  .rezerwacje-table tbody,
+  .rezerwacje-table tr,
+  .rezerwacje-table th,
+  .rezerwacje-table td {
+    display: block;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .rezerwacje-table {
+    table-layout: auto;
+    min-width: 0;
+    border-spacing: 0;
+    background: transparent;
+  }
+
+  .rezerwacje-table thead {
+    display: none;
+  }
+
+  #bookingList {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  #bookingList tr {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+    width: 100%;
+    padding: 14px;
+    background:
+      linear-gradient(
+        145deg,
+        var(--reservations-table-color),
+        color-mix(in srgb, var(--reservations-table-color) 92%, #e2e8f0 8%)
+      );
+    border: 1px solid var(--reservations-border-color);
+    border-radius: var(--reservations-radius);
+    box-shadow:
+      0 10px 24px rgba(15, 23, 42, 0.10),
+      inset 0 1px 0 rgba(255, 255, 255, 0.62);
+    filter: none;
+  }
+
+  #bookingList tr:hover {
+    transform: none;
+  }
+
+  #bookingList td {
+    display: grid;
+    grid-template-columns: 96px minmax(0, 1fr);
+    align-items: start;
+    gap: 10px;
+    padding: 0;
+    width: 100%;
+    min-width: 0;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    text-align: left;
+    overflow-wrap: anywhere;
+  }
+
+  #bookingList td:first-child,
+  #bookingList td:last-child {
+    border: 0;
+    border-radius: 0;
+  }
+
+  #bookingList td::before {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--color-muted, #64748b);
+    line-height: 1.35;
+  }
+
+  #bookingList td.col-name::before {
+    content: "Klient";
+  }
+
+  #bookingList td.col-contact::before {
+    content: "Kontakt";
+  }
+
+  #bookingList td.col-date::before {
+    content: "Data";
+  }
+
+  #bookingList td.col-time::before {
+    content: "Godzina";
+  }
+
+  #bookingList td.col-desc::before {
+    content: "Us³uga";
+  }
+
+  #bookingList td.col-payment::before {
+    content: "P³atnoœæ";
+  }
+
+  #bookingList td.col-actions::before {
+    content: "Akcja";
+  }
+
+  #bookingList td.col-name {
+    font-size: 16px;
+    font-weight: 800;
+  }
+
+  #bookingList td.col-time {
+    font-weight: 800;
+  }
+
+  #bookingList td.col-payment,
+  #bookingList td.col-actions {
+    align-items: center;
+  }
+
+  .payment-badge {
+    min-width: 0;
+    width: fit-content;
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
+
+  .delete-btn {
+    width: 100%;
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 420px) {
+  #bookingList tr {
+    padding: 12px;
+  }
+
+  #bookingList td {
+    grid-template-columns: 82px minmax(0, 1fr);
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  #bookingList td.col-name {
+    font-size: 15px;
+  }
+
+  .payment-badge {
+    font-size: 11px;
+    padding: 6px 8px;
+  }
+
+  .payment-badge small {
+    font-size: 10px;
+  }
+}

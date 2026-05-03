@@ -29,6 +29,13 @@ function json_response(array $payload, int $status = 200): void
     exit;
 }
 
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    json_response([
+        'success' => false,
+        'error' => 'Metoda niedozwolona'
+    ], 405);
+}
+
 function debug_log(string $label, $data): void
 {
     @file_put_contents(

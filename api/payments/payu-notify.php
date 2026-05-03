@@ -299,18 +299,18 @@ try {
 
     $booking = payu_notify_fetch_booking_by_order($orderId, $extOrderId);
 
-    if (!$booking) {
-        payu_debug('PAYU_NOTIFY_BOOKING_NOT_FOUND', [
-            'order_id' => $orderId,
-            'ext_order_id' => $extOrderId,
-            'status' => $payuStatus,
-        ]);
+   if (!$booking) {
+    payu_debug('PAYU_NOTIFY_BOOKING_NOT_FOUND', [
+        'order_id' => $orderId,
+        'ext_order_id' => $extOrderId,
+        'status' => $payuStatus,
+    ]);
 
-        payu_notify_response([
-            'success' => false,
-            'error' => 'Nie znaleziono rezerwacji.',
-        ], 404);
-    }
+    payu_notify_response([
+        'success' => false,
+        'error' => 'Nieprawidłowe powiadomienie PayU.',
+    ], 401);
+}
 
     $bookingId = (string)($booking['id'] ?? '');
     $tenantId = (string)($booking['tenant_id'] ?? '');
