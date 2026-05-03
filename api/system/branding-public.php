@@ -82,8 +82,7 @@ $row = $data[0];
 
 echo json_encode([
     'success' => true,
-    'tenant_id' => $tenantId,
-    'branding' => [
+        'branding' => [
         'client_name' => $row['client_name'] ?? '',
         'service_title_front' => $row['service_title_front'] ?? '',
         'logo_url_front' => $row['logo_url_front'] ?? '',

@@ -75,7 +75,6 @@ if (!is_array($data) || empty($data[0])) {
     echo json_encode([
         'success' => true,
         'enabled' => false,
-        'tenant_id' => $tenantId,
         'documents' => null
     ], JSON_UNESCAPED_UNICODE);
     exit;
@@ -86,8 +85,7 @@ $row = $data[0];
 echo json_encode([
     'success' => true,
     'enabled' => !empty($row['is_enabled']),
-    'tenant_id' => $tenantId,
-    'documents' => [
+        'documents' => [
         'terms_title' => (string) ($row['terms_title'] ?? 'Regulamin rezerwacji'),
         'terms_content' => (string) ($row['terms_content'] ?? ''),
         'privacy_title' => (string) ($row['privacy_title'] ?? 'Polityka prywatności'),
