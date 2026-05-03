@@ -36,7 +36,7 @@ if (empty($_SESSION['csrf'])) {
   </script>
 
   <script src="/assets/js/auth.js" defer></script>
-  <script src="/assets/js/buttons.js?v=2"></script>
+  <script src="/assets/js/buttons.js?v=3"></script>
   <script type="module" src="/assets/js/admin-api.js"></script>
   <script src="/assets/js/admin-email.js?v=smtp-fix-1" defer></script>
   <script src="/assets/js/admin-modal.js" defer></script>

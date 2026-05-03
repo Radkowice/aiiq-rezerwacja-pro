@@ -62,7 +62,9 @@ if ($tenantId === '' || $userId === '') {
     exit;
 }
 
-$url = $supabaseUrl . '/rest/v1/tenant_branding?on_conflict=tenant_id';
+$url = $supabaseUrl
+    . '/rest/v1/tenant_branding'
+    . '?tenant_id=eq.' . rawurlencode($tenantId);
 
 $data = [
     'tenant_id' => $tenantId,
@@ -187,14 +189,17 @@ if (array_key_exists('calendar_form_fields', $input) && is_array($input['calenda
 $ch = curl_init($url);
 
 curl_setopt_array($ch, [
+    CURLOPT_CUSTOMREQUEST => 'PATCH',
+    CURLOPT_POSTFIELDS => json_encode($data, JSON_UNESCAPED_UNICODE),
+    CURLOPT_HTTPHEADER => [
+        'apikey: ' . $supabaseKey,
+'Authorization: Bearer ' . $supabaseKey,
+        'Content-Type: application/json',
+        'Prefer: return=representation',
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
+    ],
     CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POST => true,
-    CURLOPT_POSTFIELDS => json_encode([$data], JSON_UNESCAPED_UNICODE),
-    CURLOPT_HTTPHEADER => array_merge(
-        supabaseHeaders($supabaseKey, $schema),
-        ['Prefer: resolution=merge-duplicates']
-    ),
-    CURLOPT_TIMEOUT => 20,
 ]);
 
 $response = curl_exec($ch);
