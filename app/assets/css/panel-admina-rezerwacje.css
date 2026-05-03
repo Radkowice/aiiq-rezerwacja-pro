@@ -5,6 +5,118 @@
   --reservations-header-color: #2563eb;
   --reservations-border-color: #dbeafe;
   --reservations-radius: 14px;
+
+  --reservations-text-color: #0f172a;
+  --reservations-muted-color: #334155;
+  --reservations-button-text-color: #0f172a;
+  --reservations-button-border-color: #111827;
+}
+
+/* ===== REZERWACJE — IZOLACJA TEKSTU OD MOTYWU GLOBALNEGO ===== */
+
+.panel-card[data-section="rezerwacje"] {
+  color: var(--reservations-text-color) !important;
+}
+
+.panel-card[data-section="rezerwacje"] h1,
+.panel-card[data-section="rezerwacje"] h2,
+.panel-card[data-section="rezerwacje"] h3,
+.panel-card[data-section="rezerwacje"] h4,
+.panel-card[data-section="rezerwacje"] p,
+.panel-card[data-section="rezerwacje"] span,
+.panel-card[data-section="rezerwacje"] strong,
+.panel-card[data-section="rezerwacje"] small,
+.panel-card[data-section="rezerwacje"] label,
+.panel-card[data-section="rezerwacje"] td,
+.panel-card[data-section="rezerwacje"] th {
+  color: var(--reservations-text-color) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .booking-retention-info,
+.panel-card[data-section="rezerwacje"] .calendar-status-text p,
+.panel-card[data-section="rezerwacje"] #bookingList td::before {
+  color: var(--reservations-muted-color) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .rezerwacje-table thead th {
+  color: #ffffff !important;
+}
+
+.panel-card[data-section="rezerwacje"] .dash-card,
+.panel-card[data-section="rezerwacje"] .admin-calendar-status-card {
+  background:
+    linear-gradient(
+      145deg,
+      var(--reservations-card-color),
+      color-mix(in srgb, var(--reservations-card-color) 90%, #e2e8f0 10%)
+    ) !important;
+  border-color: var(--reservations-border-color) !important;
+  color: var(--reservations-text-color) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .dash-card *,
+.panel-card[data-section="rezerwacje"] .admin-calendar-status-card * {
+  color: var(--reservations-text-color) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .calendar-status-text p,
+.panel-card[data-section="rezerwacje"] .dash-card p,
+.panel-card[data-section="rezerwacje"] .dash-card span,
+.panel-card[data-section="rezerwacje"] .dash-card small {
+  color: var(--reservations-muted-color) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .booking-view-btn,
+.panel-card[data-section="rezerwacje"] .booking-history-download-btn,
+.panel-card[data-section="rezerwacje"] .calendar-status-toggle,
+.panel-card[data-section="rezerwacje"] #save-calendar-enabled-btn {
+  color: var(--reservations-button-text-color) !important;
+  border-color: var(--reservations-button-border-color) !important;
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--reservations-card-color) 88%, #ffffff 12%),
+      color-mix(in srgb, var(--reservations-card-color) 88%, #cbd5e1 12%)
+    ) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .booking-view-btn *,
+.panel-card[data-section="rezerwacje"] .booking-history-download-btn *,
+.panel-card[data-section="rezerwacje"] .calendar-status-toggle *,
+.panel-card[data-section="rezerwacje"] #save-calendar-enabled-btn * {
+  color: inherit !important;
+}
+
+.panel-card[data-section="rezerwacje"] .booking-view-btn:hover,
+.panel-card[data-section="rezerwacje"] .booking-view-btn.active,
+.panel-card[data-section="rezerwacje"] .booking-history-download-btn:hover,
+.panel-card[data-section="rezerwacje"] #save-calendar-enabled-btn:hover {
+  color: #ffffff !important;
+  background: var(--reservations-header-color) !important;
+  border-color: var(--reservations-header-color) !important;
+}
+
+.panel-card[data-section="rezerwacje"] .booking-view-btn:hover *,
+.panel-card[data-section="rezerwacje"] .booking-view-btn.active *,
+.panel-card[data-section="rezerwacje"] .booking-history-download-btn:hover *,
+.panel-card[data-section="rezerwacje"] #save-calendar-enabled-btn:hover * {
+  color: #ffffff !important;
+}
+
+.panel-card[data-section="rezerwacje"] #save-calendar-enabled-btn:disabled {
+  opacity: 0.65 !important;
+  cursor: not-allowed;
+}
+
+.panel-card[data-section="rezerwacje"] .payment-badge,
+.panel-card[data-section="rezerwacje"] .payment-badge * {
+  opacity: 1 !important;
 }
 
 /* ===== G£ÓWNY KONTENER REZERWACJI ===== */
