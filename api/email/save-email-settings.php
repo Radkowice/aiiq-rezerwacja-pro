@@ -178,6 +178,29 @@ $emailClientTemplatePayload = [[
     'is_enabled' => true,
 ]];
 
+if ($adminSubject === '') {
+    $adminSubject = 'Nowa rezerwacja: {date} o godz. {time}';
+}
+
+if ($adminIntroHtml === '') {
+    $adminIntroHtml = "Nowa rezerwacja została zapisana w systemie.\n\n"
+        . "Klient: {name}\n"
+        . "Email: {email}\n"
+        . "Telefon: {phone}\n\n"
+        . "Termin: {date} o godz. {time}\n\n"
+        . "Uwagi:\n"
+        . "{message}";
+}
+
+$emailAdminTemplatePayload = [[
+    'tenant_id' => $tenantId,
+    'template_key' => 'booking_admin_notification',
+    'subject' => $adminSubject,
+    'body_html' => $adminIntroHtml,
+    'service_name' => $serviceName,
+    'is_enabled' => true,
+]];
+
 $emailSettingsUrl = $supabaseUrl . '/rest/v1/email_settings?on_conflict=tenant_id';
 $emailTemplatesUrl = $supabaseUrl . '/rest/v1/email_templates?on_conflict=tenant_id,template_key';
 
@@ -217,14 +240,34 @@ if (!$emailClientTemplateResult['ok']) {
     exit;
 }
 
+$emailAdminTemplateResult = supabaseRequest(
+    'POST',
+    $emailTemplatesUrl,
+    $serviceRoleKey,
+    $schema,
+    $emailAdminTemplatePayload
+);
+
+if (!$emailAdminTemplateResult['ok']) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się zapisać szablonu email admina',
+        'details' => $emailAdminTemplateResult['json'] ?: $emailAdminTemplateResult['body'],
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 echo json_encode([
     'success' => true,
     'message' => 'Ustawienia email zapisane do bazy',
-    'saved' => [
-        'email_settings' => true,
-        'client_template' => true,
-        'service_name' => $serviceName,
-    ],
+   'saved' => [
+    'email_settings' => true,
+    'client_template' => true,
+    'admin_template' => true,
+    'service_name' => $serviceName,
+],
+
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 exit;
 

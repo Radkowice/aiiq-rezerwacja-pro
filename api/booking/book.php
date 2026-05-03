@@ -885,13 +885,7 @@ try {
         $tenantQuery . '&template_key=eq.booking_client_confirmation&is_enabled=eq.true'
     );
 
-    $adminEmailTemplate = fetch_single_record(
-        $SUPABASE_URL,
-        $headers,
-        'email_templates',
-        $tenantQuery . '&template_key=eq.booking_admin_notification&is_enabled=eq.true'
-    );
-
+  $adminEmailTemplate = null;   
     $tenantData = fetch_single_record(
         $SUPABASE_URL,
         $headers,
@@ -899,12 +893,12 @@ try {
         $tenantQuery
     );
 
-    if (!$emailSettings || !$emailTemplate || !$adminEmailTemplate || !$tenantData) {
-        throw new Exception('Brak konfiguracji email lub template dla tenant.');
-    }
+   if (!$emailSettings || !$emailTemplate || !$tenantData) {
+    throw new Exception('Brak konfiguracji email lub template klienta dla tenant.');
+}
 
-    $companyName = (string) ($tenantData['client_name'] ?? '');
-    $plan = (string) ($tenantData['plan'] ?? 'basic');
+$companyName = (string) ($tenantData['client_name'] ?? '');
+$plan = 'basic';
     $footerMode = (string) ($tenantData['email_footer_mode'] ?? 'system');
     $footerCustom = (string) ($tenantData['email_footer_custom'] ?? '');
     $serviceName = (string) ($emailTemplate['service_name'] ?? 'wizyty');
@@ -921,8 +915,12 @@ try {
     $finalSubject = replacePlaceholders((string) ($emailTemplate['subject'] ?? ''), $placeholders);
     $introHtml = replacePlaceholders((string) ($emailTemplate['body_html'] ?? ''), $placeholders);
 
-    $adminFinalSubject = replacePlaceholders((string) ($adminEmailTemplate['subject'] ?? ''), $placeholders);
-    $adminIntroHtml = replacePlaceholders((string) ($adminEmailTemplate['body_html'] ?? ''), $placeholders);
+   $adminFinalSubject = 'Nowa rezerwacja – ' . $date . ' ' . $time;
+
+$adminIntroHtml =
+    '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">'
+    . 'W systemie pojawiła się nowa rezerwacja. Szczegóły rezerwacji znajdują się poniżej.'
+    . '</p>';
 
     $footerHtml = buildFooter($plan, $footerMode, $footerCustom);
 
@@ -968,10 +966,10 @@ try {
         ]);
     }
 
-    if (!empty($emailSettings['send_admin_notification'])) {
-        $adminNotifyEmail = trim((string) ($emailSettings['admin_notify_email'] ?? ''));
+  if (!empty($emailSettings['send_admin_notification'])) {
+    $adminNotifyEmail = trim((string) ($emailSettings['admin_notify_email'] ?? ''));
 
-        if ($adminNotifyEmail !== '') {
+    if ($adminNotifyEmail !== '') {
             $adminHtml = buildAdminEmailHtml(
                 $adminIntroHtml,
                 $companyName,
