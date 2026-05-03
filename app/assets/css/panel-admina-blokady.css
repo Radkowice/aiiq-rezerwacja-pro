@@ -187,18 +187,41 @@
 /* ===== SELECTED ===== */
 
 .admin-day.selected {
-  background: #28406b;
+  position: relative;
+  background: linear-gradient(145deg, #1d4ed8, #0f2f73);
   color: #ffffff;
-  border: 2px solid #1e2f4d;
-  box-shadow: 0 4px 10px rgba(40, 64, 107, 0.25);
+  border: 3px solid #ffffff;
+  outline: 3px solid #1d4ed8;
+  box-shadow:
+    0 0 0 2px rgba(29, 78, 216, 0.28),
+    0 10px 24px rgba(29, 78, 216, 0.36),
+    inset 0 1px 0 rgba(255, 255, 255, 0.32);
+  transform: translateY(-2px);
+  font-weight: 900;
+  z-index: 2;
 }
 
-/* PRIORITY – ¿eby selected wygra³ z blocked */
+.admin-day.selected::after {
+  content: "";
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+}
 
 .admin-day.selected.blocked {
-  background: #7f1d1d;
-  border-color: #5f1616;
-  color: #fff;
+  background: linear-gradient(145deg, #dc2626, #7f1d1d);
+  border-color: #ffffff;
+  outline-color: #dc2626;
+  color: #ffffff;
+  box-shadow:
+    0 0 0 2px rgba(220, 38, 38, 0.28),
+    0 10px 24px rgba(220, 38, 38, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
 }
 
 .confirm-modal {
