@@ -3,6 +3,15 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'message' => 'Metoda niedozwolona.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../system/tenant.php';
 

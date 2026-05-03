@@ -57,12 +57,12 @@ try {
 
     $bookingId = trim((string)($_GET['booking_id'] ?? ''));
 
-    if ($bookingId === '') {
-        payment_return_response([
-            'success' => false,
-            'error' => 'Brak booking_id.'
-        ], 400);
-    }
+  if ($bookingId === '') {
+    payment_return_response([
+        'success' => false,
+        'error' => 'Brak wymaganych danych.'
+    ], 400);
+}
 
     $supabaseUrl = rtrim((string)getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string)getenv('SUPABASE_SERVICE_ROLE_KEY');
