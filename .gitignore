@@ -11,3 +11,8 @@ docker-compose.yml
 
 # Lokalne backupy / historia
 .git-backup-before-prod-clean-*
+!.env.example
+docker-compose.yml.backup-*
+data/
+app/data/
+api/data/
