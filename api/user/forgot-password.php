@@ -44,6 +44,15 @@ if (!$TENANT_ID) {
     ], 400);
 }
 
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Metoda niedozwolona.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
 
 if (!is_array($input)) {
