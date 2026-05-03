@@ -62,18 +62,21 @@ if ($tenantId === '' || $userId === '') {
     exit;
 }
 
-$company_id = trim((string)($input['company_id'] ?? ''));
-
-if ($company_id === '') {
-    $company_id = str_pad((string) random_int(10000, 99999), 5, '0', STR_PAD_LEFT);
-}
-
 $url = $supabaseUrl . '/rest/v1/tenant_branding?on_conflict=tenant_id';
 
 $data = [
-    'tenant_id'  => $tenantId,
-    'company_id' => $company_id,
+    'tenant_id' => $tenantId,
 ];
+
+if (array_key_exists('company_id', $input)) {
+    $company_id = trim((string) $input['company_id']);
+
+    if ($company_id === '') {
+        $company_id = str_pad((string) random_int(10000, 99999), 5, '0', STR_PAD_LEFT);
+    }
+
+    $data['company_id'] = $company_id;
+}
 
 if (array_key_exists('client_name', $input)) {
     $data['client_name'] = trim((string) $input['client_name']);
@@ -106,7 +109,11 @@ if (array_key_exists('reservations_style', $input) && is_array($input['reservati
         'table_color',
         'header_color',
         'border_color',
-        'radius'
+        'radius',
+        'text_color',
+        'muted_color',
+        'button_text_color',
+        'button_border_color',
     ];
 
     $style = [];

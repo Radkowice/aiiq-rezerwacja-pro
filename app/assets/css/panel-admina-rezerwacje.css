@@ -23,13 +23,24 @@
 .panel-card[data-section="rezerwacje"] h3,
 .panel-card[data-section="rezerwacje"] h4,
 .panel-card[data-section="rezerwacje"] p,
-.panel-card[data-section="rezerwacje"] span,
 .panel-card[data-section="rezerwacje"] strong,
-.panel-card[data-section="rezerwacje"] small,
 .panel-card[data-section="rezerwacje"] label,
 .panel-card[data-section="rezerwacje"] td,
-.panel-card[data-section="rezerwacje"] th {
+.panel-card[data-section="rezerwacje"] th,
+.panel-card[data-section="rezerwacje"] .section-title,
+.panel-card[data-section="rezerwacje"] .panel-title,
+.panel-card[data-section="rezerwacje"] .card-title {
   color: var(--reservations-text-color) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .section-header h2 {
+  color: var(--reservations-text-color) !important;
+  opacity: 1 !important;
+}
+
+.panel-card[data-section="rezerwacje"] .section-header p {
+  color: var(--reservations-muted-color) !important;
   opacity: 1 !important;
 }
 
@@ -431,6 +442,7 @@ td.col-actions {
   box-shadow:
     0 5px 12px rgba(15, 23, 42, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  opacity: 1 !important;
 }
 
 .payment-badge small {
@@ -439,33 +451,55 @@ td.col-actions {
   opacity: 0.9;
 }
 
+.payment-badge.paid,
+.payment-badge.paid small {
+  color: #166534 !important;
+}
+
 .payment-badge.paid {
-  color: #166534;
   background: #dcfce7;
   border-color: #86efac;
 }
 
+.payment-badge.pending,
+.payment-badge.pending small {
+  color: #854d0e !important;
+}
+
 .payment-badge.pending {
-  color: #854d0e;
   background: #fef9c3;
   border-color: #fde68a;
 }
 
 .payment-badge.expired,
+.payment-badge.expired small,
+.payment-badge.failed,
+.payment-badge.failed small {
+  color: #991b1b !important;
+}
+
+.payment-badge.expired,
 .payment-badge.failed {
-  color: #991b1b;
   background: #fee2e2;
   border-color: #fca5a5;
 }
 
+.payment-badge.cancelled,
+.payment-badge.cancelled small {
+  color: #374151 !important;
+}
+
 .payment-badge.cancelled {
-  color: #374151;
   background: #e5e7eb;
   border-color: #d1d5db;
 }
 
+.payment-badge.not-required,
+.payment-badge.not-required small {
+  color: #374151 !important;
+}
+
 .payment-badge.not-required {
-  color: #475569;
   background: #f1f5f9;
   border-color: #cbd5e1;
 }
@@ -864,14 +898,14 @@ body.theme-dark .calendar-status-toggle {
     border-radius: 0;
   }
 
-  #bookingList td::before {
-    font-size: 11px;
-    font-weight: 800;
-    letter-spacing: 0.02em;
-    text-transform: uppercase;
-    color: var(--color-muted, #64748b);
-    line-height: 1.35;
-  }
+ #bookingList td::before {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--reservations-muted-color) !important;
+  line-height: 1.35;
+}
 
   #bookingList td.col-name::before {
     content: "Klient";
@@ -950,6 +984,8 @@ body.theme-dark .calendar-status-toggle {
   }
 
   .payment-badge small {
-    font-size: 10px;
-  }
+  font-size: 11px;
+  font-weight: 700;
+  opacity: 0.9 !important;
+}
 }

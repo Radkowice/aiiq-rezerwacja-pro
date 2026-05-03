@@ -226,13 +226,7 @@ aside a.active {
   color: var(--color-warning-text) !important;
 }
 
-/* NAG£ÓWKI */
-h1, h2, h3, h4, h5, h6,
-.panel-header h2,
-.section-header h2,
-.section-header p {
-  color: var(--color-text) !important;
-}
+
 
 /* DELIKATNE LINIE / HR */
 hr {
@@ -289,8 +283,8 @@ body.theme-dark .settings-card h3,
 body.theme-dark .service-payments-card h3,
 body.theme-dark .integration-card h3,
 body.theme-dark .account-card h3,
-body.theme-dark .panel-card h2,
-body.theme-dark .panel-card h3,
+body.theme-dark .panel-card:not([data-section="rezerwacje"]) h2,
+body.theme-dark .panel-card:not([data-section="rezerwacje"]) h3,
 body.theme-dark .block-section h2,
 body.theme-dark .block-section h3,
 body.theme-dark .dash-value {
@@ -308,7 +302,7 @@ body.theme-dark .footer,
 body.theme-dark .confirm-message,
 body.theme-dark .account-help,
 body.theme-dark .settings-card p,
-body.theme-dark .panel-card p {
+body.theme-dark .panel-card:not([data-section="rezerwacje"]) p {
   color: var(--color-muted) !important;
 }
 
@@ -397,8 +391,8 @@ body.theme-gray .settings-card h3,
 body.theme-gray .service-payments-card h3,
 body.theme-gray .integration-card h3,
 body.theme-gray .account-card h3,
-body.theme-gray .panel-card h2,
-body.theme-gray .panel-card h3,
+body.theme-gray .panel-card:not([data-section="rezerwacje"]) h2,
+body.theme-gray .panel-card:not([data-section="rezerwacje"]) h3,
 body.theme-gray .dash-value {
   color: var(--color-text) !important;
 }
@@ -412,7 +406,7 @@ body.theme-gray .dash-title,
 body.theme-gray .footer,
 body.theme-gray .confirm-message,
 body.theme-gray .settings-card p,
-body.theme-gray .panel-card p {
+body.theme-gray .panel-card:not([data-section="rezerwacje"]) p {
   color: var(--color-muted) !important;
 }
 

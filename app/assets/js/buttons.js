@@ -8,7 +8,7 @@ function finishButtonState(button, defaultText, startTime, minTime = 3000) {
   }, delay);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => {                             
   const accountMessage = document.getElementById('account-message');
 
   // MOJE KONTO — dane firmy
@@ -65,6 +65,48 @@ document.addEventListener('DOMContentLoaded', () => {
       finishButtonState(saveAccountDataBtn, 'Zapisz nazwę firmy', startTime);
     });
   }
+  
+  function normalizeHexColor(value, fallback = '#ffffff') {
+  const color = String(value || '').trim();
+
+  if (/^#[0-9a-f]{6}$/i.test(color)) {
+    return color;
+  }
+
+  if (/^#[0-9a-f]{3}$/i.test(color)) {
+    return `#${color[1]}${color[1]}${color[2]}${color[2]}${color[3]}${color[3]}`;
+  }
+
+  return fallback;
+}
+
+function getColorLuminance(hexColor) {
+  const color = normalizeHexColor(hexColor).replace('#', '');
+
+  const r = parseInt(color.slice(0, 2), 16) / 255;
+  const g = parseInt(color.slice(2, 4), 16) / 255;
+  const b = parseInt(color.slice(4, 6), 16) / 255;
+
+  const toLinear = value => {
+    return value <= 0.03928
+      ? value / 12.92
+      : Math.pow((value + 0.055) / 1.055, 2.4);
+  };
+
+  return (0.2126 * toLinear(r)) + (0.7152 * toLinear(g)) + (0.0722 * toLinear(b));
+}
+
+function getReadableReservationsColors(baseColor) {
+  const luminance = getColorLuminance(baseColor);
+  const isDark = luminance < 0.42;
+
+  return {
+    text_color: isDark ? '#f8fafc' : '#0f172a',
+    muted_color: isDark ? '#cbd5e1' : '#334155',
+    button_text_color: isDark ? '#f8fafc' : '#0f172a',
+    button_border_color: isDark ? '#cbd5e1' : '#111827'
+  };
+}
 
   // MOJE KONTO — branding
   const saveBrandingBtn = document.getElementById('save-branding-btn');
@@ -355,14 +397,47 @@ if (saveReservationsStyleBtn) {
       saveReservationsStyleBtn.disabled = true;
       saveReservationsStyleBtn.textContent = 'Zapisywanie wyglądu rezerwacji...';
 
-      const reservations_style = {
-        bg_color: document.getElementById('reservations-bg-color')?.value || '#ffffff',
-        card_color: document.getElementById('reservations-card-color')?.value || '#ffffff',
-        table_color: document.getElementById('reservations-table-color')?.value || '#ffffff',
-        header_color: document.getElementById('reservations-header-color')?.value || '#2563eb',
-        border_color: document.getElementById('reservations-border-color')?.value || '#d1d5db',
-        radius: document.getElementById('reservations-radius')?.value || '12'
-      };
+     const bgColor = normalizeHexColor(
+  document.getElementById('reservations-bg-color')?.value,
+  '#ffffff'
+);
+
+const cardColor = normalizeHexColor(
+  document.getElementById('reservations-card-color')?.value,
+  '#ffffff'
+);
+
+const tableColor = normalizeHexColor(
+  document.getElementById('reservations-table-color')?.value,
+  '#ffffff'
+);
+
+const headerColor = normalizeHexColor(
+  document.getElementById('reservations-header-color')?.value,
+  '#2563eb'
+);
+
+const borderColor = normalizeHexColor(
+  document.getElementById('reservations-border-color')?.value,
+  '#d1d5db'
+);
+
+const readableColors = getReadableReservationsColors(tableColor);
+const readableButtonColors = getReadableReservationsColors(cardColor);
+
+const reservations_style = {
+  bg_color: bgColor,
+  card_color: cardColor,
+  table_color: tableColor,
+  header_color: headerColor,
+  border_color: borderColor,
+  radius: document.getElementById('reservations-radius')?.value || '12',
+
+  text_color: readableColors.text_color,
+  muted_color: readableColors.muted_color,
+  button_text_color: readableButtonColors.button_text_color,
+  button_border_color: readableButtonColors.button_border_color
+};
 
       const res = await apiFetch('/api/system/branding.php', {
         method: 'POST',
