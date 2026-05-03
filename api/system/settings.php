@@ -234,20 +234,20 @@ function update_calendar_settings(
 
 /*
 |--------------------------------------------------------------------------
-| GET = publiczny odczyt po domenie
+| GET = odczyt ustawień tylko dla zalogowanego admina
 |--------------------------------------------------------------------------
 */
 if ($method === 'GET') {
-    $tenantId = getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA);
-
-    if (!$tenantId) {
-        http_response_code(400);
+    if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+        http_response_code(401);
         echo json_encode([
             'success' => false,
-            'error'   => 'Nie rozpoznano tenant z domeny'
+            'error'   => 'Brak autoryzacji'
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
+
+    $tenantId = (string) $_SESSION['user']['tenant_id'];
 
     [$settings, $fetchError, $fetchStatus] = fetch_calendar_settings(
         $SUPABASE_URL,
@@ -266,14 +266,12 @@ if ($method === 'GET') {
     }
 
     echo json_encode([
-        'success'   => true,
-        'tenant_id' => $tenantId,
-        'settings'  => $settings ?? default_calendar_settings()
+        'success'  => true,
+        'settings' => $settings ?? default_calendar_settings()
     ], JSON_UNESCAPED_UNICODE);
 
     exit;
 }
-
 /*
 |--------------------------------------------------------------------------
 | POST/PATCH = zapis z panelu admina po sesji
@@ -379,10 +377,9 @@ if ($method === 'POST' || $method === 'PATCH') {
     }
 
     echo json_encode([
-        'success'   => true,
-        'tenant_id' => $tenantId,
-        'settings'  => $savedSettings ?? default_calendar_settings()
-    ], JSON_UNESCAPED_UNICODE);
+    'success'  => true,
+    'settings' => $savedSettings ?? default_calendar_settings()
+], JSON_UNESCAPED_UNICODE);
 
     exit;
 }
