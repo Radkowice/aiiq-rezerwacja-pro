@@ -25,31 +25,45 @@ let FRONT_FORM_FIELDS = {
 };
 
 async function loadSettings() {
-    try {
-        const res = await fetch('/api/system/settings.php');
-        const data = await res.json();
-       SETTINGS = data;
-TENANT_ID = data.tenant_id || null;
-FRONT_CALENDAR_ENABLED = data?.settings?.calendar_enabled === true;
+  try {
+    const res = await fetch(`/api/system/service-settings-public.php?_=${Date.now()}`, {
+      cache: 'no-store'
+    });
 
-        console.log('Ustawienia załadowane:', SETTINGS);
-    } catch (e) {
-        console.error('Błąd settings:', e);
+    const data = await res.json();
+
+    if (!res.ok || data.success !== true || !data.service) {
+      throw new Error('Nie udało się pobrać publicznych ustawień kalendarza');
     }
+
+    const service = data.service;
+
+    SETTINGS = {
+      success: true,
+      settings: service
+    };
+
+    TENANT_ID = null;
+    FRONT_CALENDAR_ENABLED = service.calendar_enabled === true;
+
+    calendarSettings = {
+      work_start: service.work_start || '00:00',
+      work_end: service.work_end || '23:59',
+      consultation_duration: parseInt(service.consultation_duration || 60, 10),
+      consultation_break: parseInt(service.consultation_break || 0, 10),
+      booking_buffer: parseInt(service.booking_buffer || 0, 10),
+      booking_start_month_offset: parseInt(service.booking_start_month_offset || 0, 10),
+      booking_month_range: parseInt(service.booking_month_range || 1, 10)
+    };
+
+    ALL_TIMES = generateTimeSlots();
+
+    console.log('Publiczne ustawienia kalendarza załadowane:', SETTINGS);
+  } catch (e) {
+    console.error('Błąd publicznych ustawień kalendarza:', e);
+    FRONT_CALENDAR_ENABLED = false;
+  }
 }
-
-let calendarSettings = {
-  work_start: '00:00',
-  work_end: '23:59',
-  consultation_duration: 60,
-  consultation_break: 0,
-  booking_buffer: 0
-};
-
-let ALL_TIMES = [];
-let viewDate = new Date();
-let availabilityData = null;
-
 
 function getEl(id) {
   return document.getElementById(id);
@@ -992,8 +1006,8 @@ if (websiteInput && websiteInput.value.trim() !== '') {
   return;
 }
 
- if (!TENANT_ID) {
-  showError('Błąd konfiguracji systemu (brak tenant)');
+ if (!SETTINGS) {
+  showError('Błąd konfiguracji systemu');
   return;
 }
 
@@ -1004,8 +1018,7 @@ const booking = {
   date: dateInput.value,
   time: timeInput.value,
   note: noteInput.value.trim(),
-  tenant_id: TENANT_ID,
-
+  
   website: websiteInput ? websiteInput.value.trim() : '',
   form_started_at: formStartedAtInput ? formStartedAtInput.value : '',
   terms_accepted: termsConsentInput && termsConsentInput.checked ? '1' : '0'

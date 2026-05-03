@@ -140,6 +140,37 @@ $tenantId = (string) $tenantId;
         $payuIntegration = $payuResult['json'][0] ?? null;
         $payuEnabled = !empty($payuIntegration['enabled']);
     }
+    
+    $calendarUrl = $supabaseUrl
+    . '/rest/v1/calendar_settings'
+    . '?tenant_id=eq.' . urlencode($tenantId)
+    . '&select=calendar_enabled,work_start,work_end,consultation_duration,consultation_break,booking_buffer,booking_start_month_offset,booking_month_range'
+    . '&limit=1';
+
+$calendarResult = publicServiceSupabaseRequest(
+    'GET',
+    $calendarUrl,
+    $serviceRoleKey,
+    $schema
+);
+
+$calendarSettings = [];
+
+if ($calendarResult['ok']) {
+    $calendarSettings = $calendarResult['json'][0] ?? [];
+    if (!is_array($calendarSettings)) {
+        $calendarSettings = [];
+    }
+}
+
+$settings['calendar_enabled'] = (bool)($calendarSettings['calendar_enabled'] ?? false);
+$settings['work_start'] = (string)($calendarSettings['work_start'] ?? '09:00');
+$settings['work_end'] = (string)($calendarSettings['work_end'] ?? '17:00');
+$settings['consultation_duration'] = (int)($calendarSettings['consultation_duration'] ?? 60);
+$settings['consultation_break'] = (int)($calendarSettings['consultation_break'] ?? 0);
+$settings['booking_buffer'] = (int)($calendarSettings['booking_buffer'] ?? 0);
+$settings['booking_start_month_offset'] = (int)($calendarSettings['booking_start_month_offset'] ?? 0);
+$settings['booking_month_range'] = (int)($calendarSettings['booking_month_range'] ?? 1);
 
     $settings['payment_required_configured'] = !empty($settings['payment_required']);
     $settings['payment_provider_enabled'] = $payuEnabled;
