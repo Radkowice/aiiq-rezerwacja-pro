@@ -3,7 +3,18 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
-require_once __DIR__ . '/../system/tenant.php';
+require_once __DIR__ . '/../helpers/session.php';
+
+start_secure_session();
+
+if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Brak autoryzacji'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 $SUPABASE_URL = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
@@ -18,13 +29,13 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     exit;
 }
 
-$TENANT_ID = getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
+$TENANT_ID = (string) $_SESSION['user']['tenant_id'];
 
-if (!$TENANT_ID) {
-    http_response_code(400);
+if ($TENANT_ID === '') {
+    http_response_code(401);
     echo json_encode([
         'success' => false,
-        'error' => 'BOOKINGS.PHP BRAK TENANT'
+        'error' => 'Nieprawid³owa sesja'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

@@ -863,6 +863,7 @@ try {
     debug_log('BOOK_GOOGLE_EVENT_ERROR', $e->getMessage());
 }
 
+
 // Maile
 $mailSentClient = false;
 $mailSentAdmin = false;
@@ -885,7 +886,6 @@ try {
         $tenantQuery . '&template_key=eq.booking_client_confirmation&is_enabled=eq.true'
     );
 
-  $adminEmailTemplate = null;   
     $tenantData = fetch_single_record(
         $SUPABASE_URL,
         $headers,
@@ -893,12 +893,12 @@ try {
         $tenantQuery
     );
 
-   if (!$emailSettings || !$emailTemplate || !$tenantData) {
-    throw new Exception('Brak konfiguracji email lub template klienta dla tenant.');
-}
+    if (!$emailSettings || !$emailTemplate || !$tenantData) {
+        throw new Exception('Brak konfiguracji email lub template klienta dla tenant.');
+    }
 
-$companyName = (string) ($tenantData['client_name'] ?? '');
-$plan = 'basic';
+    $companyName = (string) ($tenantData['client_name'] ?? '');
+    $plan = 'basic';
     $footerMode = (string) ($tenantData['email_footer_mode'] ?? 'system');
     $footerCustom = (string) ($tenantData['email_footer_custom'] ?? '');
     $serviceName = (string) ($emailTemplate['service_name'] ?? 'wizyty');
@@ -915,38 +915,37 @@ $plan = 'basic';
     $finalSubject = replacePlaceholders((string) ($emailTemplate['subject'] ?? ''), $placeholders);
     $introHtml = replacePlaceholders((string) ($emailTemplate['body_html'] ?? ''), $placeholders);
 
-   $adminFinalSubject = 'Nowa rezerwacja – ' . $date . ' ' . $time;
-
-$adminIntroHtml =
-    '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">'
-    . 'W systemie pojawiła się nowa rezerwacja. Szczegóły rezerwacji znajdują się poniżej.'
-    . '</p>';
+    $adminFinalSubject = 'Nowa rezerwacja – ' . $date . ' ' . $time;
+    $adminIntroHtml =
+        '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">'
+        . 'W systemie pojawiła się nowa rezerwacja. Szczegóły rezerwacji znajdują się poniżej.'
+        . '</p>';
 
     $footerHtml = buildFooter($plan, $footerMode, $footerCustom);
 
-    $clientHtml = buildClientEmailHtml(
-        $introHtml,
-        $companyName,
-        $serviceName,
-        $footerHtml,
-        $name,
-        $email,
-        $date,
-        $time,
-        $note
-    );
+    if (!$paymentRequired && !empty($emailSettings['send_client_confirmation'])) {
+        $clientHtml = buildClientEmailHtml(
+            $introHtml,
+            $companyName,
+            $serviceName,
+            $footerHtml,
+            $name,
+            $email,
+            $date,
+            $time,
+            $note
+        );
 
-    $clientAltBody =
-        "Rezerwacja potwierdzona\n\n" .
-        "Dziękujemy za umówienie {$serviceName} z {$companyName}\n\n" .
-        "Imię: {$name}\n" .
-        "E-mail: {$email}\n" .
-        "Data: {$date}\n" .
-        "Godzina: {$time}\n" .
-        ($note !== '' ? "Wiadomość: {$note}\n" : '') .
-        "\n";
+        $clientAltBody =
+            "Rezerwacja potwierdzona\n\n" .
+            "Dziękujemy za umówienie {$serviceName} z {$companyName}\n\n" .
+            "Imię: {$name}\n" .
+            "E-mail: {$email}\n" .
+            "Data: {$date}\n" .
+            "Godzina: {$time}\n" .
+            ($note !== '' ? "Wiadomość: {$note}\n" : '') .
+            "\n";
 
-       if (!$paymentRequired && !empty($emailSettings['send_client_confirmation'])) {
         $mail = new PHPMailer(true);
         configureMailer($mail, $emailSettings);
         $mail->addAddress($email, $name);
@@ -955,6 +954,7 @@ $adminIntroHtml =
         $mail->Body = $clientHtml;
         $mail->AltBody = $clientAltBody;
         $mail->send();
+
         $mailSentClient = true;
     }
 
@@ -963,13 +963,14 @@ $adminIntroHtml =
             'booking_id' => $bookingId,
             'email' => $email,
             'payment_status' => $paymentStatus,
+            'reason' => 'payment_required',
         ]);
     }
 
-  if (!empty($emailSettings['send_admin_notification'])) {
-    $adminNotifyEmail = trim((string) ($emailSettings['admin_notify_email'] ?? ''));
+    if (!empty($emailSettings['send_admin_notification'])) {
+        $adminNotifyEmail = trim((string) ($emailSettings['admin_notify_email'] ?? ''));
 
-    if ($adminNotifyEmail !== '') {
+        if ($adminNotifyEmail !== '') {
             $adminHtml = buildAdminEmailHtml(
                 $adminIntroHtml,
                 $companyName,
@@ -996,10 +997,11 @@ $adminIntroHtml =
             configureMailer($adminMail, $emailSettings);
             $adminMail->addAddress($adminNotifyEmail);
             $adminMail->isHTML(true);
-            $adminMail->Subject = $adminFinalSubject !== '' ? $adminFinalSubject : ('Nowa rezerwacja – ' . $date . ' ' . $time);
+            $adminMail->Subject = $adminFinalSubject;
             $adminMail->Body = $adminHtml;
             $adminMail->AltBody = $adminAltBody;
             $adminMail->send();
+
             $mailSentAdmin = true;
         }
     }
