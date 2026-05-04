@@ -133,6 +133,23 @@ if (!$brandingResult['ok']) {
 
 $branding = $brandingResult['data'][0] ?? null;
 
+$companyUrl = $supabaseUrl
+    . '/rest/v1/tenant_service_settings?select=company_full_name,company_owner_name,company_tax_id,company_address,company_email,company_phone'
+    . '&tenant_id=eq.' . rawurlencode($tenantId)
+    . '&limit=1';
+
+$companyResult = account_info_request('GET', $companyUrl, $headers);
+
+if (!$companyResult['ok']) {
+    account_info_json(500, [
+        'success' => false,
+        'error' => 'Nie udało się pobrać danych firmy z ustawień usługi.',
+        'debug' => $companyResult['raw'] ?? $companyResult['error']
+    ]);
+}
+
+$company = $companyResult['data'][0] ?? null;
+
 $subscriptionUrl = $supabaseUrl
     . '/rest/v1/tenant_subscriptions?select=tenant_id,plan_code,plan_name,billing_period,status,amount,currency,current_period_start,current_period_end,next_payment_due_at,grace_period_days,suspended_at,cancelled_at,last_payment_at,last_reminder_at,reminder_count,notes'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
@@ -154,5 +171,6 @@ account_info_json(200, [
     'success' => true,
     'user' => $user,
     'branding' => is_array($branding) ? $branding : null,
+    'company' => is_array($company) ? $company : null,
     'subscription' => is_array($subscription) ? $subscription : null,
 ]);

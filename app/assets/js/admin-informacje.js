@@ -79,9 +79,16 @@
 
       const user = data.user || {};
       const branding = data.branding || {};
+      const company = data.company || {};
       const subscription = data.subscription || null;
 
       setText('info-company-name', branding.client_name);
+      setText('info-company-full-name', company.company_full_name);
+setText('info-company-owner-name', company.company_owner_name);
+setText('info-company-tax-id', company.company_tax_id);
+setText('info-company-address', company.company_address);
+setText('info-company-email', company.company_email);
+setText('info-company-phone', company.company_phone);
       setText('info-client-number', branding.client_number);
       setText('info-company-id', branding.company_id);
       setText('info-tenant-id', branding.tenant_id || user.tenant_id);
