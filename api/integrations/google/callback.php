@@ -163,6 +163,25 @@ $tokenCurlError = curl_error($tokenCh);
 curl_close($tokenCh);
 
 if ($tokenCurlError || $tokenHttpCode < 200 || $tokenHttpCode >= 300) {
+    $logDir = __DIR__ . '/../../data';
+    $logFile = $logDir . '/google-calendar.log';
+
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+
+    @file_put_contents(
+        $logFile,
+        '[' . date('Y-m-d H:i:s') . '] TOKEN_ERROR ' . json_encode([
+            'http_code' => $tokenHttpCode,
+            'curl_error' => $tokenCurlError,
+            'response' => $tokenResponse,
+            'redirect_uri' => $redirectUri,
+            'client_id' => $clientId,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
+        FILE_APPEND
+    );
+
     redirect_with_status('error', 'Nie udało się pobrać tokenów Google.');
 }
 
