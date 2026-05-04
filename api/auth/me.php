@@ -132,8 +132,48 @@ if ($brandingHttpCode !== 200) {
 
 $brandingData = json_decode((string) $brandingResponse, true);
 
+$companyUrl = $supabaseUrl
+    . '/rest/v1/tenant_service_settings?select=company_full_name,company_owner_name,company_tax_id,company_address,company_email,company_phone'
+    . '&tenant_id=eq.' . rawurlencode($tenantId)
+    . '&limit=1';
+
+$ch = curl_init($companyUrl);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => $headers,
+    CURLOPT_TIMEOUT => 15,
+]);
+
+$companyResponse = curl_exec($ch);
+$companyHttpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$companyCurlError = curl_error($ch);
+curl_close($ch);
+
+if ($companyCurlError) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'B³¹d po³¹czenia z Supabase przy pobieraniu danych firmy',
+        'debug' => $companyCurlError
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($companyHttpCode !== 200) {
+    http_response_code($companyHttpCode ?: 500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'B³¹d Supabase przy pobieraniu danych firmy',
+        'debug' => $companyResponse
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$companyData = json_decode((string) $companyResponse, true);
+
 echo json_encode([
     'success' => true,
     'user' => $userData[0],
-    'branding' => is_array($brandingData) ? ($brandingData[0] ?? null) : null
+    'branding' => is_array($brandingData) ? ($brandingData[0] ?? null) : null,
+    'company' => is_array($companyData) ? ($companyData[0] ?? null) : null
 ], JSON_UNESCAPED_UNICODE);

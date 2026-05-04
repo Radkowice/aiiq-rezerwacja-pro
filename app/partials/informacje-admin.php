@@ -48,37 +48,68 @@
     <div class="admin-info-card">
       <h3>Dane firmy</h3>
 
-      <div class="admin-info-list">
-        <div class="admin-info-row">
-          <span>Nazwa publiczna / marka</span>
-          <strong id="info-company-name">—</strong>
-        </div>
+     <div class="admin-info-list">
+  <div class="admin-info-row">
+    <span>Nazwa publiczna / marka</span>
+    <strong id="info-company-name">—</strong>
+  </div>
 
-        <div class="admin-info-row">
-          <span>Numer klienta</span>
-          <strong id="info-client-number">—</strong>
-        </div>
+  <div class="admin-info-row">
+    <span>Pełna nazwa firmy</span>
+    <strong id="info-company-full-name">—</strong>
+  </div>
 
-        <div class="admin-info-row">
-          <span>Identyfikator firmy</span>
-          <strong id="info-company-id">—</strong>
-        </div>
+  <div class="admin-info-row">
+    <span>Właściciel / osoba kontaktowa</span>
+    <strong id="info-company-owner-name">—</strong>
+  </div>
 
-        <div class="admin-info-row">
-          <span>Tenant ID</span>
-          <strong id="info-tenant-id">—</strong>
-        </div>
+  <div class="admin-info-row">
+    <span>NIP</span>
+    <strong id="info-company-tax-id">—</strong>
+  </div>
 
-        <div class="admin-info-row">
-          <span>Email administratora</span>
-          <strong id="info-user-email">—</strong>
-        </div>
+  <div class="admin-info-row">
+    <span>Adres firmy</span>
+    <strong id="info-company-address">—</strong>
+  </div>
 
-        <div class="admin-info-row">
-          <span>Rola użytkownika</span>
-          <strong id="info-user-role">—</strong>
-        </div>
-      </div>
+  <div class="admin-info-row">
+    <span>Email firmowy</span>
+    <strong id="info-company-email">—</strong>
+  </div>
+
+  <div class="admin-info-row">
+    <span>Telefon firmowy</span>
+    <strong id="info-company-phone">—</strong>
+  </div>
+
+  <div class="admin-info-row">
+    <span>Numer klienta</span>
+    <strong id="info-client-number">—</strong>
+  </div>
+
+  <div class="admin-info-row">
+    <span>Identyfikator firmy</span>
+    <strong id="info-company-id">—</strong>
+  </div>
+
+  <div class="admin-info-row">
+    <span>Tenant ID</span>
+    <strong id="info-tenant-id">—</strong>
+  </div>
+
+  <div class="admin-info-row">
+    <span>Email administratora</span>
+    <strong id="info-user-email">—</strong>
+  </div>
+
+  <div class="admin-info-row">
+    <span>Rola użytkownika</span>
+    <strong id="info-user-role">—</strong>
+  </div>
+</div>
+      
     </div>
 
     <div class="admin-info-card">
