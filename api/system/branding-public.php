@@ -85,8 +85,8 @@ echo json_encode([
         'branding' => [
         'client_name' => $row['client_name'] ?? '',
         'service_title_front' => $row['service_title_front'] ?? '',
-        'logo_url_front' => $row['logo_url_front'] ?? '',
-        'favicon_url_front' => trim((string)($row['favicon_url_front'] ?? '')),
+        'logo_url_front' => trim((string)($row['logo_url_front'] ?? '')) !== '' ? '/api/system/logo-front.php' : '',
+        'favicon_url_front' => trim((string)($row['favicon_url_front'] ?? '')) !== '' ? '/api/system/favicon-front.php' : '',
         'calendar_front_style' => is_array($row['calendar_front_style'] ?? null)
             ? $row['calendar_front_style']
             : [],
