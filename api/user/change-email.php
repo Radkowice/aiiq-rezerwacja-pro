@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../system/tenant.php';
 
 function getClientIpAddress(): string
 {
@@ -30,6 +31,16 @@ function getClientIpAddress(): string
 header('Content-Type: application/json; charset=utf-8');
 
 start_secure_session();
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Allow: POST');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Metoda niedozwolona'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 if (!isset($_SESSION['user']['id'])) {
     http_response_code(401);
@@ -59,12 +70,22 @@ if ($currentEmail !== '' && mb_strtolower($newEmail) === mb_strtolower($currentE
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $serviceRoleKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
     http_response_code(500);
     echo json_encode([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -96,8 +117,8 @@ curl_setopt_array($rateCheckCh, [
         'Accept: application/json',
         'apikey: ' . $serviceRoleKey,
         'Authorization: Bearer ' . $serviceRoleKey,
-        'Accept-Profile: rezerwacja_pro',
-        'Content-Profile: rezerwacja_pro',
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
     ],
     CURLOPT_TIMEOUT        => 20,
 ]);
@@ -111,7 +132,7 @@ if ($rateCheckResponse === false) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd sprawdzania limitu zmian email: ' . $curlError
+        'error' => 'Błąd sprawdzania limitu zmian email'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -170,8 +191,8 @@ curl_setopt_array($attemptCh, [
         'Accept: application/json',
         'apikey: ' . $serviceRoleKey,
         'Authorization: Bearer ' . $serviceRoleKey,
-        'Accept-Profile: rezerwacja_pro',
-        'Content-Profile: rezerwacja_pro',
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
         'Prefer: return=minimal',
     ],
     CURLOPT_TIMEOUT        => 20,
@@ -186,7 +207,7 @@ if ($attemptResponse === false) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd zapisu próby zmiany email: ' . $curlError
+        'error' => 'Błąd zapisu próby zmiany email'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -230,8 +251,8 @@ curl_setopt_array($ch, [
         'Accept: application/json',
         'apikey: ' . $serviceRoleKey,
         'Authorization: Bearer ' . $serviceRoleKey,
-        'Accept-Profile: rezerwacja_pro',
-        'Content-Profile: rezerwacja_pro',
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
         'Prefer: return=representation',
     ],
     CURLOPT_POSTFIELDS     => $payload,
@@ -247,7 +268,7 @@ if ($response === false) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd CURL: ' . $curlError
+        'error' => 'Błąd połączenia z bazą'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -284,8 +305,8 @@ if ($logPayload !== false) {
             'Accept: application/json',
             'apikey: ' . $serviceRoleKey,
             'Authorization: Bearer ' . $serviceRoleKey,
-            'Accept-Profile: rezerwacja_pro',
-            'Content-Profile: rezerwacja_pro',
+            'Accept-Profile: ' . $schema,
+            'Content-Profile: ' . $schema,
             'Prefer: return=minimal',
         ],
         CURLOPT_TIMEOUT        => 20,
@@ -343,8 +364,8 @@ curl_setopt_array($checkCh, [
         'Accept: application/json',
         'apikey: ' . $serviceRoleKey,
         'Authorization: Bearer ' . $serviceRoleKey,
-        'Accept-Profile: rezerwacja_pro',
-        'Content-Profile: rezerwacja_pro',
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
     ],
     CURLOPT_TIMEOUT        => 20,
 ]);
@@ -358,7 +379,7 @@ if ($checkResponse === false) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd sprawdzania emaila: ' . $curlError
+        'error' => 'Błąd sprawdzania emaila'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

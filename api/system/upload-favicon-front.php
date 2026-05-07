@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
@@ -16,6 +17,7 @@ function favicon_json(int $status, array $payload): void
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Allow: POST');
     favicon_json(405, [
         'success' => false,
         'error' => 'Metoda niedozwolona.'
@@ -26,6 +28,24 @@ if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
     favicon_json(401, [
         'success' => false,
         'error' => 'Brak autoryzacji.'
+    ]);
+}
+
+$SUPABASE_URL = getenv('SUPABASE_URL') ?: '';
+$SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
+$SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
+
+if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    favicon_json(500, [
+        'success' => false,
+        'error' => 'Brak konfiguracji Supabase.'
+    ]);
+}
+
+if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA)) {
+    favicon_json(401, [
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny.'
     ]);
 }
 
@@ -126,17 +146,6 @@ if (!move_uploaded_file($tmpPath, $targetPath)) {
 
 $faviconUrl = $relativeDir . '/' . $targetFileName;
 
-$SUPABASE_URL = getenv('SUPABASE_URL') ?: '';
-$SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
-$SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
-
-if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
-    favicon_json(500, [
-        'success' => false,
-        'error' => 'Brak konfiguracji Supabase.'
-    ]);
-}
-
 $url = rtrim($SUPABASE_URL, '/') . '/rest/v1/tenant_branding'
     . '?tenant_id=eq.' . rawurlencode($tenantId);
 
@@ -173,8 +182,7 @@ if ($response === false || $curlError) {
 if ($httpCode < 200 || $httpCode >= 300) {
     favicon_json(500, [
         'success' => false,
-        'error' => 'Favicon zapisany, ale nie udało się zaktualizować bazy.',
-        'debug' => $response
+        'error' => 'Favicon zapisany, ale nie udało się zaktualizować bazy.'
     ]);
 }
 

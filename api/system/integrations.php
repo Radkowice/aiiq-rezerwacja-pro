@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/crypto.php';
+require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
@@ -28,6 +29,15 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
     echo json_encode([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -213,16 +223,14 @@ if ($method === 'GET') {
     if ($result['error']) {
         json_response([
             'success' => false,
-            'error' => 'Błąd połączenia z Supabase',
-            'debug' => $result['error']
+            'error' => 'Błąd połączenia z Supabase'
         ], 500);
     }
 
     if ($result['http_code'] !== 200) {
         json_response([
             'success' => false,
-            'error' => 'Błąd odczytu integracji',
-            'debug' => $result['response']
+            'error' => 'Błąd odczytu integracji'
         ], $result['http_code'] ?: 500);
     }
 
@@ -241,6 +249,7 @@ if ($method === 'GET') {
 }
 
 if ($method !== 'POST') {
+    header('Allow: GET, POST');
     json_response([
         'success' => false,
         'error' => 'Metoda niedozwolona'
@@ -338,16 +347,14 @@ $saveResult = curl_supabase($saveUrl, 'POST', $supabaseKey, $schema, $payload);
 if ($saveResult['error']) {
     json_response([
         'success' => false,
-        'error' => 'Błąd połączenia z Supabase',
-        'debug' => $saveResult['error']
+        'error' => 'Błąd połączenia z Supabase'
     ], 500);
 }
 
 if ($saveResult['http_code'] < 200 || $saveResult['http_code'] >= 300) {
     json_response([
         'success' => false,
-        'error' => 'Nie udało się zapisać integracji',
-        'debug' => $saveResult['response']
+        'error' => 'Nie udało się zapisać integracji'
     ], $saveResult['http_code'] ?: 500);
 }
 
