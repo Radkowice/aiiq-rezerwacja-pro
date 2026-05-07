@@ -18,6 +18,17 @@ function register_debug($label, $data = null): void
     @file_put_contents('/var/www/data/register-debug.log', $line, FILE_APPEND);
 }
 
+function register_debug_result(string $label, array $result): void
+{
+    $data = $result['data'] ?? null;
+
+    register_debug($label, [
+        'ok' => $result['ok'] ?? false,
+        'httpCode' => $result['httpCode'] ?? null,
+        'recordCount' => is_array($data) ? count($data) : null,
+    ]);
+}
+
 register_debug('START');
 
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
@@ -41,9 +52,7 @@ if ($method === 'GET') {
         ?? ''
     );
 
-    register_debug('REGISTER_STATUS_GET', [
-        'domain' => $domain
-    ]);
+    register_debug('REGISTER_STATUS_GET');
 
     if ($domain === '' || !is_valid_domain($domain)) {
         json_response([
@@ -60,7 +69,7 @@ if ($method === 'GET') {
         . '&is_active=eq.true&limit=1'
     );
 
-    register_debug('REGISTER_STATUS_DOMAIN_CHECK', $domainExists);
+    register_debug_result('REGISTER_STATUS_DOMAIN_CHECK', $domainExists);
 
     if (!$domainExists['ok']) {
         json_response([
@@ -96,9 +105,6 @@ if ($method !== 'POST') {
 $rawInput = file_get_contents('php://input');
 $data = json_decode($rawInput, true);
 
-register_debug('RAW_INPUT', $rawInput);
-register_debug('PARSED_INPUT', $data);
-
 if (!is_array($data)) {
     json_response([
         'success' => false,
@@ -132,17 +138,6 @@ $domain = normalize_domain(
     ?? $_SERVER['HTTP_HOST']
     ?? ''
 );
-
-register_debug('NORMALIZED_VALUES', [
-    'email' => $email,
-    'client_name' => $clientName,
-    'domain' => $domain,
-    'company_full_name' => $companyFullName,
-    'company_owner_name' => $companyOwnerName,
-    'company_tax_id' => $companyTaxId,
-    'company_email' => $companyEmail,
-    'company_phone' => $companyPhone
-]);
 
 if (!$email || !is_valid_register_password($password)) {
     json_response([
@@ -203,7 +198,7 @@ $emailExists = supabase_request(
     '/rest/v1/users?select=id,email&email=eq.' . rawurlencode($email) . '&limit=1'
 );
 
-register_debug('CHECK_EMAIL_EXISTS_AFTER', $emailExists);
+register_debug_result('CHECK_EMAIL_EXISTS_AFTER', $emailExists);
 
 if ($emailExists['ok'] && !empty($emailExists['data'])) {
     json_response([
@@ -219,7 +214,7 @@ $domainExists = supabase_request(
     '/rest/v1/tenant_domains?select=id,domain&domain=eq.' . rawurlencode($domain) . '&limit=1'
 );
 
-register_debug('CHECK_DOMAIN_EXISTS_AFTER', $domainExists);
+register_debug_result('CHECK_DOMAIN_EXISTS_AFTER', $domainExists);
 
 if ($domainExists['ok'] && !empty($domainExists['data'])) {
     json_response([
@@ -242,9 +237,7 @@ try {
     $clientNumber = generate_client_number();
 
     register_debug('GENERATE_IDS_AFTER', [
-        'tenant_id' => $tenantId,
-        'company_id' => $companyId,
-        'client_number' => $clientNumber
+        'created' => true
     ]);
 
     // 1. GŁÓWNY REKORD FIRMY / TENANT
@@ -276,11 +269,11 @@ try {
 ],
     ];
 
-    register_debug('INSERT_TENANT_BRANDING_BEFORE', $brandingPayload);
+    register_debug('INSERT_TENANT_BRANDING_BEFORE');
 
     $brandingInsert = supabase_request('POST', '/rest/v1/tenant_branding', $brandingPayload);
 
-    register_debug('INSERT_TENANT_BRANDING_AFTER', $brandingInsert);
+    register_debug_result('INSERT_TENANT_BRANDING_AFTER', $brandingInsert);
 
     if (!$brandingInsert['ok']) {
         throw new Exception('Nie udało się utworzyć tenant_branding: ' . $brandingInsert['error']);
@@ -298,17 +291,11 @@ try {
         'created_at'    => date('c'),
     ];
 
-    register_debug('INSERT_USER_BEFORE', [
-        'tenant_id' => $userPayload['tenant_id'],
-        'email' => $userPayload['email'],
-        'role' => $userPayload['role'],
-        'is_active' => $userPayload['is_active'],
-        'created_at' => $userPayload['created_at']
-    ]);
+    register_debug('INSERT_USER_BEFORE');
 
     $userInsert = supabase_request('POST', '/rest/v1/users', $userPayload);
 
-    register_debug('INSERT_USER_AFTER', $userInsert);
+    register_debug_result('INSERT_USER_AFTER', $userInsert);
 
     if (!$userInsert['ok']) {
         throw new Exception('Nie udało się utworzyć użytkownika: ' . $userInsert['error']);
@@ -325,11 +312,11 @@ try {
         'created_at' => date('c'),
     ];
 
-    register_debug('INSERT_DOMAIN_BEFORE', $domainPayload);
+    register_debug('INSERT_DOMAIN_BEFORE');
 
     $domainInsert = supabase_request('POST', '/rest/v1/tenant_domains', $domainPayload);
 
-    register_debug('INSERT_DOMAIN_AFTER', $domainInsert);
+    register_debug_result('INSERT_DOMAIN_AFTER', $domainInsert);
 
     if (!$domainInsert['ok']) {
         throw new Exception('Nie udało się utworzyć tenant_domains: ' . $domainInsert['error']);
@@ -362,7 +349,7 @@ try {
         'updated_at' => date('c'),
     ];
 
-    register_debug('INSERT_SERVICE_SETTINGS_BEFORE', $serviceSettingsPayload);
+    register_debug('INSERT_SERVICE_SETTINGS_BEFORE');
 
     $serviceSettingsInsert = supabase_request(
         'POST',
@@ -370,7 +357,7 @@ try {
         $serviceSettingsPayload
     );
 
-    register_debug('INSERT_SERVICE_SETTINGS_AFTER', $serviceSettingsInsert);
+    register_debug_result('INSERT_SERVICE_SETTINGS_AFTER', $serviceSettingsInsert);
 
     if (!$serviceSettingsInsert['ok']) {
         throw new Exception('Nie udało się utworzyć tenant_service_settings: ' . $serviceSettingsInsert['error']);
@@ -379,10 +366,7 @@ try {
     $createdServiceSettings = true;
 
     register_debug('SUCCESS', [
-        'tenant_id' => $tenantId,
-        'company_id' => $companyId,
-        'client_number' => $clientNumber,
-        'domain' => $domain
+        'created' => true
     ]);
 
     json_response([
@@ -396,7 +380,6 @@ try {
 
 } catch (Throwable $e) {
     register_debug('EXCEPTION', [
-        'message' => $e->getMessage(),
         'createdBranding' => $createdBranding,
         'createdUser' => $createdUser,
         'createdDomain' => $createdDomain,
@@ -405,22 +388,22 @@ try {
 
     if (!empty($tenantId) && $createdServiceSettings) {
         $rollbackServiceSettings = supabase_request('DELETE', '/rest/v1/tenant_service_settings?tenant_id=eq.' . rawurlencode($tenantId));
-        register_debug('ROLLBACK_SERVICE_SETTINGS', $rollbackServiceSettings);
+        register_debug_result('ROLLBACK_SERVICE_SETTINGS', $rollbackServiceSettings);
     }
 
     if (!empty($tenantId) && $createdDomain) {
         $rollbackDomain = supabase_request('DELETE', '/rest/v1/tenant_domains?tenant_id=eq.' . rawurlencode($tenantId));
-        register_debug('ROLLBACK_DOMAIN', $rollbackDomain);
+        register_debug_result('ROLLBACK_DOMAIN', $rollbackDomain);
     }
 
     if (!empty($tenantId) && $createdUser) {
         $rollbackUser = supabase_request('DELETE', '/rest/v1/users?tenant_id=eq.' . rawurlencode($tenantId));
-        register_debug('ROLLBACK_USER', $rollbackUser);
+        register_debug_result('ROLLBACK_USER', $rollbackUser);
     }
 
     if (!empty($tenantId) && $createdBranding) {
         $rollbackBranding = supabase_request('DELETE', '/rest/v1/tenant_branding?tenant_id=eq.' . rawurlencode($tenantId));
-        register_debug('ROLLBACK_BRANDING', $rollbackBranding);
+        register_debug_result('ROLLBACK_BRANDING', $rollbackBranding);
     }
 
     json_response([
@@ -509,8 +492,7 @@ function generate_unique_company_id(): string
         $companyId = (string) random_int(10000, 99999);
 
         register_debug('GENERATE_COMPANY_ID_TRY', [
-            'attempt' => $i + 1,
-            'company_id' => $companyId
+            'attempt' => $i + 1
         ]);
 
         $check = supabase_request(
@@ -518,10 +500,12 @@ function generate_unique_company_id(): string
             '/rest/v1/tenant_branding?select=tenant_id,company_id&company_id=eq.' . rawurlencode($companyId) . '&limit=1'
         );
 
-        register_debug('GENERATE_COMPANY_ID_CHECK', $check);
+        register_debug_result('GENERATE_COMPANY_ID_CHECK', $check);
 
         if ($check['ok'] && empty($check['data'])) {
-            register_debug('GENERATE_COMPANY_ID_SUCCESS', ['company_id' => $companyId]);
+            register_debug('GENERATE_COMPANY_ID_SUCCESS', [
+                'created' => true
+            ]);
             return $companyId;
         }
     }
@@ -537,8 +521,7 @@ function generate_client_number(): string
         $clientNumber = str_pad((string) random_int(0, 99999), 5, '0', STR_PAD_LEFT);
 
         register_debug('GENERATE_CLIENT_NUMBER_TRY', [
-            'attempt' => $i + 1,
-            'client_number' => $clientNumber
+            'attempt' => $i + 1
         ]);
 
         $check = supabase_request(
@@ -546,10 +529,12 @@ function generate_client_number(): string
             '/rest/v1/tenant_branding?select=client_number&client_number=eq.' . rawurlencode($clientNumber) . '&limit=1'
         );
 
-        register_debug('GENERATE_CLIENT_NUMBER_CHECK', $check);
+        register_debug_result('GENERATE_CLIENT_NUMBER_CHECK', $check);
 
         if ($check['ok'] && empty($check['data'])) {
-            register_debug('GENERATE_CLIENT_NUMBER_SUCCESS', ['client_number' => $clientNumber]);
+            register_debug('GENERATE_CLIENT_NUMBER_SUCCESS', [
+                'created' => true
+            ]);
             return $clientNumber;
         }
     }
