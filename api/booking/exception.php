@@ -2,11 +2,25 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../system/tenant.php';
+
 start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
 
-if (empty($_SESSION['user'])) {
+$method = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+if (!in_array($method, ['POST', 'DELETE'], true)) {
+    header('Allow: POST, DELETE');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Metoda niedozwolona'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
         'success' => false,
@@ -39,14 +53,30 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     exit;
 }
 
+if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
 if (!is_array($input)) {
     $input = [];
 }
 
-$date = $input['date'] ?? null;   
+$date = trim((string) ($input['date'] ?? ''));
 
-$method = $_SERVER['REQUEST_METHOD'] ?? 'POST';  
+if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nieprawid³owa data'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 if ($method === 'DELETE') {
     $url = $SUPABASE_URL
@@ -66,8 +96,7 @@ if ($method === 'DELETE') {
         http_response_code(500);
         echo json_encode([
             'success' => false,
-            'error' => 'CURL exception delete error',
-            'debug' => $result['error']
+            'error' => 'B³¹d usuwania wyj¹tku dostêpnoœci'
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -76,9 +105,7 @@ if ($method === 'DELETE') {
         http_response_code(500);
         echo json_encode([
             'success' => false,
-            'error' => 'Supabase exception delete error',
-            'httpCode' => $result['httpCode'],
-            'debug' => $result['response']
+            'error' => 'B³¹d usuwania wyj¹tku dostêpnoœci'
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -90,15 +117,6 @@ if ($method === 'DELETE') {
     exit;
 }
 
-
-if (!$date) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Brak daty'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
 
 function supabase_request(string $method, string $url, string $apiKey, string $schema, array $headers = [], ?array $payload = null): array
 {
@@ -159,8 +177,7 @@ if ($result['error']) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'CURL exception save error',
-        'debug' => $result['error']
+        'error' => 'B³¹d zapisu wyj¹tku dostêpnoœci'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -169,9 +186,7 @@ if ($result['httpCode'] >= 400) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Supabase exception save error',
-        'httpCode' => $result['httpCode'],
-        'debug' => $result['response']
+        'error' => 'B³¹d zapisu wyj¹tku dostêpnoœci'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

@@ -125,6 +125,7 @@ if ($method === 'GET') {
 }
 
 if ($method !== 'POST') {
+    header('Allow: GET, POST');
     block_settings_json([
         'success' => false,
         'error' => 'Metoda niedozwolona',
@@ -138,11 +139,27 @@ if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
     ], 401);
 }
 
+if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA)) {
+    block_settings_json([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny',
+    ], 401);
+}
+
 $tenantId = (string) $_SESSION['user']['tenant_id'];
 
 $data = json_decode(file_get_contents('php://input'), true);
 if (!is_array($data)) {
     $data = [];
+}
+
+foreach (['block_saturdays', 'block_sundays', 'block_holidays'] as $field) {
+    if (array_key_exists($field, $data) && !is_bool($data[$field])) {
+        block_settings_json([
+            'success' => false,
+            'error' => 'Nieprawidłowe dane wejściowe',
+        ], 400);
+    }
 }
 
 $payload = [

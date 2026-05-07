@@ -10,6 +10,7 @@ require_once __DIR__ . '/../system/tenant.php';
 start_secure_session();
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Allow: POST');
     http_response_code(405);
     echo json_encode([
         'success' => false,
@@ -103,14 +104,6 @@ if (array_key_exists('admin_theme', $input)) {
 
 if (array_key_exists('service_title_front', $input)) {
     $data['service_title_front'] = trim((string) $input['service_title_front']);
-}
-
-if (array_key_exists('logo_url_front', $input)) {
-    $data['logo_url_front'] = trim((string) $input['logo_url_front']);
-}
-
-if (array_key_exists('favicon_url_front', $input)) {
-    $data['favicon_url_front'] = trim((string) $input['favicon_url_front']);
 }
 
 if (array_key_exists('reservations_style', $input) && is_array($input['reservations_style'])) {
@@ -221,8 +214,7 @@ if ($response === false || $curlError) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd połączenia z Supabase',
-        'debug' => $curlError
+        'error' => 'Błąd połączenia z Supabase'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -231,8 +223,7 @@ if ($httpCode < 200 || $httpCode >= 300) {
     http_response_code($httpCode > 0 ? $httpCode : 500);
     echo json_encode([
         'success' => false,
-        'error' => 'Nie udało się zapisać brandingu',
-        'debug' => $response
+        'error' => 'Nie udało się zapisać brandingu'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../system/tenant.php';
+
 start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
@@ -10,7 +12,15 @@ function json_response(array $payload, int $status = 200): void {
     exit;
 }
 
-if (empty($_SESSION['user'])) {
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    header('Allow: POST');
+    json_response([
+        'success' => false,
+        'error' => 'Metoda niedozwolona'
+    ], 405);
+}
+
+if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
     json_response([
         'success' => false,
         'error' => 'Brak autoryzacji'
@@ -37,13 +47,20 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     ], 500);
 }
 
-$input = json_decode(file_get_contents('php://input'), true);
-$id = $input['id'] ?? null;
-
-if (!$id) {
+if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA)) {
     json_response([
         'success' => false,
-        'error' => 'Brak ID rezerwacji'
+        'error' => 'Sesja nie pasuje do domeny'
+    ], 401);
+}
+
+$input = json_decode(file_get_contents('php://input'), true);
+$id = trim((string) ($input['id'] ?? ''));
+
+if ($id === '' || !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $id)) {
+    json_response([
+        'success' => false,
+        'error' => 'Nieprawidłowe ID rezerwacji'
     ], 400);
 }
 
@@ -91,8 +108,7 @@ $getUrl = $SUPABASE_URL
 if ($getErr || $getCode >= 400) {
     json_response([
         'success' => false,
-        'error' => 'Błąd pobierania rezerwacji',
-        'debug' => $getErr ?: $getRes
+        'error' => 'Błąd pobierania rezerwacji'
     ], 500);
 }
 
@@ -118,8 +134,7 @@ $deleteBookingUrl = $SUPABASE_URL
 if ($delErr || $delCode >= 400) {
     json_response([
         'success' => false,
-        'error' => 'Błąd usuwania rezerwacji',
-        'debug' => $delErr ?: $delRes
+        'error' => 'Błąd usuwania rezerwacji'
     ], 500);
 }
 
@@ -135,8 +150,7 @@ if ($bookingDate && $bookingTime) {
     if ($blockErr || $blockCode >= 400) {
         json_response([
             'success' => false,
-            'error' => 'Rezerwacja usunięta, ale nie udało się odblokować godziny',
-            'debug' => $blockErr ?: $blockRes
+            'error' => 'Rezerwacja usunięta, ale nie udało się odblokować godziny'
         ], 500);
     }
 }

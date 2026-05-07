@@ -94,8 +94,7 @@ function payu_get_integration(string $tenantId): ?array
     if ($result['error'] || $result['http_code'] !== 200) {
         payu_debug('PAYU_INTEGRATION_FETCH_ERROR', [
             'http_code' => $result['http_code'],
-            'error' => $result['error'],
-            'response' => $result['response'],
+            'error' => $result['error'] !== '',
         ]);
         return null;
     }
@@ -237,9 +236,8 @@ function payu_get_access_token(array $payu): array
         'client_id_set' => !empty($payu['client_id']),
         'client_secret_set' => !empty($payu['client_secret']),
         'http_code' => $result['http_code'],
-        'curl_error' => $result['error'],
+        'curl_error' => $result['error'] !== '',
         'effective_url' => $result['effective_url'],
-        'response' => $result['data'] ?: $result['response'],
     ];
 
     if ($result['error'] || $result['http_code'] < 200 || $result['http_code'] >= 300) {
@@ -248,7 +246,6 @@ function payu_get_access_token(array $payu): array
         return [
             'success' => false,
             'error' => 'Nie udało się pobrać tokena PayU.',
-            'details' => $debugPayload,
         ];
     }
 
@@ -260,7 +257,6 @@ function payu_get_access_token(array $payu): array
         return [
             'success' => false,
             'error' => 'PayU nie zwróciło access_token.',
-            'details' => $debugPayload,
         ];
     }
 
@@ -278,7 +274,6 @@ function payu_create_order(array $payu, array $orderPayload): array
         return [
             'success' => false,
             'error' => $tokenResult['error'] ?? 'Nie udało się pobrać tokena PayU.',
-            'details' => $tokenResult['details'] ?? null,
         ];
     }
 
@@ -302,17 +297,17 @@ function payu_create_order(array $payu, array $orderPayload): array
 
     payu_debug('PAYU_CREATE_ORDER_RESPONSE', [
         'http_code' => $result['http_code'],
-        'error' => $result['error'],
-        'location' => $result['location'] ?? '',
-        'data' => $data,
-        'raw' => $result['response'],
+        'error' => $result['error'] !== '',
+        'location_set' => !empty($result['location']),
+        'status_code' => (string) ($data['status']['statusCode'] ?? ''),
+        'order_id_set' => !empty($data['orderId']),
+        'redirect_uri_set' => !empty($data['redirectUri']),
     ]);
 
     if ($result['error']) {
         return [
             'success' => false,
             'error' => 'Błąd połączenia z PayU.',
-            'details' => $result['error'],
         ];
     }
 
@@ -348,6 +343,5 @@ function payu_create_order(array $payu, array $orderPayload): array
         'status_code' => $statusCode,
         'http_code' => $result['http_code'],
         'location' => $location,
-        'details' => $data ?: $result['response'],
     ];
 }
