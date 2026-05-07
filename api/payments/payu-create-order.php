@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/payu.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../system/tenant.php';
 
 function payu_create_order_response(array $payload, int $statusCode = 200): void
 {
@@ -52,7 +53,7 @@ function payu_get_customer_ip(): string
     return '127.0.0.1';
 }
 
-function payu_fetch_booking(string $bookingId): ?array
+function payu_fetch_booking(string $bookingId, string $tenantId): ?array
 {
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
@@ -65,8 +66,9 @@ function payu_fetch_booking(string $bookingId): ?array
 
     $url = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=*'
+        . '?select=id,tenant_id,email,name,booking_date,booking_time,payment_required,payment_status,payment_amount,payment_currency,payment_expires_at'
         . '&id=eq.' . rawurlencode($bookingId)
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1';
 
     $result = payu_supabase_request($url, 'GET', $supabaseKey, $schema);
@@ -84,7 +86,7 @@ function payu_fetch_booking(string $bookingId): ?array
     return $result['data'][0] ?? null;
 }
 
-function payu_update_booking_payment(string $bookingId, array $payload): bool
+function payu_update_booking_payment(string $bookingId, string $tenantId, array $payload): bool
 {
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
@@ -97,7 +99,8 @@ function payu_update_booking_payment(string $bookingId, array $payload): bool
 
     $url = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?id=eq.' . rawurlencode($bookingId);
+        . '?id=eq.' . rawurlencode($bookingId)
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
 
     $result = payu_supabase_request(
         $url,
@@ -251,7 +254,27 @@ try {
         ], 400);
     }
 
-    $booking = payu_fetch_booking($bookingId);
+    $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+    $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+    $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
+
+    if ($supabaseUrl === '' || $supabaseKey === '') {
+        payu_create_order_response([
+            'success' => false,
+            'error' => 'Brak konfiguracji Supabase.'
+        ], 500);
+    }
+
+    $hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+
+    if (!$hostTenantId) {
+        payu_create_order_response([
+            'success' => false,
+            'error' => 'Nie rozpoznano klienta.'
+        ], 404);
+    }
+
+    $booking = payu_fetch_booking($bookingId, (string) $hostTenantId);
 
     if (!$booking) {
         payu_create_order_response([
@@ -267,6 +290,13 @@ try {
             'success' => false,
             'error' => 'Rezerwacja nie ma tenant_id.'
         ], 422);
+    }
+
+    if (!hash_equals((string) $hostTenantId, $tenantId)) {
+        payu_create_order_response([
+            'success' => false,
+            'error' => 'Nie znaleziono rezerwacji.'
+        ], 404);
     }
 
     $paymentRequired = $booking['payment_required'] === true || $booking['payment_required'] === 'true';
@@ -372,7 +402,7 @@ try {
     $created = payu_create_order($payu, $orderPayload);
 
     if (empty($created['success'])) {
-        payu_update_booking_payment($bookingId, [
+        payu_update_booking_payment($bookingId, (string) $hostTenantId, [
             'payment_status' => 'failed',
             'payment_provider' => 'payu',
             'updated_at' => gmdate('c'),
@@ -390,7 +420,7 @@ try {
 
     $now = gmdate('c');
 
-    $updated = payu_update_booking_payment($bookingId, [
+    $updated = payu_update_booking_payment($bookingId, (string) $hostTenantId, [
         'status' => 'pending_payment',
         'payment_status' => 'pending',
         'payment_provider' => 'payu',
