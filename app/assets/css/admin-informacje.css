@@ -158,6 +158,10 @@
   margin-top: 18px;
 }
 @media (max-width: 768px) {
+  .admin-info-row:has(.admin-info-input) {
+    grid-template-columns: 1fr;
+  }
+
   .admin-info-input {
     width: 100%;
     justify-self: stretch;
