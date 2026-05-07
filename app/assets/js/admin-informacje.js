@@ -74,7 +74,34 @@
 
   function isValidSimplePhone(value) {
     const phone = String(value || '').trim();
-    return phone !== '' && /^[0-9\s+\-()]+$/.test(phone);
+
+    if (!phone) {
+      return false;
+    }
+
+    if (!/^\+?[0-9\s-]+$/.test(phone)) {
+      return false;
+    }
+
+    if ((phone.match(/\+/g) || []).length > 1) {
+      return false;
+    }
+
+    if (phone.includes('+') && !phone.startsWith('+')) {
+      return false;
+    }
+
+    const digits = phone.replace(/\D+/g, '');
+
+    if (phone.startsWith('+48')) {
+      return digits.length === 11 && digits.startsWith('48');
+    }
+
+    if (phone.startsWith('+')) {
+      return false;
+    }
+
+    return digits.length === 9;
   }
 
   async function showCompanyContactMessage(message, type = 'success') {
@@ -120,7 +147,7 @@
     }
 
     if (!isValidSimplePhone(payload.company_phone)) {
-      return 'Telefon firmowy może zawierać tylko cyfry, spacje, plus, minus i nawiasy.';
+      return 'Podaj poprawny telefon firmowy.';
     }
 
     return '';

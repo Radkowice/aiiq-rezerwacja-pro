@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
@@ -85,6 +86,13 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
     account_info_json(500, [
         'success' => false,
         'error' => 'Brak konfiguracji Supabase.'
+    ]);
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    account_info_json(401, [
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny.'
     ]);
 }
 
