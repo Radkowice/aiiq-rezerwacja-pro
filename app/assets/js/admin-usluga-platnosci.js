@@ -189,7 +189,7 @@ async function saveServicePaymentsSettings(button) {
     fillServicePaymentsForm(data.settings || payload);
     servicePaymentsLoaded = true;
 
-    await showServicePaymentsMessage(data.message || 'Ustawienia usługi zostały zapisane.', 'success');
+    await showServicePaymentsMessage('Ustawienia usługi zostały zapisane.', 'success');
   } catch (error) {
     console.error('saveServicePaymentsSettings error:', error);
     await showServicePaymentsMessage('Błąd połączenia z serwerem.', 'error');

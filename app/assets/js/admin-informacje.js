@@ -56,6 +56,139 @@
     el.textContent = value === null || value === undefined || value === '' ? '—' : String(value);
   }
 
+  function setInputValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    el.value = value === null || value === undefined ? '' : String(value);
+  }
+
+  function getInputValue(id) {
+    const el = document.getElementById(id);
+    return el ? String(el.value || '').trim() : '';
+  }
+
+  function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || '').trim());
+  }
+
+  function isValidSimplePhone(value) {
+    const phone = String(value || '').trim();
+    return phone !== '' && /^[0-9\s+\-()]+$/.test(phone);
+  }
+
+  async function showCompanyContactMessage(message, type = 'success') {
+    if (typeof openAdminConfirm === 'function') {
+      await openAdminConfirm({
+        title: type === 'success' ? 'Dane zapisane' : 'Błąd',
+        message,
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        variant: type === 'success' ? 'primary' : 'danger',
+        icon: type === 'success' ? '✓' : '!'
+      });
+      return;
+    }
+
+    console[type === 'success' ? 'log' : 'error'](message);
+  }
+
+  function getCompanyContactPayload() {
+    return {
+      section: 'company_contact',
+      company_address: getInputValue('info-company-address'),
+      company_email: getInputValue('info-company-email'),
+      company_phone: getInputValue('info-company-phone')
+    };
+  }
+
+  function validateCompanyContactPayload(payload) {
+    if (!payload.company_address) {
+      return 'Adres firmy nie może być pusty.';
+    }
+
+    if (!payload.company_email) {
+      return 'Email firmowy nie może być pusty.';
+    }
+
+    if (!isValidEmail(payload.company_email)) {
+      return 'Podaj poprawny email firmowy.';
+    }
+
+    if (!payload.company_phone) {
+      return 'Telefon firmowy nie może być pusty.';
+    }
+
+    if (!isValidSimplePhone(payload.company_phone)) {
+      return 'Telefon firmowy może zawierać tylko cyfry, spacje, plus, minus i nawiasy.';
+    }
+
+    return '';
+  }
+
+  async function saveCompanyContact(button) {
+    const payload = getCompanyContactPayload();
+    const validationError = validateCompanyContactPayload(payload);
+
+    if (validationError) {
+      await showCompanyContactMessage(validationError, 'error');
+      return;
+    }
+
+    const originalText = button ? button.textContent : '';
+    const startTime = Date.now();
+
+    try {
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Zapisywanie...';
+      }
+
+      const res = await fetch('/api/system/service-settings.php', {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      const text = await res.text();
+      let data = null;
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Serwer zwrócił nieprawidłową odpowiedź.');
+      }
+
+      if (!res.ok || data?.success !== true) {
+        throw new Error(data?.error || 'Nie udało się zapisać danych firmy.');
+      }
+
+      const settings = data.settings || payload;
+      setInputValue('info-company-address', settings.company_address || payload.company_address);
+      setInputValue('info-company-email', settings.company_email || payload.company_email);
+      setInputValue('info-company-phone', settings.company_phone || payload.company_phone);
+
+      await showCompanyContactMessage('Dane firmy zostały zapisane.', 'success');
+    } catch (error) {
+      console.error('company contact save error:', error);
+      await showCompanyContactMessage(error.message || 'Nie udało się zapisać danych firmy.', 'error');
+    } finally {
+      if (button) {
+        button.disabled = false;
+
+        if (typeof finishButtonState === 'function') {
+          finishButtonState(button, originalText, startTime, 900);
+        } else {
+          button.textContent = originalText;
+        }
+      }
+    }
+  }
+
   async function loadAccountInfo() {
     try {
       const res = await fetch('/api/system/account-info.php', {
@@ -84,11 +217,11 @@
 
       setText('info-company-name', branding.client_name);
       setText('info-company-full-name', company.company_full_name);
-setText('info-company-owner-name', company.company_owner_name);
-setText('info-company-tax-id', company.company_tax_id);
-setText('info-company-address', company.company_address);
-setText('info-company-email', company.company_email);
-setText('info-company-phone', company.company_phone);
+      setText('info-company-owner-name', company.company_owner_name);
+      setText('info-company-tax-id', company.company_tax_id);
+      setInputValue('info-company-address', company.company_address);
+      setInputValue('info-company-email', company.company_email);
+      setInputValue('info-company-phone', company.company_phone);
       setText('info-client-number', branding.client_number);
       setText('info-company-id', branding.company_id);
       setText('info-tenant-id', branding.tenant_id || user.tenant_id);
@@ -122,5 +255,10 @@ setText('info-company-phone', company.company_phone);
 
   document.addEventListener('DOMContentLoaded', () => {
     loadAccountInfo();
+
+    const saveButton = document.getElementById('save-company-contact-btn');
+    if (saveButton) {
+      saveButton.addEventListener('click', () => saveCompanyContact(saveButton));
+    }
   });
 })();

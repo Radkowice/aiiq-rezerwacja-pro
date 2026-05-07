@@ -1,10 +1,12 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../system/tenant.php';
+
 header('Content-Type: application/json; charset=utf-8');
 
-session_start();
-
+start_secure_session();
 if (!isset($_SESSION['user']['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
@@ -26,6 +28,14 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
     echo json_encode([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase w ENV'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -71,7 +81,7 @@ function requireServiceText(array $input, string $key, string $label, int $maxLe
     if ($value === null) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Uzupełnij wymagane dane firmy',
+            'error' => 'UzupeĹ‚nij wymagane dane firmy',
             'field' => $key,
             'label' => $label
         ], 422);
@@ -88,6 +98,18 @@ function validateCompanyEmail(string $email): void
             'error' => 'Podaj poprawny adres e-mail firmy',
             'field' => 'company_email',
             'label' => 'E-mail firmy'
+        ], 422);
+    }
+}
+
+function validateCompanyContactPhone(string $phone): void
+{
+    if ($phone === '' || !preg_match('/^[0-9\s+\-()]+$/', $phone)) {
+        sendServiceSettingsJson([
+            'success' => false,
+            'error' => 'Telefon firmowy może zawierać tylko cyfry, spacje, plus, minus i nawiasy',
+            'field' => 'company_phone',
+            'label' => 'Telefon firmowy'
         ], 422);
     }
 }
@@ -154,7 +176,7 @@ if ($method === 'GET') {
     if (!$result['ok']) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Nie udało się pobrać ustawień usługi',
+            'error' => 'Nie udaĹ‚o siÄ™ pobraÄ‡ ustawieĹ„ usĹ‚ugi',
             'details' => $result['json'] ?: $result['body'],
         ], 500);
     }
@@ -173,11 +195,82 @@ if ($method === 'POST') {
     if (!is_array($input)) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Brak danych wejściowych'
+            'error' => 'Brak danych wejĹ›ciowych'
         ], 400);
     }
     
-    $isCompanyInfoSave = array_key_exists('company_full_name', $input)
+    
+    $section = (string) ($input['section'] ?? '');
+
+    if ($section === 'company_contact') {
+        $forbiddenFields = [
+            'client_name',
+            'company_full_name',
+            'company_owner_name',
+            'company_tax_id',
+            'client_number',
+            'company_id',
+            'tenant_id',
+            'user_email',
+            'user_role',
+            'email',
+            'role',
+        ];
+
+        foreach ($forbiddenFields as $field) {
+            if (array_key_exists($field, $input)) {
+                sendServiceSettingsJson([
+                    'success' => false,
+                    'error' => 'Tego pola nie można zapisać w zakładce Informacje',
+                    'field' => $field,
+                ], 400);
+            }
+        }
+
+        $companyAddress = requireServiceText($input, 'company_address', 'Adres firmy', 500);
+        $companyEmail = requireServiceText($input, 'company_email', 'E-mail firmy', 255);
+        $companyPhone = requireServiceText($input, 'company_phone', 'Telefon firmowy', 50);
+
+        validateCompanyEmail($companyEmail);
+        validateCompanyContactPhone($companyPhone);
+
+        $payload = [[
+            'tenant_id' => $tenantId,
+            'company_address' => $companyAddress,
+            'company_email' => $companyEmail,
+            'company_phone' => $companyPhone,
+            'updated_at' => gmdate('c'),
+        ]];
+
+        $url = $supabaseUrl
+            . '/rest/v1/tenant_service_settings'
+            . '?on_conflict=tenant_id';
+
+        $result = serviceSettingsSupabaseRequest(
+            'POST',
+            $url,
+            $serviceRoleKey,
+            $schema,
+            $payload
+        );
+
+        if (!$result['ok']) {
+            sendServiceSettingsJson([
+                'success' => false,
+                'error' => 'Nie udało się zapisać danych firmy',
+                'details' => $result['json'] ?: $result['body'],
+            ], 500);
+        }
+
+        $saved = $result['json'][0] ?? $payload[0];
+
+        sendServiceSettingsJson([
+            'success' => true,
+            'message' => 'Dane firmy zostały zapisane.',
+            'settings' => $saved,
+        ]);
+    }
+$isCompanyInfoSave = array_key_exists('company_full_name', $input)
     || array_key_exists('company_owner_name', $input)
     || array_key_exists('company_tax_id', $input)
     || array_key_exists('company_address', $input)
@@ -187,8 +280,8 @@ if ($method === 'POST') {
 $companyPayload = [];
 
 if ($isCompanyInfoSave) {
-    $companyFullName = requireServiceText($input, 'company_full_name', 'Pełna nazwa firmy', 255);
-    $companyOwnerName = requireServiceText($input, 'company_owner_name', 'Imię i nazwisko', 150);
+    $companyFullName = requireServiceText($input, 'company_full_name', 'PeĹ‚na nazwa firmy', 255);
+    $companyOwnerName = requireServiceText($input, 'company_owner_name', 'ImiÄ™ i nazwisko', 150);
     $companyTaxId = requireServiceText($input, 'company_tax_id', 'NIP', 50);
     $companyAddress = requireServiceText($input, 'company_address', 'Adres firmy', 500);
     $companyEmail = requireServiceText($input, 'company_email', 'E-mail firmy', 255);
@@ -204,7 +297,7 @@ if ($isCompanyInfoSave) {
     if ($priceAmount < 0) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Cena nie może być ujemna.'
+            'error' => 'Cena nie moĹĽe byÄ‡ ujemna.'
         ], 422);
     }
 
@@ -258,7 +351,7 @@ $payload[0] = array_merge($payload[0], $companyPayload);
     if (!$result['ok']) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Nie udało się zapisać ustawień usługi',
+            'error' => 'Nie udaĹ‚o siÄ™ zapisaÄ‡ ustawieĹ„ usĹ‚ugi',
             'details' => $result['json'] ?: $result['body'],
         ], 500);
     }
@@ -267,7 +360,7 @@ $payload[0] = array_merge($payload[0], $companyPayload);
 
     sendServiceSettingsJson([
         'success' => true,
-        'message' => 'Ustawienia usługi zostały zapisane.',
+        'message' => 'Ustawienia usĹ‚ugi zostaĹ‚y zapisane.',
         'settings' => $saved,
     ]);
 }

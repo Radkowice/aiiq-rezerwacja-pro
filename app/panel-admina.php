@@ -31,8 +31,6 @@ if (empty($_SESSION['csrf'])) {
 
   <script>
     window.CSRF_TOKEN = "<?= htmlspecialchars($_SESSION['csrf'] ?? '', ENT_QUOTES, 'UTF-8') ?>";
-    window.INTERNAL_API_KEY = "<?= htmlspecialchars(getenv('INTERNAL_API_KEY') ?: '', ENT_QUOTES, 'UTF-8') ?>";
-    window.PANEL_API_TOKEN = "<?= htmlspecialchars(getenv('PANEL_API_TOKEN') ?: '', ENT_QUOTES, 'UTF-8') ?>";
   </script>
 
   <script src="/assets/js/auth.js" defer></script>

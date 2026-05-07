@@ -1,7 +1,20 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../system/tenant.php';
+
+start_secure_session();
+
+if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+    http_response_code(401);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'success' => false,
+        'error' => 'Brak autoryzacji'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 $SUPABASE_URL = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
@@ -17,14 +30,24 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     exit;
 }
 
-$TENANT_ID = getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
-
-if (!$TENANT_ID) {
-    http_response_code(400);
+if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA)) {
+    http_response_code(401);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode([
         'success' => false,
-        'error' => 'Brak tenant'
+        'error' => 'Sesja nie pasuje do domeny'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$TENANT_ID = (string) $_SESSION['user']['tenant_id'];
+
+if (!$TENANT_ID) {
+    http_response_code(401);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nieprawidłowa sesja'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

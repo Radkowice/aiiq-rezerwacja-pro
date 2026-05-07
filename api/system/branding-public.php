@@ -29,9 +29,10 @@ if (!$tenantId) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
 $url = $supabaseUrl
     . '/rest/v1/tenant_branding'
-    . '?select=tenant_id,client_name,service_title_front,logo_url_front,favicon_url_front,calendar_front_style,calendar_form_fields'
+    . '?select=tenant_id,client_name,service_title_front,logo_url_front,favicon_url_front,calendar_front_style,calendar_form_fields,updated_at'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&limit=1';
 
@@ -80,13 +81,23 @@ if (!is_array($data) || empty($data[0])) {
 
 $row = $data[0];
 
+$updatedAt = trim((string)($row['updated_at'] ?? ''));
+$assetVersion = $updatedAt !== '' ? (string) strtotime($updatedAt) : (string) time();
+
+if ($assetVersion === '' || $assetVersion === '0' || $assetVersion === '-1') {
+    $assetVersion = (string) time();
+}
+
+$hasLogo = trim((string)($row['logo_url_front'] ?? '')) !== '';
+$hasFavicon = trim((string)($row['favicon_url_front'] ?? '')) !== '';
+
 echo json_encode([
     'success' => true,
-        'branding' => [
+    'branding' => [
         'client_name' => $row['client_name'] ?? '',
         'service_title_front' => $row['service_title_front'] ?? '',
-        'logo_url_front' => trim((string)($row['logo_url_front'] ?? '')) !== '' ? '/api/system/logo-front.php' : '',
-        'favicon_url_front' => trim((string)($row['favicon_url_front'] ?? '')) !== '' ? '/api/system/favicon-front.php' : '',
+        'logo_url_front' => $hasLogo ? '/api/system/logo-front.php?v=' . rawurlencode($assetVersion) : '',
+        'favicon_url_front' => $hasFavicon ? '/api/system/favicon-front.php?v=' . rawurlencode($assetVersion) : '',
         'calendar_front_style' => is_array($row['calendar_front_style'] ?? null)
             ? $row['calendar_front_style']
             : [],

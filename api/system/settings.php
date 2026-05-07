@@ -21,6 +21,14 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 

@@ -24,6 +24,34 @@ function payu_get_json_input(): array
     return is_array($data) ? $data : [];
 }
 
+function payu_get_customer_ip(): string
+{
+    $candidates = [];
+
+    if (!empty($_SERVER['HTTP_CF_CONNECTING_IP'])) {
+        $candidates[] = $_SERVER['HTTP_CF_CONNECTING_IP'];
+    }
+
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $forwardedForParts = explode(',', (string) $_SERVER['HTTP_X_FORWARDED_FOR']);
+        $candidates[] = $forwardedForParts[0] ?? '';
+    }
+
+    if (!empty($_SERVER['REMOTE_ADDR'])) {
+        $candidates[] = $_SERVER['REMOTE_ADDR'];
+    }
+
+    foreach ($candidates as $candidate) {
+        $ip = trim((string) $candidate);
+
+        if (filter_var($ip, FILTER_VALIDATE_IP)) {
+            return $ip;
+        }
+    }
+
+    return '127.0.0.1';
+}
+
 function payu_fetch_booking(string $bookingId): ?array
 {
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
@@ -311,7 +339,7 @@ try {
     $orderPayload = [
         'notifyUrl' => $publicBaseUrl . '/api/payments/payu-notify.php',
         'continueUrl' => $publicBaseUrl . '/platnosc-powrot.html?booking_id=' . rawurlencode($bookingId),
-        'customerIp' => $_SERVER['HTTP_X_FORWARDED_FOR'] ?? $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
+        'customerIp' => payu_get_customer_ip(),
         'merchantPosId' => $payu['pos_id'],
         'description' => $description,
         'currencyCode' => $currency,

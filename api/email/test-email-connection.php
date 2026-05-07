@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../PHPMailer/src/Exception.php';
 require_once __DIR__ . '/../PHPMailer/src/PHPMailer.php';
 require_once __DIR__ . '/../PHPMailer/src/SMTP.php';
@@ -37,6 +38,23 @@ if (empty($_SESSION['user']['tenant_id'])) {
 }
 
 $tenantId = (string) $_SESSION['user']['tenant_id'];
+$supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+$supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+
+if ($supabaseUrl === '' || $supabaseKey === '') {
+    smtp_test_json(500, [
+        'success' => false,
+        'error' => 'Brak konfiguracji Supabase.'
+    ]);
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    smtp_test_json(401, [
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
+    ]);
+}
 
 $data = json_decode(file_get_contents('php://input'), true);
 
@@ -85,16 +103,6 @@ if (!filter_var($smtpUsername, FILTER_VALIDATE_EMAIL)) {
  * Dzięki temu test działa także po odświeżeniu panelu, gdy hasła nie pokazujemy w formularzu.
  */
 if ($smtpPassword === '') {
-    $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
-    $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
-    $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
-
-    if ($supabaseUrl === '' || $supabaseKey === '') {
-        smtp_test_json(500, [
-            'success' => false,
-            'error' => 'Brak konfiguracji Supabase.'
-        ]);
-    }
 
     $url = $supabaseUrl
         . '/rest/v1/email_settings?select=smtp_password'

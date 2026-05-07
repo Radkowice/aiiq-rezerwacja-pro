@@ -71,17 +71,17 @@
 
   <div class="admin-info-row">
     <span>Adres firmy</span>
-    <strong id="info-company-address">—</strong>
+    <input type="text" id="info-company-address" class="admin-info-input" autocomplete="street-address">
   </div>
 
   <div class="admin-info-row">
     <span>Email firmowy</span>
-    <strong id="info-company-email">—</strong>
+    <input type="email" id="info-company-email" class="admin-info-input" autocomplete="email">
   </div>
 
   <div class="admin-info-row">
     <span>Telefon firmowy</span>
-    <strong id="info-company-phone">—</strong>
+    <input type="tel" id="info-company-phone" class="admin-info-input" autocomplete="tel">
   </div>
 
   <div class="admin-info-row">
@@ -109,6 +109,12 @@
     <strong id="info-user-role">—</strong>
   </div>
 </div>
+
+      <div class="admin-info-actions">
+        <button type="button" class="btn btn-primary" id="save-company-contact-btn">
+          Zapisz dane firmy
+        </button>
+      </div>
       
     </div>
 

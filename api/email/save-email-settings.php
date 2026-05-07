@@ -1,8 +1,9 @@
 <?php
+require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../system/tenant.php';
 header('Content-Type: application/json; charset=utf-8');
 
-session_start();
-
+start_secure_session();
 if (!isset($_SESSION['user']['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
@@ -34,6 +35,14 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
     echo json_encode([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase w ENV'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
