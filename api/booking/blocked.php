@@ -22,6 +22,14 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 header('Content-Type: application/json; charset=utf-8');
 
+if (!in_array($method, ['GET', 'POST', 'DELETE'], true)) {
+    header('Allow: GET, POST, DELETE');
+    respond([
+        'success' => false,
+        'error' => 'Metoda niedozwolona.'
+    ], 405);
+}
+
 $isAdmin = isset($_GET['admin']) || isset($_SERVER['HTTP_X_ADMIN']);
 
 if ($isAdmin && !isset($_SESSION['user'])) {
@@ -56,6 +64,15 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
         'error' => 'Brak konfiguracji Supabase'
     ], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+if (in_array($method, ['POST', 'DELETE'], true)
+    && !session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA)
+) {
+    respond([
+        'success' => false,
+        'error' => 'Brak autoryzacji.'
+    ], 403);
 }
 
 /**
@@ -106,9 +123,9 @@ function cleanup_past_blocks_in_supabase(string $supabaseUrl, string $apiKey, st
     $deleteDates = supabase_request('DELETE', $urlDates, $apiKey, $schema);
 
     if ($deleteDates['error']) {
-        error_log('cleanup blocked_dates CURL error: ' . $deleteDates['error']);
+        error_log('cleanup blocked_dates error: request_failed');
     } elseif (($deleteDates['httpCode'] ?? 0) >= 400) {
-        error_log('cleanup blocked_dates Supabase error: ' . ($deleteDates['response'] ?? ''));
+        error_log('cleanup blocked_dates error: http_' . (string)($deleteDates['httpCode'] ?? 0));
     }
 
     $urlTimes = $supabaseUrl
@@ -118,9 +135,9 @@ function cleanup_past_blocks_in_supabase(string $supabaseUrl, string $apiKey, st
     $deleteTimes = supabase_request('DELETE', $urlTimes, $apiKey, $schema);
 
     if ($deleteTimes['error']) {
-        error_log('cleanup blocked_times CURL error: ' . $deleteTimes['error']);
+        error_log('cleanup blocked_times error: request_failed');
     } elseif (($deleteTimes['httpCode'] ?? 0) >= 400) {
-        error_log('cleanup blocked_times Supabase error: ' . ($deleteTimes['response'] ?? ''));
+        error_log('cleanup blocked_times error: http_' . (string)($deleteTimes['httpCode'] ?? 0));
     }
 }
 
@@ -146,9 +163,7 @@ function supabase_error_response(string $label, array $result, int $status = 500
 {
     respond([
         'success' => false,
-        'error' => $label,
-        'httpCode' => $result['httpCode'] ?? 0,
-        'debug' => $result['error'] ?: ($result['response'] ?: null)
+        'error' => $label
     ], $status);
 }
 
@@ -158,14 +173,28 @@ function supabase_error_response(string $label, array $result, int $status = 500
 if ($method === 'DELETE') {
     $input = json_input();
 
-    $date = $input['date'] ?? null;
-    $time = $input['time'] ?? null;
-    $deleteAllTimes = !empty($input['deleteAllTimes']);
+    $date = trim((string)($input['date'] ?? ''));
+    $time = trim((string)($input['time'] ?? ''));
+    $deleteAllTimes = filter_var($input['deleteAllTimes'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
     if (!$date) {
         respond([
             'success' => false,
             'error' => 'Brak daty'
+        ], 400);
+    }
+
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        respond([
+            'success' => false,
+            'error' => 'Nieprawidłowa data.'
+        ], 400);
+    }
+
+    if ($time !== '' && $time !== 'all' && !preg_match('/^\d{2}:\d{2}$/', $time)) {
+        respond([
+            'success' => false,
+            'error' => 'Nieprawidłowa godzina.'
         ], 400);
     }
 
@@ -207,15 +236,22 @@ if ($method === 'DELETE') {
 // =======================
 if ($method === 'POST') {
     $input = json_input();
-    $action = $input['action'] ?? '';
+    $action = trim((string)($input['action'] ?? ''));
+
+    if ($action !== '' && $action !== 'saveBlockSettings') {
+        respond([
+            'success' => false,
+            'error' => 'Nieprawidłowa akcja.'
+        ], 400);
+    }
 
     // zapis ustawień globalnych
     if ($action === 'saveBlockSettings') {
         $payload = [
             'tenant_id' => $TENANT_ID,
-            'block_saturdays' => !empty($input['block_saturdays']),
-            'block_sundays' => !empty($input['block_sundays']),
-            'block_holidays' => !empty($input['block_holidays'])
+            'block_saturdays' => filter_var($input['block_saturdays'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'block_sundays' => filter_var($input['block_sundays'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'block_holidays' => filter_var($input['block_holidays'] ?? false, FILTER_VALIDATE_BOOLEAN)
         ];
 
         $checkUrl = $SUPABASE_URL
@@ -281,14 +317,28 @@ if ($method === 'POST') {
     }
 
     // zwykłe blokady daty / godziny
-    $date = $input['date'] ?? null;
-    $time = $input['time'] ?? null;
-    $allDay = !empty($input['allDay']);
+    $date = trim((string)($input['date'] ?? ''));
+    $time = trim((string)($input['time'] ?? ''));
+    $allDay = filter_var($input['allDay'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
     if (!$date) {
         respond([
             'success' => false,
             'error' => 'Brak daty'
+        ], 400);
+    }
+
+    if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        respond([
+            'success' => false,
+            'error' => 'Nieprawidłowa data.'
+        ], 400);
+    }
+
+    if ($time !== '' && !preg_match('/^\d{2}:\d{2}$/', $time)) {
+        respond([
+            'success' => false,
+            'error' => 'Nieprawidłowa godzina.'
         ], 400);
     }
 

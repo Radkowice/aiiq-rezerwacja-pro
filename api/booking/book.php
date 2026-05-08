@@ -534,7 +534,7 @@ if ($website !== '') {
     debug_log('BOOK_BOT_HONEYPOT_BLOCKED', [
         'ip' => $ip,
         'tenant_id' => $TENANT_ID,
-        'website' => $website,
+        'honeypot_triggered' => true,
     ]);
 
     json_response([
@@ -638,6 +638,27 @@ if ($date === '' || $time === '' || $name === '') {
     json_response([
         'success' => false,
         'error' => 'Brak wymaganych danych',
+    ], 400);
+}
+
+if (mb_strlen($name) > 120) {
+    json_response([
+        'success' => false,
+        'error' => 'Imię i nazwisko jest za długie.'
+    ], 400);
+}
+
+if ($email !== '' && mb_strlen($email) > 190) {
+    json_response([
+        'success' => false,
+        'error' => 'Adres e-mail jest za długi.'
+    ], 400);
+}
+
+if (mb_strlen($note) > 1000) {
+    json_response([
+        'success' => false,
+        'error' => 'Wiadomość jest za długa.'
     ], 400);
 }
 
@@ -798,7 +819,11 @@ $bookingResult = supabase_insert(
     $headers
 );
 
-debug_log('BOOK_BOOKINGS_RESPONSE', $bookingResult['response'] ?: $bookingResult['error']);
+debug_log('BOOK_BOOKINGS_RESPONSE', [
+    'httpCode' => $bookingResult['httpCode'],
+    'has_error' => $bookingResult['error'] !== '',
+    'tenant_id' => $TENANT_ID,
+]);
 
 if ($bookingResult['error'] || $bookingResult['httpCode'] >= 400) {
     json_response([
@@ -830,7 +855,14 @@ $blockResult = supabase_insert(
     $minimalHeaders
 );
 
-debug_log('BOOK_BLOCKED_TIMES_RESPONSE', $blockResult['response'] ?: $blockResult['error']);
+debug_log('BOOK_BLOCKED_TIMES_RESPONSE', [
+    'httpCode' => $blockResult['httpCode'],
+    'has_error' => $blockResult['error'] !== '',
+    'booking_id' => $bookingId,
+    'tenant_id' => $TENANT_ID,
+    'date' => $date,
+    'time' => $time,
+]);
 
 if ($blockResult['error'] || $blockResult['httpCode'] >= 400) {
     json_response([
@@ -864,7 +896,11 @@ try {
         debug_log('BOOK_GOOGLE_EVENT_SKIPPED', 'Brak booking_id');
     }
 } catch (Throwable $e) {
-    debug_log('BOOK_GOOGLE_EVENT_ERROR', $e->getMessage());
+    debug_log('BOOK_GOOGLE_EVENT_ERROR', [
+        'exception_type' => get_class($e),
+        'booking_id' => $bookingId,
+        'tenant_id' => $TENANT_ID,
+    ]);
 }
 
 
@@ -965,9 +1001,8 @@ try {
     if ($paymentRequired) {
         debug_log('BOOK_CLIENT_EMAIL_SKIPPED_PAYMENT_REQUIRED', [
             'booking_id' => $bookingId,
-            'email' => $email,
+            'payment_required' => true,
             'payment_status' => $paymentStatus,
-            'reason' => 'payment_required',
         ]);
     }
 
@@ -1011,7 +1046,11 @@ try {
     }
 } catch (Exception $e) {
     $mailErrors[] = $e->getMessage();
-    debug_log('BOOK_MAIL_ERROR', $e->getMessage());
+    debug_log('BOOK_MAIL_ERROR', [
+        'exception_type' => get_class($e),
+        'booking_id' => $bookingId,
+        'tenant_id' => $TENANT_ID,
+    ]);
 }
 
 // Finalna odpowiedĹş
@@ -1032,5 +1071,4 @@ json_response([
 
     'mail_sent_client' => $mailSentClient,
     'mail_sent_admin' => $mailSentAdmin,
-    'mail_errors' => empty($mailErrors) ? null : $mailErrors,
 ], 200);
