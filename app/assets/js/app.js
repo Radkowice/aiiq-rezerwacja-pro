@@ -1221,6 +1221,9 @@ if (formStartedAtInput) {
     applyFrontCalendarEnabledState();
 
     if (!FRONT_CALENDAR_ENABLED) {
+      if (window.AppLoader) {
+        window.AppLoader.hide();
+      }
       return;
     }
 
@@ -1271,5 +1274,9 @@ if (phoneEl) {
   });
 }
 
-  renderTimeOptions();
+  await renderTimeOptions();
+
+  if (window.AppLoader) {
+    window.AppLoader.hide();
+  }
 });

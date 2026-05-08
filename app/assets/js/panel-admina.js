@@ -23,7 +23,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   initBookingFilters();
   initCalendarEnabledToggle();
 
-  await loadBookings(currentBookingsView);
+  try {
+    const accountReady = window.adminAccountDataReady || Promise.resolve();
+
+    await Promise.all([
+      accountReady,
+      loadBookings(currentBookingsView)
+    ]);
+  } finally {
+    if (window.AppLoader) {
+      window.AppLoader.hide();
+    }
+  }
 });
 
 function initMenu() {

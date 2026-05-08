@@ -364,7 +364,7 @@ if (faviconPreview && faviconEmpty) {
 
 // auto start po załadowaniu
 document.addEventListener('DOMContentLoaded', () => {
-  loadAccountData();
+  window.adminAccountDataReady = loadAccountData();
   bindReservationsStylePreview();
 });
 
