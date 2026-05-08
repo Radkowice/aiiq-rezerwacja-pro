@@ -122,7 +122,6 @@ function payu_notify_fetch_booking_by_order(string $orderId, string $extOrderId 
         payu_debug('PAYU_NOTIFY_BOOKING_FETCH_ERROR', [
             'http_code' => $result['http_code'],
             'error' => $result['error'],
-            'response' => $result['response'],
             'order_id' => $orderId,
             'ext_order_id' => $extOrderId,
         ]);
@@ -162,7 +161,6 @@ function payu_notify_update_booking(string $bookingId, array $payload): bool
             'booking_id' => $bookingId,
             'http_code' => $result['http_code'],
             'error' => $result['error'],
-            'response' => $result['response'],
         ]);
 
         return false;
@@ -210,7 +208,6 @@ function payu_notify_fetch_single_record(string $table, string $query): ?array
             'query' => $query,
             'http_code' => $result['http_code'],
             'error' => $result['error'],
-            'response' => $result['response'],
         ]);
 
         return null;
@@ -264,6 +261,7 @@ function payu_notify_send_paid_email(string $tenantId, array $booking): bool
 
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        header('Allow: POST');
         payu_notify_response([
             'success' => false,
             'error' => 'Metoda niedozwolona.',
@@ -274,7 +272,10 @@ try {
     $data = json_decode($rawBody, true);
 
     if (!is_array($data)) {
-        payu_debug('PAYU_NOTIFY_INVALID_JSON', $rawBody);
+        payu_debug('PAYU_NOTIFY_INVALID_JSON', [
+            'body_length' => strlen($rawBody),
+            'json_error' => json_last_error_msg(),
+        ]);
 
         payu_notify_response([
             'success' => false,
@@ -288,8 +289,25 @@ try {
     $extOrderId = trim((string)($order['extOrderId'] ?? ''));
     $payuStatus = trim((string)($order['status'] ?? ''));
 
+    if ($orderId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $orderId)) {
+        payu_notify_response([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator płatności.',
+        ], 400);
+    }
+
+    if ($extOrderId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $extOrderId)) {
+        payu_notify_response([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator płatności.',
+        ], 400);
+    }
+
     if ($orderId === '' && $extOrderId === '') {
-        payu_debug('PAYU_NOTIFY_ORDER_ID_MISSING', $data);
+        payu_debug('PAYU_NOTIFY_ORDER_ID_MISSING', [
+            'body_length' => strlen($rawBody),
+            'has_order' => is_array($data['order'] ?? null),
+        ]);
 
         payu_notify_response([
             'success' => false,
@@ -316,7 +334,12 @@ try {
     $tenantId = (string)($booking['tenant_id'] ?? '');
 
     if ($bookingId === '' || $tenantId === '') {
-        payu_debug('PAYU_NOTIFY_BOOKING_INVALID', $booking);
+        payu_debug('PAYU_NOTIFY_BOOKING_INVALID', [
+            'order_id_present' => $orderId !== '',
+            'ext_order_id_present' => $extOrderId !== '',
+            'booking_id_present' => $bookingId !== '',
+            'tenant_id_present' => $tenantId !== '',
+        ]);
 
         payu_notify_response([
             'success' => false,
@@ -413,7 +436,9 @@ $updated = payu_notify_update_booking($bookingId, $payload);
     ]);
 
 } catch (Throwable $e) {
-    payu_debug('PAYU_NOTIFY_FATAL', $e->getMessage());
+    payu_debug('PAYU_NOTIFY_FATAL', [
+        'exception_type' => get_class($e),
+    ]);
 
     payu_notify_response([
         'success' => false,

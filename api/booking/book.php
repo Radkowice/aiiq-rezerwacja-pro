@@ -30,6 +30,7 @@ function json_response(array $payload, int $status = 200): void
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+    header('Allow: POST');
     json_response([
         'success' => false,
         'error' => 'Metoda niedozwolona'
@@ -189,7 +190,7 @@ function getSystemFooter(): string
 {
   return
     '<div style="background:#eef3f8;padding:18px 24px;font-size:12px;color:#607284;text-align:center;">' .
-        'Obsługiwane przez <a href="https://ai-iq.pl" target="_blank" style="color:#607284;text-decoration:none;font-weight:600;">AI-IQ</a> | Inteligentne automatyzacje' .
+        'ObsĹ‚ugiwane przez <a href="https://ai-iq.pl" target="_blank" style="color:#607284;text-decoration:none;font-weight:600;">AI-IQ</a> | Inteligentne automatyzacje' .
     '</div>';
 }
 
@@ -232,30 +233,30 @@ function buildClientEmailHtml(
             '<div style="max-width:640px;margin:0 auto;background:#ffffff;font-family:Arial,sans-serif;color:#17324d;">' .
 
                 '<div style="background:linear-gradient(135deg,#071b2d,#0f2d47);padding:32px 24px;text-align:center;color:#ffffff;">' .
-                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">📅</div>' .
+                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">đź“…</div>' .
                     '<h1 style="margin:0;font-size:28px;">Rezerwacja potwierdzona</h1>' .
-                    '<p style="margin:12px 0 0 0;font-size:16px;opacity:0.95;">Dziękujemy za umówienie ' . htmlspecialchars($serviceName, ENT_QUOTES, 'UTF-8') . ' | ' . htmlspecialchars($companyName, ENT_QUOTES, 'UTF-8') . '</p>' .
+                    '<p style="margin:12px 0 0 0;font-size:16px;opacity:0.95;">DziÄ™kujemy za umĂłwienie ' . htmlspecialchars($serviceName, ENT_QUOTES, 'UTF-8') . ' | ' . htmlspecialchars($companyName, ENT_QUOTES, 'UTF-8') . '</p>' .
                 '</div>' .
 
                 '<div style="padding:32px 24px;">' .
                     $introHtml .
 
                     '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>👤 Imię:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📧 E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📆 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0;font-size:16px;"><strong>🕒 Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>đź‘¤ ImiÄ™:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>đź“§ E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>đź“† Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0;font-size:16px;"><strong>đź•’ Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
                     '</div>' .
 
                     (
                         trim($note) !== ''
                             ? '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">' .
-                                '<p style="margin:0;font-size:16px;"><strong>💬 Twoja wiadomość:</strong><br>' . nl2br(htmlspecialchars($note, ENT_QUOTES, 'UTF-8')) . '</p>' .
+                                '<p style="margin:0;font-size:16px;"><strong>đź’¬ Twoja wiadomoĹ›Ä‡:</strong><br>' . nl2br(htmlspecialchars($note, ENT_QUOTES, 'UTF-8')) . '</p>' .
                               '</div>'
                             : ''
                     ) .
 
-                    '<p style="font-size:14px;line-height:1.6;color:#4f6478;">W razie pytań po prostu odpowiedz na tę wiadomość.</p>' .
+                    '<p style="font-size:14px;line-height:1.6;color:#4f6478;">W razie pytaĹ„ po prostu odpowiedz na tÄ™ wiadomoĹ›Ä‡.</p>' .
                 '</div>' .
 
                 $footerHtml .
@@ -280,7 +281,7 @@ function buildAdminEmailHtml(
             '<div style="max-width:640px;margin:0 auto;background:#ffffff;font-family:Arial,sans-serif;color:#17324d;">' .
 
                 '<div style="background:linear-gradient(135deg,#071b2d,#0f2d47);padding:32px 24px;text-align:center;color:#ffffff;">' .
-                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">📬</div>' .
+                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">đź“¬</div>' .
                     '<h1 style="margin:0;font-size:28px;">Nowa rezerwacja</h1>' .
                     '<p style="margin:12px 0 0 0;font-size:16px;opacity:0.95;">' . htmlspecialchars($companyName, ENT_QUOTES, 'UTF-8') . '</p>' .
                 '</div>' .
@@ -289,17 +290,17 @@ function buildAdminEmailHtml(
                     $introHtml .
 
                     '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>👤 Imię:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📧 E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📞 Telefon:</strong> ' . htmlspecialchars($phone, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📆 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0;font-size:16px;"><strong>🕒 Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>đź‘¤ ImiÄ™:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>đź“§ E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>đź“ž Telefon:</strong> ' . htmlspecialchars($phone, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>đź“† Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0;font-size:16px;"><strong>đź•’ Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
                     '</div>' .
 
                     (
                         trim($note) !== ''
                             ? '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">' .
-                                '<p style="margin:0;font-size:16px;"><strong>💬 Wiadomość klienta:</strong><br>' . nl2br(htmlspecialchars($note, ENT_QUOTES, 'UTF-8')) . '</p>' .
+                                '<p style="margin:0;font-size:16px;"><strong>đź’¬ WiadomoĹ›Ä‡ klienta:</strong><br>' . nl2br(htmlspecialchars($note, ENT_QUOTES, 'UTF-8')) . '</p>' .
                               '</div>'
                             : ''
                     ) .
@@ -350,7 +351,7 @@ function configureMailer(PHPMailer $mail, array $emailSettings): void
     }
 
     if (!filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
-        throw new Exception('Nieprawidłowy adres nadawcy SMTP');
+        throw new Exception('NieprawidĹ‚owy adres nadawcy SMTP');
     }
 
     $mail->isSMTP();
@@ -406,7 +407,7 @@ if (!$TENANT_ID) {
 
     json_response([
         'success' => false,
-        'error' => 'Błąd konfiguracji systemu (brak tenant)',
+        'error' => 'BĹ‚Ä…d konfiguracji systemu (brak tenant)',
     ], 400);
 }
 
@@ -440,7 +441,7 @@ if (!is_array($blacklist)) {
 if (in_array($ip, $blacklist, true)) {
     json_response([
         'success' => false,
-        'error' => 'Dostęp zablokowany',
+        'error' => 'DostÄ™p zablokowany',
     ], 403);
 }
 
@@ -495,7 +496,7 @@ if (count($rateData[$ip]) >= $limit) {
 
     json_response([
         'success' => false,
-        'error' => 'Za dużo prób. Spróbuj za chwilę.',
+        'error' => 'Za duĹĽo prĂłb. SprĂłbuj za chwilÄ™.',
     ], 429);
 }
 
@@ -509,7 +510,7 @@ if (!isset($_SESSION['last_booking_time'])) {
 if (time() - (int) $_SESSION['last_booking_time'] < 10) {
     json_response([
         'success' => false,
-        'error' => 'Poczekaj chwilę przed kolejną próbą',
+        'error' => 'Poczekaj chwilÄ™ przed kolejnÄ… prĂłbÄ…',
     ], 429);
 }
 
@@ -528,7 +529,7 @@ $website = trim((string) ($input['website'] ?? ''));
 $formStartedAtRaw = trim((string) ($input['form_started_at'] ?? ''));
 $termsAcceptedRaw = $input['terms_accepted'] ?? null;
 
-// Cicha pułapka na boty — człowiek tego pola nie widzi.
+// Cicha puĹ‚apka na boty â€” czĹ‚owiek tego pola nie widzi.
 if ($website !== '') {
     debug_log('BOOK_BOT_HONEYPOT_BLOCKED', [
         'ip' => $ip,
@@ -538,22 +539,22 @@ if ($website !== '') {
 
     json_response([
         'success' => false,
-        'error' => 'Nie udało się zapisać rezerwacji. Spróbuj ponownie za chwilę.',
+        'error' => 'Nie udaĹ‚o siÄ™ zapisaÄ‡ rezerwacji. SprĂłbuj ponownie za chwilÄ™.',
     ], 400);
 }
 
-// Zgoda regulaminu musi być potwierdzona również na backendzie.
+// Zgoda regulaminu musi byÄ‡ potwierdzona rĂłwnieĹĽ na backendzie.
 $termsAccepted = in_array($termsAcceptedRaw, [true, 1, '1', 'true', 'on', 'yes'], true);
 
 if (!$termsAccepted) {
     json_response([
         'success' => false,
-        'error' => 'Zaakceptuj regulamin i politykę prywatności.',
+        'error' => 'Zaakceptuj regulamin i politykÄ™ prywatnoĹ›ci.',
     ], 400);
 }
 
-// Minimalny czas wypełnienia formularza.
-// Date.now() z frontu wysyła milisekundy.
+// Minimalny czas wypeĹ‚nienia formularza.
+// Date.now() z frontu wysyĹ‚a milisekundy.
 $formStartedAt = ctype_digit($formStartedAtRaw) ? (int) $formStartedAtRaw : 0;
 $formSubmittedAt = (int) round(microtime(true) * 1000);
 
@@ -565,7 +566,7 @@ if ($formStartedAt <= 0) {
 
     json_response([
         'success' => false,
-        'error' => 'Odśwież stronę i spróbuj ponownie.',
+        'error' => 'OdĹ›wieĹĽ stronÄ™ i sprĂłbuj ponownie.',
     ], 400);
 }
 
@@ -580,7 +581,7 @@ if ($formFillTimeMs < 3000) {
 
     json_response([
         'success' => false,
-        'error' => 'Formularz został wysłany zbyt szybko. Spróbuj ponownie.',
+        'error' => 'Formularz zostaĹ‚ wysĹ‚any zbyt szybko. SprĂłbuj ponownie.',
     ], 400);
 }
 
@@ -593,7 +594,7 @@ if ($formFillTimeMs > 1000 * 60 * 60 * 6) {
 
     json_response([
         'success' => false,
-        'error' => 'Formularz wygasł. Odśwież stronę i spróbuj ponownie.',
+        'error' => 'Formularz wygasĹ‚. OdĹ›wieĹĽ stronÄ™ i sprĂłbuj ponownie.',
     ], 400);
 }
 
@@ -614,7 +615,7 @@ $calendarEnabled = !empty($calendarSettingsRow['calendar_enabled']);
 if ($calendarEnabled !== true) {
     json_response([
         'success' => false,
-        'error' => 'Kalendarz rezerwacji jest obecnie wyłączony.',
+        'error' => 'Kalendarz rezerwacji jest obecnie wyĹ‚Ä…czony.',
     ], 403);
 }
 
@@ -643,7 +644,7 @@ if ($date === '' || $time === '' || $name === '') {
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     json_response([
         'success' => false,
-        'error' => 'Nieprawidłowy format daty',
+        'error' => 'NieprawidĹ‚owy format daty',
     ], 400);
 }
 
@@ -651,14 +652,14 @@ $dateCheck = DateTime::createFromFormat('Y-m-d', $date);
 if (!$dateCheck || $dateCheck->format('Y-m-d') !== $date) {
     json_response([
         'success' => false,
-        'error' => 'Nieprawidłowa data',
+        'error' => 'NieprawidĹ‚owa data',
     ], 400);
 }
 
 if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
     json_response([
         'success' => false,
-        'error' => 'Nieprawidłowy format godziny',
+        'error' => 'NieprawidĹ‚owy format godziny',
     ], 400);
 }
 
@@ -673,7 +674,7 @@ if ($requireEmail) {
     if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
         json_response([
             'success' => false,
-            'error' => 'Nieprawidłowy adres e-mail',
+            'error' => 'NieprawidĹ‚owy adres e-mail',
         ], 400);
     }
 } else {
@@ -691,7 +692,7 @@ if ($requirePhone) {
     if (!is_valid_international_phone($phone)) {
         json_response([
             'success' => false,
-            'error' => 'Nieprawidłowy numer telefonu',
+            'error' => 'NieprawidĹ‚owy numer telefonu',
         ], 400);
     }
 
@@ -700,7 +701,7 @@ if ($requirePhone) {
     $phone = '';
 }
 
-// Ustawienia usługi i płatności
+// Ustawienia usĹ‚ugi i pĹ‚atnoĹ›ci
 $tenantQuery = 'tenant_id=eq.' . rawurlencode($TENANT_ID);
 
 $serviceSettings = fetch_single_record(
@@ -802,9 +803,7 @@ debug_log('BOOK_BOOKINGS_RESPONSE', $bookingResult['response'] ?: $bookingResult
 if ($bookingResult['error'] || $bookingResult['httpCode'] >= 400) {
     json_response([
         'success' => false,
-        'error' => 'Błąd zapisu rezerwacji',
-        'httpCode' => $bookingResult['httpCode'],
-        'debug' => $bookingResult['response'] ?: $bookingResult['error'],
+        'error' => 'Nie udaĹ‚o siÄ™ zapisaÄ‡ rezerwacji. SprĂłbuj ponownie.',
     ], 500);
 }
 
@@ -836,13 +835,11 @@ debug_log('BOOK_BLOCKED_TIMES_RESPONSE', $blockResult['response'] ?: $blockResul
 if ($blockResult['error'] || $blockResult['httpCode'] >= 400) {
     json_response([
         'success' => false,
-        'error' => 'Rezerwacja zapisana, ale nie udało się zablokować godziny',
-        'httpCode' => $blockResult['httpCode'],
-        'debug' => $blockResult['response'] ?: $blockResult['error'],
+        'error' => 'Nie udaĹ‚o siÄ™ zablokowaÄ‡ terminu. SprĂłbuj ponownie.',
     ], 500);
 }
 
-// Google Calendar — tworzenie wydarzenia po zapisaniu rezerwacji
+// Google Calendar â€” tworzenie wydarzenia po zapisaniu rezerwacji
 try {
     if ($bookingId !== '') {
         $bookingForGoogle = array_merge($bookingPayload, [
@@ -922,10 +919,10 @@ try {
     $finalSubject = replacePlaceholders((string) ($emailTemplate['subject'] ?? ''), $placeholders);
     $introHtml = replacePlaceholders((string) ($emailTemplate['body_html'] ?? ''), $placeholders);
 
-    $adminFinalSubject = 'Nowa rezerwacja – ' . $date . ' ' . $time;
+    $adminFinalSubject = 'Nowa rezerwacja â€“ ' . $date . ' ' . $time;
     $adminIntroHtml =
         '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">'
-        . 'W systemie pojawiła się nowa rezerwacja. Szczegóły rezerwacji znajdują się poniżej.'
+        . 'W systemie pojawiĹ‚a siÄ™ nowa rezerwacja. SzczegĂłĹ‚y rezerwacji znajdujÄ… siÄ™ poniĹĽej.'
         . '</p>';
 
     $footerHtml = buildFooter($plan, $footerMode, $footerCustom);
@@ -945,19 +942,19 @@ try {
 
         $clientAltBody =
             "Rezerwacja potwierdzona\n\n" .
-            "Dziękujemy za umówienie {$serviceName} z {$companyName}\n\n" .
-            "Imię: {$name}\n" .
+            "DziÄ™kujemy za umĂłwienie {$serviceName} z {$companyName}\n\n" .
+            "ImiÄ™: {$name}\n" .
             "E-mail: {$email}\n" .
             "Data: {$date}\n" .
             "Godzina: {$time}\n" .
-            ($note !== '' ? "Wiadomość: {$note}\n" : '') .
+            ($note !== '' ? "WiadomoĹ›Ä‡: {$note}\n" : '') .
             "\n";
 
         $mail = new PHPMailer(true);
         configureMailer($mail, $emailSettings);
         $mail->addAddress($email, $name);
         $mail->isHTML(true);
-        $mail->Subject = $finalSubject !== '' ? $finalSubject : ('Potwierdzenie rezerwacji – ' . $date . ' ' . $time);
+        $mail->Subject = $finalSubject !== '' ? $finalSubject : ('Potwierdzenie rezerwacji â€“ ' . $date . ' ' . $time);
         $mail->Body = $clientHtml;
         $mail->AltBody = $clientAltBody;
         $mail->send();
@@ -992,12 +989,12 @@ try {
 
             $adminAltBody =
                 "Nowa rezerwacja\n\n" .
-                "Imię: {$name}\n" .
+                "ImiÄ™: {$name}\n" .
                 "E-mail: {$email}\n" .
                 "Telefon: {$phone}\n" .
                 "Data: {$date}\n" .
                 "Godzina: {$time}\n" .
-                ($note !== '' ? "Wiadomość klienta: {$note}\n" : '') .
+                ($note !== '' ? "WiadomoĹ›Ä‡ klienta: {$note}\n" : '') .
                 "\n";
 
             $adminMail = new PHPMailer(true);
@@ -1017,7 +1014,7 @@ try {
     debug_log('BOOK_MAIL_ERROR', $e->getMessage());
 }
 
-// Finalna odpowiedź
+// Finalna odpowiedĹş
 json_response([
     'success' => true,
     'message' => 'Rezerwacja zapisana',

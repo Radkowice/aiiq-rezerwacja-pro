@@ -49,6 +49,7 @@ function payment_return_supabase_get(string $url, string $key, string $schema): 
 
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+        header('Allow: GET');
         payment_return_response([
             'success' => false,
             'error' => 'Metoda niedozwolona.'
@@ -61,6 +62,13 @@ try {
     payment_return_response([
         'success' => false,
         'error' => 'Brak wymaganych danych.'
+    ], 400);
+}
+
+if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
+    payment_return_response([
+        'success' => false,
+        'error' => 'Nieprawidłowy identyfikator rezerwacji.'
     ], 400);
 }
 
@@ -162,6 +170,5 @@ try {
     payment_return_response([
         'success' => false,
         'error' => 'Błąd pobierania statusu płatności.',
-        'details' => $e->getMessage(),
     ], 500);
 }
