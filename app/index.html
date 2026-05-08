@@ -7,9 +7,19 @@
   <title>AIIQ Kalendarz</title>
   <link rel="stylesheet" href="assets/css/style.css">
   <link rel="stylesheet" href="assets/css/kalendarz.css"> 
+  <link rel="stylesheet" href="assets/css/app-loader.css">
 
 </head>
-<body>
+<body class="app-loading">
+<div id="appLoader" class="app-loader" role="status" aria-live="polite" aria-hidden="false">
+  <div class="app-loader__box">
+    <p class="app-loader__brand">AI-IQ Rezerwacja Pro</p>
+    <div class="app-loader__spinner" aria-hidden="true"></div>
+    <p class="app-loader__text">Ładowanie systemu rezerwacji…</p>
+    <p class="app-loader__error" data-loader-error></p>
+    <button type="button" class="app-loader__refresh" data-loader-refresh>Odśwież stronę</button>
+  </div>
+</div>
 <div class="box">
   <div class="front-branding">
     <img id="frontLogo" class="front-logo" src="" alt="" style="display:none;">
@@ -94,6 +104,13 @@
   <div id="errorBox" class="error-box"></div>
 </div>
 
+<script src="assets/js/app-loader.js"></script>
+<script>
+  if (window.AppLoader) {
+    window.AppLoader.show();
+    window.AppLoader.initFallback(10000);
+  }
+</script>
 <script src="assets/js/app.js?v=5"></script>
 <footer class="front-footer">
   <span>

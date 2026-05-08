@@ -26,6 +26,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/admin-usluga-platnosci.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-dokumenty-prawne.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-informacje.css?v=1">
+  <link rel="stylesheet" href="/assets/css/app-loader.css">
   <title>AI-IQ Admin</title>
  
 
@@ -33,6 +34,13 @@ if (empty($_SESSION['csrf'])) {
     window.CSRF_TOKEN = "<?= htmlspecialchars($_SESSION['csrf'] ?? '', ENT_QUOTES, 'UTF-8') ?>";
   </script>
 
+  <script src="/assets/js/app-loader.js"></script>
+  <script>
+    if (window.AppLoader) {
+      window.AppLoader.show();
+      window.AppLoader.initFallback(10000);
+    }
+  </script>
   <script src="/assets/js/auth.js" defer></script>
   <script src="/assets/js/buttons.js?v=3"></script>
   <script type="module" src="/assets/js/admin-api.js"></script>
@@ -46,7 +54,16 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/admin-dokumenty-prawne.js?v=1" defer></script>
   <script src="/assets/js/admin-informacje.js?v=1" defer></script>
 </head>
-<body class="tenant-theme">
+<body class="tenant-theme app-loading">
+  <div id="appLoader" class="app-loader" role="status" aria-live="polite" aria-hidden="false">
+    <div class="app-loader__box">
+      <p class="app-loader__brand">AI-IQ Rezerwacja Pro</p>
+      <div class="app-loader__spinner" aria-hidden="true"></div>
+      <p class="app-loader__text">Ładowanie panelu administracyjnego…</p>
+      <p class="app-loader__error" data-loader-error></p>
+      <button type="button" class="app-loader__refresh" data-loader-refresh>Odśwież stronę</button>
+    </div>
+  </div>
   <div class="admin-page">
     <div class="admin-layout">
 
