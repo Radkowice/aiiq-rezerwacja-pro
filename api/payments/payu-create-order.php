@@ -78,7 +78,6 @@ function payu_fetch_booking(string $bookingId, string $tenantId): ?array
             'booking_id' => $bookingId,
             'http_code' => $result['http_code'],
             'error' => $result['error'],
-            'response' => $result['response'],
         ]);
         return null;
     }
@@ -116,7 +115,6 @@ function payu_update_booking_payment(string $bookingId, string $tenantId, array 
             'booking_id' => $bookingId,
             'http_code' => $result['http_code'],
             'error' => $result['error'],
-            'response' => $result['response'],
         ]);
         return false;
     }
@@ -238,6 +236,7 @@ $amountText = number_format((float)$amount, 2, ',', ' ') . ' ' . $displayCurrenc
 
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        header('Allow: POST');
         payu_create_order_response([
             'success' => false,
             'error' => 'Metoda niedozwolona.'
@@ -251,6 +250,13 @@ try {
         payu_create_order_response([
             'success' => false,
             'error' => 'Brak booking_id.'
+        ], 400);
+    }
+
+    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
+        payu_create_order_response([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator rezerwacji.'
         ], 400);
     }
 
@@ -410,8 +416,7 @@ try {
 
         payu_create_order_response([
             'success' => false,
-            'error' => $created['error'] ?? 'Nie udało się utworzyć zamówienia PayU.',
-            'details' => $created,
+            'error' => 'Nie udało się utworzyć płatności PayU.',
         ], 500);
     }
 
@@ -463,11 +468,12 @@ try {
     ]);
 
 } catch (Throwable $e) {
-    payu_debug('PAYU_CREATE_ORDER_FATAL', $e->getMessage());
+    payu_debug('PAYU_CREATE_ORDER_FATAL', [
+        'exception_type' => get_class($e),
+    ]);
 
     payu_create_order_response([
         'success' => false,
         'error' => 'Błąd tworzenia płatności PayU.',
-        'details' => $e->getMessage(),
     ], 500);
 }
