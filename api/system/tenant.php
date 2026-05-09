@@ -4,6 +4,17 @@ require_once __DIR__ . '/../helpers/supabase.php';
 
 function tenant_debug_log(string $label, $data): void
 {
+    if (is_array($data)) {
+        $blockedKeys = ['url', 'response', 'body', 'json', 'error', 'curlError', 'details', 'debug'];
+
+        foreach ($blockedKeys as $key) {
+            if (array_key_exists($key, $data)) {
+                unset($data[$key]);
+                $data['omitted'] = true;
+            }
+        }
+    }
+
     @file_put_contents(
         '/var/www/data/debug-tenant.log',
         date('Y-m-d H:i:s') . " [{$label}] " .
@@ -21,16 +32,16 @@ function normalize_host(?string $host): string
         return '';
     }
 
-    // gdy proxy poda kilka hostów po przecinku
+    // gdy proxy poda kilka hostÃ³w po przecinku
     if (strpos($host, ',') !== false) {
         $parts = array_map('trim', explode(',', $host));
         $host = $parts[0] ?? '';
     }
 
-    // usuñ port
+    // usuÅ„ port
     $host = preg_replace('/:\d+$/', '', $host);
 
-    // usuñ koñcow¹ kropkê
+    // usuÅ„ koÅ„cowÄ… kropkÄ™
     $host = rtrim($host, '.');
 
     return $host;
@@ -102,13 +113,17 @@ function getTenantIdFromHost(string $SUPABASE_URL, string $SUPABASE_KEY, string 
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
+        $decodedResponse = json_decode((string) $response, true);
+        $responseCount = is_array($decodedResponse) ? count($decodedResponse) : 0;
+
         tenant_debug_log('TENANT_LOOKUP', [
             'host' => $host,
-            'url' => $url,
             'httpCode' => $httpCode,
-            'curlError' => $curlError ?: null,
-            'response' => $response,
+            'has_error' => $curlError !== '',
+            'found' => is_array($decodedResponse) && !empty($decodedResponse[0]['tenant_id']),
+            'response_count' => $responseCount,
         ]);
+
 
         if ($response === false || $curlError) {
             continue;
@@ -125,6 +140,7 @@ function getTenantIdFromHost(string $SUPABASE_URL, string $SUPABASE_KEY, string 
                 'host' => $host,
                 'tenant_id' => $data[0]['tenant_id'],
                 'matched_domain' => $data[0]['domain'] ?? null,
+                'found' => true,
             ]);
 
             return $data[0]['tenant_id'];
@@ -133,6 +149,7 @@ function getTenantIdFromHost(string $SUPABASE_URL, string $SUPABASE_KEY, string 
 
     tenant_debug_log('TENANT_NOT_FOUND', [
         'checked_hosts' => $hosts,
+        'found' => false,
     ]);
 
     return null;
