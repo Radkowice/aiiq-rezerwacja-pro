@@ -111,7 +111,6 @@ if (!$userResult['ok']) {
     account_info_json(500, [
         'success' => false,
         'error' => 'Nie udało się pobrać danych użytkownika.',
-        'debug' => $userResult['raw'] ?? $userResult['error']
     ]);
 }
 
@@ -135,7 +134,6 @@ if (!$brandingResult['ok']) {
     account_info_json(500, [
         'success' => false,
         'error' => 'Nie udało się pobrać danych firmy.',
-        'debug' => $brandingResult['raw'] ?? $brandingResult['error']
     ]);
 }
 
@@ -152,7 +150,6 @@ if (!$companyResult['ok']) {
     account_info_json(500, [
         'success' => false,
         'error' => 'Nie udało się pobrać danych firmy z ustawień usługi.',
-        'debug' => $companyResult['raw'] ?? $companyResult['error']
     ]);
 }
 
@@ -169,7 +166,6 @@ if (!$subscriptionResult['ok']) {
     account_info_json(500, [
         'success' => false,
         'error' => 'Nie udało się pobrać danych abonamentu.',
-        'debug' => $subscriptionResult['raw'] ?? $subscriptionResult['error']
     ]);
 }
 
