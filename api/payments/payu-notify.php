@@ -121,7 +121,7 @@ function payu_notify_fetch_booking_by_order(string $orderId, string $extOrderId 
     if ($result['error'] || $result['http_code'] !== 200) {
         payu_debug('PAYU_NOTIFY_BOOKING_FETCH_ERROR', [
             'http_code' => $result['http_code'],
-            'error' => $result['error'],
+            'has_error' => !empty($result['error']),
             'order_id' => $orderId,
             'ext_order_id' => $extOrderId,
         ]);
@@ -132,7 +132,7 @@ function payu_notify_fetch_booking_by_order(string $orderId, string $extOrderId 
     return $result['data'][0] ?? null;
 }
 
-function payu_notify_update_booking(string $bookingId, array $payload): bool
+function payu_notify_update_booking(string $bookingId, string $tenantId, array $payload): bool
 {
     $supabaseUrl = rtrim((string)getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string)getenv('SUPABASE_SERVICE_ROLE_KEY');
@@ -145,7 +145,8 @@ function payu_notify_update_booking(string $bookingId, array $payload): bool
 
     $url = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?id=eq.' . rawurlencode($bookingId);
+        . '?id=eq.' . rawurlencode($bookingId)
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
 
     $result = payu_supabase_request(
         $url,
@@ -160,7 +161,7 @@ function payu_notify_update_booking(string $bookingId, array $payload): bool
         payu_debug('PAYU_NOTIFY_BOOKING_UPDATE_ERROR', [
             'booking_id' => $bookingId,
             'http_code' => $result['http_code'],
-            'error' => $result['error'],
+            'has_error' => !empty($result['error']),
         ]);
 
         return false;
@@ -205,9 +206,8 @@ function payu_notify_fetch_single_record(string $table, string $query): ?array
     if ($result['error'] || $result['http_code'] !== 200) {
         payu_debug('PAYU_NOTIFY_FETCH_SINGLE_ERROR', [
             'table' => $table,
-            'query' => $query,
             'http_code' => $result['http_code'],
-            'error' => $result['error'],
+            'has_error' => !empty($result['error']),
         ]);
 
         return null;
@@ -396,7 +396,7 @@ if ($newStatus === 'paid') {
     $payload['paid_at'] = $now;
 }
 
-$updated = payu_notify_update_booking($bookingId, $payload);
+$updated = payu_notify_update_booking($bookingId, $tenantId, $payload);
 
     if (!$updated) {
         payu_notify_response([

@@ -8,6 +8,16 @@ require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+    header('Allow: GET');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Method not allowed'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
@@ -44,7 +54,7 @@ if ($TENANT_ID === '') {
     http_response_code(401);
     echo json_encode([
         'success' => false,
-        'error' => 'Nieprawid³owa sesja'
+        'error' => 'Nieprawid owa sesja'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -70,7 +80,7 @@ $currentTime = $now->modify('-15 minutes')->format('H:i');
 switch ($view) {
     case 'today':
         // Dzisiejsze:
-        // tylko dzisiejsze rezerwacje od aktualnej godziny wzwy¿.
+        // tylko dzisiejsze rezerwacje od aktualnej godziny wzwy .
         $query[] = 'booking_date=eq.' . rawurlencode($today);
         $query[] = 'booking_time=gte.' . rawurlencode($currentTime);
         $query[] = 'order=booking_time.asc';
@@ -78,8 +88,8 @@ switch ($view) {
 
     case 'past':
         // Historia:
-        // - wszystkie dni wczeœniejsze ni¿ dzisiaj,
-        // - oraz dzisiejsze rezerwacje, których godzina ju¿ minê³a.
+        // - wszystkie dni wcze niejsze ni  dzisiaj,
+        // - oraz dzisiejsze rezerwacje, kt rych godzina ju  min a.
         $query[] = 'or=('
             . 'booking_date.lt.' . rawurlencode($today)
             . ',and(booking_date.eq.' . rawurlencode($today)
@@ -91,16 +101,16 @@ switch ($view) {
 
     case 'all':
         // Wszystkie:
-        // ca³a lista, sortowana po terminie.
+        // ca a lista, sortowana po terminie.
         $query[] = 'order=booking_date.asc';
         $query[] = 'order=booking_time.asc';
         break;
 
     case 'upcoming':
     default:
-        // Nadchodz¹ce:
-        // tylko rezerwacje od jutra wzwy¿.
-        // Dzisiejsze s¹ obs³ugiwane osobnym filtrem "Dzisiejsze".
+        // Nadchodz ce:
+        // tylko rezerwacje od jutra wzwy .
+        // Dzisiejsze s  obs ugiwane osobnym filtrem "Dzisiejsze".
         $query[] = 'booking_date=gt.' . rawurlencode($today);
         $query[] = 'order=booking_date.asc';
         $query[] = 'order=booking_time.asc';
@@ -132,8 +142,7 @@ if ($error) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'CURL error',
-        'details' => $error
+        'error' => 'CURL error'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -144,11 +153,7 @@ if ($httpCode >= 400) {
     http_response_code($httpCode);
     echo json_encode([
         'success' => false,
-        'error' => 'Supabase error',
-        'httpCode' => $httpCode,
-        'schema' => $SUPABASE_DB_SCHEMA,
-        'view' => $view,
-        'response' => $data ?: $response
+        'error' => 'Supabase error'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
