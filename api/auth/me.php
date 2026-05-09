@@ -6,6 +6,16 @@ require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+    header('Allow: GET');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Metoda niedozwolona.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -13,7 +23,7 @@ if (!isset($_SESSION['user']['id'])) {
     http_response_code(401);
     echo json_encode([
         'success' => false,
-        'error' => 'Nie zalogowany'
+        'error' => 'Niezalogowany'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -29,7 +39,7 @@ if ($userId === '' || $tenantId === '') {
     http_response_code(401);
     echo json_encode([
         'success' => false,
-        'error' => 'Nieprawid³owa sesja'
+        'error' => 'NieprawidÅ‚owa sesja'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -76,8 +86,7 @@ if ($userCurlError) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'B³¹d po³¹czenia z Supabase',
-        'debug' => $userCurlError
+        'error' => 'BÅ‚Ä…d poÅ‚Ä…czenia z Supabase',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -86,8 +95,7 @@ if ($userHttpCode !== 200) {
     http_response_code($userHttpCode ?: 500);
     echo json_encode([
         'success' => false,
-        'error' => 'B³¹d Supabase przy pobieraniu u¿ytkownika',
-        'debug' => $userResponse
+        'error' => 'BÅ‚Ä…d Supabase przy pobieraniu uÅ¼ytkownika',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -98,7 +106,7 @@ if (!is_array($userData) || empty($userData[0])) {
     http_response_code(404);
     echo json_encode([
         'success' => false,
-        'error' => 'Nie znaleziono u¿ytkownika'
+        'error' => 'Nie znaleziono uÅ¼ytkownika'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -124,8 +132,7 @@ if ($brandingCurlError) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'B³¹d po³¹czenia z Supabase przy pobieraniu brandingu',
-        'debug' => $brandingCurlError
+        'error' => 'BÅ‚Ä…d poÅ‚Ä…czenia z Supabase przy pobieraniu brandingu',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -134,8 +141,7 @@ if ($brandingHttpCode !== 200) {
     http_response_code($brandingHttpCode ?: 500);
     echo json_encode([
         'success' => false,
-        'error' => 'B³¹d Supabase przy pobieraniu brandingu',
-        'debug' => $brandingResponse
+        'error' => 'BÅ‚Ä…d Supabase przy pobieraniu brandingu',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
