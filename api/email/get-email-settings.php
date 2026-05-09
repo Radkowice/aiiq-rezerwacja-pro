@@ -4,6 +4,16 @@ require_once __DIR__ . '/../system/tenant.php';
 header('Content-Type: application/json; charset=utf-8');
 
 start_secure_session();
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+    header('Allow: GET');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Metoda niedozwolona.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if (!isset($_SESSION['user']['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
@@ -83,7 +93,6 @@ if (!$emailSettingsRes['ok']) {
     echo json_encode([
         'success' => false,
         'error' => 'Błąd pobierania email_settings',
-        'details' => $emailSettingsRes['json']
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -109,7 +118,6 @@ if (!$emailTemplatesRes['ok']) {
     echo json_encode([
         'success' => false,
         'error' => 'Błąd pobierania email_templates',
-        'details' => $emailTemplatesRes['json']
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
