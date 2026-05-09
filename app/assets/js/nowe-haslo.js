@@ -54,16 +54,40 @@ function getEmail() {
   return params.get('email') || localStorage.getItem('reset_email') || '';
 }
 
-function checkPasswordStrength(password) {
-  let score = 0;
+function evaluatePasswordStrength(value) {
+  const password = String(value || '');
+  const lower = password.toLowerCase();
 
-  if (password.length >= 8) score++;
-  if (/[a-z]/.test(password)) score++;
-  if (/[A-Z]/.test(password)) score++;
-  if (/[0-9]/.test(password)) score++;
-  if (/[^A-Za-z0-9]/.test(password)) score++;
+  const hasLower = /[a-z]/.test(password);
+  const hasUpper = /[A-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
 
-  return score;
+  const meetsMinimum =
+    password.length >= 8 &&
+    hasLower &&
+    hasUpper &&
+    hasNumber &&
+    hasSpecial;
+
+  const normalized = lower
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const hasWeakPattern =
+    /haslo|password|admin|qwerty|abc123|1234|12345|123456|qwer|asdf|zxcv/i.test(normalized);
+
+  const hasRepeat = /(.)\1{3,}/.test(password);
+
+  if (!meetsMinimum) {
+    return { label: 'Słabe hasło', className: 'weak' };
+  }
+
+  if (password.length >= 15 && !hasWeakPattern && !hasRepeat) {
+    return { label: 'Mocne hasło', className: 'strong' };
+  }
+
+  return { label: 'Średnie hasło', className: 'medium' };
 }
 
 function isStrongPassword(password) {
@@ -76,7 +100,7 @@ function isStrongPassword(password) {
   );
 }
 
-function updateStrengthUI(score, password = '') {
+function updateStrengthUI(result, password = '') {
   const bar = document.getElementById('strength-bar');
   const text = document.getElementById('strength-text');
 
@@ -90,22 +114,14 @@ function updateStrengthUI(score, password = '') {
     return;
   }
 
-  let width = '20%';
-  let label = 'Bardzo słabe';
-  let className = 'weak';
+  const className = result?.className || 'weak';
+  const label = result?.label || 'Słabe hasło';
+  let width = '40%';
 
-  if (score <= 2) {
-    width = '40%';
-    label = 'Słabe';
-    className = 'weak';
-  } else if (score === 3 || score === 4) {
+  if (className === 'medium') {
     width = '70%';
-    label = 'Średnie';
-    className = 'medium';
-  } else if (score >= 5) {
+  } else if (className === 'strong') {
     width = '100%';
-    label = 'Mocne';
-    className = 'strong';
   }
 
   bar.style.width = width;
@@ -188,8 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
   if (passwordInput) {
     passwordInput.addEventListener('input', function () {
       const password = passwordInput.value;
-      const score = checkPasswordStrength(password);
-      updateStrengthUI(score, password);
+      const result = evaluatePasswordStrength(password);
+      updateStrengthUI(result, password);
     });
   }
 
