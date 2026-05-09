@@ -81,7 +81,7 @@ function requireServiceText(array $input, string $key, string $label, int $maxLe
     if ($value === null) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'UzupeĹ‚nij wymagane dane firmy',
+            'error' => 'Uzupełnij wymagane dane firmy',
             'field' => $key,
             'label' => $label
         ], 422);
@@ -176,8 +176,7 @@ if ($method === 'GET') {
     if (!$result['ok']) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Nie udaĹ‚o siÄ™ pobraÄ‡ ustawieĹ„ usĹ‚ugi',
-            'details' => $result['json'] ?: $result['body'],
+            'error' => 'Nie udało się pobrać ustawień usługi',
         ], 500);
     }
 
@@ -195,7 +194,7 @@ if ($method === 'POST') {
     if (!is_array($input)) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Brak danych wejĹ›ciowych'
+            'error' => 'Brak danych wejściowych'
         ], 400);
     }
     
@@ -258,7 +257,6 @@ if ($method === 'POST') {
             sendServiceSettingsJson([
                 'success' => false,
                 'error' => 'Nie udało się zapisać danych firmy',
-                'details' => $result['json'] ?: $result['body'],
             ], 500);
         }
 
@@ -280,8 +278,8 @@ $isCompanyInfoSave = array_key_exists('company_full_name', $input)
 $companyPayload = [];
 
 if ($isCompanyInfoSave) {
-    $companyFullName = requireServiceText($input, 'company_full_name', 'PeĹ‚na nazwa firmy', 255);
-    $companyOwnerName = requireServiceText($input, 'company_owner_name', 'ImiÄ™ i nazwisko', 150);
+    $companyFullName = requireServiceText($input, 'company_full_name', 'Pełna nazwa firmy', 255);
+    $companyOwnerName = requireServiceText($input, 'company_owner_name', 'Imię i nazwisko', 150);
     $companyTaxId = requireServiceText($input, 'company_tax_id', 'NIP', 50);
     $companyAddress = requireServiceText($input, 'company_address', 'Adres firmy', 500);
     $companyEmail = requireServiceText($input, 'company_email', 'E-mail firmy', 255);
@@ -297,7 +295,7 @@ if ($isCompanyInfoSave) {
     if ($priceAmount < 0) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Cena nie moĹĽe byÄ‡ ujemna.'
+            'error' => 'Cena nie może być ujemna.'
         ], 422);
     }
 
@@ -351,8 +349,7 @@ $payload[0] = array_merge($payload[0], $companyPayload);
     if (!$result['ok']) {
         sendServiceSettingsJson([
             'success' => false,
-            'error' => 'Nie udaĹ‚o siÄ™ zapisaÄ‡ ustawieĹ„ usĹ‚ugi',
-            'details' => $result['json'] ?: $result['body'],
+            'error' => 'Nie udało się zapisać ustawień usługi',
         ], 500);
     }
 
@@ -360,7 +357,7 @@ $payload[0] = array_merge($payload[0], $companyPayload);
 
     sendServiceSettingsJson([
         'success' => true,
-        'message' => 'Ustawienia usĹ‚ugi zostaĹ‚y zapisane.',
+        'message' => 'Ustawienia usługi zostały zapisane.',
         'settings' => $saved,
     ]);
 }
