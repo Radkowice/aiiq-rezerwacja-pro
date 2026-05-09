@@ -72,10 +72,10 @@ try {
         ], 405);
     }
 
-  if (!function_exists('getTenantIdFromHost')) {
+if (!function_exists('getTenantIdFromHost')) {
     sendPublicServiceJson([
         'success' => false,
-        'error' => 'Brak funkcji getTenantIdFromHost.'
+        'error' => 'Nie udało się ustalić tenanta dla domeny.'
     ], 500);
 }
 
@@ -107,7 +107,6 @@ $tenantId = (string) $tenantId;
         sendPublicServiceJson([
             'success' => false,
             'error' => 'Nie udało się pobrać danych usługi.',
-            'details' => $result['json'] ?: $result['body'],
         ], 500);
     }
 
@@ -185,6 +184,5 @@ $settings['booking_month_range'] = (int)($calendarSettings['booking_month_range'
     sendPublicServiceJson([
         'success' => false,
         'error' => 'Błąd pobierania danych usługi.',
-        'details' => $e->getMessage(),
     ], 500);
 }
