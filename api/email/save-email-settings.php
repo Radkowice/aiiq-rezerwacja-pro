@@ -4,6 +4,16 @@ require_once __DIR__ . '/../system/tenant.php';
 header('Content-Type: application/json; charset=utf-8');
 
 start_secure_session();
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    header('Allow: POST');
+    http_response_code(405);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Metoda niedozwolona.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if (!isset($_SESSION['user']['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
@@ -149,7 +159,6 @@ if (!$emailSettingsReadResult['ok']) {
     echo json_encode([
         'success' => false,
         'error' => 'Nie udało się odczytać obecnych ustawień email_settings',
-        'details' => $emailSettingsReadResult['json'] ?: $emailSettingsReadResult['body'],
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -226,7 +235,6 @@ if (!$emailSettingsResult['ok']) {
     echo json_encode([
         'success' => false,
         'error' => 'Nie udało się zapisać email_settings',
-        'details' => $emailSettingsResult['json'] ?: $emailSettingsResult['body'],
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -244,7 +252,6 @@ if (!$emailClientTemplateResult['ok']) {
     echo json_encode([
         'success' => false,
         'error' => 'Nie udało się zapisać szablonu email klienta',
-        'details' => $emailClientTemplateResult['json'] ?: $emailClientTemplateResult['body'],
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -262,7 +269,6 @@ if (!$emailAdminTemplateResult['ok']) {
     echo json_encode([
         'success' => false,
         'error' => 'Nie udało się zapisać szablonu email admina',
-        'details' => $emailAdminTemplateResult['json'] ?: $emailAdminTemplateResult['body'],
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -277,19 +283,5 @@ echo json_encode([
     'service_name' => $serviceName,
 ],
 
-], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-exit;
-
-echo json_encode([
-    'success' => true,
-    'message' => 'Ustawienia email zapisane do bazy',
-    'debug' => [
-        'tenant_id' => $tenantId,
-        'service_name_received' => $input['service_name'] ?? null,
-        'service_name_trimmed' => $serviceName,
-        'client_template_payload' => $emailClientTemplatePayload,
-        'client_template_response' => $emailClientTemplateResult['json'],
-        'client_template_raw_body' => $emailClientTemplateResult['body'],
-    ],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 exit;
