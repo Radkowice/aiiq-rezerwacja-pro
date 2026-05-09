@@ -1,12 +1,12 @@
 async function checkSetupBeforeLogin() {
   try {
-    const res = await fetch('/api/auth/setup.php', {
+    const res = await fetch('/api/auth/register.php', {
       cache: 'no-store'
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
 
-    if (!data.installed) {
+    if (data?.registration_allowed === true) {
       window.location.href = '/rejestracja.html';
     }
   } catch (e) {
