@@ -181,6 +181,6 @@ try {
 } catch (\Throwable $e) {
     smtp_test_json(500, [
         'success' => false,
-        'error' => 'Błąd testu SMTP: ' . $e->getMessage()
+        'error' => 'Nie udało się wysłać wiadomości testowej. Sprawdź ustawienia SMTP.'
     ]);
 }
