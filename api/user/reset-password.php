@@ -144,7 +144,6 @@ if (!$tokenResult['ok']) {
     resetPasswordJson([
         'success' => false,
         'message' => 'Błąd odczytu tokena.',
-        'debug' => $tokenResult['json'] ?: $tokenResult['body'] ?: $tokenResult['error'],
     ], 500);
 }
 
@@ -226,7 +225,6 @@ if (!$userResult['ok']) {
     resetPasswordJson([
         'success' => false,
         'message' => 'Nie udało się sprawdzić użytkownika.',
-        'debug' => $userResult['json'] ?: $userResult['body'] ?: $userResult['error'],
     ], 500);
 }
 
@@ -274,7 +272,6 @@ if (!$updateResult['ok']) {
     resetPasswordJson([
         'success' => false,
         'message' => 'Nie udało się zmienić hasła.',
-        'debug' => $updateResult['json'] ?: $updateResult['body'] ?: $updateResult['error'],
     ], 500);
 }
 
@@ -297,7 +294,6 @@ if (!$deleteResult['ok']) {
     resetPasswordJson([
         'success' => false,
         'message' => 'Hasło zostało zmienione, ale nie udało się usunąć tokena resetu.',
-        'debug' => $deleteResult['json'] ?: $deleteResult['body'] ?: $deleteResult['error'],
     ], 500);
 }
 
