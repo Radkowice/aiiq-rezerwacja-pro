@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
@@ -38,6 +39,15 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
     echo json_encode([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -104,7 +114,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         echo json_encode([
             'success' => false,
             'error' => 'Błąd połączenia z Supabase',
-            'debug' => $curlError
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -114,7 +123,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         echo json_encode([
             'success' => false,
             'error' => 'Nie udało się pobrać dokumentów prawnych',
-            'debug' => $response
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -203,7 +211,6 @@ if ($response === false || $curlError) {
     echo json_encode([
         'success' => false,
         'error' => 'Błąd połączenia z Supabase',
-        'debug' => $curlError
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -213,7 +220,6 @@ if ($httpCode < 200 || $httpCode >= 300) {
     echo json_encode([
         'success' => false,
         'error' => 'Nie udało się zapisać dokumentów prawnych',
-        'debug' => $response
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

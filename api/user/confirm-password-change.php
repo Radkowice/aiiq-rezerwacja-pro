@@ -82,6 +82,7 @@ $email = (string) $_SESSION['user']['email'];
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $serviceRoleKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
     http_response_code(500);
@@ -91,6 +92,16 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $clientIp = getClientIpAddress();
 
 $codeUrl = $supabaseUrl
@@ -124,7 +135,7 @@ if ($codeResponse === false) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd odczytu kodu potwierdzenia: ' . $curlError
+        'error' => 'Nie udało się odczytać kodu potwierdzenia. Spróbuj ponownie.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -252,7 +263,7 @@ if ($userPatchResponse === false) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd zmiany hasła: ' . $curlError
+        'error' => 'Nie udało się zmienić hasła. Spróbuj ponownie.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
