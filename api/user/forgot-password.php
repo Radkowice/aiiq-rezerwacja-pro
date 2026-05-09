@@ -157,7 +157,6 @@ if ($error || $httpCode >= 400) {
     forgotPasswordJson([
         'success' => false,
         'error' => 'Nie udało się obsłużyć resetu hasła.',
-        'details' => $error ?: $response,
     ], 500);
 }
 
@@ -215,7 +214,6 @@ if ($tokenError || $tokenHttpCode >= 400) {
     forgotPasswordJson([
         'success' => false,
         'error' => 'Nie udało się zapisać tokenu resetu hasła.',
-        'details' => $tokenError ?: $tokenResponse,
     ], 500);
 }
 
@@ -264,13 +262,13 @@ $mailMessage = ''
     . '</a>'
     . '</div>'
     . '<p style="margin:0 0 10px;">Link jest ważny przez <strong>15 minut</strong>.</p>'
-    . '<p style="margin:10px 0 0;">Jeśli to nie Ty inicjowałeś reset hasła, zignoruj tę wiadomość.</p>';
+    . '<p style="margin:10px 0 0;">Jeśli to nie Ty inicjowałeś reset hasła, zignoruj wiadomość.</p>';
 
 $mailHtml = buildSystemMailLayout(
     'Reset hasła',
     'To wiadomość systemowa dotycząca bezpieczeństwa Twojego konta.',
     $mailMessage,
-    'Nie odpowiadaj na tę wiadomość. Skrzynka nie jest monitorowana.'
+    'Nie odpowiadaj na wiadomość. Skrzynka nie jest monitorowana.'
 );
 
 $mailSent = sendSystemMail($email, 'Reset hasła', $mailHtml);
@@ -283,4 +281,3 @@ if (!$mailSent) {
 }
 
 forgotPasswordNeutralSuccess();
-
