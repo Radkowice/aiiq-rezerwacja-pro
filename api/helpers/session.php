@@ -23,15 +23,36 @@ function clear_secure_session(): void {
 
     if (ini_get('session.use_cookies')) {
         $params = session_get_cookie_params();
-
-        setcookie(session_name(), '', [
+        $cookieName = session_name();
+        $baseCookie = [
             'expires' => time() - 42000,
             'path' => $params['path'] ?? '/',
-            'domain' => $params['domain'] ?? '',
             'secure' => (bool) ($params['secure'] ?? true),
             'httponly' => (bool) ($params['httponly'] ?? true),
             'samesite' => $params['samesite'] ?? 'Lax',
-        ]);
+        ];
+
+        // Aktualne host-only cookie sesji.
+        setcookie($cookieName, '', $baseCookie);
+
+        $host = $_SERVER['HTTP_HOST'] ?? $_SERVER['SERVER_NAME'] ?? '';
+        $host = strtolower(trim((string) $host));
+        $host = preg_replace('/:\d+$/', '', $host);
+        $host = rtrim($host, '.');
+
+        if ($host !== '') {
+            // Stary wariant cookie ustawiony jawnie dla bieżącego hosta.
+            setcookie($cookieName, '', $baseCookie + ['domain' => $host]);
+
+            $parts = explode('.', $host);
+
+            if (count($parts) >= 3) {
+                $rootDomain = '.' . $parts[count($parts) - 2] . '.' . $parts[count($parts) - 1];
+
+                // Stary wariant współdzielony na domenie nadrzędnej.
+                setcookie($cookieName, '', $baseCookie + ['domain' => $rootDomain]);
+            }
+        }
     }
 
     session_destroy();
