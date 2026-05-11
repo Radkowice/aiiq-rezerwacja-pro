@@ -4,10 +4,11 @@
   <div class="calendar-status-content">
     <div class="calendar-status-text">
       <h3>Status kalendarza rezerwacji</h3>
-      <p>
-        Przed włączeniem kalendarza ustaw dostępność w zakładce „Ustawienia” oraz skonfiguruj e-mail z powiadomieniem dla klienta.
-        W przeciwnym razie klient może złożyć rezerwację bez poprawnego potwierdzenia mailowego.
-      </p>
+    <p>
+  Przed włączeniem kalendarza ustaw dostępność w zakładce „Ustawienia” oraz skonfiguruj e-mail z powiadomieniem dla klienta.
+  W przeciwnym razie klient może złożyć rezerwację bez poprawnego potwierdzenia mailowego. Przed konfiguracją zapoznaj się z
+  <a href="https://ai-iq.pl/rezerwacja-ai-iq-pro/" target="_blank" rel="noopener noreferrer">instrukcją</a>.
+</p>
     </div>
 
     <div class="calendar-status-control">

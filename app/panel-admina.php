@@ -57,7 +57,6 @@ if (empty($_SESSION['csrf'])) {
 <body class="tenant-theme app-loading">
   <div id="appLoader" class="app-loader" role="status" aria-live="polite" aria-hidden="false">
     <div class="app-loader__box">
-      <p class="app-loader__brand">AI-IQ Rezerwacja Pro</p>
       <div class="app-loader__spinner" aria-hidden="true"></div>
       <p class="app-loader__text">Ładowanie panelu administracyjnego…</p>
       <p class="app-loader__error" data-loader-error></p>
