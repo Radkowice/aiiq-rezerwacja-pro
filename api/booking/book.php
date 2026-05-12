@@ -233,7 +233,7 @@ function buildClientEmailHtml(
             '<div style="max-width:640px;margin:0 auto;background:#ffffff;font-family:Arial,sans-serif;color:#17324d;">' .
 
                 '<div style="background:linear-gradient(135deg,#071b2d,#0f2d47);padding:32px 24px;text-align:center;color:#ffffff;">' .
-                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">📅</div>' .
+                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">✅</div>' .
                     '<h1 style="margin:0;font-size:28px;">Rezerwacja potwierdzona</h1>' .
                     '<p style="margin:12px 0 0 0;font-size:16px;opacity:0.95;">Dziękujemy za umówienie ' . htmlspecialchars($serviceName, ENT_QUOTES, 'UTF-8') . ' | ' . htmlspecialchars($companyName, ENT_QUOTES, 'UTF-8') . '</p>' .
                 '</div>' .
@@ -244,7 +244,7 @@ function buildClientEmailHtml(
                     '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>👤 Imię:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📧 E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📆 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📅 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0;font-size:16px;"><strong>🕒 Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
                     '</div>' .
 
@@ -293,7 +293,7 @@ function buildAdminEmailHtml(
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>👤 Imię:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📧 E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📞 Telefon:</strong> ' . htmlspecialchars($phone, ENT_QUOTES, 'UTF-8') . '</p>' .
-                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📆 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📅 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0;font-size:16px;"><strong>🕒 Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
                     '</div>' .
 
@@ -527,6 +527,7 @@ $note  = trim((string) ($input['note'] ?? $input['message'] ?? ''));
 
 $website = trim((string) ($input['website'] ?? ''));
 $formStartedAtRaw = trim((string) ($input['form_started_at'] ?? ''));
+$formFillTimeRaw = trim((string) ($input['form_fill_time_ms'] ?? ''));
 $termsAcceptedRaw = $input['terms_accepted'] ?? null;
 
 // Cicha pułapka na boty — człowiek tego pola nie widzi.
@@ -557,6 +558,7 @@ if (!$termsAccepted) {
 // Date.now() z frontu wysyła milisekundy.
 $formStartedAt = ctype_digit($formStartedAtRaw) ? (int) $formStartedAtRaw : 0;
 $formSubmittedAt = (int) round(microtime(true) * 1000);
+$hasClientFillTime = ctype_digit($formFillTimeRaw);
 
 if ($formStartedAt <= 0) {
     debug_log('BOOK_BOT_MISSING_FORM_STARTED_AT', [
@@ -570,13 +572,20 @@ if ($formStartedAt <= 0) {
     ], 400);
 }
 
-$formFillTimeMs = $formSubmittedAt - $formStartedAt;
+$formFillTimeMs = $hasClientFillTime
+    ? (int) $formFillTimeRaw
+    : $formSubmittedAt - $formStartedAt;
+
+$formFillTimeSource = $hasClientFillTime
+    ? 'form_fill_time_ms'
+    : 'server_minus_client_started_at';
 
 if ($formFillTimeMs < 3000) {
     debug_log('BOOK_BOT_TOO_FAST_BLOCKED', [
         'ip' => $ip,
         'tenant_id' => $TENANT_ID,
         'form_fill_time_ms' => $formFillTimeMs,
+        'source' => $formFillTimeSource,
     ]);
 
     json_response([
@@ -826,26 +835,6 @@ debug_log('BOOK_BOOKINGS_RESPONSE', [
 ]);
 
 if ($bookingResult['error'] || $bookingResult['httpCode'] >= 400) {
-    $bookingErrorResponse = json_decode((string)($bookingResult['response'] ?? ''), true);
-    $bookingErrorCode = is_array($bookingErrorResponse) ? (string)($bookingErrorResponse['code'] ?? '') : '';
-    $bookingErrorDetails = is_array($bookingErrorResponse) ? (string)($bookingErrorResponse['details'] ?? '') : '';
-    $bookingErrorMessage = is_array($bookingErrorResponse) ? (string)($bookingErrorResponse['message'] ?? '') : '';
-    $bookingErrorConstraint = is_array($bookingErrorResponse) ? (string)($bookingErrorResponse['constraint'] ?? '') : '';
-    $bookingErrorRaw = is_string($bookingResult['response'] ?? null) ? (string)$bookingResult['response'] : '';
-
-    $isUniqueSlotConflict = $bookingErrorCode === '23505'
-        || str_contains($bookingErrorDetails, 'bookings_unique_slot')
-        || str_contains($bookingErrorMessage, 'bookings_unique_slot')
-        || str_contains($bookingErrorConstraint, 'bookings_unique_slot')
-        || str_contains($bookingErrorRaw, 'bookings_unique_slot');
-
-    if ($isUniqueSlotConflict) {
-        json_response([
-            'success' => false,
-            'error' => 'Ten termin jest już zajęty. Wybierz inną godzinę.',
-        ], 409);
-    }
-
     json_response([
         'success' => false,
         'error' => 'Nie udało się zapisać rezerwacji. Spróbuj ponownie.',

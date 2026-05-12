@@ -7,7 +7,7 @@
     <p>
   Przed włączeniem kalendarza ustaw dostępność w zakładce „Ustawienia” oraz skonfiguruj e-mail z powiadomieniem dla klienta.
   W przeciwnym razie klient może złożyć rezerwację bez poprawnego potwierdzenia mailowego. Przed konfiguracją zapoznaj się z
-  <a href="https://ai-iq.pl/rezerwacja-ai-iq-pro/" target="_blank" rel="noopener noreferrer">instrukcją</a>.
+  <a href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">instrukcją</a>.
 </p>
     </div>
 

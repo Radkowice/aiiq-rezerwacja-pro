@@ -17,6 +17,8 @@ const HOLIDAYS = [
 
 let FRONT_PAYMENT_REQUIRED = false;
 let FRONT_CALENDAR_ENABLED = false;
+let frontLegalDocumentsEnabled = false;
+let frontLegalProviderCompanyName = '';
 
 let FRONT_FORM_FIELDS = {
   show_email: true,
@@ -68,6 +70,8 @@ async function loadSettings() {
 function getEl(id) {
   return document.getElementById(id);
 }
+
+const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function applyCalendarFrontStyle(style = {}) {
   const root = document.documentElement;
@@ -187,8 +191,49 @@ if (titleEl) {
 async function loadFrontLegalDocumentsLinks() {
   const termsLink = getEl('frontTermsLink');
   const privacyLink = getEl('frontPrivacyLink');
+  const providerNameEl = getEl('frontProviderCompanyName');
+  const termsConsentInput = getEl('termsConsent');
 
   if (!termsLink || !privacyLink) return;
+
+  frontLegalDocumentsEnabled = false;
+  frontLegalProviderCompanyName = '';
+
+  if (providerNameEl) {
+    providerNameEl.textContent = '';
+  }
+
+  const setLinksDisabled = () => {
+    termsLink.href = '#';
+    privacyLink.href = '#';
+    termsLink.dataset.disabled = 'true';
+    privacyLink.dataset.disabled = 'true';
+
+    if (termsConsentInput) {
+      termsConsentInput.checked = false;
+      termsConsentInput.disabled = true;
+    }
+  };
+
+  const handleDisabledClick = event => {
+    const link = event.currentTarget;
+
+    if (!link || link.dataset.disabled !== 'true') {
+      return;
+    }
+
+    event.preventDefault();
+
+    const message = frontLegalProviderCompanyName
+      ? `Usługodawca nie przygotował regulaminu oraz polityki prywatności. Skontaktuj się z: ${frontLegalProviderCompanyName}.`
+      : 'Usługodawca nie przygotował regulaminu oraz polityki prywatności.';
+
+    showError(message);
+  };
+
+  termsLink.onclick = handleDisabledClick;
+  privacyLink.onclick = handleDisabledClick;
+  setLinksDisabled();
 
   try {
     const res = await fetch('/api/system/legal-documents-public.php', {
@@ -196,19 +241,33 @@ async function loadFrontLegalDocumentsLinks() {
     });
 
     const data = await res.json();
+    frontLegalProviderCompanyName = String(data?.provider?.company_full_name || '').trim();
+
+    if (providerNameEl) {
+      providerNameEl.textContent = frontLegalProviderCompanyName;
+    }
 
     if (!res.ok || !data.success || !data.enabled || !data.documents) {
+      frontLegalDocumentsEnabled = false;
+      setLinksDisabled();
       return;
     }
 
-    const links = data.documents.links || {};
+    frontLegalDocumentsEnabled = true;
+    termsLink.href = '/dokumenty/regulamin.html';
+    privacyLink.href = '/dokumenty/polityka-prywatnosci.html';
+    termsLink.dataset.disabled = 'false';
+    privacyLink.dataset.disabled = 'false';
 
-    termsLink.href = links.terms || '/dokumenty/regulamin.html';
-    privacyLink.href = links.privacy || '/dokumenty/polityka-prywatnosci.html';
+    if (termsConsentInput) {
+      termsConsentInput.disabled = false;
+    }
 
     termsLink.textContent = data.documents.terms_title || 'regulamin';
     privacyLink.textContent = data.documents.privacy_title || 'politykę prywatności';
   } catch (error) {
+    frontLegalDocumentsEnabled = false;
+    setLinksDisabled();
     console.error('loadFrontLegalDocumentsLinks error:', error);
   }
 }
@@ -994,6 +1053,15 @@ const formStartedAtInput = getEl('formStartedAt');
     showError('Brakuje wymaganych pól formularza.');
     return;
   }
+
+  if (frontLegalDocumentsEnabled !== true) {
+    const message = frontLegalProviderCompanyName
+      ? `Usługodawca nie przygotował regulaminu oraz polityki prywatności. Rezerwacja online nie jest obecnie dostępna. Skontaktuj się z ${frontLegalProviderCompanyName}.`
+      : 'Usługodawca nie przygotował regulaminu oraz polityki prywatności. Rezerwacja online nie jest obecnie dostępna.';
+
+    showError(message);
+    return;
+  }
   
   if (!termsConsentInput || !termsConsentInput.checked) {
   showError('Zaakceptuj regulamin i politykę prywatności');
@@ -1111,6 +1179,24 @@ const booking = {
     if (!finalAvailable.includes(booking.time)) {
       showError('Wybrana godzina jest już niedostępna');
       return;
+    }
+
+    const formStartedAtRaw = formStartedAtInput ? formStartedAtInput.value.trim() : '';
+
+    if (formStartedAtRaw !== '') {
+      const formStartedAt = Number(formStartedAtRaw);
+      const elapsedMs = Date.now() - formStartedAt;
+      const minFillTimeMs = 3000;
+
+      if (Number.isFinite(elapsedMs) && elapsedMs >= 0 && elapsedMs < minFillTimeMs) {
+        await wait(minFillTimeMs - elapsedMs + 150);
+      }
+
+      const formFillTimeMs = Date.now() - formStartedAt;
+
+      if (Number.isFinite(formFillTimeMs) && formFillTimeMs >= 0) {
+        booking.form_fill_time_ms = formFillTimeMs;
+      }
     }
 
     const res = await fetch('/api/booking/book.php', {

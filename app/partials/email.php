@@ -10,7 +10,7 @@
   Przed konfiguracją zapoznaj się z
   <a
     class="settings-help-link"
-    href="https://ai-iq.pl/rezerwacja-ai-iq-pro/#e-mail-i-powiadomienia"
+    href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html"
     target="_blank"
     rel="noopener noreferrer"
   >instrukcją</a>.

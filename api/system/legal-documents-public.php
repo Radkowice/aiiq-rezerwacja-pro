@@ -30,6 +30,46 @@ if (!$tenantId) {
     exit;
 }
 
+function getProviderCompanyFullName(string $supabaseUrl, string $serviceRoleKey, string $schema, string $tenantId): string
+{
+    $url = $supabaseUrl
+        . '/rest/v1/tenant_service_settings'
+        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '&select=company_full_name'
+        . '&limit=1';
+
+    $ch = curl_init($url);
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 15,
+        CURLOPT_HTTPHEADER => supabaseHeaders($serviceRoleKey, $schema),
+    ]);
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+    curl_close($ch);
+
+    if ($response === false || $curlError || $httpCode >= 400) {
+        return '';
+    }
+
+    $data = json_decode((string) $response, true);
+    $row = is_array($data) ? ($data[0] ?? null) : null;
+
+    if (!is_array($row)) {
+        return '';
+    }
+
+    return (string) ($row['company_full_name'] ?? '');
+}
+
+$provider = [
+    'company_full_name' => getProviderCompanyFullName($supabaseUrl, $serviceRoleKey, $schema, (string) $tenantId),
+];
+
 $url = $supabaseUrl
     . '/rest/v1/tenant_legal_documents'
     . '?tenant_id=eq.' . rawurlencode($tenantId)
@@ -75,6 +115,7 @@ if (!is_array($data) || empty($data[0])) {
     echo json_encode([
         'success' => true,
         'enabled' => false,
+        'provider' => $provider,
         'documents' => null
     ], JSON_UNESCAPED_UNICODE);
     exit;
@@ -85,6 +126,7 @@ $row = $data[0];
 echo json_encode([
     'success' => true,
     'enabled' => !empty($row['is_enabled']),
+    'provider' => $provider,
         'documents' => [
         'terms_title' => (string) ($row['terms_title'] ?? 'Regulamin rezerwacji'),
         'terms_content' => (string) ($row['terms_content'] ?? ''),

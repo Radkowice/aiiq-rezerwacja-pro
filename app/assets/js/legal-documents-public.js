@@ -111,6 +111,20 @@ async function loadPublicLegalDocument() {
   const titleEl = document.getElementById('legalDocumentTitle');
   const updatedEl = document.getElementById('legalDocumentUpdated');
   const contentEl = document.getElementById('legalDocumentContent');
+  const eyebrowEl = document.querySelector('.legal-client-eyebrow');
+
+  if (eyebrowEl) {
+    eyebrowEl.textContent = '';
+  }
+
+  const renderMissingDocumentsMessage = providerCompanyName => {
+    if (!contentEl) return;
+
+    const cleanProviderCompanyName = String(providerCompanyName || '').trim();
+    contentEl.textContent = cleanProviderCompanyName
+      ? `Usługodawca nie przygotował regulaminu oraz polityki prywatności. Skontaktuj się z ${cleanProviderCompanyName}.`
+      : 'Usługodawca nie przygotował regulaminu oraz polityki prywatności.';
+  };
 
   try {
     const response = await fetch('/api/system/legal-documents-public.php', {
@@ -119,21 +133,33 @@ async function loadPublicLegalDocument() {
     });
 
     const data = await response.json();
+    const providerCompanyName = String(data?.provider?.company_full_name || '').trim();
 
     if (!response.ok || !data.success || !data.enabled || !data.documents) {
-      throw new Error('Dokument nie jest jeszcze dostępny.');
+      renderMissingDocumentsMessage(providerCompanyName);
+
+      if (updatedEl) {
+        updatedEl.textContent = '';
+      }
+
+      return;
     }
 
     const type = getCurrentLegalDocumentType();
     const docs = data.documents;
+    const formatDocumentTitle = title => (
+      providerCompanyName ? `${title} ${providerCompanyName}` : title
+    );
 
     if (type === 'privacy') {
-      if (titleEl) titleEl.textContent = docs.privacy_title || 'Polityka prywatności';
-      document.title = docs.privacy_title || 'Polityka prywatności';
+      const pageTitle = formatDocumentTitle(docs.privacy_title || 'Polityka prywatności');
+      if (titleEl) titleEl.textContent = pageTitle;
+      document.title = pageTitle;
       renderLegalText(docs.privacy_content || '');
     } else {
-      if (titleEl) titleEl.textContent = docs.terms_title || 'Regulamin rezerwacji';
-      document.title = docs.terms_title || 'Regulamin rezerwacji';
+      const pageTitle = formatDocumentTitle(docs.terms_title || 'Regulamin rezerwacji');
+      if (titleEl) titleEl.textContent = pageTitle;
+      document.title = pageTitle;
       renderLegalText(docs.terms_content || '');
     }
 
