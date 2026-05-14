@@ -126,14 +126,8 @@ if (!is_dir($targetDir) && !mkdir($targetDir, 0755, true)) {
     ]);
 }
 
-$targetFileName = 'favicon-front.' . $extension;
+$targetFileName = 'favicon-front-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
 $targetPath = $targetDir . '/' . $targetFileName;
-
-foreach (glob($targetDir . '/favicon-front.*') ?: [] as $oldFavicon) {
-    if (is_file($oldFavicon)) {
-        @unlink($oldFavicon);
-    }
-}
 
 if (!move_uploaded_file($tmpPath, $targetPath)) {
     favicon_json(500, [
@@ -184,6 +178,15 @@ if ($httpCode < 200 || $httpCode >= 300) {
         'success' => false,
         'error' => 'Favicon zapisany, ale nie udało się zaktualizować bazy.'
     ]);
+}
+
+foreach (array_merge(
+    glob($targetDir . '/favicon-front-*') ?: [],
+    glob($targetDir . '/favicon-front.*') ?: []
+) as $oldFavicon) {
+    if (is_file($oldFavicon) && realpath($oldFavicon) !== realpath($targetPath)) {
+        @unlink($oldFavicon);
+    }
 }
 
 favicon_json(200, [

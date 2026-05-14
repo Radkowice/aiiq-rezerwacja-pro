@@ -1,14 +1,15 @@
 <section class="panel-card hidden" data-section="dokumenty_prawne">
   <div class="panel-header">
     <h2>Dokumenty prawne</h2>
-    <p>Ustaw regulamin i politykę prywatności swojej firmy widoczne dla klientów podczas rezerwacji.</p>
+    <p>Ustaw regulamin i politykę prywatności swojej firmy widoczne dla klientów podczas rezerwacji. Brak regulaminu oraz polityki prywatności klient nie złoży rezerwacji. Przed konfiguracją zapoznaj się z 
+  <a href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">instrukcją</a>.</p>
   </div>
 
   <div class="settings-grid">
     <div class="settings-card">
       <h3>Regulamin rezerwacji</h3>
       <p class="settings-desc">
-        Regulamin będzie linkowany przy checkboxie zgody na froncie rezerwacji.
+        Regulamin linkowany przy checkboxie zgody na froncie rezerwacji.
       </p>
 
       <div class="settings-row">
@@ -36,7 +37,7 @@
     <div class="settings-card">
       <h3>Polityka prywatności</h3>
       <p class="settings-desc">
-        Polityka prywatności będzie będzie linkowana przy checkboxie zgody na froncie rezerwacji.
+        Polityka prywatności linkowana przy checkboxie zgody na froncie rezerwacji.
       </p>
 
       <div class="settings-row">

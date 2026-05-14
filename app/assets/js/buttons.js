@@ -108,6 +108,48 @@ function getReadableReservationsColors(baseColor) {
   };
 }
 
+function cacheBustAssetUrl(url) {
+  const value = String(url || '').trim();
+
+  if (!value) {
+    return '';
+  }
+
+  return `${value}${value.includes('?') ? '&' : '?'}v=${Date.now()}`;
+}
+
+function setLogoPreview(url) {
+  const logoPreview = document.getElementById('account-logo-preview');
+  const logoEmpty = document.getElementById('account-logo-empty');
+  const deleteBtn = document.getElementById('delete-logo-front-btn');
+
+  if (logoPreview && logoEmpty) {
+    logoPreview.src = cacheBustAssetUrl(url);
+    logoPreview.style.display = 'block';
+    logoEmpty.style.display = 'none';
+  }
+
+  if (deleteBtn) {
+    deleteBtn.style.display = 'inline-flex';
+  }
+}
+
+function setFaviconPreview(url) {
+  const faviconPreview = document.getElementById('account-favicon-preview');
+  const faviconEmpty = document.getElementById('account-favicon-empty');
+  const deleteBtn = document.getElementById('delete-favicon-front-btn');
+
+  if (faviconPreview && faviconEmpty) {
+    faviconPreview.src = cacheBustAssetUrl(url);
+    faviconPreview.style.display = 'block';
+    faviconEmpty.style.display = 'none';
+  }
+
+  if (deleteBtn) {
+    deleteBtn.style.display = 'inline-flex';
+  }
+}
+
   // MOJE KONTO — branding
   const saveBrandingBtn = document.getElementById('save-branding-btn');
 
@@ -143,6 +185,10 @@ if (logoInput && logoInput.files && logoInput.files.length > 0) {
   }
 
   logo_url_front = uploadData.logo_url_front || '';
+
+  if (logo_url_front) {
+    setLogoPreview(logo_url_front);
+  }
 }
 
 const faviconInput = document.getElementById('account-favicon');
@@ -166,6 +212,10 @@ if (faviconInput && faviconInput.files && faviconInput.files.length > 0) {
   }
 
   favicon_url_front = uploadData.favicon_url_front || '';
+
+  if (favicon_url_front) {
+    setFaviconPreview(favicon_url_front);
+  }
 }
 
 const payload = {

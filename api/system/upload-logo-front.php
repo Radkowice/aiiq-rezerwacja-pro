@@ -112,7 +112,8 @@ if ($baseDir === false) {
     ]);
 }
 
-$relativeDir = '/data/logo/' . preg_replace('/[^a-zA-Z0-9_-]/', '', $tenantId);
+$safeTenantId = preg_replace('/[^a-zA-Z0-9_-]/', '', $tenantId);
+$relativeDir = '/data/logo/' . $safeTenantId;
 $targetDir = $baseDir . $relativeDir;
 
 if (!is_dir($targetDir) && !mkdir($targetDir, 0755, true)) {
@@ -122,14 +123,8 @@ if (!is_dir($targetDir) && !mkdir($targetDir, 0755, true)) {
     ]);
 }
 
-$targetFileName = 'logo-front.' . $extension;
+$targetFileName = 'logo-front-' . time() . '-' . bin2hex(random_bytes(4)) . '.' . $extension;
 $targetPath = $targetDir . '/' . $targetFileName;
-
-foreach (glob($targetDir . '/logo-front.*') ?: [] as $oldLogo) {
-    if (is_file($oldLogo)) {
-        @unlink($oldLogo);
-    }
-}
 
 if (!move_uploaded_file($tmpPath, $targetPath)) {
     upload_logo_json(500, [
@@ -180,6 +175,15 @@ if ($httpCode < 200 || $httpCode >= 300) {
         'success' => false,
         'error' => 'Logo zapisane, ale nie udało się zaktualizować bazy.'
     ]);
+}
+
+foreach (array_merge(
+    glob($targetDir . '/logo-front-*') ?: [],
+    glob($targetDir . '/logo-front.*') ?: []
+) as $oldLogo) {
+    if (is_file($oldLogo) && realpath($oldLogo) !== realpath($targetPath)) {
+        @unlink($oldLogo);
+    }
 }
 
 upload_logo_json(200, [

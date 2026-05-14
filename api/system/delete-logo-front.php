@@ -58,7 +58,10 @@ $baseDir = realpath(__DIR__ . '/../../html');
 if ($baseDir !== false && $safeTenantId !== '') {
     $targetDir = $baseDir . '/data/logo/' . $safeTenantId;
 
-    foreach (glob($targetDir . '/logo-front.*') ?: [] as $oldLogo) {
+    foreach (array_merge(
+        glob($targetDir . '/logo-front-*') ?: [],
+        glob($targetDir . '/logo-front.*') ?: []
+    ) as $oldLogo) {
         if (is_file($oldLogo)) {
             @unlink($oldLogo);
         }
