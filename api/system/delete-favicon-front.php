@@ -58,10 +58,7 @@ $baseDir = realpath(__DIR__ . '/../../html');
 if ($baseDir !== false && $safeTenantId !== '') {
     $targetDir = $baseDir . '/data/favicon/' . $safeTenantId;
 
-    foreach (array_merge(
-        glob($targetDir . '/favicon-front-*') ?: [],
-        glob($targetDir . '/favicon-front.*') ?: []
-    ) as $oldFavicon) {
+    foreach (glob($targetDir . '/favicon-front.*') ?: [] as $oldFavicon) {
         if (is_file($oldFavicon)) {
             @unlink($oldFavicon);
         }

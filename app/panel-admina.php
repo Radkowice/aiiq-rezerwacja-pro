@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../api/helpers/session.php';
+require_once __DIR__ . '/helpers/footer.php';
 start_secure_session();
 
 if (empty($_SESSION['csrf'])) {
@@ -18,6 +19,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/panel-admina-blokady.css?v=2">
   <link rel="stylesheet" href="/assets/css/panel-admina-rezerwacje.css">
   <link rel="stylesheet" href="/assets/css/panel-admina-layout.css">
+  <link rel="stylesheet" href="/assets/css/admin-personel.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-email.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-ustawienia.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-moje-konto.css?v=1">
@@ -26,7 +28,9 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/admin-usluga-platnosci.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-dokumenty-prawne.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-informacje.css?v=1">
+  <link rel="stylesheet" href="/assets/css/plany.css?v=1">
   <link rel="stylesheet" href="/assets/css/app-loader.css">
+  <link rel="stylesheet" href="/assets/css/app-footer.css">
   <title>AI-IQ Admin</title>
  
 
@@ -42,12 +46,13 @@ if (empty($_SESSION['csrf'])) {
     }
   </script>
   <script src="/assets/js/auth.js" defer></script>
-  <script src="/assets/js/buttons.js?v=3"></script>
+  <script src="/assets/js/buttons.js?v=4"></script>
   <script type="module" src="/assets/js/admin-api.js"></script>
   <script src="/assets/js/admin-email.js?v=smtp-fix-1" defer></script>
   <script src="/assets/js/admin-modal.js" defer></script>
   <script src="/assets/js/admin-kalendarz.js" defer></script>
   <script src="/assets/js/panel-admina.js" defer></script>
+  <script src="/assets/js/admin-personel.js?v=1" defer></script>
   <script src="/assets/js/admin-ustawienia.js" defer></script>
   <script src="/assets/js/admin-integracje.js?v=1"></script>
   <script src="/assets/js/admin-usluga-platnosci.js?v=1"></script>
@@ -81,6 +86,11 @@ if (empty($_SESSION['csrf'])) {
 <button class="menu-item" type="button">
   <span class="label">Blokady</span>
   <span class="icon">⛔</span>
+</button>
+
+<button class="menu-item" type="button">
+  <span class="label">Personel</span>
+  <span class="icon">👥</span>
 </button>
 
 <button class="menu-item" type="button">
@@ -129,7 +139,39 @@ if (empty($_SESSION['csrf'])) {
             <h1>AI-IQ Kalendarz Rezerwacji Pro</h1>
             <p>Panel administratora</p>
           </div>
-          <button class="logout-btn" id="logoutBtn" type="button">Wyloguj</button>
+          <div class="plan-upgrade-bar" id="planUpgradeNotice" hidden>
+            Funkcje dostępne w wersji Pro. Aktywuj Plan Pro
+          </div>
+          <div class="topbar-actions">
+            <div class="admin-notifications" id="adminNotifications">
+              <button
+                class="admin-notifications-toggle"
+                id="adminNotificationsToggle"
+                type="button"
+                aria-label="Powiadomienia administratora"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                <span aria-hidden="true">🔔</span>
+                <span class="admin-notifications-count" id="adminNotificationsCount" hidden>0</span>
+              </button>
+              <div class="admin-notifications-dropdown" id="adminNotificationsDropdown" hidden>
+                <div class="admin-notifications-header">
+                  <strong>Powiadomienia</strong>
+                  <button class="admin-notifications-mark" id="adminNotificationsMarkRead" type="button">
+                    Oznacz jako przeczytane
+                  </button>
+                </div>
+                <div class="admin-notifications-list" id="adminNotificationsList">
+                  <p class="admin-notifications-empty">Ładowanie powiadomień...</p>
+                </div>
+                <p class="admin-notifications-note">
+                  Jeżeli nie wiesz, czego dotyczy blokada, skontaktuj się z pracownikiem.
+                </p>
+              </div>
+            </div>
+            <button class="logout-btn" id="logoutBtn" type="button">Wyloguj</button>
+          </div>
         </header>
 
         <main class="container">
@@ -137,6 +179,8 @@ if (empty($_SESSION['csrf'])) {
   <?php require __DIR__ . '/partials/rezerwacje.php'; ?>
   
   <?php require __DIR__ . '/partials/blokady.php'; ?>
+
+  <?php require __DIR__ . '/partials/personel.php'; ?>
          
  <?php require __DIR__ . '/partials/usluga-platnosci.php'; ?>
   
@@ -155,9 +199,7 @@ if (empty($_SESSION['csrf'])) {
          </main>
       </div>
     </div>
-<footer class="footer">
-  © 2026 <a class="footer-link" href="https://www.ai-iq.pl" target="_blank" rel="noopener">AI-IQ</a> – Kalendarz Rezerwacji Pro. Wszelkie prawa zastrzeżone.
-</footer>
+<?php render_app_footer(['class' => 'footer']); ?>
    
   </div>
    

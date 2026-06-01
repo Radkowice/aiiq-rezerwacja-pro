@@ -5,6 +5,7 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 require __DIR__ . '/../PHPMailer/src/Exception.php';
 require __DIR__ . '/../PHPMailer/src/PHPMailer.php';
@@ -44,6 +45,54 @@ function debug_log(string $label, $data): void
         date('Y-m-d H:i:s') . " [{$label}] " . (is_string($data) ? $data : json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . "\n",
         FILE_APPEND
     );
+}
+
+function booking_debug_log_service(array $data): void
+{
+    $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: '');
+    $appEnv = strtolower((string) getenv('APP_ENV'));
+    $isDebugEnvironment = stripos($schema, 'beta') !== false
+        || stripos($schema, 'dev') !== false
+        || in_array($appEnv, ['dev', 'development', 'beta', 'local'], true);
+
+    if (!$isDebugEnvironment) {
+        return;
+    }
+
+    try {
+        $dir = '/var/www/logs';
+
+        if (!is_dir($dir)) {
+            mkdir($dir, 0775, true);
+        }
+
+        if (!is_dir($dir)) {
+            error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: katalog logów nie istnieje po próbie utworzenia');
+            return;
+        }
+
+        if (!is_writable($dir)) {
+            error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: katalog logów nie jest zapisywalny');
+            return;
+        }
+
+        $payload = array_merge([
+            'timestamp' => date(DATE_ATOM),
+        ], $data);
+
+        $written = file_put_contents(
+            $dir . '/rezerwacje-service-debug.log',
+            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n",
+            FILE_APPEND | LOCK_EX
+        );
+
+        if ($written === false) {
+            error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: nie udało się zapisać wpisu logu');
+        }
+    } catch (Throwable $e) {
+        error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: ' . $e->getMessage());
+        // Debug techniczny nie może przerywać rezerwacji.
+    }
 }
 
 function is_valid_international_phone(string $phone): bool
@@ -162,6 +211,217 @@ function fetch_single_record(string $baseUrl, array $headers, string $table, str
     return $res['data'][0];
 }
 
+function fetch_public_staff_for_booking(string $baseUrl, array $headers, string $tenantId, string $staffId): ?array
+{
+    if ($staffId === '') {
+        return null;
+    }
+
+    $query = 'tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=eq.' . rawurlencode($staffId)
+        . '&is_active=eq.true'
+        . '&select=id,display_name,service_name,service_duration_minutes,service_break_minutes,booking_buffer_minutes,service_price,payments_enabled,email_subject,email_heading,email_body';
+
+    return fetch_single_record($baseUrl, $headers, 'staff_profiles', $query);
+}
+
+function fetch_public_service_for_booking(string $baseUrl, array $headers, string $tenantId, string $serviceId): ?array
+{
+    if ($serviceId === '') {
+        return null;
+    }
+
+    $query = 'tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=eq.' . rawurlencode($serviceId)
+        . '&is_active=eq.true'
+        . '&visible_on_front=eq.true'
+        . '&select=id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled';
+
+    return fetch_single_record($baseUrl, $headers, 'tenant_services', $query);
+}
+
+function fetch_service_staff_ids_for_booking(string $baseUrl, array $headers, string $tenantId, string $serviceId): ?array
+{
+    if ($serviceId === '') {
+        return [];
+    }
+
+    $query = 'select=staff_id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&service_id=eq.' . rawurlencode($serviceId);
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/tenant_service_staff?' . $query;
+    $result = supabase_select($url, $headers);
+
+    if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
+        return null;
+    }
+
+    $staffIds = [];
+
+    foreach ($result['data'] as $row) {
+        if (!is_array($row) || empty($row['staff_id'])) {
+            continue;
+        }
+
+        $staffIds[(string) $row['staff_id']] = true;
+    }
+
+    return array_keys($staffIds);
+}
+
+function booking_nullable_int(array $row, string $key): ?int
+{
+    if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+        return null;
+    }
+
+    return (int) $row[$key];
+}
+
+function booking_nullable_float(array $row, string $key): ?float
+{
+    if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+        return null;
+    }
+
+    return is_numeric($row[$key]) ? (float) $row[$key] : null;
+}
+
+function booking_time_to_minutes(string $time): int
+{
+    [$hours, $minutes] = array_map('intval', explode(':', $time));
+
+    return ($hours * 60) + $minutes;
+}
+
+function booking_slot_respects_buffer(string $date, string $time, int $bufferMinutes): bool
+{
+    if ($bufferMinutes <= 0 || $date !== date('Y-m-d')) {
+        return true;
+    }
+
+    $nowMinutes = ((int) date('H') * 60) + (int) date('i');
+
+    return booking_time_to_minutes($time) >= ($nowMinutes + $bufferMinutes);
+}
+
+function staff_slot_matches_schedule(
+    string $baseUrl,
+    array $headers,
+    string $tenantId,
+    string $staffId,
+    string $date,
+    string $time,
+    int $duration,
+    int $break
+): bool {
+    $weekday = (int) (new DateTimeImmutable($date))->format('N');
+    $query = 'select=weekday,start_time,end_time,is_active'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&staff_id=eq.' . rawurlencode($staffId)
+        . '&weekday=eq.' . rawurlencode((string) $weekday)
+        . '&is_active=eq.true';
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/staff_availability?' . $query;
+    $result = supabase_select($url, $headers);
+
+    if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
+        return false;
+    }
+
+    $slotMinutes = booking_time_to_minutes($time);
+    $duration = max(1, $duration);
+    $break = max(0, $break);
+
+    foreach ($result['data'] as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $start = substr((string)($row['start_time'] ?? ''), 0, 5);
+        $end = substr((string)($row['end_time'] ?? ''), 0, 5);
+
+        if (!preg_match('/^\d{2}:\d{2}$/', $start) || !preg_match('/^\d{2}:\d{2}$/', $end)) {
+            continue;
+        }
+
+        $current = booking_time_to_minutes($start);
+        $endMinutes = booking_time_to_minutes($end);
+
+        while ($current + $duration <= $endMinutes) {
+            if ($current === $slotMinutes) {
+                return true;
+            }
+
+            $current += $duration + $break;
+        }
+    }
+
+    return false;
+}
+
+function staff_slot_is_free(string $baseUrl, array $headers, string $tenantId, string $staffId, string $date, string $time): bool
+{
+    $query = 'tenant_id=eq.' . rawurlencode($tenantId)
+        . '&staff_id=eq.' . rawurlencode($staffId)
+        . '&booking_date=eq.' . rawurlencode($date)
+        . '&booking_time=eq.' . rawurlencode($time)
+        . '&select=id';
+
+    return fetch_single_record($baseUrl, $headers, 'bookings', $query) === null;
+}
+
+function booking_global_slot_is_available(string $baseUrl, array $headers, string $tenantId, string $date, string $time, string $staffId = ''): bool
+{
+    $staffBlockFilter = $staffId === ''
+        ? '&staff_id=is.null'
+        : '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
+
+    $blockedDateQuery = 'tenant_id=eq.' . rawurlencode($tenantId)
+        . '&date=eq.' . rawurlencode($date)
+        . $staffBlockFilter
+        . '&select=date';
+
+    if (fetch_single_record($baseUrl, $headers, 'blocked_dates', $blockedDateQuery) !== null) {
+        return false;
+    }
+
+    $blockedTimesUrl = rtrim($baseUrl, '/') . '/rest/v1/blocked_times?select=time'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&date=eq.' . rawurlencode($date)
+        . $staffBlockFilter;
+
+    $blockedTimesResult = supabase_select($blockedTimesUrl, $headers);
+
+    if (($blockedTimesResult['httpCode'] ?? 0) !== 200 || !is_array($blockedTimesResult['data'])) {
+        return true;
+    }
+
+    foreach ($blockedTimesResult['data'] as $row) {
+        if (!is_array($row) || empty($row['time'])) {
+            continue;
+        }
+
+        $blockedTime = substr((string) $row['time'], 0, 5);
+
+        if ($blockedTime === 'all' || $blockedTime === $time) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function booking_subscription_allows_staff(?string $planCode, ?string $status): bool
+{
+    $planValue = strtolower(trim((string) $planCode));
+    $statusValue = strtolower(trim((string) $status));
+
+    return in_array($planValue, ['pro', 'vip', 'business'], true)
+        && in_array($statusValue, ['active', 'trial'], true);
+}
+
 function calculate_payment_expires_at(int $value, string $unit): string
 {
     if ($value <= 0) {
@@ -179,6 +439,89 @@ function calculate_payment_expires_at(int $value, string $unit): string
     }
 
     return $date->format(DateTimeInterface::ATOM);
+}
+
+function generateBookingManageToken(): string
+{
+    return bin2hex(random_bytes(32));
+}
+
+function calculateBookingManageTokenExpiresAt(string $date, string $time): string
+{
+    $bookingStart = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i',
+        $date . ' ' . $time,
+        new DateTimeZone('Europe/Warsaw')
+    );
+
+    if (!$bookingStart instanceof DateTimeImmutable) {
+        throw new RuntimeException('Nie udało się wyliczyć ważności tokenu rezerwacji.');
+    }
+
+    return $bookingStart->format(DateTimeInterface::ATOM);
+}
+
+function bookingPublicBaseUrl(): string
+{
+    $scheme = 'https';
+
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+        $forwardedProto = strtolower(trim(explode(',', (string) $_SERVER['HTTP_X_FORWARDED_PROTO'])[0] ?? ''));
+
+        if (in_array($forwardedProto, ['http', 'https'], true)) {
+            $scheme = $forwardedProto;
+        }
+    } elseif (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        $scheme = 'https';
+    }
+
+    $host = $_SERVER['HTTP_X_FORWARDED_HOST']
+        ?? $_SERVER['HTTP_HOST']
+        ?? $_SERVER['SERVER_NAME']
+        ?? '';
+
+    $host = trim(explode(',', (string) $host)[0] ?? '');
+
+    if ($host === '' || !preg_match('/^[a-z0-9.-]+(?::\d+)?$/i', $host)) {
+        return '';
+    }
+
+    return $scheme . '://' . $host;
+}
+
+function bookingManageTokenIsActive(string $expiresAt): bool
+{
+    $expiresAt = trim($expiresAt);
+
+    if ($expiresAt === '') {
+        return false;
+    }
+
+    try {
+        $expires = new DateTimeImmutable($expiresAt);
+        $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));
+
+        return $expires > $now;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function bookingBuildRescheduleUrl(string $token, string $expiresAt): string
+{
+    $token = trim($token);
+
+    if ($token === '' || !bookingManageTokenIsActive($expiresAt)) {
+        return '';
+    }
+
+    $baseUrl = bookingPublicBaseUrl();
+
+    if ($baseUrl === '') {
+        return '';
+    }
+
+    return $baseUrl . '/przeloz-rezerwacje.html?token=' . rawurlencode($token);
 }
 
 function replacePlaceholders(string $text, array $data): string
@@ -220,22 +563,43 @@ function buildFooter(string $plan, string $mode, string $custom): string
 function buildClientEmailHtml(
     string $introHtml,
     string $companyName,
-    string $serviceName,
+    string $emailHeading,
     string $footerHtml,
     string $name,
     string $email,
     string $date,
     string $time,
-    string $note
+    string $note,
+    string $bookedServiceName = '',
+    string $staffDisplayName = '',
+    string $rescheduleUrl = ''
 ): string {
+    $serviceRow = trim($bookedServiceName) !== ''
+        ? '<p style="margin:0 0 12px 0;font-size:16px;"><strong>🛠️ Usługa:</strong> ' . htmlspecialchars($bookedServiceName, ENT_QUOTES, 'UTF-8') . '</p>'
+        : '';
+
+    $staffRow = trim($staffDisplayName) !== ''
+        ? '<p style="margin:0 0 12px 0;font-size:16px;"><strong>👥 Osoba obsługująca:</strong> ' . htmlspecialchars($staffDisplayName, ENT_QUOTES, 'UTF-8') . '</p>'
+        : '';
+
+    $rescheduleUrl = trim($rescheduleUrl);
+    $rescheduleSection = $rescheduleUrl !== ''
+        ? '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;text-align:center;">' .
+            '<h2 style="margin:0 0 10px 0;font-size:20px;color:#17324d;">Chcesz zmienić termin?</h2>' .
+            '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4f6478;">Jeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.</p>' .
+            '<a href="' . htmlspecialchars($rescheduleUrl, ENT_QUOTES, 'UTF-8') . '" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;">Przełóż rezerwację</a>' .
+            '<p style="margin:14px 0 0 0;font-size:13px;line-height:1.5;color:#607284;">Link jest ważny do momentu rozpoczęcia rezerwacji.</p>' .
+          '</div>'
+        : '';
+
     return
         '<div style="margin:0;padding:0;background:#f4f7fb;">' .
             '<div style="max-width:640px;margin:0 auto;background:#ffffff;font-family:Arial,sans-serif;color:#17324d;">' .
 
                 '<div style="background:linear-gradient(135deg,#071b2d,#0f2d47);padding:32px 24px;text-align:center;color:#ffffff;">' .
-                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">✅</div>' .
+                    '<div style="font-size:42px;line-height:1;margin-bottom:12px;">✓</div>' .
                     '<h1 style="margin:0;font-size:28px;">Rezerwacja potwierdzona</h1>' .
-                    '<p style="margin:12px 0 0 0;font-size:16px;opacity:0.95;">Dziękujemy za umówienie ' . htmlspecialchars($serviceName, ENT_QUOTES, 'UTF-8') . ' | ' . htmlspecialchars($companyName, ENT_QUOTES, 'UTF-8') . '</p>' .
+                    '<p style="margin:12px 0 0 0;font-size:16px;opacity:0.95;">' . htmlspecialchars($emailHeading, ENT_QUOTES, 'UTF-8') . ' | ' . htmlspecialchars($companyName, ENT_QUOTES, 'UTF-8') . '</p>' .
                 '</div>' .
 
                 '<div style="padding:32px 24px;">' .
@@ -244,7 +608,9 @@ function buildClientEmailHtml(
                     '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>👤 Imię:</strong> ' . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📧 E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        $serviceRow .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📅 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        $staffRow .
                         '<p style="margin:0;font-size:16px;"><strong>🕒 Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
                     '</div>' .
 
@@ -255,6 +621,8 @@ function buildClientEmailHtml(
                               '</div>'
                             : ''
                     ) .
+
+                    $rescheduleSection .
 
                     '<p style="font-size:14px;line-height:1.6;color:#4f6478;">W razie pytań po prostu odpowiedz na tę wiadomość.</p>' .
                 '</div>' .
@@ -274,8 +642,13 @@ function buildAdminEmailHtml(
     string $phone,
     string $date,
     string $time,
-    string $note
+    string $note,
+    string $staffDisplayName = ''
 ): string {
+    $staffRow = trim($staffDisplayName) !== ''
+        ? '<p style="margin:0 0 12px 0;font-size:16px;"><strong>👥 Personel:</strong> ' . htmlspecialchars($staffDisplayName, ENT_QUOTES, 'UTF-8') . '</p>'
+        : '';
+
     return
         '<div style="margin:0;padding:0;background:#f4f7fb;">' .
             '<div style="max-width:640px;margin:0 auto;background:#ffffff;font-family:Arial,sans-serif;color:#17324d;">' .
@@ -294,6 +667,7 @@ function buildAdminEmailHtml(
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📧 E-mail:</strong> ' . htmlspecialchars($email, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📞 Telefon:</strong> ' . htmlspecialchars($phone, ENT_QUOTES, 'UTF-8') . '</p>' .
                         '<p style="margin:0 0 12px 0;font-size:16px;"><strong>📅 Data:</strong> ' . htmlspecialchars($date, ENT_QUOTES, 'UTF-8') . '</p>' .
+                        $staffRow .
                         '<p style="margin:0;font-size:16px;"><strong>🕒 Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
                     '</div>' .
 
@@ -361,6 +735,7 @@ function configureMailer(PHPMailer $mail, array $emailSettings): void
     $mail->Username = $smtpUser;
     $mail->Password = $smtpPass;
     $mail->CharSet = 'UTF-8';
+    $mail->Encoding = 'base64';
 
     $encryption = strtolower(trim((string) ($emailSettings['smtp_encryption'] ?? 'tls')));
 
@@ -524,6 +899,8 @@ $name  = trim((string) ($input['name'] ?? ''));
 $email = trim((string) ($input['email'] ?? ''));
 $phone = trim((string) ($input['phone'] ?? ''));
 $note  = trim((string) ($input['note'] ?? $input['message'] ?? ''));
+$staffId = trim((string) ($input['staff_id'] ?? ''));
+$serviceId = trim((string) ($input['service_id'] ?? ''));
 
 $website = trim((string) ($input['website'] ?? ''));
 $formStartedAtRaw = trim((string) ($input['form_started_at'] ?? ''));
@@ -612,7 +989,7 @@ $minimalHeaders = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, true);
 
 $calendarSettingsUrl = $SUPABASE_URL
     . '/rest/v1/calendar_settings'
-    . '?select=calendar_enabled'
+    . '?select=calendar_enabled,consultation_duration,consultation_break,booking_buffer'
     . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
     . '&limit=1';
 
@@ -731,6 +1108,199 @@ if ($requirePhone) {
     $phone = '';
 }
 
+$staffDisplayName = '';
+$staffServiceName = '';
+$staffServicePrice = null;
+$staffPaymentsEnabled = null;
+$staffEmailSubject = '';
+$staffEmailHeading = '';
+$staffEmailBody = '';
+$globalBookingBuffer = max(0, (int) ($calendarSettingsRow['booking_buffer'] ?? 0));
+$selectedService = null;
+$selectedServiceStaffIds = [];
+
+if ($serviceId !== '') {
+    if (!tenant_has_feature($TENANT_ID, 'multiple_services')) {
+        json_response([
+            'success' => false,
+            'error' => 'Wiele usług jest dostępne w wersji Pro.',
+            'feature' => 'multiple_services',
+            'upgrade_required' => true,
+        ], 403);
+    }
+
+    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $serviceId)) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana usługa jest niedostępna.',
+        ], 404);
+    }
+
+    $selectedService = fetch_public_service_for_booking($SUPABASE_URL, $headers, $TENANT_ID, $serviceId);
+
+    if (!is_array($selectedService) || empty($selectedService['id'])) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana usługa jest niedostępna.',
+        ], 404);
+    }
+
+    $selectedServiceStaffIds = fetch_service_staff_ids_for_booking($SUPABASE_URL, $headers, $TENANT_ID, $serviceId);
+
+    if (!is_array($selectedServiceStaffIds)) {
+        json_response([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić personelu dla wybranej usługi.',
+        ], 500);
+    }
+
+    if (!empty($selectedServiceStaffIds)) {
+        if ($staffId === '') {
+            json_response([
+                'success' => false,
+                'error' => 'Wybierz osobę obsługującą tę usługę.',
+            ], 400);
+        }
+
+        if (!in_array($staffId, $selectedServiceStaffIds, true)) {
+            json_response([
+                'success' => false,
+                'error' => 'Wybrana osoba nie obsługuje tej usługi.',
+            ], 422);
+        }
+    } elseif ($staffId !== '') {
+        json_response([
+            'success' => false,
+            'error' => 'Ta usługa nie wymaga wyboru personelu.',
+        ], 422);
+    }
+}
+
+if ($staffId !== '') {
+    if (!tenant_has_feature($TENANT_ID, 'staff_module')) {
+        json_response([
+            'success' => false,
+            'error' => 'Rezerwacja do pracownika jest dostępna w wersji Pro.',
+            'feature' => 'staff_module',
+            'upgrade_required' => true,
+        ], 403);
+    }
+
+    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $staffId)) {
+        json_response([
+            'success' => false,
+            'error' => 'Nieprawidłowy personel',
+        ], 400);
+    }
+
+    $subscriptionRow = fetch_single_record(
+        $SUPABASE_URL,
+        $headers,
+        'tenant_subscriptions',
+        'tenant_id=eq.' . rawurlencode($TENANT_ID) . '&select=plan_code,status'
+    );
+
+    $planCode = is_array($subscriptionRow) ? (string) ($subscriptionRow['plan_code'] ?? 'free') : 'free';
+    $subscriptionStatus = is_array($subscriptionRow) ? (string) ($subscriptionRow['status'] ?? '') : '';
+
+    if (!booking_subscription_allows_staff($planCode, $subscriptionStatus)) {
+        json_response([
+            'success' => false,
+            'error' => 'Personel jest niedostępny',
+        ], 403);
+    }
+
+    $staffRow = fetch_public_staff_for_booking($SUPABASE_URL, $headers, $TENANT_ID, $staffId);
+
+    if (!is_array($staffRow) || empty($staffRow['id'])) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana osoba jest niedostępna',
+        ], 404);
+    }
+
+    $staffDisplayName = trim((string) ($staffRow['display_name'] ?? ''));
+    $staffServiceName = trim((string) ($staffRow['service_name'] ?? ''));
+    $staffEmailSubject = trim((string) ($staffRow['email_subject'] ?? ''));
+    $staffEmailHeading = trim((string) ($staffRow['email_heading'] ?? ''));
+    $staffEmailBody = trim((string) ($staffRow['email_body'] ?? ''));
+    $staffServicePrice = booking_nullable_float($staffRow, 'service_price');
+    $staffPaymentsEnabled = array_key_exists('payments_enabled', $staffRow) && $staffRow['payments_enabled'] !== null
+        ? filter_var($staffRow['payments_enabled'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+        : null;
+
+    $staffDuration = booking_nullable_int($staffRow, 'service_duration_minutes');
+    $staffBreak = booking_nullable_int($staffRow, 'service_break_minutes');
+    $staffBuffer = booking_nullable_int($staffRow, 'booking_buffer_minutes');
+
+    $serviceDuration = is_array($selectedService) ? booking_nullable_int($selectedService, 'duration_minutes') : null;
+    $serviceBreak = is_array($selectedService) ? booking_nullable_int($selectedService, 'break_minutes') : null;
+    $serviceBuffer = is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null;
+
+    $effectiveDuration = max(1, $serviceDuration ?? $staffDuration ?? (int)($calendarSettingsRow['consultation_duration'] ?? 60));
+    $effectiveBreak = max(0, $serviceBreak ?? $staffBreak ?? (int)($calendarSettingsRow['consultation_break'] ?? 0));
+    $effectiveBuffer = max(0, $serviceBuffer ?? $staffBuffer ?? $globalBookingBuffer);
+
+    if (!booking_slot_respects_buffer($date, $time, $effectiveBuffer)) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana godzina jest już niedostępna',
+        ], 409);
+    }
+
+    if (!booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time, $staffId)) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana godzina jest już niedostępna',
+        ], 409);
+    }
+
+    $staffSlotMatchesSchedule = staff_slot_matches_schedule(
+        $SUPABASE_URL,
+        $headers,
+        $TENANT_ID,
+        $staffId,
+        $date,
+        $time,
+        $effectiveDuration,
+        $effectiveBreak
+    );
+
+    if (!$staffSlotMatchesSchedule) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana godzina jest niedostępna dla tej osoby',
+        ], 409);
+    }
+
+    if (!staff_slot_is_free($SUPABASE_URL, $headers, $TENANT_ID, $staffId, $date, $time)) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana godzina jest już zajęta',
+        ], 409);
+    }
+} elseif (!booking_slot_respects_buffer(
+    $date,
+    $time,
+    max(0, (is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null) ?? $globalBookingBuffer)
+)) {
+    json_response([
+        'success' => false,
+        'error' => 'Wybrana godzina jest już niedostępna',
+    ], 409);
+} elseif (!booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time)) {
+    json_response([
+        'success' => false,
+        'error' => 'Wybrana godzina jest już niedostępna',
+    ], 409);
+}
+
+$googleEventDurationMinutes = max(1, (int) (
+    (is_array($selectedService) ? booking_nullable_int($selectedService, 'duration_minutes') : null)
+    ?? ($effectiveDuration ?? null)
+    ?? (int) ($calendarSettingsRow['consultation_duration'] ?? 60)
+));
+
 // Ustawienia usługi i płatności
 $tenantQuery = 'tenant_id=eq.' . rawurlencode($TENANT_ID);
 
@@ -750,6 +1320,12 @@ $paymentExpiresAt = null;
 
 $paymentRequiredConfigured = false;
 $payuEnabled = false;
+$globalServiceName = '';
+$configuredAmount = 0.0;
+$configuredCurrency = 'PLN';
+$paymentLimitValue = 48;
+$paymentLimitUnit = 'hours';
+$globalPaymentRequiredConfigured = false;
 
 $payuIntegration = fetch_single_record(
     $SUPABASE_URL,
@@ -763,9 +1339,9 @@ if (is_array($payuIntegration)) {
 }
 
 if (is_array($serviceSettings)) {
-    $paymentRequiredConfigured = !empty($serviceSettings['payment_required']);
-    $paymentRequired = $paymentRequiredConfigured && $payuEnabled;
-
+    $globalServiceName = trim((string) ($serviceSettings['service_name'] ?? ''));
+    $globalPaymentRequiredConfigured = !empty($serviceSettings['payment_required']);
+    $paymentRequiredConfigured = $globalPaymentRequiredConfigured;
     $configuredAmount = isset($serviceSettings['price_amount'])
         ? (float) $serviceSettings['price_amount']
         : 0.0;
@@ -776,17 +1352,58 @@ if (is_array($serviceSettings)) {
         $configuredCurrency = 'PLN';
     }
 
-    if ($paymentRequired) {
-        $paymentStatus = 'pending';
-        $paymentProvider = 'payu';
-        $paymentAmount = $configuredAmount > 0 ? $configuredAmount : null;
-        $paymentCurrency = $configuredCurrency;
+    $paymentLimitValue = (int) ($serviceSettings['payment_time_limit_value'] ?? 48);
+    $paymentLimitUnit = (string) ($serviceSettings['payment_time_limit_unit'] ?? 'hours');
+}
 
-        $paymentLimitValue = (int) ($serviceSettings['payment_time_limit_value'] ?? 48);
-        $paymentLimitUnit = (string) ($serviceSettings['payment_time_limit_unit'] ?? 'hours');
+if (is_array($selectedService)) {
+    $globalServiceName = trim((string) ($selectedService['name'] ?? ''));
+    $paymentRequiredConfigured = $globalPaymentRequiredConfigured && !empty($selectedService['payments_enabled']);
+    $configuredAmount = booking_nullable_float($selectedService, 'price_amount') ?? 0.0;
+    $configuredCurrency = trim((string) ($selectedService['price_currency'] ?? 'PLN'));
 
-        $paymentExpiresAt = calculate_payment_expires_at($paymentLimitValue, $paymentLimitUnit);
+    if ($configuredCurrency === '') {
+        $configuredCurrency = 'PLN';
     }
+}
+
+$effectivePaymentRequiredConfigured = $paymentRequiredConfigured;
+$effectivePaymentAmount = $configuredAmount;
+$effectivePaymentCurrency = $configuredCurrency;
+
+if ($staffId !== '' && !is_array($selectedService)) {
+    if ($staffPaymentsEnabled === true) {
+        $effectivePaymentRequiredConfigured = $globalPaymentRequiredConfigured;
+    } elseif ($staffPaymentsEnabled === false) {
+        $effectivePaymentRequiredConfigured = false;
+    }
+
+    if ($staffServicePrice !== null && $staffServicePrice > 0) {
+        $effectivePaymentAmount = $staffServicePrice;
+    }
+}
+
+if (!tenant_has_feature($TENANT_ID, 'online_payments') || !tenant_has_feature($TENANT_ID, 'payu')) {
+    $effectivePaymentRequiredConfigured = false;
+    $payuEnabled = false;
+}
+
+if ($effectivePaymentRequiredConfigured && $effectivePaymentAmount <= 0) {
+    json_response([
+        'success' => false,
+        'error' => 'Brak poprawnej kwoty płatności dla wybranej usługi.',
+    ], 422);
+}
+
+$paymentRequiredConfigured = $effectivePaymentRequiredConfigured;
+$paymentRequired = $paymentRequiredConfigured && $payuEnabled;
+
+if ($paymentRequired) {
+    $paymentStatus = 'pending';
+    $paymentProvider = 'payu';
+    $paymentAmount = $effectivePaymentAmount > 0 ? $effectivePaymentAmount : null;
+    $paymentCurrency = $effectivePaymentCurrency;
+    $paymentExpiresAt = calculate_payment_expires_at($paymentLimitValue, $paymentLimitUnit);
 }
 
 debug_log('BOOK_PAYMENT_SETTINGS', [
@@ -799,6 +1416,33 @@ debug_log('BOOK_PAYMENT_SETTINGS', [
     'payment_currency' => $paymentCurrency,
     'payment_expires_at' => $paymentExpiresAt,
 ]);
+
+$serviceNameSnapshot = $globalServiceName;
+
+if ($staffId !== '' && $staffServiceName !== '' && !is_array($selectedService)) {
+    $serviceNameSnapshot = $staffServiceName;
+}
+
+$manageToken = '';
+$manageTokenExpiresAt = '';
+
+try {
+    $manageToken = generateBookingManageToken();
+    $manageTokenExpiresAt = calculateBookingManageTokenExpiresAt($date, $time);
+} catch (Throwable $e) {
+    debug_log('BOOK_MANAGE_TOKEN_ERROR', [
+        'exception_type' => get_class($e),
+        'tenant_id' => $TENANT_ID,
+        'booking_date' => $date,
+        'booking_time' => $time,
+    ]);
+
+    json_response([
+        'success' => false,
+        'error' => 'Nie udało się przygotować rezerwacji. Spróbuj ponownie.',
+    ], 500);
+}
+
 // Zapis rezerwacji
 $bookingPayload = [
     'tenant_id'    => $TENANT_ID,
@@ -810,6 +1454,7 @@ $bookingPayload = [
     'notes'        => $note,
     'status'       => 'new',
     'source'       => 'www',
+    'service_name_snapshot' => $serviceNameSnapshot !== '' ? $serviceNameSnapshot : null,
 
     'payment_required'   => $paymentRequired,
     'payment_status'     => $paymentStatus,
@@ -818,15 +1463,64 @@ $bookingPayload = [
     'payment_currency'   => $paymentCurrency,
     'payment_expires_at' => $paymentExpiresAt,
 
+    'manage_token' => $manageToken,
+    'manage_token_expires_at' => $manageTokenExpiresAt,
+
     'created_at'   => date('c'),
     'updated_at'   => date('c'),
 ];
+
+if ($staffId !== '') {
+    $bookingPayload['staff_id'] = $staffId;
+}
+
+if ($serviceId !== '' && is_array($selectedService)) {
+    $bookingPayload['service_id'] = $serviceId;
+}
+
+booking_debug_log_service([
+    'event' => 'before_booking_insert',
+    'tenant_id' => $TENANT_ID,
+    'received_service_id' => $serviceId,
+    'received_staff_id' => $staffId,
+    'selected_service_found' => is_array($selectedService),
+    'booking_payload_has_service_id' => array_key_exists('service_id', $bookingPayload),
+    'booking_payload_service_id' => $bookingPayload['service_id'] ?? null,
+    'service_name_snapshot' => $bookingPayload['service_name_snapshot'] ?? null,
+    'booking_date' => $date,
+    'booking_time' => $time,
+    'payment_required' => $paymentRequired,
+    'status' => $bookingPayload['status'] ?? null,
+]);
 
 $bookingResult = supabase_insert(
     $SUPABASE_URL . '/rest/v1/bookings',
     $bookingPayload,
     $headers
 );
+
+$bookingRowsForDebug = json_decode((string)($bookingResult['response'] ?? ''), true);
+$bookingIdForDebug = is_array($bookingRowsForDebug) && isset($bookingRowsForDebug[0]) && is_array($bookingRowsForDebug[0])
+    ? (string)($bookingRowsForDebug[0]['id'] ?? '')
+    : '';
+
+booking_debug_log_service([
+    'event' => 'after_booking_insert',
+    'tenant_id' => $TENANT_ID,
+    'received_service_id' => $serviceId,
+    'received_staff_id' => $staffId,
+    'selected_service_found' => is_array($selectedService),
+    'booking_payload_has_service_id' => array_key_exists('service_id', $bookingPayload),
+    'booking_payload_service_id' => $bookingPayload['service_id'] ?? null,
+    'service_name_snapshot' => $bookingPayload['service_name_snapshot'] ?? null,
+    'booking_date' => $date,
+    'booking_time' => $time,
+    'payment_required' => $paymentRequired,
+    'status' => $bookingPayload['status'] ?? null,
+    'insert_success' => !$bookingResult['error'] && $bookingResult['httpCode'] < 400,
+    'insert_error' => $bookingResult['error'] ? substr((string) $bookingResult['error'], 0, 180) : null,
+    'booking_id' => $bookingIdForDebug !== '' ? $bookingIdForDebug : null,
+]);
 
 debug_log('BOOK_BOOKINGS_RESPONSE', [
     'httpCode' => $bookingResult['httpCode'],
@@ -850,41 +1544,49 @@ $bookingId = (string)($createdBooking['id'] ?? '');
 
 debug_log('BOOK_CREATED_ID', $bookingId !== '' ? $bookingId : 'BRAK_ID');
 
-// Blokada terminu
+// Blokada terminu dla starego trybu globalnego.
+// Rezerwacje personelu blokujemy przez bookings.staff_id, bez założenia kolumny staff_id w blocked_times.
+if ($staffId === '') {
+    $blockPayload = [
+        'tenant_id' => $TENANT_ID,
+        'date'      => $date,
+        'time'      => $time,
+    ];
 
-$blockPayload = [
-    'tenant_id' => $TENANT_ID,
-    'date'      => $date,
-    'time'      => $time,
-];
+    $blockResult = supabase_insert(
+        $SUPABASE_URL . '/rest/v1/blocked_times',
+        $blockPayload,
+        $minimalHeaders
+    );
 
-$blockResult = supabase_insert(
-    $SUPABASE_URL . '/rest/v1/blocked_times',
-    $blockPayload,
-    $minimalHeaders
-);
+    debug_log('BOOK_BLOCKED_TIMES_RESPONSE', [
+        'httpCode' => $blockResult['httpCode'],
+        'has_error' => $blockResult['error'] !== '',
+        'booking_id' => $bookingId,
+        'tenant_id' => $TENANT_ID,
+        'date' => $date,
+        'time' => $time,
+    ]);
 
-debug_log('BOOK_BLOCKED_TIMES_RESPONSE', [
-    'httpCode' => $blockResult['httpCode'],
-    'has_error' => $blockResult['error'] !== '',
-    'booking_id' => $bookingId,
-    'tenant_id' => $TENANT_ID,
-    'date' => $date,
-    'time' => $time,
-]);
-
-if ($blockResult['error'] || $blockResult['httpCode'] >= 400) {
-    json_response([
-        'success' => false,
-        'error' => 'Nie udało się zablokować terminu. Spróbuj ponownie.',
-    ], 500);
+    if ($blockResult['error'] || $blockResult['httpCode'] >= 400) {
+        json_response([
+            'success' => false,
+            'error' => 'Nie udało się zablokować terminu. Spróbuj ponownie.',
+        ], 500);
+    }
 }
 
 // Google Calendar — tworzenie wydarzenia po zapisaniu rezerwacji
 try {
     if ($bookingId !== '') {
-        $bookingForGoogle = array_merge($bookingPayload, [
+        $bookingForGooglePayload = $bookingPayload;
+        unset($bookingForGooglePayload['staff_id']);
+        unset($bookingForGooglePayload['manage_token'], $bookingForGooglePayload['manage_token_expires_at']);
+
+        $bookingForGoogle = array_merge($bookingForGooglePayload, [
             'id' => $bookingId,
+            'staff_display_name' => $staffDisplayName,
+            'duration_minutes' => $googleEventDurationMinutes,
         ]);
 
         $googleTenantId = (string)($bookingPayload['tenant_id'] ?? '');
@@ -893,7 +1595,7 @@ try {
             $googleEventId = createGoogleCalendarEventForBooking($googleTenantId, $bookingForGoogle);
 
             if ($googleEventId) {
-                google_calendar_update_booking_event_id($bookingId, $googleEventId);
+                google_calendar_update_booking_event_id($bookingId, $googleEventId, $googleTenantId);
                 debug_log('BOOK_GOOGLE_EVENT_CREATED', $googleEventId);
             } else {
                 debug_log('BOOK_GOOGLE_EVENT_SKIPPED', 'Brak eventu Google lub integracja nieaktywna');
@@ -950,7 +1652,27 @@ try {
     $plan = 'basic';
     $footerMode = (string) ($tenantData['email_footer_mode'] ?? 'system');
     $footerCustom = (string) ($tenantData['email_footer_custom'] ?? '');
-    $serviceName = (string) ($emailTemplate['service_name'] ?? 'wizyty');
+    $effectiveEmailTemplate = $emailTemplate;
+
+    if ($staffEmailSubject !== '') {
+        $effectiveEmailTemplate['subject'] = $staffEmailSubject;
+    }
+
+    if ($staffEmailHeading !== '') {
+        $effectiveEmailTemplate['service_name'] = $staffEmailHeading;
+    }
+
+    if ($staffEmailBody !== '') {
+        $effectiveEmailTemplate['body_html'] = $staffEmailBody;
+    }
+
+    $emailHeading = trim((string) ($effectiveEmailTemplate['service_name'] ?? ''));
+
+    if ($emailHeading === '') {
+        $emailHeading = 'Dziękujemy za rezerwację';
+    }
+
+    $bookedServiceName = trim((string) ($serviceNameSnapshot ?? ''));
 
     $placeholders = [
         '{name}'    => $name,
@@ -961,8 +1683,8 @@ try {
         '{message}' => $note,
     ];
 
-    $finalSubject = replacePlaceholders((string) ($emailTemplate['subject'] ?? ''), $placeholders);
-    $introHtml = replacePlaceholders((string) ($emailTemplate['body_html'] ?? ''), $placeholders);
+    $finalSubject = replacePlaceholders((string) ($effectiveEmailTemplate['subject'] ?? ''), $placeholders);
+    $introHtml = replacePlaceholders((string) ($effectiveEmailTemplate['body_html'] ?? ''), $placeholders);
 
     $adminFinalSubject = 'Nowa rezerwacja – ' . $date . ' ' . $time;
     $adminIntroHtml =
@@ -971,28 +1693,41 @@ try {
         . '</p>';
 
     $footerHtml = buildFooter($plan, $footerMode, $footerCustom);
+    $rescheduleUrl = '';
+
+    if (tenant_has_feature($TENANT_ID, 'reschedule_booking')) {
+        $rescheduleUrl = bookingBuildRescheduleUrl($manageToken, $manageTokenExpiresAt);
+    }
 
     if (!$paymentRequired && !empty($emailSettings['send_client_confirmation'])) {
         $clientHtml = buildClientEmailHtml(
             $introHtml,
             $companyName,
-            $serviceName,
+            $emailHeading,
             $footerHtml,
             $name,
             $email,
             $date,
             $time,
-            $note
+            $note,
+            $bookedServiceName,
+            $staffDisplayName,
+            $rescheduleUrl
         );
 
         $clientAltBody =
             "Rezerwacja potwierdzona\n\n" .
-            "Dziękujemy za umówienie {$serviceName} z {$companyName}\n\n" .
+            "{$emailHeading} | {$companyName}\n\n" .
             "Imię: {$name}\n" .
             "E-mail: {$email}\n" .
+            ($bookedServiceName !== '' ? "Usługa: {$bookedServiceName}\n" : '') .
             "Data: {$date}\n" .
+            ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '') .
             "Godzina: {$time}\n" .
             ($note !== '' ? "Wiadomość: {$note}\n" : '') .
+            ($rescheduleUrl !== ''
+                ? "\nChcesz zmienić termin?\nJeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.\nPrzełóż rezerwację: {$rescheduleUrl}\nLink jest ważny do momentu rozpoczęcia rezerwacji.\n"
+                : '') .
             "\n";
 
         $mail = new PHPMailer(true);
@@ -1028,7 +1763,8 @@ try {
                 $phone,
                 $date,
                 $time,
-                $note
+                $note,
+                $staffDisplayName
             );
 
             $adminAltBody =
@@ -1037,6 +1773,7 @@ try {
                 "E-mail: {$email}\n" .
                 "Telefon: {$phone}\n" .
                 "Data: {$date}\n" .
+                ($staffDisplayName !== '' ? "Personel: {$staffDisplayName}\n" : '') .
                 "Godzina: {$time}\n" .
                 ($note !== '' ? "Wiadomość klienta: {$note}\n" : '') .
                 "\n";

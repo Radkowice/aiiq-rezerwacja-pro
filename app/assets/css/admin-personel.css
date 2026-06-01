@@ -1,0 +1,444 @@
+body.theme-light section[data-section="personel"] {
+  --personel-border-color: rgba(148, 163, 184, 0.58);
+}
+
+body.theme-gray section[data-section="personel"] {
+  --personel-border-color: rgba(100, 116, 139, 0.62);
+}
+
+body.theme-dark section[data-section="personel"] {
+  --personel-border-color: var(--color-border);
+}
+
+section[data-section="personel"] .personel-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--admin-section-gap, 18px);
+}
+
+section[data-section="personel"] #personel-list-panel {
+  width: min(100%, 860px);
+  justify-self: center;
+}
+
+section[data-section="personel"] .personel-bottom-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--admin-section-gap, 18px);
+  align-items: start;
+}
+
+section[data-section="personel"] #personel-form-panel {
+  order: 1;
+  width: min(100%, 980px);
+  justify-self: center;
+}
+
+section[data-section="personel"] #personel-availability-panel {
+  order: 2;
+  width: min(100%, 760px);
+  justify-self: center;
+}
+
+section[data-section="personel"] .personel-card {
+  padding: var(--admin-card-padding, 22px);
+  color: var(--color-text);
+  background: var(--color-card);
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  box-shadow: var(--admin-card-shadow, var(--shadow-main));
+}
+
+section[data-section="personel"] .personel-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+section[data-section="personel"] .personel-card h3 {
+  margin: 0 0 8px;
+  color: var(--color-text);
+  font-size: 17px;
+  font-weight: var(--admin-heading-weight, 500);
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+section[data-section="personel"] .personel-form-section h4 {
+  margin: 0 0 12px;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: var(--admin-heading-weight, 500);
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+section[data-section="personel"] .personel-muted {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+section[data-section="personel"] .personel-message {
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-card) 88%, var(--color-muted));
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+section[data-section="personel"] .personel-message:empty,
+section[data-section="personel"] .personel-message[hidden] {
+  display: none;
+}
+
+section[data-section="personel"] .personel-message[data-type="success"] {
+  color: var(--color-text);
+  border-color: var(--personel-border-color, var(--color-border));
+}
+
+section[data-section="personel"] .personel-message[data-type="error"] {
+  color: var(--color-text);
+  border-color: var(--personel-border-color, var(--color-border));
+}
+
+section[data-section="personel"] .personel-form-action-message,
+section[data-section="personel"] .personel-availability-action-message {
+  margin: 2px 0 0;
+}
+
+section[data-section="personel"] .personel-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 10px;
+  max-height: 242px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+  scrollbar-gutter: stable;
+}
+
+section[data-section="personel"] .personel-search {
+  margin-bottom: 14px;
+}
+
+section[data-section="personel"] .personel-list-item {
+  width: 100%;
+  min-height: 104px;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  cursor: pointer;
+  text-align: left;
+}
+
+section[data-section="personel"] .personel-list-item:hover,
+section[data-section="personel"] .personel-list-item[aria-pressed="true"] {
+  border-color: var(--personel-border-color, var(--color-border));
+  background: color-mix(in srgb, var(--color-card) 88%, var(--color-muted));
+}
+
+section[data-section="personel"] .personel-list-item.is-inactive {
+  opacity: 0.58;
+}
+
+section[data-section="personel"] .personel-color-dot {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  margin-top: 4px;
+  border-radius: 50%;
+  border: 1px solid var(--personel-border-color, var(--color-border));
+}
+
+section[data-section="personel"] .personel-list-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+section[data-section="personel"] .personel-list-body strong {
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: var(--admin-heading-weight, 500);
+  line-height: 1.3;
+}
+
+section[data-section="personel"] .personel-list-meta {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+section[data-section="personel"] .personel-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+section[data-section="personel"] .personel-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 8px;
+  color: var(--color-muted);
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  font-size: 12px;
+  font-weight: var(--admin-label-weight, 500);
+  line-height: 1.2;
+}
+
+section[data-section="personel"] .personel-badge.is-active,
+section[data-section="personel"] .personel-badge.is-visible {
+  color: var(--color-text);
+}
+
+section[data-section="personel"] .personel-form,
+section[data-section="personel"] .personel-availability,
+section[data-section="personel"] .personel-form-section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+section[data-section="personel"] .personel-form-section {
+  padding-top: 2px;
+}
+
+section[data-section="personel"] .personel-form-section + .personel-form-section {
+  padding-top: 18px;
+  border-top: 1px solid var(--personel-border-color, var(--color-border));
+}
+
+section[data-section="personel"] .personel-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 360px));
+  justify-content: start;
+  gap: 14px;
+}
+
+section[data-section="personel"] #personel-color {
+  width: 54px;
+  min-width: 54px;
+}
+
+section[data-section="personel"] #personel-sort-order {
+  max-width: 220px;
+}
+
+section[data-section="personel"] .personel-checkboxes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+section[data-section="personel"] .personel-invite-box {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-card) 92%, var(--color-muted));
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+}
+
+section[data-section="personel"] .personel-invite-box p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+section[data-section="personel"] .personel-invite-check {
+  width: fit-content;
+  max-width: 100%;
+}
+
+section[data-section="personel"] .personel-check,
+section[data-section="personel"] .personel-day-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-text);
+  font-weight: var(--admin-label-weight, 500);
+}
+
+section[data-section="personel"] .personel-check input,
+section[data-section="personel"] .personel-day-active input {
+  width: 18px;
+  height: 18px;
+  min-height: 18px;
+  padding: 0;
+  accent-color: var(--color-primary);
+}
+
+section[data-section="personel"] input,
+section[data-section="personel"] textarea,
+section[data-section="personel"] select {
+  border-color: var(--personel-border-color, var(--color-border));
+}
+
+section[data-section="personel"] .personel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+section[data-section="personel"] .personel-actions .btn {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.admin-confirm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto 12px;
+  border-radius: 999px;
+  background: var(--color-card-soft, rgba(148, 163, 184, 0.16));
+  color: var(--color-text);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.admin-confirm-message .staff-delete-modal {
+  display: grid;
+  gap: 12px;
+  text-align: center;
+}
+
+.admin-confirm-message .staff-delete-modal p {
+  margin: 0;
+  color: var(--color-text);
+  line-height: 1.55;
+}
+
+.admin-confirm-message .staff-delete-modal ul {
+  margin: 0;
+  padding: 12px 14px 12px 30px;
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: 12px;
+  background: var(--color-card-soft, rgba(148, 163, 184, 0.12));
+  color: var(--color-text);
+  text-align: left;
+}
+
+.admin-confirm-message .staff-delete-modal li {
+  margin: 0;
+  line-height: 1.45;
+}
+
+
+section[data-section="personel"] .personel-days {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+section[data-section="personel"] .personel-day-row {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  background: transparent;
+}
+
+section[data-section="personel"] .personel-day-times {
+  display: grid;
+  grid-template-columns: 96px auto 96px;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+}
+
+section[data-section="personel"] .personel-day-times input {
+  width: 96px;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+@media (max-width: 1100px) {
+  section[data-section="personel"] .personel-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+
+  section[data-section="personel"] .personel-days {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 900px) {
+  section[data-section="personel"] .personel-form-grid,
+  section[data-section="personel"] .personel-days,
+  section[data-section="personel"] .personel-list {
+    grid-template-columns: 1fr;
+  }
+
+  section[data-section="personel"] .personel-card-header,
+  section[data-section="personel"] .personel-day-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  section[data-section="personel"] .personel-actions {
+    flex-direction: column-reverse;
+  }
+
+  section[data-section="personel"] .personel-actions .btn,
+  section[data-section="personel"] .personel-actions .btn-primary,
+  section[data-section="personel"] .personel-card-header .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 768px) {
+  section[data-section="personel"] .personel-day-active,
+  section[data-section="personel"] .personel-day-times {
+    width: 100%;
+  }
+
+  section[data-section="personel"] .personel-day-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+}
+
+@media (max-width: 480px) {
+  section[data-section="personel"] .personel-day-times {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+
+  section[data-section="personel"] .personel-day-times span {
+    display: none;
+  }
+
+  section[data-section="personel"] .personel-day-times input {
+    width: 100%;
+  }
+}

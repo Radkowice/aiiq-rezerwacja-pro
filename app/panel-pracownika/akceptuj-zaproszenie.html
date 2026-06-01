@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <title>Ustaw hasło pracownika</title>
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/auth-pracownika.css">
+  <link rel="stylesheet" href="/assets/css/app-footer.css">
+</head>
+<body>
+  <main class="employee-auth-page">
+    <section class="employee-auth-header" aria-labelledby="employee-auth-page-title">
+      <h1 id="employee-auth-page-title">Panel pracownika</h1>
+      <p>Aktywacja dostępu do konta pracownika</p>
+    </section>
+
+    <section class="employee-auth-card" aria-labelledby="employee-accept-title">
+      <h2 id="employee-accept-title" class="employee-auth-title">Ustaw hasło do panelu pracownika</h2>
+      <p class="employee-auth-description">
+        Wpisz nowe hasło, aby aktywować dostęp do panelu pracownika.
+      </p>
+
+      <form class="employee-auth-form" id="employeeAcceptInviteForm" novalidate>
+        <label class="employee-auth-field" for="employeePassword">
+          <span>Nowe hasło</span>
+          <span class="employee-auth-password-wrap">
+            <input
+              type="password"
+              id="employeePassword"
+              name="password"
+              autocomplete="new-password"
+              required
+            >
+            <button
+              type="button"
+              class="employee-auth-password-toggle"
+              data-password-toggle
+              data-target="employeePassword"
+              aria-label="Pokaż hasło"
+            >
+              <span class="employee-auth-password-eye employee-auth-password-eye-open">👁️</span>
+              <span class="employee-auth-password-eye employee-auth-password-eye-closed">🙈</span>
+            </button>
+          </span>
+        </label>
+
+        <label class="employee-auth-field" for="employeePasswordConfirm">
+          <span>Powtórz hasło</span>
+          <span class="employee-auth-password-wrap">
+            <input
+              type="password"
+              id="employeePasswordConfirm"
+              name="password_confirm"
+              autocomplete="new-password"
+              required
+            >
+            <button
+              type="button"
+              class="employee-auth-password-toggle"
+              data-password-toggle
+              data-target="employeePasswordConfirm"
+              aria-label="Pokaż hasło"
+            >
+              <span class="employee-auth-password-eye employee-auth-password-eye-open">👁️</span>
+              <span class="employee-auth-password-eye employee-auth-password-eye-closed">🙈</span>
+            </button>
+          </span>
+        </label>
+
+        <button type="submit" class="employee-auth-submit" id="employeeAcceptSubmit">
+          Ustaw hasło
+        </button>
+      </form>
+
+      <p class="employee-auth-message" id="employeeAcceptMessage" aria-live="polite"></p>
+
+      <p class="employee-auth-link">
+        <a href="/panel-pracownika/logowanie.html">Wróć do logowania pracownika</a>
+      </p>
+    </section>
+
+    <footer class="employee-auth-footer app-footer" data-app-footer></footer>
+  </main>
+
+  <script src="/panel-pracownika/assets/js/akceptuj-zaproszenie.js"></script>
+  <script src="/assets/js/app-footer.js" defer></script>
+</body>
+</html>

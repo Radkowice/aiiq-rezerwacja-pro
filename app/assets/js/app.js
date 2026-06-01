@@ -1,5 +1,14 @@
 let TENANT_ID = null;
 let SETTINGS = null;
+let calendarSettings = {
+  work_start: '00:00',
+  work_end: '23:59',
+  consultation_duration: 60,
+  consultation_break: 0,
+  booking_buffer: 0,
+  booking_start_month_offset: 0,
+  booking_month_range: 1
+};
 
 const HOLIDAYS = [
   '01-01',
@@ -19,12 +28,74 @@ let FRONT_PAYMENT_REQUIRED = false;
 let FRONT_CALENDAR_ENABLED = false;
 let frontLegalDocumentsEnabled = false;
 let frontLegalProviderCompanyName = '';
+let FRONT_STAFF_ENABLED = false;
+let FRONT_STAFF = [];
+let FRONT_FILTERED_STAFF = [];
+let FRONT_STAFF_REQUIRED = false;
+let FRONT_SERVICE_OPTIONS = [];
+let FRONT_SELECTED_SERVICE_SIGNATURE = '';
+let FRONT_PUBLIC_SERVICES = [];
+let FRONT_USING_PUBLIC_SERVICES = false;
+let selectedServiceId = '';
+let selectedService = null;
+let FRONT_MONTH_AVAILABILITY_CACHE = {};
+let FRONT_MONTH_AVAILABILITY_LOADING = {};
+let FRONT_MONTH_AVAILABILITY_REQUEST_ID = 0;
+let FRONT_SERVICE_GLOBAL = {
+  service_name: '',
+  service_description: '',
+  price_amount: null,
+  price_currency: 'PLN',
+  payment_required: false,
+  payment_message: ''
+};
 
 let FRONT_FORM_FIELDS = {
   show_email: true,
   show_phone: true,
   show_notes: true
 };
+
+window.AIIQ_PUBLIC_PLAN_CONTEXT = null;
+
+function getPublicPlanContext() {
+  return window.AIIQ_PUBLIC_PLAN_CONTEXT || null;
+}
+
+function isPublicFreePlan() {
+  const context = getPublicPlanContext();
+  return context?.is_free === true || context?.plan_code === 'free';
+}
+
+function publicPlanHasFeature(featureKey) {
+  const context = getPublicPlanContext();
+
+  if (!context || !context.features || !Object.prototype.hasOwnProperty.call(context.features, featureKey)) {
+    return true;
+  }
+
+  return context.features[featureKey] === true;
+}
+
+function setFrontLegalConsentVisible(isVisible) {
+  const consentWrap = getEl('frontLegalConsent');
+  const termsConsentInput = getEl('termsConsent');
+
+  if (consentWrap) {
+    consentWrap.hidden = !isVisible;
+    consentWrap.classList.toggle('hidden', !isVisible);
+  }
+
+  if (termsConsentInput) {
+    termsConsentInput.required = isVisible;
+
+    if (!isVisible) {
+      termsConsentInput.checked = false;
+      termsConsentInput.disabled = true;
+      termsConsentInput.removeAttribute('required');
+    }
+  }
+}
 
 async function loadSettings() {
   try {
@@ -148,6 +219,7 @@ async function loadFrontBranding() {
     }
 
     const branding = data.branding;
+    window.AIIQ_PUBLIC_PLAN_CONTEXT = data.plan_context || null;
 
    const clientName = (branding.client_name || '').trim();
 const logoUrl = (branding.logo_url_front || '').trim();
@@ -165,13 +237,17 @@ if (titleEl) {
   titleEl.textContent = titleText;
 }
     const logoEl = getEl('frontLogo');
-    if (logoEl && logoUrl) {
+    if (logoEl && logoUrl && publicPlanHasFeature('branding_logo')) {
       logoEl.src = logoUrl;
       logoEl.alt = titleText || 'Logo';
-      logoEl.style.display = '';
+      logoEl.hidden = false;
+    } else if (logoEl) {
+      logoEl.removeAttribute('src');
+      logoEl.alt = '';
+      logoEl.hidden = true;
     }
     
-    if (faviconUrl) {
+    if (faviconUrl && publicPlanHasFeature('branding_favicon')) {
   let faviconEl = document.querySelector('link[rel="icon"]');
 
   if (!faviconEl) {
@@ -199,6 +275,13 @@ async function loadFrontLegalDocumentsLinks() {
   frontLegalDocumentsEnabled = false;
   frontLegalProviderCompanyName = '';
 
+  if (isPublicFreePlan() || !publicPlanHasFeature('legal_documents')) {
+    setFrontLegalConsentVisible(false);
+    return;
+  }
+
+  setFrontLegalConsentVisible(true);
+
   if (providerNameEl) {
     providerNameEl.textContent = '';
   }
@@ -212,6 +295,7 @@ async function loadFrontLegalDocumentsLinks() {
     if (termsConsentInput) {
       termsConsentInput.checked = false;
       termsConsentInput.disabled = true;
+      termsConsentInput.removeAttribute('required');
     }
   };
 
@@ -261,6 +345,7 @@ async function loadFrontLegalDocumentsLinks() {
 
     if (termsConsentInput) {
       termsConsentInput.disabled = false;
+      termsConsentInput.required = true;
     }
 
     termsLink.textContent = data.documents.terms_title || 'regulamin';
@@ -285,7 +370,553 @@ function formatFrontPrice(amount, currency = 'PLN') {
   }).format(numericAmount);
 }
 
+function hasFrontValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function normalizeFrontPublicStaff(staff = {}) {
+  return {
+    id: String(staff.id || '').trim(),
+    display_name: String(staff.display_name || '').trim(),
+    description: String(staff.description || '').trim(),
+    color: String(staff.color || '').trim(),
+    sort_order: Number.isFinite(Number(staff.sort_order)) ? Number(staff.sort_order) : 0
+  };
+}
+
+function normalizeFrontPublicService(service = {}) {
+  const assignedStaff = Array.isArray(service.assigned_staff)
+    ? service.assigned_staff
+        .map(normalizeFrontPublicStaff)
+        .filter(staff => staff.id !== '')
+    : [];
+
+  return {
+    id: String(service.id || '').trim(),
+    service_name: String(service.name || service.service_name || '').trim(),
+    service_description: String(service.description || '').trim(),
+    price_amount: service.price_amount ?? null,
+    price_currency: service.price_currency || 'PLN',
+    payment_required: service.payment_required === true,
+    payment_message: String(service.payment_message || '').trim(),
+    service_duration_minutes: hasFrontValue(service.duration)
+      ? service.duration
+      : service.consultation_duration,
+    service_break_minutes: service.break_minutes ?? null,
+    booking_buffer_minutes: service.booking_buffer_minutes ?? null,
+    sort_order: Number.isFinite(Number(service.sort_order)) ? Number(service.sort_order) : 0,
+    assigned_staff: assignedStaff
+  };
+}
+
+function getSelectedFrontStaff() {
+  const staffId = getSelectedStaffId();
+
+  if (!staffId) return null;
+
+  if (FRONT_USING_PUBLIC_SERVICES) {
+    return FRONT_FILTERED_STAFF.find(person => String(person.id || '') === staffId) || null;
+  }
+
+  return FRONT_STAFF.find(person => String(person.id || '') === staffId) || null;
+}
+
+function getEffectiveFrontService(staff = null) {
+  if (FRONT_USING_PUBLIC_SERVICES) {
+    return selectedService || FRONT_PUBLIC_SERVICES[0] || FRONT_SERVICE_GLOBAL;
+  }
+
+  const globalService = FRONT_SERVICE_GLOBAL;
+  const hasStaff = staff && typeof staff === 'object';
+  const paymentRequired = hasStaff && typeof staff.payments_enabled === 'boolean'
+    ? globalService.payment_required === true && staff.payments_enabled === true
+    : globalService.payment_required === true;
+
+  return {
+    service_name: hasStaff && hasFrontValue(staff.service_name)
+      ? String(staff.service_name).trim()
+      : String(globalService.service_name || '').trim(),
+    service_description: hasStaff && hasFrontValue(staff.service_description)
+      ? String(staff.service_description).trim()
+      : String(globalService.service_description || '').trim(),
+    price_amount: hasStaff && hasFrontValue(staff.service_price)
+      ? staff.service_price
+      : globalService.price_amount,
+    price_currency: globalService.price_currency || 'PLN',
+    payment_required: paymentRequired,
+    payment_message: String(globalService.payment_message || '').trim(),
+    service_duration_minutes: hasStaff && hasFrontValue(staff.service_duration_minutes)
+      ? staff.service_duration_minutes
+      : calendarSettings.consultation_duration,
+    service_break_minutes: hasStaff && hasFrontValue(staff.service_break_minutes)
+      ? staff.service_break_minutes
+      : calendarSettings.consultation_break,
+    booking_buffer_minutes: hasStaff && hasFrontValue(staff.booking_buffer_minutes)
+      ? staff.booking_buffer_minutes
+      : calendarSettings.booking_buffer
+  };
+}
+
+function normalizeFrontServiceNumber(value) {
+  if (value === null || value === undefined || String(value).trim() === '') {
+    return '';
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? String(number) : String(value).trim();
+}
+
+function getFrontServiceSignature(service) {
+  return [
+    String(service?.service_name || '').trim().toLowerCase(),
+    String(service?.service_description || '').trim().toLowerCase(),
+    normalizeFrontServiceNumber(service?.price_amount),
+    service?.payment_required === true ? '1' : '0',
+    normalizeFrontServiceNumber(service?.service_duration_minutes),
+    normalizeFrontServiceNumber(service?.service_break_minutes),
+    normalizeFrontServiceNumber(service?.booking_buffer_minutes)
+  ].join('|');
+}
+
+function buildFrontServiceOptions() {
+  if (FRONT_USING_PUBLIC_SERVICES) {
+    return FRONT_PUBLIC_SERVICES.map(service => ({
+      signature: `service:${service.id}`,
+      source: 'public-services',
+      service,
+      label: service.service_name || 'Usługa'
+    }));
+  }
+
+  const options = new Map();
+  const addService = (service, source = 'global') => {
+    const signature = getFrontServiceSignature(service);
+
+    if (!signature || options.has(signature)) {
+      return;
+    }
+
+    const serviceName = String(service?.service_name || '').trim();
+
+    options.set(signature, {
+      signature,
+      source,
+      service,
+      label: serviceName || 'Usługa'
+    });
+  };
+
+  addService(getEffectiveFrontService(null), 'global');
+
+  if (Array.isArray(FRONT_STAFF) && FRONT_STAFF.length > 0) {
+    FRONT_STAFF.forEach(staff => {
+      const effectiveService = getEffectiveFrontService(staff);
+
+      addService(effectiveService, 'staff');
+    });
+  }
+
+  return Array.from(options.values());
+}
+
+function getSelectedFrontServiceOption() {
+  if (!FRONT_SERVICE_OPTIONS.length) {
+    selectedService = null;
+    selectedServiceId = '';
+    return null;
+  }
+
+  const serviceSelect = getEl('serviceSelect');
+  const selectedSignature = serviceSelect?.value || FRONT_SELECTED_SERVICE_SIGNATURE;
+
+  const option = FRONT_SERVICE_OPTIONS.find(option => option.signature === selectedSignature)
+    || FRONT_SERVICE_OPTIONS[0];
+
+  selectedService = option?.service || null;
+  selectedServiceId = selectedService?.id || '';
+
+  return option;
+}
+
+function getStaffForSelectedService() {
+  if (FRONT_USING_PUBLIC_SERVICES) {
+    const selectedOption = getSelectedFrontServiceOption();
+    const staff = selectedOption?.service?.assigned_staff;
+
+    return Array.isArray(staff) ? staff : [];
+  }
+
+  if (!FRONT_STAFF_ENABLED || !Array.isArray(FRONT_STAFF) || !FRONT_STAFF.length) {
+    return [];
+  }
+
+  const selectedOption = getSelectedFrontServiceOption();
+  const selectedSignature = selectedOption?.signature || FRONT_SELECTED_SERVICE_SIGNATURE;
+
+  if (!selectedSignature) {
+    return [];
+  }
+
+  return FRONT_STAFF.filter(staff => {
+    const staffServiceSignature = getFrontServiceSignature(getEffectiveFrontService(staff));
+    return staffServiceSignature === selectedSignature;
+  });
+}
+
+function resetFrontDateAndTimeSelection() {
+  const dateInput = getEl('date');
+  const timeInput = getEl('time');
+
+  if (dateInput) {
+    dateInput.value = '';
+  }
+
+  if (timeInput) {
+    timeInput.innerHTML = '<option value="">Wybierz godzinę *</option>';
+  }
+}
+
+function clearFrontMonthAvailabilityCache() {
+  FRONT_MONTH_AVAILABILITY_CACHE = {};
+  FRONT_MONTH_AVAILABILITY_LOADING = {};
+  FRONT_MONTH_AVAILABILITY_REQUEST_ID += 1;
+}
+
+function formatFrontMonthKey(date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getFrontMonthAvailabilityParams(monthKey) {
+  const params = new URLSearchParams({
+    month: monthKey
+  });
+
+  if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
+    params.set('service_id', selectedServiceId);
+  }
+
+  const staffId = getSelectedStaffId();
+
+  if (staffId) {
+    params.set('staff_id', staffId);
+  }
+
+  return params;
+}
+
+function getFrontMonthAvailabilityCacheKey(monthKey) {
+  const params = getFrontMonthAvailabilityParams(monthKey);
+  return [
+    monthKey,
+    params.get('service_id') || '',
+    params.get('staff_id') || ''
+  ].join('|');
+}
+
+async function loadFrontMonthAvailability(monthKey, expectedCacheKey = '') {
+  if (!monthKey) {
+    return false;
+  }
+
+  const cacheKey = expectedCacheKey || getFrontMonthAvailabilityCacheKey(monthKey);
+
+  if (FRONT_MONTH_AVAILABILITY_CACHE[cacheKey]) {
+    return true;
+  }
+
+  if (FRONT_MONTH_AVAILABILITY_LOADING[cacheKey]) {
+    return false;
+  }
+
+  const requestId = FRONT_MONTH_AVAILABILITY_REQUEST_ID + 1;
+  FRONT_MONTH_AVAILABILITY_REQUEST_ID = requestId;
+  FRONT_MONTH_AVAILABILITY_LOADING[cacheKey] = true;
+
+  try {
+    const params = getFrontMonthAvailabilityParams(monthKey);
+    const res = await fetch(`/api/booking/availability-month.php?${params.toString()}`, {
+      cache: 'no-store'
+    });
+    const data = await res.json();
+
+    if (
+      requestId !== FRONT_MONTH_AVAILABILITY_REQUEST_ID ||
+      getFrontMonthAvailabilityCacheKey(monthKey) !== cacheKey
+    ) {
+      return false;
+    }
+
+    if (!res.ok || data.success !== true || !data.days || typeof data.days !== 'object') {
+      throw new Error(data.message || data.error || 'Nie udało się pobrać miesięcznej dostępności');
+    }
+
+    FRONT_MONTH_AVAILABILITY_CACHE[cacheKey] = data.days;
+    return true;
+  } catch (error) {
+    if (requestId === FRONT_MONTH_AVAILABILITY_REQUEST_ID) {
+      console.error('loadFrontMonthAvailability error:', error);
+    }
+    return false;
+  } finally {
+    delete FRONT_MONTH_AVAILABILITY_LOADING[cacheKey];
+  }
+}
+
+async function refreshFrontCalendarForCurrentSelection() {
+  try {
+    availabilityData = await getSettings();
+    renderCalendarUI();
+    await renderTimeOptions();
+  } catch (error) {
+    console.error('refreshFrontCalendarForCurrentSelection error:', error);
+  }
+}
+
+function updateStaffForSelectedService() {
+  const staffBox = getEl('frontStaffBox');
+  const staffEl = getEl('staff');
+  const singleInfoEl = getEl('frontStaffSingleInfo');
+  const selectedOption = getSelectedFrontServiceOption();
+
+  FRONT_FILTERED_STAFF = getStaffForSelectedService();
+  FRONT_STAFF_REQUIRED = FRONT_FILTERED_STAFF.length > 0;
+
+  if (!staffBox || !staffEl) {
+    renderFrontService(selectedOption ? selectedOption.service : getEffectiveFrontService(null));
+    return;
+  }
+
+  staffBox.classList.remove('is-single', 'is-multiple');
+  staffBox.classList.add('hidden');
+  staffBox.style.display = 'none';
+  staffEl.innerHTML = '<option value="">Wybierz osobę</option>';
+  staffEl.value = '';
+  staffEl.disabled = true;
+
+  if (singleInfoEl) {
+    singleInfoEl.textContent = '';
+    singleInfoEl.classList.add('hidden');
+  }
+
+  if (!FRONT_STAFF_REQUIRED) {
+    renderFrontService(selectedOption ? selectedOption.service : getEffectiveFrontService(null));
+    return;
+  }
+
+  staffBox.classList.remove('hidden');
+  staffBox.style.display = '';
+
+  if (FRONT_FILTERED_STAFF.length === 1) {
+    const staff = FRONT_FILTERED_STAFF[0];
+    const option = document.createElement('option');
+    option.value = String(staff.id || '');
+    option.textContent = String(staff.display_name || 'Osoba');
+    staffEl.appendChild(option);
+    staffEl.value = option.value;
+    staffEl.disabled = false;
+    staffBox.classList.add('is-single');
+
+    if (singleInfoEl) {
+      singleInfoEl.textContent = `Osoba obsługująca: ${option.textContent}`;
+      singleInfoEl.classList.remove('hidden');
+    }
+
+    renderFrontService(getEffectiveFrontService(staff));
+    return;
+  }
+
+  staffBox.classList.add('is-multiple');
+  staffEl.disabled = false;
+
+  FRONT_FILTERED_STAFF.forEach(staff => {
+    const option = document.createElement('option');
+    option.value = String(staff.id || '');
+    option.textContent = String(staff.display_name || 'Osoba');
+    staffEl.appendChild(option);
+  });
+
+  renderFrontService(selectedOption ? selectedOption.service : getEffectiveFrontService(null));
+}
+
+function renderFrontServiceSelect() {
+  const selectBox = getEl('frontServiceSelectBox');
+  const serviceSelect = getEl('serviceSelect');
+
+  FRONT_SERVICE_OPTIONS = buildFrontServiceOptions();
+
+  if (!selectBox || !serviceSelect) {
+    const firstOption = FRONT_SERVICE_OPTIONS[0];
+    renderFrontService(firstOption ? firstOption.service : getEffectiveFrontService(null));
+    return;
+  }
+
+  serviceSelect.innerHTML = '';
+
+  FRONT_SERVICE_OPTIONS.forEach(option => {
+    const selectOption = document.createElement('option');
+    selectOption.value = option.signature;
+    selectOption.textContent = option.label;
+    serviceSelect.appendChild(selectOption);
+  });
+
+  if (FRONT_SERVICE_OPTIONS.length <= 1) {
+    selectBox.classList.add('hidden');
+  } else {
+    selectBox.classList.remove('hidden');
+  }
+
+  if (!FRONT_SELECTED_SERVICE_SIGNATURE || !FRONT_SERVICE_OPTIONS.some(option => option.signature === FRONT_SELECTED_SERVICE_SIGNATURE)) {
+    FRONT_SELECTED_SERVICE_SIGNATURE = FRONT_SERVICE_OPTIONS[0]?.signature || '';
+  }
+
+  serviceSelect.value = FRONT_SELECTED_SERVICE_SIGNATURE;
+  getSelectedFrontServiceOption();
+
+  updateStaffForSelectedService();
+}
+
+function renderFrontService(service) {
+  const titleEl = getEl('serviceTitleFront');
+  const serviceBox = getEl('frontServiceBox');
+  const serviceText = getEl('frontServiceText');
+  const serviceDescriptionEl = getEl('frontServiceDescription');
+  const paymentBox = getEl('frontServicePaymentBox');
+  const priceRow = getEl('frontServicePriceRow');
+  const priceEl = getEl('frontServicePrice');
+  const paymentMessageEl = getEl('frontPaymentMessage');
+  const paymentRedirectInfoEl = getEl('frontPaymentRedirectInfo');
+  const canShowPayments = publicPlanHasFeature('online_payments');
+  const canShowProServiceDetails = !isPublicFreePlan();
+
+  const serviceName = String(service?.service_name || '').trim();
+  const serviceDescription = canShowProServiceDetails ? String(service?.service_description || '').trim() : '';
+  const paymentRequired = canShowPayments && service?.payment_required === true;
+  const paymentMessage = paymentRequired ? String(service?.payment_message || '').trim() : '';
+  const priceText = paymentRequired ? formatFrontPrice(service?.price_amount, service?.price_currency || 'PLN') : '';
+
+  FRONT_PAYMENT_REQUIRED = paymentRequired;
+
+  if (titleEl) {
+    titleEl.textContent = serviceName || 'Rezerwacja terminu';
+  }
+
+  let shouldShowBox = false;
+
+  if (serviceDescription && serviceText && serviceDescriptionEl) {
+    serviceDescriptionEl.textContent = serviceDescription;
+    serviceText.classList.remove('hidden');
+    shouldShowBox = true;
+  } else {
+    if (serviceDescriptionEl) serviceDescriptionEl.textContent = '';
+    if (serviceText) serviceText.classList.add('hidden');
+  }
+
+  if (paymentRequired && paymentBox) {
+    const hasPrice = Boolean(priceText);
+    const hasPaymentMessage = Boolean(paymentMessage);
+
+    if (priceRow) {
+      priceRow.classList.toggle('hidden', !hasPrice);
+    }
+
+    if (priceEl) {
+      priceEl.textContent = hasPrice ? priceText : '';
+    }
+
+    if (paymentMessageEl) {
+      paymentMessageEl.textContent = paymentRequired
+        ? (hasPaymentMessage
+          ? paymentMessage
+          : 'Po rezerwacji nastąpi przekierowanie do płatności online.')
+        : '';
+    }
+
+    paymentBox.classList.remove('hidden');
+    shouldShowBox = true;
+  } else {
+    if (priceRow) priceRow.classList.add('hidden');
+    if (priceEl) priceEl.textContent = '';
+    if (paymentMessageEl) paymentMessageEl.textContent = '';
+    if (paymentBox) paymentBox.classList.add('hidden');
+  }
+
+  if (paymentRedirectInfoEl) {
+    paymentRedirectInfoEl.classList.toggle('hidden', !paymentRequired);
+  }
+
+  if (serviceBox) {
+    serviceBox.classList.toggle('hidden', !shouldShowBox);
+  }
+}
+
+function updateFrontServiceForSelectedStaff() {
+  const selectedStaff = FRONT_STAFF_REQUIRED ? getSelectedFrontStaff() : null;
+
+  if (selectedStaff) {
+    renderFrontService(getEffectiveFrontService(selectedStaff));
+    return;
+  }
+
+  const selectedOption = getSelectedFrontServiceOption();
+  renderFrontService(selectedOption ? selectedOption.service : getEffectiveFrontService(null));
+}
+
 async function loadFrontServiceSettings() {
+  const hasPublicServices = await loadFrontPublicServices();
+
+  if (hasPublicServices) {
+    renderFrontServiceSelect();
+    return;
+  }
+
+  await loadFrontLegacyServiceSettings();
+  renderFrontServiceSelect();
+}
+
+async function loadFrontPublicServices() {
+  try {
+    const res = await fetch('/api/services/public-list.php', {
+      cache: 'no-store'
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || data.success !== true || !Array.isArray(data.services) || data.services.length === 0) {
+      FRONT_PUBLIC_SERVICES = [];
+      FRONT_USING_PUBLIC_SERVICES = false;
+      selectedServiceId = '';
+      selectedService = null;
+      return false;
+    }
+
+    FRONT_PUBLIC_SERVICES = data.services
+      .map(normalizeFrontPublicService)
+      .filter(service => service.id !== '' && service.service_name !== '');
+
+    FRONT_USING_PUBLIC_SERVICES = FRONT_PUBLIC_SERVICES.length > 0;
+
+    if (!FRONT_USING_PUBLIC_SERVICES) {
+      selectedServiceId = '';
+      selectedService = null;
+      return false;
+    }
+
+    FRONT_SELECTED_SERVICE_SIGNATURE = FRONT_PUBLIC_SERVICES[0]
+      ? `service:${FRONT_PUBLIC_SERVICES[0].id}`
+      : '';
+
+    return true;
+  } catch (error) {
+    console.error('loadFrontPublicServices error:', error);
+    FRONT_PUBLIC_SERVICES = [];
+    FRONT_USING_PUBLIC_SERVICES = false;
+    selectedServiceId = '';
+    selectedService = null;
+    return false;
+  }
+}
+
+async function loadFrontLegacyServiceSettings() {
   try {
     const res = await fetch('/api/system/service-settings-public.php', {
       cache: 'no-store'
@@ -300,74 +931,17 @@ async function loadFrontServiceSettings() {
 
     const service = data.service;
 
-    const serviceName = String(service.service_name || '').trim();
-    const serviceDescription = String(service.service_description || '').trim();
-    const priceText = formatFrontPrice(service.price_amount, service.price_currency || 'PLN');
-    const paymentRequired = service.payment_required === true;
-    FRONT_PAYMENT_REQUIRED = paymentRequired;
-    const paymentMessage = String(service.payment_message || '').trim();
-
-    const titleEl = getEl('serviceTitleFront');
-    const serviceBox = getEl('frontServiceBox');
-    const serviceText = getEl('frontServiceText');
-    const serviceDescriptionEl = getEl('frontServiceDescription');
-    const paymentBox = getEl('frontServicePaymentBox');
-    const priceRow = getEl('frontServicePriceRow');
-    const priceEl = getEl('frontServicePrice');
-    const paymentMessageEl = getEl('frontPaymentMessage');
-
-    if (titleEl) {
-      titleEl.textContent = serviceName || 'Rezerwacja terminu';
-    }
-
-    let shouldShowBox = false;
-
-    if (serviceDescription && serviceText && serviceDescriptionEl) {
-      serviceDescriptionEl.textContent = serviceDescription;
-      serviceText.classList.remove('hidden');
-      shouldShowBox = true;
-    } else {
-      if (serviceDescriptionEl) serviceDescriptionEl.textContent = '';
-      if (serviceText) serviceText.classList.add('hidden');
-    }
-
-    if (paymentRequired && paymentBox) {
-      const hasPrice = Boolean(priceText);
-      const hasPaymentMessage = Boolean(paymentMessage);
-
-      if (priceRow) {
-        priceRow.classList.toggle('hidden', !hasPrice);
-      }
-
-      if (priceEl) {
-        priceEl.textContent = hasPrice ? priceText : '';
-      }
-
-      if (paymentMessageEl) {
-        paymentMessageEl.textContent = hasPaymentMessage
-          ? paymentMessage
-          : 'Po rezerwacji nastąpi przekierowanie do płatności online.';
-      }
-
-      paymentBox.classList.remove('hidden');
-      shouldShowBox = true;
-    } else {
-      if (priceRow) priceRow.classList.add('hidden');
-      if (priceEl) priceEl.textContent = '';
-      if (paymentMessageEl) paymentMessageEl.textContent = '';
-      if (paymentBox) paymentBox.classList.add('hidden');
-    }
-    
-    if (paymentRedirectInfo) {
-  paymentRedirectInfo.classList.toggle('hidden', !paymentRequired);
-}
-
-    if (serviceBox) {
-      serviceBox.classList.toggle('hidden', !shouldShowBox);
-    }
+    FRONT_SERVICE_GLOBAL = {
+      service_name: String(service.service_name || '').trim(),
+      service_description: String(service.service_description || '').trim(),
+      price_amount: service.price_amount ?? null,
+      price_currency: service.price_currency || 'PLN',
+      payment_required: service.payment_required === true,
+      payment_message: String(service.payment_message || '').trim()
+    };
 
   } catch (e) {
-    console.error('loadFrontServiceSettings error:', e);
+    console.error('loadFrontLegacyServiceSettings error:', e);
   }
 }
 
@@ -443,6 +1017,64 @@ function applyFrontCalendarEnabledState() {
   }
 
   showError('Kalendarz rezerwacji jest obecnie konfigurowany przez administratora. Spróbuj ponownie później.');
+}
+
+function getSelectedStaffId() {
+  const staffEl = getEl('staff');
+
+  return staffEl ? staffEl.value.trim() : '';
+}
+
+async function loadFrontStaff() {
+  const staffBox = getEl('frontStaffBox');
+  const staffEl = getEl('staff');
+
+  FRONT_STAFF_ENABLED = false;
+  FRONT_STAFF = [];
+  FRONT_FILTERED_STAFF = [];
+  FRONT_STAFF_REQUIRED = false;
+
+  if (!staffBox || !staffEl) return;
+
+  staffBox.classList.add('hidden');
+  staffBox.style.display = 'none';
+  staffEl.innerHTML = '<option value="">Wybierz osobę</option>';
+  staffEl.disabled = true;
+
+  if (FRONT_USING_PUBLIC_SERVICES) {
+    const staffById = new Map();
+
+    FRONT_PUBLIC_SERVICES.forEach(service => {
+      (service.assigned_staff || []).forEach(staff => {
+        if (staff.id) {
+          staffById.set(staff.id, staff);
+        }
+      });
+    });
+
+    FRONT_STAFF = Array.from(staffById.values());
+    FRONT_STAFF_ENABLED = FRONT_STAFF.length > 0;
+    renderFrontServiceSelect();
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/staff/public-list.php', {
+      cache: 'no-store'
+    });
+
+    const data = await res.json();
+
+    if (!res.ok || data.success !== true || data.staff_enabled !== true || !Array.isArray(data.staff) || data.staff.length === 0) {
+      return;
+    }
+
+    FRONT_STAFF = data.staff;
+    FRONT_STAFF_ENABLED = true;
+    renderFrontServiceSelect();
+  } catch (error) {
+    console.error('loadFrontStaff error:', error);
+  }
 }
 
 function clearMessages() {
@@ -635,10 +1267,53 @@ async function renderTimeOptions() {
   if (!selectedDate) return;
 
   try {
-    const settings = await getSettings(selectedDate);
-    const availableTimes = Array.isArray(settings?.availableTimes)
-      ? settings.availableTimes
-      : [];
+    let availableTimes = [];
+    let bufferMinutesForToday = parseInt(calendarSettings.booking_buffer || 0, 10);
+
+    if (FRONT_STAFF_REQUIRED) {
+      const staffId = getSelectedStaffId();
+
+      if (!staffId) {
+        timeEl.innerHTML = '<option value="">Najpierw wybierz osobę</option>';
+        return;
+      }
+
+      const availabilityParams = new URLSearchParams({
+        staff_id: staffId,
+        date: selectedDate
+      });
+
+      if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
+        availabilityParams.set('service_id', selectedServiceId);
+      }
+
+      const staffRes = await fetch(`/api/staff/public-availability.php?${availabilityParams.toString()}`, {
+        cache: 'no-store'
+      });
+
+      const staffData = await staffRes.json();
+
+      if (!staffRes.ok || staffData.success !== true || !Array.isArray(staffData.availableTimes)) {
+        throw new Error(staffData.message || staffData.error || 'Nie udało się pobrać dostępności osoby');
+      }
+
+      const staffTimes = staffData.availableTimes;
+      availableTimes = staffTimes;
+
+      const staffBufferRaw = staffData.settings?.booking_buffer_minutes;
+      const staffBufferMinutes = staffBufferRaw === null || staffBufferRaw === undefined || staffBufferRaw === ''
+        ? null
+        : parseInt(staffBufferRaw, 10);
+
+      if (Number.isFinite(staffBufferMinutes)) {
+        bufferMinutesForToday = staffBufferMinutes;
+      }
+    } else {
+      const settings = await getSettings(selectedDate);
+      availableTimes = Array.isArray(settings?.availableTimes)
+        ? settings.availableTimes
+        : [];
+    }
       
       const todayStr = formatLocalDate(new Date());
 
@@ -647,7 +1322,7 @@ let filteredTimes = [...availableTimes];
 if (selectedDate === todayStr) {
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const bufferMinutes = parseInt(calendarSettings.booking_buffer || 0, 10);
+  const bufferMinutes = parseInt(bufferMinutesForToday || 0, 10);
   const minAllowedMinutes = nowMinutes + bufferMinutes;
 
   filteredTimes = availableTimes.filter(time => {
@@ -667,6 +1342,12 @@ filteredTimes.forEach(time => {
     });
   } catch (e) {
     console.error('renderTimeOptions error:', e);
+    timeEl.innerHTML = '';
+
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = 'Nie udało się pobrać dostępnych godzin dla wybranego pracownika. Wybierz inny termin albo spróbuj ponownie.';
+    timeEl.appendChild(option);
   }
 }
 
@@ -845,6 +1526,21 @@ function renderCalendarUI() {
 
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
+  const monthKey = formatFrontMonthKey(viewDate);
+  const monthAvailabilityCacheKey = getFrontMonthAvailabilityCacheKey(monthKey);
+  const monthAvailability = FRONT_MONTH_AVAILABILITY_CACHE[monthAvailabilityCacheKey] || null;
+
+  if (!monthAvailability && !FRONT_MONTH_AVAILABILITY_LOADING[monthAvailabilityCacheKey]) {
+    loadFrontMonthAvailability(monthKey, monthAvailabilityCacheKey).then(loaded => {
+      if (
+        loaded &&
+        formatFrontMonthKey(viewDate) === monthKey &&
+        getFrontMonthAvailabilityCacheKey(monthKey) === monthAvailabilityCacheKey
+      ) {
+        renderCalendarUI();
+      }
+    });
+  }
 
   const monthNames = [
     'Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec',
@@ -886,11 +1582,20 @@ function renderCalendarUI() {
     const allowed = isDateAllowed(dateStr);
     const isToday = dateStr === formatLocalDate(today);
     const isSelected = dateStr === selectedDate;
+    const monthAvailabilityEntry = monthAvailability &&
+      Object.prototype.hasOwnProperty.call(monthAvailability, dateStr)
+      ? monthAvailability[dateStr]
+      : null;
+    const monthAvailabilityBlocksDay = monthAvailabilityEntry !== null && (
+      monthAvailabilityEntry.available !== true ||
+      Number(monthAvailabilityEntry.times_count || 0) <= 0
+    );
 
-    let classes = 'day';
+    const classes = ['day'];
+    let dayDisabled = false;
 
-    if (!allowed) {
-      classes += ' disabled';
+    if (!allowed || monthAvailabilityBlocksDay) {
+      dayDisabled = true;
     } else {
       const blockSettings = availabilityData?.blockSettings || {
         block_saturdays: false,
@@ -935,18 +1640,19 @@ const isFullBlocked =
       }
 
       if (availableCount <= 0) {
-        classes += ' disabled';
+        dayDisabled = true;
       } else if (availableCount === 1) {
-        classes += ' medium';
+        classes.push('medium');
       } else {
-        classes += ' available';
+        classes.push('available');
       }
     }
 
-    if (isToday) classes += ' today';
-    if (isSelected) classes += ' selected';
+    if (dayDisabled) classes.push('disabled');
+    if (isToday) classes.push('today');
+    if (isSelected && !dayDisabled) classes.push('selected');
 
-    html += `<div class="${classes}" data-date="${dateStr}">${day}</div>`;
+    html += `<div class="${classes.join(' ')}" data-date="${dateStr}">${day}</div>`;
   }
 
   html += '</div>';
@@ -1054,7 +1760,7 @@ const formStartedAtInput = getEl('formStartedAt');
     return;
   }
 
-  if (frontLegalDocumentsEnabled !== true) {
+  if (publicPlanHasFeature('legal_documents') && frontLegalDocumentsEnabled !== true) {
     const message = frontLegalProviderCompanyName
       ? `Usługodawca nie przygotował regulaminu oraz polityki prywatności. Rezerwacja online nie jest obecnie dostępna. Skontaktuj się z ${frontLegalProviderCompanyName}.`
       : 'Usługodawca nie przygotował regulaminu oraz polityki prywatności. Rezerwacja online nie jest obecnie dostępna.';
@@ -1063,7 +1769,7 @@ const formStartedAtInput = getEl('formStartedAt');
     return;
   }
   
-  if (!termsConsentInput || !termsConsentInput.checked) {
+  if (publicPlanHasFeature('legal_documents') && (!termsConsentInput || !termsConsentInput.checked)) {
   showError('Zaakceptuj regulamin i politykę prywatności');
   if (termsConsentInput) termsConsentInput.focus();
   return;
@@ -1079,6 +1785,17 @@ if (websiteInput && websiteInput.value.trim() !== '') {
   return;
 }
 
+if (FRONT_USING_PUBLIC_SERVICES === true) {
+  getSelectedFrontServiceOption();
+
+  if (!selectedServiceId || !selectedService) {
+    showError('Wybierz usługę przed rezerwacją.');
+    const serviceSelect = getEl('serviceSelect');
+    if (serviceSelect) serviceSelect.focus();
+    return;
+  }
+}
+
 const booking = {
   name: nameInput.value.trim(),
   email: emailInput.value.trim(),
@@ -1089,8 +1806,28 @@ const booking = {
   
   website: websiteInput ? websiteInput.value.trim() : '',
   form_started_at: formStartedAtInput ? formStartedAtInput.value : '',
-  terms_accepted: termsConsentInput && termsConsentInput.checked ? '1' : '0'
+  terms_accepted: publicPlanHasFeature('legal_documents')
+    ? (termsConsentInput && termsConsentInput.checked ? '1' : '0')
+    : '1'
 };
+
+// Backend w book.php waliduje usługę, cenę, płatność i przypisanie pracownika.
+if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
+  booking.service_id = selectedServiceId;
+}
+
+if (FRONT_STAFF_REQUIRED) {
+  const staffId = getSelectedStaffId();
+
+  if (!staffId) {
+    showError('Wybierz osobę obsługującą rezerwację');
+    const staffEl = getEl('staff');
+    if (staffEl) staffEl.focus();
+    return;
+  }
+
+  booking.staff_id = staffId;
+}
 
   if (!validatePersonName(booking.name)) {
     markFieldError('name');
@@ -1156,24 +1893,75 @@ const booking = {
   bookBtn.innerHTML = '⏳ Zapisywanie...';
 
   try {
-    const settings = await getSettings(booking.date);
-    const available = settings?.availableTimes || [];
+    let finalAvailable = [];
 
-    let finalAvailable = [...available];
+    if (FRONT_STAFF_REQUIRED) {
+      const staffId = booking.staff_id || getSelectedStaffId();
 
-    const todayStr = formatLocalDate(new Date());
+      if (!staffId) {
+        showError('Wybierz osobę obsługującą rezerwację');
+        const staffEl = getEl('staff');
+        if (staffEl) staffEl.focus();
+        return;
+      }
 
-    if (booking.date === todayStr) {
-      const now = new Date();
-      const nowMinutes = now.getHours() * 60 + now.getMinutes();
-      const bufferMinutes = parseInt(calendarSettings.booking_buffer || 0, 10);
-      const minAllowedMinutes = nowMinutes + bufferMinutes;
-
-      finalAvailable = available.filter(time => {
-        const [hours, minutes] = time.split(':').map(Number);
-        const slotMinutes = hours * 60 + minutes;
-        return slotMinutes >= minAllowedMinutes;
+      const availabilityParams = new URLSearchParams({
+        staff_id: staffId,
+        date: booking.date
       });
+
+      if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
+        availabilityParams.set('service_id', selectedServiceId);
+      }
+
+      const staffRes = await fetch(`/api/staff/public-availability.php?${availabilityParams.toString()}`, {
+        cache: 'no-store'
+      });
+
+      const staffData = await staffRes.json();
+
+      if (!staffRes.ok || staffData.success !== true || !Array.isArray(staffData.availableTimes)) {
+        throw new Error('Nie udało się pobrać dostępności osoby');
+      }
+
+      finalAvailable = [...staffData.availableTimes];
+
+      const staffBufferRaw = staffData.settings?.booking_buffer_minutes;
+      const staffBufferMinutes = staffBufferRaw === null || staffBufferRaw === undefined || staffBufferRaw === ''
+        ? null
+        : parseInt(staffBufferRaw, 10);
+
+      if (Number.isFinite(staffBufferMinutes) && staffBufferMinutes > 0 && booking.date === formatLocalDate(new Date())) {
+        const now = new Date();
+        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        const minAllowedMinutes = nowMinutes + staffBufferMinutes;
+
+        finalAvailable = finalAvailable.filter(time => {
+          const [hours, minutes] = time.split(':').map(Number);
+          const slotMinutes = hours * 60 + minutes;
+          return slotMinutes >= minAllowedMinutes;
+        });
+      }
+    } else {
+      const settings = await getSettings(booking.date);
+      const available = settings?.availableTimes || [];
+
+      finalAvailable = [...available];
+
+      const todayStr = formatLocalDate(new Date());
+
+      if (booking.date === todayStr) {
+        const now = new Date();
+        const nowMinutes = now.getHours() * 60 + now.getMinutes();
+        const bufferMinutes = parseInt(calendarSettings.booking_buffer || 0, 10);
+        const minAllowedMinutes = nowMinutes + bufferMinutes;
+
+        finalAvailable = available.filter(time => {
+          const [hours, minutes] = time.split(':').map(Number);
+          const slotMinutes = hours * 60 + minutes;
+          return slotMinutes >= minAllowedMinutes;
+        });
+      }
     }
 
     if (!finalAvailable.includes(booking.time)) {
@@ -1274,6 +2062,7 @@ const booking = {
 
     try {
       availabilityData = await getSettings();
+      clearFrontMonthAvailabilityCache();
       viewDate = new Date();
       renderCalendarUI();
       await renderTimeOptions();
@@ -1314,6 +2103,7 @@ if (formStartedAtInput) {
     }
 
     await loadCalendarSettings();
+    await loadFrontStaff();
     await loadFrontLegalDocumentsLinks();
 
     const { minMonthDate } = getMonthRangeLimits();
@@ -1330,6 +2120,8 @@ if (formStartedAtInput) {
 
   const dateEl = getEl('date');
   const timeEl = getEl('time');
+  const staffEl = getEl('staff');
+  const serviceSelect = getEl('serviceSelect');
 
   if (dateEl) {
     dateEl.addEventListener('keydown', e => e.preventDefault());
@@ -1348,6 +2140,26 @@ if (formStartedAtInput) {
 
   if (timeEl && !timeEl.value) {
     timeEl.innerHTML = '<option value="">Wybierz godzinę *</option>';
+  }
+
+  if (serviceSelect) {
+    serviceSelect.addEventListener('change', async () => {
+      FRONT_SELECTED_SERVICE_SIGNATURE = serviceSelect.value;
+
+      resetFrontDateAndTimeSelection();
+      updateStaffForSelectedService();
+      clearFrontMonthAvailabilityCache();
+      await refreshFrontCalendarForCurrentSelection();
+    });
+  }
+
+  if (staffEl) {
+    staffEl.addEventListener('change', async () => {
+      updateFrontServiceForSelectedStaff();
+      resetFrontDateAndTimeSelection();
+      clearFrontMonthAvailabilityCache();
+      await refreshFrontCalendarForCurrentSelection();
+    });
   }
 
 const phoneEl = getEl('phone');

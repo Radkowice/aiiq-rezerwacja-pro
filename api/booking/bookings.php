@@ -163,4 +163,81 @@ if (!is_array($data)) {
     exit;
 }
 
+$staffIds = [];
+
+foreach ($data as $booking) {
+    if (!is_array($booking)) {
+        continue;
+    }
+
+    $staffId = trim((string)($booking['staff_id'] ?? ''));
+
+    if ($staffId !== '') {
+        $staffIds[$staffId] = true;
+    }
+}
+
+$staffDisplayNames = [];
+
+if (!empty($staffIds)) {
+    $encodedStaffIds = array_map('rawurlencode', array_keys($staffIds));
+    $staffQuery = [
+        'select=id,display_name',
+        'tenant_id=eq.' . rawurlencode($TENANT_ID),
+        'id=in.(' . implode(',', $encodedStaffIds) . ')',
+    ];
+
+    $staffUrl = $SUPABASE_URL . '/rest/v1/staff_profiles?' . implode('&', $staffQuery);
+    $staffCh = curl_init($staffUrl);
+
+    curl_setopt_array($staffCh, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 20,
+        CURLOPT_HTTPHEADER => [
+            'apikey: ' . $SUPABASE_KEY,
+            'Authorization: Bearer ' . $SUPABASE_KEY,
+            'Accept: application/json',
+            'Accept-Profile: ' . $SUPABASE_DB_SCHEMA,
+        ],
+    ]);
+
+    $staffResponse = curl_exec($staffCh);
+    $staffError = curl_error($staffCh);
+    $staffHttpCode = (int) curl_getinfo($staffCh, CURLINFO_HTTP_CODE);
+
+    curl_close($staffCh);
+
+    if (!$staffError && $staffHttpCode < 400) {
+        $staffRows = json_decode((string)$staffResponse, true);
+
+        if (is_array($staffRows)) {
+            foreach ($staffRows as $staffRow) {
+                if (!is_array($staffRow)) {
+                    continue;
+                }
+
+                $staffId = trim((string)($staffRow['id'] ?? ''));
+                $displayName = trim((string)($staffRow['display_name'] ?? ''));
+
+                if ($staffId !== '' && $displayName !== '') {
+                    $staffDisplayNames[$staffId] = $displayName;
+                }
+            }
+        }
+    }
+}
+
+foreach ($data as &$booking) {
+    if (!is_array($booking)) {
+        continue;
+    }
+
+    $staffId = trim((string)($booking['staff_id'] ?? ''));
+    $booking['staff_display_name'] = $staffId !== '' && isset($staffDisplayNames[$staffId])
+        ? $staffDisplayNames[$staffId]
+        : null;
+}
+
+unset($booking);
+
 echo json_encode($data, JSON_UNESCAPED_UNICODE);

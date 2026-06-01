@@ -128,7 +128,7 @@
   font-weight: 700;
 }
 
-/* === FRONT KALENDARZA — BRANDING KLIENTA === */
+/* === FRONT KALENDARZA â€” BRANDING KLIENTA === */
 
 body {
   background: var(--front-bg-color, var(--bg)) !important;
@@ -187,13 +187,35 @@ button:not(#prevMonth):not(#nextMonth) {
   background: var(--front-active-color, var(--accent)) !important;
 }
 
+.front-service-select-box {
+  margin: 0 0 16px;
+  text-align: left;
+}
+
+.front-service-select-box.hidden {
+  display: none !important;
+}
+
+.front-service-select-box label {
+  display: block;
+  margin: 0 0 7px;
+  color: var(--text, #4B4F58);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.front-service-select-box select {
+  margin-bottom: 0;
+  border-radius: calc(var(--front-radius, 16px) / 1.6);
+}
+
 .front-service-box {
   margin: 4px 0 18px;
   padding: 14px 16px;
   border-radius: var(--front-radius, 16px);
-  background: rgba(248, 250, 252, 0.72);
-  border: 1px solid rgba(148, 163, 184, 0.32);
-  text-align: center;
+  background: color-mix(in srgb, var(--front-card-color, var(--card)) 88%, var(--front-bg-color, var(--bg)));
+  border: 1px solid color-mix(in srgb, var(--front-active-color, var(--accent)) 22%, var(--border, #e7eaf0));
+  text-align: left;
 }
 
 .front-service-box.hidden,
@@ -205,7 +227,7 @@ button:not(#prevMonth):not(#nextMonth) {
 
 .front-service-text p {
   margin: 0;
-  color: #334155;
+  color: var(--text, #4B4F58);
   font-size: 15px;
   line-height: 1.55;
 }
@@ -213,35 +235,57 @@ button:not(#prevMonth):not(#nextMonth) {
 .front-service-payment-box {
   margin-top: 12px;
   padding-top: 12px;
-  border-top: 1px solid rgba(148, 163, 184, 0.28);
+  border-top: 1px solid color-mix(in srgb, var(--front-active-color, var(--accent)) 16%, var(--border, #e7eaf0));
 }
 
 .front-service-price-row {
   display: inline-flex;
   align-items: baseline;
-  justify-content: center;
+  justify-content: flex-start;
   gap: 8px;
   margin-bottom: 8px;
-  color: #0f172a;
+  color: var(--primary, #212D45);
 }
 
 .front-service-price-row span {
   font-size: 14px;
-  color: #64748b;
+  color: var(--text, #4B4F58);
   font-weight: 700;
 }
 
 .front-service-price-row strong {
   font-size: 20px;
-  color: #0f172a;
+  color: var(--primary, #212D45);
   font-weight: 900;
 }
 
 .front-payment-message {
   margin-top: 6px;
-  color: #475569;
+  color: var(--text, #4B4F58);
   font-size: 14px;
   line-height: 1.45;
+}
+
+.front-staff-box.is-single label,
+.front-staff-box.is-single br,
+.front-staff-box.is-single select {
+  display: none !important;
+}
+
+.front-staff-single-info {
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  border-radius: calc(var(--front-radius, 16px) / 1.6);
+  background: color-mix(in srgb, var(--front-card-color, var(--card)) 86%, var(--front-bg-color, var(--bg)));
+  border: 1px solid color-mix(in srgb, var(--front-active-color, var(--accent)) 20%, var(--border, #e7eaf0));
+  color: var(--text, #4B4F58);
+  font-size: 14px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.front-staff-single-info.hidden {
+  display: none !important;
 }
 
 @media (max-width: 520px) {
@@ -267,6 +311,10 @@ button:not(#prevMonth):not(#nextMonth) {
   font-size: 13px;
   line-height: 1.45;
   text-align: left;
+}
+
+.front-consent.hidden {
+  display: none !important;
 }
 
 .front-consent input[type="checkbox"] {
@@ -298,4 +346,3 @@ button:not(#prevMonth):not(#nextMonth) {
 .front-payment-redirect-info.hidden {
   display: none !important;
 }
-

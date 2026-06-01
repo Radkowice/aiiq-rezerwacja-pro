@@ -1,18 +1,14 @@
 <?php
+declare(strict_types=1);
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if (in_array($method, ['POST', 'DELETE'], true)) {
     require_once __DIR__ . '/../helpers/session.php';
     start_secure_session();
- 
-    if (empty($_SESSION['user'])) {
-        http_response_code(401);
-        header('Content-Type: application/json; charset=utf-8');
-        echo json_encode([
-            'success' => false,
-            'error' => 'Brak autoryzacji'
-        ], JSON_UNESCAPED_UNICODE);
-        exit;
+
+    if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+        json_response(['success' => false, 'error' => 'Brak autoryzacji'], 401);
     }
 }
 
@@ -22,531 +18,403 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 header('Content-Type: application/json; charset=utf-8');
 
-if (!in_array($method, ['GET', 'POST', 'DELETE'], true)) {
-    header('Allow: GET, POST, DELETE');
-    respond([
-        'success' => false,
-        'error' => 'Metoda niedozwolona.'
-    ], 405);
-}
-
-$isAdmin = isset($_GET['admin']) || isset($_SERVER['HTTP_X_ADMIN']);
-
-if ($isAdmin && !isset($_SESSION['user'])) {
-    http_response_code(401);
-    echo json_encode([
-        'error' => 'Brak dostępu'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
+require_once __DIR__ . '/../system/tenant.php';
 
 $SUPABASE_URL = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
 $SUPABASE_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
-require_once __DIR__ . '/../system/tenant.php';
-$TENANT_ID = getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
-
-if (!$TENANT_ID) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Nie rozpoznano tenant z domeny'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    json_response(['success' => false, 'error' => 'Brak konfiguracji Supabase'], 500);
 }
 
+$TENANT_ID = in_array($method, ['POST', 'DELETE'], true)
+    ? (string)($_SESSION['user']['tenant_id'] ?? '')
+    : (string)(getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA) ?: '');
 
-if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+if ($TENANT_ID === '') {
+    json_response(['success' => false, 'error' => 'Nie rozpoznano tenant'], 400);
 }
 
 if (in_array($method, ['POST', 'DELETE'], true)
     && !session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA)
 ) {
-    respond([
-        'success' => false,
-        'error' => 'Brak autoryzacji.'
-    ], 403);
+    json_response(['success' => false, 'error' => 'Brak autoryzacji'], 403);
 }
 
-/**
- * Uniwersalny request do Supabase / PostgREST.
- */
-function supabase_request(string $method, string $url, string $apiKey, string $schema, array $headers = [], ?array $payload = null): array
-{
-    $ch = curl_init($url);
-
-    $baseHeaders = [
-        "apikey: {$apiKey}",
-        "Authorization: Bearer {$apiKey}",
-        "Accept-Profile: {$schema}",
-        "Content-Profile: {$schema}"
-    ];
-
-    $allHeaders = array_merge($baseHeaders, $headers);
-
-    curl_setopt($ch, CURLOPT_CUSTOMREQUEST, $method);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, $allHeaders);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 20);
-
-    if ($payload !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
-    }
-
-    $response = curl_exec($ch);
-    $error = curl_error($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
-    return [
-        'response' => $response,
-        'error' => $error,
-        'httpCode' => $httpCode
-    ];
+if (!in_array($method, ['GET', 'POST', 'DELETE'], true)) {
+    header('Allow: GET, POST, DELETE');
+    json_response(['success' => false, 'error' => 'Metoda niedozwolona'], 405);
 }
 
-function cleanup_past_blocks_in_supabase(string $supabaseUrl, string $apiKey, string $schema, string $tenantId): void
+function json_response(array $payload, int $status = 200): void
 {
-    $today = date('Y-m-d');
-
-    $urlDates = $supabaseUrl
-        . '/rest/v1/blocked_dates?tenant_id=eq.' . rawurlencode($tenantId)
-        . '&date=lt.' . rawurlencode($today);
-
-    $deleteDates = supabase_request('DELETE', $urlDates, $apiKey, $schema);
-
-    if ($deleteDates['error']) {
-        error_log('cleanup blocked_dates error: request_failed');
-    } elseif (($deleteDates['httpCode'] ?? 0) >= 400) {
-        error_log('cleanup blocked_dates error: http_' . (string)($deleteDates['httpCode'] ?? 0));
-    }
-
-    $urlTimes = $supabaseUrl
-        . '/rest/v1/blocked_times?tenant_id=eq.' . rawurlencode($tenantId)
-        . '&date=lt.' . rawurlencode($today);
-
-    $deleteTimes = supabase_request('DELETE', $urlTimes, $apiKey, $schema);
-
-    if ($deleteTimes['error']) {
-        error_log('cleanup blocked_times error: request_failed');
-    } elseif (($deleteTimes['httpCode'] ?? 0) >= 400) {
-        error_log('cleanup blocked_times error: http_' . (string)($deleteTimes['httpCode'] ?? 0));
-    }
+    http_response_code($status);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
 }
 
 function json_input(): array
 {
-    $raw = file_get_contents('php://input');
-    if (!$raw) {
-        return [];
-    }
-
-    $data = json_decode($raw, true);
+    $data = json_decode(file_get_contents('php://input'), true);
     return is_array($data) ? $data : [];
 }
 
-function respond(array $data, int $status = 200): void
+function supabase_request(string $method, string $url, string $apiKey, string $schema, ?array $payload = null, array $headers = []): array
 {
-    http_response_code($status);
-    echo json_encode($data, JSON_UNESCAPED_UNICODE);
-    exit;
+    $baseHeaders = [
+        'apikey: ' . $apiKey,
+        'Authorization: Bearer ' . $apiKey,
+        'Accept: application/json',
+        'Content-Type: application/json',
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
+    ];
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER => array_merge($baseHeaders, $headers),
+        CURLOPT_TIMEOUT => 20,
+    ]);
+
+    if ($payload !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    $body = curl_exec($ch);
+    $error = curl_error($ch);
+    $status = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return [
+        'ok' => $error === '' && $status >= 200 && $status < 300,
+        'status' => $status,
+        'error' => $error,
+        'body' => (string)$body,
+        'data' => json_decode((string)$body, true),
+    ];
 }
 
-function supabase_error_response(string $label, array $result, int $status = 500): void
+function normalize_staff_id($value): ?string
 {
-    respond([
+    $staffId = trim((string)($value ?? ''));
+
+    if ($staffId === '' || $staffId === 'null' || $staffId === 'undefined') {
+        return null;
+    }
+
+    if (!preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $staffId)) {
+        json_response(['success' => false, 'error' => 'Nieprawidłowy pracownik'], 400);
+    }
+
+    return $staffId;
+}
+
+function staff_filter(?string $staffId): string
+{
+    return $staffId === null
+        ? '&staff_id=is.null'
+        : '&staff_id=eq.' . rawurlencode($staffId);
+}
+
+function read_staff_filter(?string $staffId): string
+{
+    return $staffId === null
+        ? '&staff_id=is.null'
+        : '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
+}
+
+function ensure_staff_belongs_to_tenant(?string $staffId, string $tenantId, string $supabaseUrl, string $apiKey, string $schema): void
+{
+    if ($staffId === null) {
+        return;
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=eq.' . rawurlencode($staffId)
+        . '&is_active=eq.true'
+        . '&limit=1';
+
+    $result = supabase_request('GET', $url, $apiKey, $schema);
+    $rows = is_array($result['data']) ? $result['data'] : [];
+
+    if (!$result['ok'] || empty($rows[0]['id'])) {
+        json_response(['success' => false, 'error' => 'Nie znaleziono pracownika'], 404);
+    }
+}
+
+function fail_supabase(string $label, array $result): void
+{
+    $data = is_array($result['data']) ? $result['data'] : [];
+    $message = trim((string)($data['message'] ?? $data['details'] ?? $result['error'] ?? $result['body'] ?? ''));
+    json_response([
         'success' => false,
-        'error' => $label
-    ], $status);
+        'error' => $message !== '' ? $label . ': ' . substr($message, 0, 400) : $label,
+        'httpCode' => $result['status'] ?? 500,
+    ], 500);
 }
 
-// =======================
-// DELETE › usuwanie blokady
-// =======================
+function push_time(array &$map, string $date, string $time): void
+{
+    if (!isset($map[$date])) {
+        $map[$date] = [];
+    }
+    $map[$date][] = $time;
+}
+
 if ($method === 'DELETE') {
     $input = json_input();
-
     $date = trim((string)($input['date'] ?? ''));
     $time = trim((string)($input['time'] ?? ''));
     $deleteAllTimes = filter_var($input['deleteAllTimes'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $staffId = normalize_staff_id($input['staff_id'] ?? null);
 
-    if (!$date) {
-        respond([
-            'success' => false,
-            'error' => 'Brak daty'
-        ], 400);
-    }
+    ensure_staff_belongs_to_tenant($staffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-        respond([
-            'success' => false,
-            'error' => 'Nieprawidłowa data.'
-        ], 400);
+        json_response(['success' => false, 'error' => 'Nieprawidłowa data'], 400);
     }
 
-    if ($time !== '' && $time !== 'all' && !preg_match('/^\d{2}:\d{2}$/', $time)) {
-        respond([
-            'success' => false,
-            'error' => 'Nieprawidłowa godzina.'
-        ], 400);
-    }
+    $table = (!$deleteAllTimes && $time !== '' && $time !== 'all') ? 'blocked_times' : ($deleteAllTimes ? 'blocked_times' : 'blocked_dates');
+    $query = 'tenant_id=eq.' . rawurlencode($TENANT_ID) . '&date=eq.' . rawurlencode($date) . staff_filter($staffId);
 
-    if ($deleteAllTimes) {
-        $table = 'blocked_times';
-        $query = 'tenant_id=eq.' . rawurlencode($TENANT_ID)
-            . '&date=eq.' . rawurlencode($date);
-    } else {
-        $isTimeBlock = !empty($time) && $time !== 'all';
-        $table = $isTimeBlock ? 'blocked_times' : 'blocked_dates';
-
-        $query = 'tenant_id=eq.' . rawurlencode($TENANT_ID)
-            . '&date=eq.' . rawurlencode($date);
-
-        if ($isTimeBlock) {
-            $query .= '&time=eq.' . rawurlencode($time);
+    if ($table === 'blocked_times' && !$deleteAllTimes) {
+        if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
+            json_response(['success' => false, 'error' => 'Nieprawidłowa godzina'], 400);
         }
+        $query .= '&time=eq.' . rawurlencode($time);
     }
 
-    $url = $SUPABASE_URL . "/rest/v1/{$table}?{$query}";
-
-    $result = supabase_request('DELETE', $url, $SUPABASE_KEY, $SUPABASE_SCHEMA);
-
-    if ($result['error']) {
-        supabase_error_response('CURL delete error', $result);
+    $result = supabase_request('DELETE', $SUPABASE_URL . '/rest/v1/' . $table . '?' . $query, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+    if (!$result['ok']) {
+        fail_supabase('Błąd usuwania blokady', $result);
     }
 
-    if ($result['httpCode'] >= 400) {
-        supabase_error_response('Supabase delete error', $result);
-    }
-
-    respond([
-        'success' => true
-    ]);
+    json_response(['success' => true]);
 }
 
-// =======================
-// POST › zapis ustawień lub blokady
-// =======================
 if ($method === 'POST') {
     $input = json_input();
     $action = trim((string)($input['action'] ?? ''));
 
-    if ($action !== '' && $action !== 'saveBlockSettings') {
-        respond([
-            'success' => false,
-            'error' => 'Nieprawidłowa akcja.'
-        ], 400);
-    }
-
-    // zapis ustawień globalnych
     if ($action === 'saveBlockSettings') {
         $payload = [
             'tenant_id' => $TENANT_ID,
             'block_saturdays' => filter_var($input['block_saturdays'] ?? false, FILTER_VALIDATE_BOOLEAN),
             'block_sundays' => filter_var($input['block_sundays'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            'block_holidays' => filter_var($input['block_holidays'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            'block_holidays' => filter_var($input['block_holidays'] ?? false, FILTER_VALIDATE_BOOLEAN),
         ];
 
-        $checkUrl = $SUPABASE_URL
-            . '/rest/v1/block_settings?select=id&tenant_id=eq.'
-            . rawurlencode($TENANT_ID)
-            . '&limit=1';
-
-        $check = supabase_request('GET', $checkUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
-
-        if ($check['error']) {
-            supabase_error_response('CURL settings read error', $check);
-        }
-
-        if ($check['httpCode'] >= 400) {
-            supabase_error_response('Supabase settings read error', $check);
-        }
-
-        $checkData = json_decode($check['response'], true);
-        if (!is_array($checkData)) {
-            $checkData = [];
-        }
-
-        $hasExisting = is_array($checkData)
-            && !empty($checkData)
-            && !empty($checkData[0]['id']);
-
-        if ($hasExisting) {
-            $url = $SUPABASE_URL . '/rest/v1/block_settings?tenant_id=eq.' . rawurlencode($TENANT_ID);
-            $methodCurl = 'PATCH';
-        } else {
-            $url = $SUPABASE_URL . '/rest/v1/block_settings';
-            $methodCurl = 'POST';
-        }
-
-        $save = supabase_request(
-            $methodCurl,
-            $url,
+        $result = supabase_request(
+            'POST',
+            $SUPABASE_URL . '/rest/v1/block_settings?on_conflict=tenant_id',
             $SUPABASE_KEY,
             $SUPABASE_SCHEMA,
-            [
-                'Content-Type: application/json',
-                'Prefer: return=representation'
-            ],
-            $payload
+            $payload,
+            ['Prefer: resolution=merge-duplicates,return=representation']
         );
 
-        if ($save['error']) {
-            supabase_error_response('CURL settings save error', $save);
+        if (!$result['ok']) {
+            fail_supabase('Błąd zapisu ustawień blokad', $result);
         }
 
-        if ($save['httpCode'] >= 400) {
-            supabase_error_response('Supabase settings save error', $save);
-        }
-
-        respond([
-            'success' => true,
-            'blockSettings' => [
-                'block_saturdays' => $payload['block_saturdays'],
-                'block_sundays' => $payload['block_sundays'],
-                'block_holidays' => $payload['block_holidays']
-            ]
-        ]);
+        json_response(['success' => true, 'blockSettings' => $payload]);
     }
 
-    // zwykłe blokady daty / godziny
     $date = trim((string)($input['date'] ?? ''));
     $time = trim((string)($input['time'] ?? ''));
     $allDay = filter_var($input['allDay'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $staffId = normalize_staff_id($input['staff_id'] ?? null);
 
-    if (!$date) {
-        respond([
-            'success' => false,
-            'error' => 'Brak daty'
-        ], 400);
-    }
+    ensure_staff_belongs_to_tenant($staffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-        respond([
-            'success' => false,
-            'error' => 'Nieprawidłowa data.'
-        ], 400);
+        json_response(['success' => false, 'error' => 'Nieprawidłowa data'], 400);
     }
 
-    if ($time !== '' && !preg_match('/^\d{2}:\d{2}$/', $time)) {
-        respond([
-            'success' => false,
-            'error' => 'Nieprawidłowa godzina.'
-        ], 400);
+    $isTimeBlock = !$allDay && $time !== '';
+    if ($isTimeBlock && !preg_match('/^\d{2}:\d{2}$/', $time)) {
+        json_response(['success' => false, 'error' => 'Nieprawidłowa godzina'], 400);
     }
 
-    $isTimeBlock = !$allDay && !empty($time);
     $table = $isTimeBlock ? 'blocked_times' : 'blocked_dates';
-
-    $payload = [
-        'tenant_id' => $TENANT_ID,
-        'date' => $date
-    ];
-
+    $payload = ['tenant_id' => $TENANT_ID, 'date' => $date, 'staff_id' => $staffId];
     if ($isTimeBlock) {
         $payload['time'] = $time;
     }
 
-    $url = $SUPABASE_URL . "/rest/v1/{$table}";
-
-    $insert = supabase_request(
-        'POST',
-        $url,
-        $SUPABASE_KEY,
-        $SUPABASE_SCHEMA,
-        [
-            'Content-Type: application/json',
-            'Prefer: return=minimal,resolution=ignore-duplicates'
-        ],
-        $payload
-    );
-
-    if ($insert['error']) {
-        supabase_error_response('CURL insert error', $insert);
+    $result = supabase_request('POST', $SUPABASE_URL . '/rest/v1/' . $table, $SUPABASE_KEY, $SUPABASE_SCHEMA, $payload, ['Prefer: return=minimal,resolution=ignore-duplicates']);
+    if (!$result['ok'] && (int)$result['status'] !== 409) {
+        fail_supabase('Nie udało się zapisać blokady', $result);
     }
 
-    if ($insert['httpCode'] >= 400) {
-        supabase_error_response('Supabase insert error', $insert);
-    }
-
-    respond([
-        'success' => true
-    ]);
+    json_response(['success' => true]);
 }
 
-// =======================
-// GET › pobieranie blokad + ustawień
-// =======================
-cleanup_past_blocks_in_supabase(
-    $SUPABASE_URL,
-    $SUPABASE_KEY,
-    $SUPABASE_SCHEMA,
-    $TENANT_ID
-);
+$requestedStaffId = normalize_staff_id($_GET['staff_id'] ?? null);
+error_log('blocked.php GET staff_id: ' . json_encode($requestedStaffId));
+ensure_staff_belongs_to_tenant($requestedStaffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
+$globalBlockedDates = [];
+$staffBlockedDates = [];
 $blockedDates = [];
+$blockedDateScopes = [];
+
+$datesUrl = $SUPABASE_URL
+    . '/rest/v1/blocked_dates?select=date,staff_id'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . read_staff_filter($requestedStaffId);
+$datesResult = supabase_request('GET', $datesUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+if (!$datesResult['ok']) {
+    fail_supabase('Błąd pobierania zablokowanych dni', $datesResult);
+}
+
+foreach ((is_array($datesResult['data']) ? $datesResult['data'] : []) as $row) {
+    $date = (string)($row['date'] ?? '');
+    if ($date === '') {
+        continue;
+    }
+
+    $blockedDates[] = $date;
+    if (empty($row['staff_id'])) {
+        $globalBlockedDates[] = $date;
+        $blockedDateScopes[$date] = isset($blockedDateScopes[$date]) && $blockedDateScopes[$date] !== 'global' ? 'both' : 'global';
+    } else {
+        $staffBlockedDates[] = $date;
+        $blockedDateScopes[$date] = isset($blockedDateScopes[$date]) && $blockedDateScopes[$date] !== 'staff' ? 'both' : 'staff';
+    }
+}
+
 $blockedTimes = [];
-$blockSettings = [
-    'block_saturdays' => false,
-    'block_sundays' => false,
-    'block_holidays' => false
-];
+$globalBlockedTimes = [];
+$staffBlockedTimes = [];
+$blockedTimeScopes = [];
 
-// całe dni
-$urlDates = $SUPABASE_URL . '/rest/v1/blocked_dates?select=date&tenant_id=eq.' . rawurlencode($TENANT_ID);
-$getDates = supabase_request('GET', $urlDates, $SUPABASE_KEY, $SUPABASE_SCHEMA);
-
-if ($getDates['error']) {
-    supabase_error_response('CURL dates error', $getDates);
+$timesUrl = $SUPABASE_URL
+    . '/rest/v1/blocked_times?select=date,time,staff_id'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . read_staff_filter($requestedStaffId);
+$timesResult = supabase_request('GET', $timesUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+if (!$timesResult['ok']) {
+    fail_supabase('Błąd pobierania zablokowanych godzin', $timesResult);
 }
 
-if ($getDates['httpCode'] >= 400) {
-    supabase_error_response('Supabase dates error', $getDates);
-}
+foreach ((is_array($timesResult['data']) ? $timesResult['data'] : []) as $row) {
+    $date = (string)($row['date'] ?? '');
+    $time = substr((string)($row['time'] ?? ''), 0, 5);
+    if ($date === '' || $time === '') {
+        continue;
+    }
 
-$dataDates = json_decode($getDates['response'], true);
-if (!is_array($dataDates)) {
-    $dataDates = [];
-}
+    push_time($blockedTimes, $date, $time);
+    if (!isset($blockedTimeScopes[$date])) {
+        $blockedTimeScopes[$date] = [];
+    }
 
-foreach ($dataDates as $row) {
-    if (!empty($row['date'])) {
-        $blockedDates[] = $row['date'];
+    if (empty($row['staff_id'])) {
+        push_time($globalBlockedTimes, $date, $time);
+        $blockedTimeScopes[$date][$time] = isset($blockedTimeScopes[$date][$time]) && $blockedTimeScopes[$date][$time] !== 'global' ? 'both' : 'global';
+    } else {
+        push_time($staffBlockedTimes, $date, $time);
+        $blockedTimeScopes[$date][$time] = isset($blockedTimeScopes[$date][$time]) && $blockedTimeScopes[$date][$time] !== 'staff' ? 'both' : 'staff';
     }
 }
 
-// godziny
-$urlTimes = $SUPABASE_URL . '/rest/v1/blocked_times?select=date,time&tenant_id=eq.' . rawurlencode($TENANT_ID);
-$getTimes = supabase_request('GET', $urlTimes, $SUPABASE_KEY, $SUPABASE_SCHEMA);
-
-if ($getTimes['error']) {
-    supabase_error_response('CURL times error', $getTimes);
-}
-
-if ($getTimes['httpCode'] >= 400) {
-    supabase_error_response('Supabase times error', $getTimes);
-}
-
-$dataTimes = json_decode($getTimes['response'], true);
-if (!is_array($dataTimes)) {
-    $dataTimes = [];
-}
-
-foreach ($dataTimes as $row) {
-    $date = $row['date'] ?? null;
-    $time = $row['time'] ?? null;
-
-    if ($date && $time) {
-        if (!isset($blockedTimes[$date])) {
-            $blockedTimes[$date] = [];
-        }
-        $blockedTimes[$date][] = $time;
+foreach ([$blockedTimes, $globalBlockedTimes, $staffBlockedTimes] as &$map) {
+    foreach ($map as $date => $times) {
+        $map[$date] = array_values(array_unique($times));
     }
 }
+unset($map);
 
-// ustawienia globalne blokad
-$urlSettings = $SUPABASE_URL
-    . '/rest/v1/block_settings?select=block_saturdays,block_sundays,block_holidays&tenant_id=eq.'
-    . rawurlencode($TENANT_ID)
-    . '&limit=1';
-
-$getSettings = supabase_request('GET', $urlSettings, $SUPABASE_KEY, $SUPABASE_SCHEMA);
-
-// Uwaga: błąd odczytu block_settings NIE może wywalić całego panelu admina.
-// Poprzednia wersja działała właśnie dlatego, że w razie problemu zwracała dalej blockedDates/blockedTimes,
-// a checkboxy po prostu zostawały na false.
-if (!$getSettings['error'] && $getSettings['httpCode'] < 400) {
-    $dataSettings = json_decode($getSettings['response'], true);
-
-    if (is_array($dataSettings) && !empty($dataSettings[0])) {
-        $row = $dataSettings[0];
-
-        $blockSettings = [
-            'block_saturdays' => !empty($row['block_saturdays']),
-            'block_sundays' => !empty($row['block_sundays']),
-            'block_holidays' => !empty($row['block_holidays'])
-        ];
-    }
-}
-
-foreach ($blockedTimes as $date => $times) {
-    $blockedTimes[$date] = array_values(array_unique($times));
-}
-
-// ===== GENEROWANIE GODZIN Z SETTINGS =====
+$blockSettings = ['block_saturdays' => false, 'block_sundays' => false, 'block_holidays' => false];
 $settingsUrl = $SUPABASE_URL
-    . '/rest/v1/calendar_settings?select=work_start,work_end,consultation_duration,consultation_break&tenant_id=eq.'
-    . rawurlencode($TENANT_ID)
+    . '/rest/v1/block_settings?select=block_saturdays,block_sundays,block_holidays'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
     . '&limit=1';
-
-$getSettings2 = supabase_request('GET', $settingsUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+$settingsResult = supabase_request('GET', $settingsUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+if ($settingsResult['ok'] && !empty($settingsResult['data'][0]) && is_array($settingsResult['data'][0])) {
+    $row = $settingsResult['data'][0];
+    $blockSettings = [
+        'block_saturdays' => !empty($row['block_saturdays']),
+        'block_sundays' => !empty($row['block_sundays']),
+        'block_holidays' => !empty($row['block_holidays']),
+    ];
+}
 
 $workingHours = [];
+$calendarUrl = $SUPABASE_URL
+    . '/rest/v1/calendar_settings?select=work_start,work_end,consultation_duration,consultation_break'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . '&limit=1';
+$calendarResult = supabase_request('GET', $calendarUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+if ($calendarResult['ok'] && !empty($calendarResult['data'][0]) && is_array($calendarResult['data'][0])) {
+    $row = $calendarResult['data'][0];
+    $start = substr((string)($row['work_start'] ?? '10:00'), 0, 5);
+    $end = substr((string)($row['work_end'] ?? '16:00'), 0, 5);
+    $duration = max(1, (int)($row['consultation_duration'] ?? 60));
+    $break = max(0, (int)($row['consultation_break'] ?? 0));
 
-if (!$getSettings2['error'] && $getSettings2['httpCode'] < 400) {
-    $dataSettings2 = json_decode($getSettings2['response'], true);
-
-    if (is_array($dataSettings2) && !empty($dataSettings2[0])) {
-        $s = $dataSettings2[0];
-
-        $start = $s['work_start'] ?? '10:00';
-        $end = $s['work_end'] ?? '16:00';
-        $duration = (int)($s['consultation_duration'] ?? 60);
-        $break = (int)($s['consultation_break'] ?? 0);
-
-        $startParts = explode(':', $start);
-        $endParts = explode(':', $end);
-
-        $current = ((int)$startParts[0] * 60) + (int)$startParts[1];
-        $endMinutes = ((int)$endParts[0] * 60) + (int)$endParts[1];
+    if (preg_match('/^\d{2}:\d{2}$/', $start) && preg_match('/^\d{2}:\d{2}$/', $end)) {
+        [$startHour, $startMinute] = array_map('intval', explode(':', $start));
+        [$endHour, $endMinute] = array_map('intval', explode(':', $end));
+        $current = ($startHour * 60) + $startMinute;
+        $endMinutes = ($endHour * 60) + $endMinute;
 
         while ($current + $duration <= $endMinutes) {
-            $h = floor($current / 60);
-            $m = $current % 60;
-
-            $workingHours[] = sprintf('%02d:%02d', $h, $m);
-
+            $workingHours[] = sprintf('%02d:%02d', intdiv($current, 60), $current % 60);
             $current += $duration + $break;
         }
     }
 }
 
-$availabilityExceptions = [];
+$globalAvailabilityExceptions = [];
+$staffAvailabilityExceptions = [];
+$exceptionsUrl = $SUPABASE_URL
+    . '/rest/v1/availability_exceptions?select=date,allow_booking,staff_id'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . '&allow_booking=eq.true'
+    . read_staff_filter($requestedStaffId);
+$exceptionsResult = supabase_request('GET', $exceptionsUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+error_log('blocked.php availability exceptions status: ' . json_encode([
+    'httpCode' => $exceptionsResult['status'] ?? null,
+    'hasError' => !$exceptionsResult['ok'],
+]));
 
-$urlExceptions = $SUPABASE_URL
-    . '/rest/v1/availability_exceptions?select=date,allow_booking&tenant_id=eq.'
-    . rawurlencode($TENANT_ID)
-    . '&allow_booking=eq.true';
+if ($exceptionsResult['ok']) {
+    foreach ((is_array($exceptionsResult['data']) ? $exceptionsResult['data'] : []) as $row) {
+        $date = (string)($row['date'] ?? '');
+        if ($date === '') {
+            continue;
+        }
 
-$getExceptions = supabase_request('GET', $urlExceptions, $SUPABASE_KEY, $SUPABASE_SCHEMA);
-
-if (!$getExceptions['error'] && $getExceptions['httpCode'] < 400) {
-    $dataExceptions = json_decode($getExceptions['response'], true);
-
-    if (is_array($dataExceptions)) {
-        foreach ($dataExceptions as $row) {
-            if (!empty($row['date']) && !empty($row['allow_booking'])) {
-                $availabilityExceptions[] = $row['date'];
-            }
+        if (empty($row['staff_id'])) {
+            $globalAvailabilityExceptions[] = $date;
+        } else {
+            $staffAvailabilityExceptions[] = $date;
         }
     }
 }
 
-$availabilityExceptions = array_values(array_unique($availabilityExceptions));
-
-respond([
+json_response([
+    'success' => true,
     'blockedDates' => array_values(array_unique($blockedDates)),
     'blockedTimes' => $blockedTimes,
-    'availabilityExceptions' => $availabilityExceptions,
+    'globalBlockedDates' => array_values(array_unique($globalBlockedDates)),
+    'staffBlockedDates' => array_values(array_unique($staffBlockedDates)),
+    'globalBlockedTimes' => $globalBlockedTimes,
+    'staffBlockedTimes' => $staffBlockedTimes,
+    'blockedDateScopes' => $blockedDateScopes,
+    'blockedTimeScopes' => $blockedTimeScopes,
+    'availabilityExceptions' => array_values(array_unique($globalAvailabilityExceptions)),
+    'globalAvailabilityExceptions' => array_values(array_unique($globalAvailabilityExceptions)),
+    'staffAvailabilityExceptions' => array_values(array_unique($staffAvailabilityExceptions)),
     'blockSettings' => $blockSettings,
     'minDate' => date('Y-m-d'),
     'maxDate' => date('Y-m-t'),
-    'workingHours' => $workingHours
+    'workingHours' => $workingHours,
 ]);

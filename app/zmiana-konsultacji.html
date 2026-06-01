@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Zmiana konsultacji</title>
   <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body>
 
@@ -17,10 +18,10 @@
   <input id="date" type="date">
 
   <select id="time">
-    <option value="">Wybierz godzinê *</option>
+    <option value="">Wybierz godzinï¿½ *</option>
   </select>
 
-  <button id="changeBtn">Zmieñ termin</button>
+  <button id="changeBtn">Zmieï¿½ termin</button>
 
   <div id="successBox" class="success"></div>
   <div id="errorBox" class="error-box"></div>
@@ -28,9 +29,8 @@
 
 <script src="assets/js/zmiana.js"></script>
 
-<div class="footer">
-  © AI-IQ • System rezerwacji
-</div>
+<div class="footer app-footer" data-app-footer></div>
 
+  <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>

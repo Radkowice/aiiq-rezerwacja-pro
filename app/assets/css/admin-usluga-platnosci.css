@@ -1,66 +1,103 @@
 /* =========================
-   Usługa i płatności
-   Bazuje wizualnie na admin-ustawienia.css
+   Usługi i płatności
 ========================= */
 
-section[data-section="usluga-platnosci"] .panel-header {
-  margin-bottom: 16px;
-}
-
-section[data-section="usluga-platnosci"] .panel-header h2 {
-  margin: 0;
+.service-payments-grid,
+.service-manager-layout {
+  display: grid;
+  gap: var(--admin-section-gap, 18px);
 }
 
 .service-payments-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr);
+  margin-bottom: var(--admin-section-gap, 18px);
+}
+
+.service-manager-layout {
+  grid-template-columns: minmax(280px, 0.9fr) minmax(360px, 1.35fr);
+  align-items: start;
 }
 
 .service-payments-card {
   display: flex;
   flex-direction: column;
+  padding: var(--admin-card-padding, 22px);
+  background: var(--color-card);
+  border: var(--admin-card-border, 1px solid var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  box-shadow: var(--admin-card-shadow, var(--shadow-main));
 }
 
-.service-payments-card h3 {
+.service-list-card {
+  min-width: 0;
+}
+
+.service-payments-card h3,
+.service-staff-section h4 {
   margin: 0 0 8px;
+  color: var(--color-text);
+  font-size: 17px;
+  font-weight: var(--admin-heading-weight, 500);
+  line-height: 1.3;
+  letter-spacing: 0;
+}
+
+.service-staff-section h4 {
+  font-size: 15px;
 }
 
 .service-payments-desc {
   margin: 0 0 18px;
-  color: #667085;
+  color: var(--color-muted);
   font-size: 14px;
   line-height: 1.5;
 }
 
+.service-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 6px;
+}
+
+.service-card-header .service-payments-desc {
+  margin-bottom: 0;
+}
+
 .service-payments-form-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(260px, 1fr));
-  gap: 16px 18px;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 14px var(--admin-section-gap, 18px);
 }
 
 .service-payments-form-grid label {
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 8px;
+  min-width: 0;
 }
 
-.service-payments-form-grid label.full {
+.service-payments-form-grid label.full,
+.service-payments-form-grid .full {
   grid-column: 1 / -1;
+}
+
+.service-payments-form-grid label > span,
+.service-staff-section h4 {
+  color: var(--color-text);
 }
 
 .service-payments-form-grid label > span {
   font-size: 13px;
-  font-weight: 700;
-  color: #344054;
+  font-weight: var(--admin-label-weight, 500);
 }
 
 .service-payments-form-grid textarea {
-  min-height: 110px;
+  min-height: 104px;
   resize: vertical;
 }
 
-/* Checkbox jak w integracjach — mały, prosty, globalny klimat */
 .service-payments-switch {
   display: inline-flex !important;
   flex-direction: row !important;
@@ -79,17 +116,19 @@ section[data-section="usluga-platnosci"] .panel-header h2 {
 
 .service-payments-switch strong {
   font-size: 14px;
-  color: #344054;
+  color: var(--color-text);
 }
 
 .service-payments-switch small {
   font-size: 13px;
   line-height: 1.45;
-  color: #667085;
+  color: var(--color-muted);
   font-weight: 500;
 }
 
-.service-payments-switch input[type="checkbox"] {
+.service-payments-switch input[type="checkbox"],
+.service-payments-check input,
+.service-staff-item input {
   width: 18px !important;
   height: 18px !important;
   min-width: 18px !important;
@@ -102,49 +141,331 @@ section[data-section="usluga-platnosci"] .panel-header h2 {
   box-shadow: none !important;
 }
 
-.service-payments-actions {
+.service-payment-deadline {
+  display: grid;
+  gap: 8px;
+}
+
+.service-payment-deadline-label {
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: var(--admin-label-weight, 500);
+}
+
+.service-payment-deadline-controls {
   display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.service-payment-deadline-controls input {
+  max-width: 120px;
+}
+
+.service-payment-deadline-controls select {
+  max-width: 180px;
+}
+
+.service-payment-deadline small {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.service-payments-checkboxes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.service-payments-form-grid .service-payments-check {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-card) 97%, var(--color-border));
+}
+
+.service-payments-form-grid .service-payments-check input {
+  grid-column: 1;
+  grid-row: 1;
+  margin-top: 3px !important;
+}
+
+.service-payments-form-grid .service-payments-check > span {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.service-payments-form-grid .service-payments-check strong {
+  font-size: 14px;
+  line-height: 1.3;
+}
+
+.service-payments-form-grid .service-payments-check small {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.service-list {
+  display: grid;
+  gap: 9px;
+  margin-top: 14px;
+}
+
+.service-list-item {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-card) 97%, var(--color-border));
+}
+
+.service-list-item.is-selected {
+  border-color: #7f1d1d;
+}
+
+.service-list-item.is-inactive {
+  opacity: 0.72;
+}
+
+.service-list-main {
+  min-width: 0;
+}
+
+.service-list-content {
+  min-width: 0;
+}
+
+.service-list-title,
+.service-list-main strong {
+  display: block;
+  color: var(--color-text);
+  font-size: 15px;
+  line-height: 1.35;
+  word-break: normal;
+  overflow-wrap: break-word;
+  hyphens: none;
+}
+
+.service-list-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+  min-width: 0;
+}
+
+.service-badge {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 24px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-border) 34%, transparent);
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.service-badge.is-active,
+.service-badge.is-visible {
+  color: #166534;
+  background: rgba(22, 101, 52, 0.12);
+}
+
+.service-badge.is-inactive,
+.service-badge.is-hidden {
+  color: #7f1d1d;
+  background: rgba(127, 29, 29, 0.12);
+}
+
+.service-badge.is-payment {
+  color: #075985;
+  background: rgba(7, 89, 133, 0.12);
+}
+
+.service-badge.is-neutral {
+  color: var(--color-muted);
+}
+
+.service-list-actions {
+  display: flex;
+  flex-direction: column;
+  flex-wrap: nowrap;
   justify-content: flex-end;
+  gap: 8px;
+  align-self: stretch;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 10px;
+}
+
+.service-list-actions .btn {
+  width: 100%;
+  flex: none;
+}
+
+.service-form {
+  display: grid;
+  gap: 18px;
+}
+
+.service-staff-section {
+  display: grid;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.service-staff-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.service-staff-list.is-scrollable {
+  max-height: 310px;
+  overflow-y: auto;
+  padding-right: 6px;
+}
+
+.service-staff-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-card) 94%, var(--color-border));
+}
+
+.service-staff-item input {
+  grid-column: 1;
+  grid-row: 1;
+  margin-top: 4px !important;
+}
+
+.service-staff-item.is-inactive {
+  opacity: 0.72;
+}
+
+.service-staff-item > span {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.service-staff-item strong {
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.3;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.service-staff-item small,
+.service-staff-item em {
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  font-style: normal;
+  word-break: normal;
+  overflow-wrap: break-word;
+}
+
+.service-form-actions,
+.service-global-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding-top: 2px;
+}
+
+.service-global-actions {
   margin-top: 18px;
 }
 
-/* Responsywność */
-@media (max-width: 900px) {
-  .service-payments-form-grid {
-    grid-template-columns: 1fr;
-  }
+.service-action-message {
+  min-height: 20px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
 
-  .service-payments-actions {
-    justify-content: stretch;
-  }
+.service-action-message:empty,
+.service-action-message[hidden] {
+  display: none;
+}
 
-  .service-payments-actions .btn,
-  .service-payments-actions .btn-primary,
-  .service-payments-actions button {
-    width: 100%;
-  }
+.service-action-message[data-type="success"] {
+  color: #166534;
+}
+
+.service-action-message[data-type="error"] {
+  color: #7f1d1d;
+}
+
+.service-action-message[data-type="muted"] {
+  color: var(--color-muted);
+}
+
+.service-empty {
+  padding: 14px;
+  border: 1px dashed var(--color-border);
+  border-radius: 8px;
+  color: var(--color-muted);
+  font-size: 14px;
 }
 
 section[data-section="usluga-platnosci"] {
-  font-size: 16px;
+  font-size: inherit;
 }
 
 section[data-section="usluga-platnosci"] label,
 section[data-section="usluga-platnosci"] label span,
 section[data-section="usluga-platnosci"] .service-payments-desc,
 section[data-section="usluga-platnosci"] .service-payments-switch small {
-  font-size: 16px;
+  font-size: inherit;
 }
 
 section[data-section="usluga-platnosci"] input,
 section[data-section="usluga-platnosci"] select,
 section[data-section="usluga-platnosci"] textarea {
-  font-size: 16px;
+  font-size: 14px;
 }
 
 section[data-section="usluga-platnosci"] #service-price-amount,
-section[data-section="usluga-platnosci"] #service-payment-time-limit-hours {
-  max-width: 150px;
+section[data-section="usluga-platnosci"] #service-price-currency,
+section[data-section="usluga-platnosci"] #service-duration-minutes,
+section[data-section="usluga-platnosci"] #service-break-minutes,
+section[data-section="usluga-platnosci"] #service-booking-buffer-minutes,
+section[data-section="usluga-platnosci"] #service-sort-order,
+section[data-section="usluga-platnosci"] #global-service-price,
+section[data-section="usluga-platnosci"] #global-service-currency,
+section[data-section="usluga-platnosci"] #global-payment-time-limit-value,
+section[data-section="usluga-platnosci"] #global-payment-time-limit-unit {
+  max-width: 180px;
 }
 
 section[data-section="usluga-platnosci"] input[type="number"] {
@@ -155,4 +476,35 @@ section[data-section="usluga-platnosci"] input[type="number"]::-webkit-outer-spi
 section[data-section="usluga-platnosci"] input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+@media (max-width: 1100px) {
+  .service-manager-layout,
+  .service-staff-list {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 700px) {
+  .service-payments-form-grid,
+  .service-payments-checkboxes {
+    grid-template-columns: 1fr;
+  }
+
+  .service-card-header,
+  .service-form-actions,
+  .service-global-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .service-form-actions .btn,
+  .service-global-actions .btn,
+  .service-card-header .btn {
+    width: 100%;
+  }
+
+  .service-staff-list.is-scrollable {
+    max-height: min(430px, 62vh);
+  }
 }

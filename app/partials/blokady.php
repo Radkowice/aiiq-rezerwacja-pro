@@ -1,6 +1,9 @@
 <section class="panel-card hidden" data-section="blokady">
   <div class="panel-header">
     <h2>Blokady terminów</h2>
+    <button type="button" id="admin-block-refresh-btn" class="btn btn-secondary block-refresh-btn">
+      Odśwież
+    </button>
   </div>
 
   <div class="block-section admin-card">
@@ -8,10 +11,45 @@
       <p>Blokuj całe dni, soboty, niedziele, święta, zakresy dat oraz pojedyncze godziny.</p>
     </div>
 
+    <div class="block-scope-card">
+      <div class="block-scope-header">
+        <h3>Zakres blokad</h3>
+        <p>
+          Blokady globalne dotyczą całej firmy i blokują termin dla wszystkich pracowników. Blokady pracownika dotyczą tylko wybranej osoby, np. urlopu, wolnego dnia albo niedostępnej godziny.
+          <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
+        </p>
+      </div>
+
+      <div class="block-scope-options" role="group" aria-label="Zakres blokad">
+        <label class="block-scope-option">
+          <input type="radio" name="block-scope" value="global" checked>
+          <span>
+            <strong>Cała firma</strong>
+            <small>Blokuje termin dla całej firmy.</small>
+          </span>
+        </label>
+
+        <label class="block-scope-option">
+          <input type="radio" name="block-scope" value="staff">
+          <span>
+            <strong>Konkretny pracownik</strong>
+            <small>Blokuje termin tylko dla wybranej osoby.</small>
+          </span>
+        </label>
+      </div>
+
+      <div class="block-staff-select" id="block-staff-select-wrap" hidden>
+        <label for="block-staff-select">Wybierz pracownika</label>
+        <select id="block-staff-select">
+          <option value="">Wybierz pracownika</option>
+        </select>
+      </div>
+    </div>
+
     <div class="admin-calendar-wrap">
       <div id="adminCalendar"></div>
       <div id="adminTimeSlots" class="admin-time-slots"></div>
-      <div class="admin-legend">
+      <div class="admin-legend" id="adminReservationLegend">
   <span class="legend-item">
     <span class="badge-r">R</span> – rezerwacja
   </span>
@@ -23,7 +61,9 @@
       <label><input type="checkbox" id="block-sundays"> Zablokuj niedziele</label>
       <label><input type="checkbox" id="block-holidays"> Zablokuj święta</label>
     </div>
-
+    <p id="staff-block-settings-note" class="staff-block-settings-note" hidden>
+      Soboty, niedziele i święta są ustawieniem całej firmy. Możesz jednak odblokować pojedynczy dzień tylko dla wybranego pracownika.
+    </p>
     <div class="block-range-box">
       <div class="form-row">
         <div class="form-group">

@@ -64,17 +64,16 @@
   <tr>
     <th class="col-name">Klient</th>
     <th class="col-contact">Kontakt</th>
-    <th class="col-date">Data</th>
-    <th class="col-time">Godzina</th>
-    <th class="col-desc">Opis</th>
+    <th class="col-term">Termin</th>
+    <th class="col-service">Usługa / Pracownik</th>
     <th class="col-payment">Płatność</th>
-    <th class="col-actions">Akcja</th>
+    <th class="col-actions">Akcje</th>
   </tr>
 </thead>
           
 <tbody id="bookingList">
   <tr>
-    <td colspan="7" class="empty">Ładowanie danych...</td>
+    <td colspan="6" class="empty">Ładowanie danych...</td>
   </tr>
 </tbody>
           </table>

@@ -1,0 +1,341 @@
+<?php
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+
+require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../system/tenant.php';
+
+function staff_reset_password_json(array $payload, int $statusCode = 200): void
+{
+    http_response_code($statusCode);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function staff_reset_password_request(
+    string $method,
+    string $url,
+    string $supabaseKey,
+    string $schema,
+    ?array $payload = null
+): array {
+    $headers = supabaseHeaders($supabaseKey, $schema);
+
+    if (in_array(strtoupper($method), ['PATCH', 'POST', 'DELETE'], true)) {
+        $headers = array_values(array_filter($headers, static function (string $header): bool {
+            return stripos($header, 'Prefer:') !== 0;
+        }));
+        $headers[] = 'Prefer: return=minimal';
+    }
+
+    $ch = curl_init($url);
+
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_TIMEOUT => 20,
+    ]);
+
+    if ($payload !== null) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    return [
+        'response' => $response,
+        'error' => $curlError,
+        'httpCode' => $httpCode,
+        'data' => json_decode((string) $response, true),
+    ];
+}
+
+function staff_reset_password_validation_error(string $password): string
+{
+    if (strlen($password) < 8) {
+        return 'Nowe hasło musi mieć minimum 8 znaków.';
+    }
+
+    if (!preg_match('/[a-z]/', $password)) {
+        return 'Nowe hasło musi zawierać małą literę.';
+    }
+
+    if (!preg_match('/[A-Z]/', $password)) {
+        return 'Nowe hasło musi zawierać dużą literę.';
+    }
+
+    if (!preg_match('/[0-9]/', $password)) {
+        return 'Nowe hasło musi zawierać cyfrę.';
+    }
+
+    if (!preg_match('/[^A-Za-z0-9]/', $password)) {
+        return 'Nowe hasło musi zawierać znak specjalny.';
+    }
+
+    return '';
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    header('Allow: POST');
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Metoda niedozwolona.'
+    ], 405);
+}
+
+$supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+$supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
+$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+
+if ($supabaseUrl === '' || $supabaseKey === '') {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Brak konfiguracji Supabase.'
+    ], 500);
+}
+
+$tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+
+if (!$tenantId) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Nie udało się ustalić firmy dla tej domeny.'
+    ], 400);
+}
+
+$input = json_decode(file_get_contents('php://input') ?: '{}', true);
+
+if (!is_array($input)) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Nieprawidłowy JSON.'
+    ], 400);
+}
+
+$token = trim((string) ($input['token'] ?? ''));
+$password = (string) ($input['password'] ?? '');
+$passwordConfirm = (string) ($input['password_confirm'] ?? '');
+
+if ($token === '') {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Brak tokenu resetu hasła.'
+    ], 400);
+}
+
+if (!preg_match('/^[a-f0-9]{64}$/i', $token)) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Link resetu hasła jest nieprawidłowy albo wygasł.'
+    ], 410);
+}
+
+if ($password === '' || $passwordConfirm === '') {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Wypełnij wszystkie pola.'
+    ], 422);
+}
+
+if ($password !== $passwordConfirm) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Hasła nie są takie same.'
+    ], 422);
+}
+
+$passwordError = staff_reset_password_validation_error($password);
+
+if ($passwordError !== '') {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => $passwordError
+    ], 422);
+}
+
+$tokenHash = hash('sha256', $token);
+$now = gmdate('c');
+
+$tokenUrl = $supabaseUrl
+    . '/rest/v1/staff_password_reset_tokens'
+    . '?select=id,tenant_id,staff_account_id,staff_id,email,expires_at,used_at'
+    . '&tenant_id=eq.' . rawurlencode((string) $tenantId)
+    . '&token_hash=eq.' . rawurlencode($tokenHash)
+    . '&used_at=is.null'
+    . '&expires_at=gt.' . rawurlencode($now)
+    . '&limit=1';
+
+$tokenResult = staff_reset_password_request('GET', $tokenUrl, $supabaseKey, $schema);
+
+if (
+    $tokenResult['response'] === false
+    || $tokenResult['error'] !== ''
+    || $tokenResult['httpCode'] < 200
+    || $tokenResult['httpCode'] >= 300
+) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Nie udało się sprawdzić tokenu resetu hasła.'
+    ], 500);
+}
+
+$tokenRows = is_array($tokenResult['data'] ?? null) ? $tokenResult['data'] : [];
+$tokenRow = is_array($tokenRows[0] ?? null) ? $tokenRows[0] : null;
+
+if (!is_array($tokenRow) || empty($tokenRow['id']) || empty($tokenRow['staff_account_id']) || empty($tokenRow['staff_id'])) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Link resetu hasła jest nieprawidłowy albo wygasł.'
+    ], 410);
+}
+
+$tokenId = (string) ($tokenRow['id'] ?? '');
+$accountId = (string) ($tokenRow['staff_account_id'] ?? '');
+$staffId = (string) ($tokenRow['staff_id'] ?? '');
+$email = strtolower(trim((string) ($tokenRow['email'] ?? '')));
+
+$accountUrl = $supabaseUrl
+    . '/rest/v1/staff_accounts'
+    . '?select=id,tenant_id,staff_id,email,is_active'
+    . '&tenant_id=eq.' . rawurlencode((string) $tenantId)
+    . '&id=eq.' . rawurlencode($accountId)
+    . '&staff_id=eq.' . rawurlencode($staffId)
+    . '&limit=1';
+
+$accountResult = staff_reset_password_request('GET', $accountUrl, $supabaseKey, $schema);
+
+if (
+    $accountResult['response'] === false
+    || $accountResult['error'] !== ''
+    || $accountResult['httpCode'] < 200
+    || $accountResult['httpCode'] >= 300
+) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Nie udało się sprawdzić konta personelu.'
+    ], 500);
+}
+
+$accountRows = is_array($accountResult['data'] ?? null) ? $accountResult['data'] : [];
+$account = is_array($accountRows[0] ?? null) ? $accountRows[0] : null;
+
+if (!is_array($account) || empty($account['id']) || !filter_var($account['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Konto personelu jest nieaktywne.'
+    ], 403);
+}
+
+$accountEmail = strtolower(trim((string) ($account['email'] ?? '')));
+
+if ($email !== '' && $accountEmail !== '' && !hash_equals($email, $accountEmail)) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Token resetu hasła nie pasuje do konta personelu.'
+    ], 400);
+}
+
+$staffUrl = $supabaseUrl
+    . '/rest/v1/staff_profiles'
+    . '?select=id,is_active'
+    . '&tenant_id=eq.' . rawurlencode((string) $tenantId)
+    . '&id=eq.' . rawurlencode($staffId)
+    . '&limit=1';
+
+$staffResult = staff_reset_password_request('GET', $staffUrl, $supabaseKey, $schema);
+
+if (
+    $staffResult['response'] === false
+    || $staffResult['error'] !== ''
+    || $staffResult['httpCode'] < 200
+    || $staffResult['httpCode'] >= 300
+) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Nie udało się sprawdzić profilu personelu.'
+    ], 500);
+}
+
+$staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
+$staff = is_array($staffRows[0] ?? null) ? $staffRows[0] : null;
+
+if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN)) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Profil personelu jest nieaktywny.'
+    ], 403);
+}
+
+$passwordHash = password_hash($password, PASSWORD_DEFAULT);
+$updatedAt = gmdate('c');
+
+$updateUrl = $supabaseUrl
+    . '/rest/v1/staff_accounts'
+    . '?tenant_id=eq.' . rawurlencode((string) $tenantId)
+    . '&id=eq.' . rawurlencode($accountId)
+    . '&staff_id=eq.' . rawurlencode($staffId);
+
+$updateResult = staff_reset_password_request('PATCH', $updateUrl, $supabaseKey, $schema, [
+    'password_hash' => $passwordHash,
+    'updated_at' => $updatedAt,
+]);
+
+if (
+    $updateResult['response'] === false
+    || $updateResult['error'] !== ''
+    || $updateResult['httpCode'] < 200
+    || $updateResult['httpCode'] >= 300
+) {
+    staff_reset_password_json([
+        'success' => false,
+        'error' => 'Nie udało się zapisać nowego hasła.'
+    ], 500);
+}
+
+$usedUrl = $supabaseUrl
+    . '/rest/v1/staff_password_reset_tokens'
+    . '?id=eq.' . rawurlencode($tokenId)
+    . '&tenant_id=eq.' . rawurlencode((string) $tenantId)
+    . '&used_at=is.null';
+
+$usedResult = staff_reset_password_request('PATCH', $usedUrl, $supabaseKey, $schema, [
+    'used_at' => $updatedAt,
+]);
+
+if (
+    $usedResult['response'] === false
+    || $usedResult['error'] !== ''
+    || $usedResult['httpCode'] < 200
+    || $usedResult['httpCode'] >= 300
+) {
+    error_log('STAFF_PASSWORD_RESET_TOKEN_MARK_USED_FAILED tenant_id=' . (string) $tenantId . ' token_id=' . $tokenId);
+}
+
+$invalidateUrl = $supabaseUrl
+    . '/rest/v1/staff_password_reset_tokens'
+    . '?tenant_id=eq.' . rawurlencode((string) $tenantId)
+    . '&staff_account_id=eq.' . rawurlencode($accountId)
+    . '&used_at=is.null';
+
+$invalidateResult = staff_reset_password_request('PATCH', $invalidateUrl, $supabaseKey, $schema, [
+    'used_at' => $updatedAt,
+]);
+
+if (
+    $invalidateResult['response'] === false
+    || $invalidateResult['error'] !== ''
+    || $invalidateResult['httpCode'] < 200
+    || $invalidateResult['httpCode'] >= 300
+) {
+    error_log('STAFF_PASSWORD_RESET_OTHER_TOKENS_INVALIDATE_FAILED tenant_id=' . (string) $tenantId . ' staff_account_id=' . $accountId);
+}
+
+staff_reset_password_json([
+    'success' => true,
+    'message' => 'Hasło zostało zmienione. Możesz się zalogować.'
+]);

@@ -108,48 +108,6 @@ function getReadableReservationsColors(baseColor) {
   };
 }
 
-function cacheBustAssetUrl(url) {
-  const value = String(url || '').trim();
-
-  if (!value) {
-    return '';
-  }
-
-  return `${value}${value.includes('?') ? '&' : '?'}v=${Date.now()}`;
-}
-
-function setLogoPreview(url) {
-  const logoPreview = document.getElementById('account-logo-preview');
-  const logoEmpty = document.getElementById('account-logo-empty');
-  const deleteBtn = document.getElementById('delete-logo-front-btn');
-
-  if (logoPreview && logoEmpty) {
-    logoPreview.src = cacheBustAssetUrl(url);
-    logoPreview.style.display = 'block';
-    logoEmpty.style.display = 'none';
-  }
-
-  if (deleteBtn) {
-    deleteBtn.style.display = 'inline-flex';
-  }
-}
-
-function setFaviconPreview(url) {
-  const faviconPreview = document.getElementById('account-favicon-preview');
-  const faviconEmpty = document.getElementById('account-favicon-empty');
-  const deleteBtn = document.getElementById('delete-favicon-front-btn');
-
-  if (faviconPreview && faviconEmpty) {
-    faviconPreview.src = cacheBustAssetUrl(url);
-    faviconPreview.style.display = 'block';
-    faviconEmpty.style.display = 'none';
-  }
-
-  if (deleteBtn) {
-    deleteBtn.style.display = 'inline-flex';
-  }
-}
-
   // MOJE KONTO — branding
   const saveBrandingBtn = document.getElementById('save-branding-btn');
 
@@ -283,6 +241,61 @@ const res = await apiFetch('/api/system/branding.php', {
       accountMessage.textContent = '';
       accountMessage.className = 'message';
     }, 3000);
+  }
+
+  function withCacheBuster(url) {
+    if (!url) return '';
+
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}v=${Date.now()}`;
+  }
+
+  function setLogoPreview(url) {
+    const logoInput = document.getElementById('account-logo');
+    const logoPreview = document.getElementById('account-logo-preview');
+    const logoEmpty = document.getElementById('account-logo-empty');
+    const deleteBtn = document.getElementById('delete-logo-front-btn');
+
+    if (logoInput) {
+      logoInput.value = '';
+    }
+
+    if (logoPreview) {
+      logoPreview.src = withCacheBuster(url);
+      logoPreview.style.display = 'block';
+    }
+
+    if (logoEmpty) {
+      logoEmpty.style.display = 'none';
+    }
+
+    if (deleteBtn) {
+      deleteBtn.style.display = 'inline-flex';
+    }
+  }
+
+  function setFaviconPreview(url) {
+    const faviconInput = document.getElementById('account-favicon');
+    const faviconPreview = document.getElementById('account-favicon-preview');
+    const faviconEmpty = document.getElementById('account-favicon-empty');
+    const deleteBtn = document.getElementById('delete-favicon-front-btn');
+
+    if (faviconInput) {
+      faviconInput.value = '';
+    }
+
+    if (faviconPreview) {
+      faviconPreview.src = withCacheBuster(url);
+      faviconPreview.style.display = 'block';
+    }
+
+    if (faviconEmpty) {
+      faviconEmpty.style.display = 'none';
+    }
+
+    if (deleteBtn) {
+      deleteBtn.style.display = 'inline-flex';
+    }
   }
 
   function clearLogoPreview() {

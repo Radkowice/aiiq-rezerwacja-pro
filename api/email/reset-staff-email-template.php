@@ -1,0 +1,103 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../system/tenant.php';
+
+header('Content-Type: application/json; charset=utf-8');
+start_secure_session();
+
+function reset_staff_email_json(array $payload, int $statusCode = 200): void
+{
+    http_response_code($statusCode);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function reset_staff_email_is_uuid($value): bool
+{
+    return is_string($value)
+        && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value) === 1;
+}
+
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    header('Allow: POST');
+    reset_staff_email_json(['success' => false, 'error' => 'Metoda niedozwolona.'], 405);
+}
+
+if (empty($_SESSION['user']['tenant_id'])) {
+    reset_staff_email_json(['success' => false, 'error' => 'Brak autoryzacji.'], 401);
+}
+
+$tenantId = (string) $_SESSION['user']['tenant_id'];
+$input = json_decode(file_get_contents('php://input') ?: '{}', true);
+
+if (!is_array($input)) {
+    reset_staff_email_json(['success' => false, 'error' => 'Brak danych wejściowych.'], 400);
+}
+
+$staffId = trim((string) ($input['staff_id'] ?? ''));
+
+if (!reset_staff_email_is_uuid($staffId)) {
+    reset_staff_email_json(['success' => false, 'error' => 'Wybierz pracownika, aby edytować jego szablon e-mail.'], 422);
+}
+
+$supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+$supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
+$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+
+if ($supabaseUrl === '' || $supabaseKey === '') {
+    reset_staff_email_json(['success' => false, 'error' => 'Brak konfiguracji Supabase.'], 500);
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    reset_staff_email_json(['success' => false, 'error' => 'Sesja nie pasuje do domeny.'], 403);
+}
+
+$url = $supabaseUrl
+    . '/rest/v1/staff_profiles'
+    . '?tenant_id=eq.' . rawurlencode($tenantId)
+    . '&id=eq.' . rawurlencode($staffId)
+    . '&is_active=eq.true'
+    . '&select=id,display_name,email,email_subject,email_heading,email_body';
+
+$headers = supabaseHeaders($supabaseKey, $schema);
+$headers[] = 'Prefer: return=representation';
+
+$ch = curl_init($url);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_CUSTOMREQUEST => 'PATCH',
+    CURLOPT_HTTPHEADER => $headers,
+    CURLOPT_TIMEOUT => 20,
+    CURLOPT_POSTFIELDS => json_encode([
+        'email_subject' => null,
+        'email_heading' => null,
+        'email_body' => null,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+]);
+
+$response = curl_exec($ch);
+$curlError = curl_error($ch);
+$httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+curl_close($ch);
+
+if ($response === false || $curlError !== '' || $httpCode < 200 || $httpCode >= 300) {
+    reset_staff_email_json(['success' => false, 'error' => 'Nie udało się zapisać zmian. Spróbuj ponownie.'], 500);
+}
+
+$rows = json_decode((string) $response, true);
+
+if (!is_array($rows) || empty($rows[0])) {
+    reset_staff_email_json(['success' => false, 'error' => 'Nie znaleziono pracownika.'], 404);
+}
+
+$staff = $rows[0];
+$staff['has_custom_template'] = false;
+
+reset_staff_email_json([
+    'success' => true,
+    'message' => 'Pracownik ponownie używa globalnego szablonu e-mail.',
+    'staff' => $staff,
+]);

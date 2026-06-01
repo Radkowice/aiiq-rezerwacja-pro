@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/payu.php';
 require_once __DIR__ . '/../helpers/booking_mail.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 
 function payu_notify_response(array $payload, int $statusCode = 200): void
 {
@@ -181,6 +182,74 @@ function payu_notify_map_status(string $payuStatus): string
     };
 }
 
+function payu_notify_public_base_url(): string
+{
+    $scheme = 'https';
+
+    if (!empty($_SERVER['HTTP_X_FORWARDED_PROTO'])) {
+        $forwardedProto = strtolower(trim(explode(',', (string) $_SERVER['HTTP_X_FORWARDED_PROTO'])[0] ?? ''));
+
+        if (in_array($forwardedProto, ['http', 'https'], true)) {
+            $scheme = $forwardedProto;
+        }
+    } elseif (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') {
+        $scheme = 'https';
+    }
+
+    $host = $_SERVER['HTTP_X_FORWARDED_HOST']
+        ?? $_SERVER['HTTP_HOST']
+        ?? $_SERVER['SERVER_NAME']
+        ?? '';
+
+    $host = trim(explode(',', (string) $host)[0] ?? '');
+
+    if ($host === '' || !preg_match('/^[a-z0-9.-]+(?::\d+)?$/i', $host)) {
+        return '';
+    }
+
+    return $scheme . '://' . $host;
+}
+
+function payu_notify_manage_token_is_active(string $expiresAt): bool
+{
+    $expiresAt = trim($expiresAt);
+
+    if ($expiresAt === '') {
+        return false;
+    }
+
+    try {
+        $expires = new DateTimeImmutable($expiresAt);
+        $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));
+
+        return $expires > $now;
+    } catch (Throwable $e) {
+        return false;
+    }
+}
+
+function payu_notify_reschedule_url(string $tenantId, array $booking): string
+{
+    if (!tenant_has_feature($tenantId, 'reschedule_booking')) {
+        return '';
+    }
+
+    $token = trim((string)($booking['manage_token'] ?? ''));
+    $expiresAt = trim((string)($booking['manage_token_expires_at'] ?? ''));
+
+    if ($token === '' || !payu_notify_manage_token_is_active($expiresAt)) {
+        return '';
+    }
+
+    $baseUrl = payu_notify_public_base_url();
+
+    if ($baseUrl === '') {
+        return '';
+    }
+
+    return $baseUrl . '/przeloz-rezerwacje.html?token=' . rawurlencode($token);
+}
+
 function payu_notify_fetch_single_record(string $table, string $query): ?array
 {
     $supabaseUrl = rtrim((string)getenv('SUPABASE_URL'), '/');
@@ -216,6 +285,47 @@ function payu_notify_fetch_single_record(string $table, string $query): ?array
     return $result['data'][0] ?? null;
 }
 
+function payu_notify_fetch_staff_email_profile(string $tenantId, string $staffId): ?array
+{
+    if ($tenantId === '' || $staffId === '') {
+        return null;
+    }
+
+    return payu_notify_fetch_single_record(
+        'staff_profiles',
+        'tenant_id=eq.' . rawurlencode($tenantId)
+            . '&id=eq.' . rawurlencode($staffId)
+            . '&select=id,display_name,email_subject,email_heading,email_body'
+    );
+}
+
+function payu_notify_effective_email_template(array $globalTemplate, ?array $staff): array
+{
+    $template = $globalTemplate;
+
+    if (!is_array($staff)) {
+        return $template;
+    }
+
+    $staffSubject = trim((string)($staff['email_subject'] ?? ''));
+    $staffHeading = trim((string)($staff['email_heading'] ?? ''));
+    $staffBody = trim((string)($staff['email_body'] ?? ''));
+
+    if ($staffSubject !== '') {
+        $template['subject'] = $staffSubject;
+    }
+
+    if ($staffHeading !== '') {
+        $template['service_name'] = $staffHeading;
+    }
+
+    if ($staffBody !== '') {
+        $template['body_html'] = $staffBody;
+    }
+
+    return $template;
+}
+
 function payu_notify_send_paid_email(string $tenantId, array $booking): bool
 {
     $tenantQuery = 'tenant_id=eq.' . rawurlencode($tenantId);
@@ -245,16 +355,37 @@ function payu_notify_send_paid_email(string $tenantId, array $booking): bool
 
         return false;
     }
+
+    $staffEmailProfile = payu_notify_fetch_staff_email_profile(
+        $tenantId,
+        trim((string)($booking['staff_id'] ?? ''))
+    );
+
+    $staffDisplayName = is_array($staffEmailProfile)
+        ? trim((string)($staffEmailProfile['display_name'] ?? ''))
+        : '';
+
+    if ($staffDisplayName !== '') {
+        $booking['staff_display_name'] = $staffDisplayName;
+    }
+
+    $effectiveEmailTemplate = payu_notify_effective_email_template(
+        $emailTemplate,
+        $staffEmailProfile
+    );
+
+    $rescheduleUrl = payu_notify_reschedule_url($tenantId, $booking);
    
     return booking_mail_send_client_confirmation(
         $emailSettings,
-        $emailTemplate,
+        $effectiveEmailTemplate,
         $tenantData,
         $booking,
         [
             'status_label' => 'Opłacono',
             'amount' => $booking['payment_amount'] ?? null,
             'currency' => (string)($booking['payment_currency'] ?? 'PLN'),
+            'reschedule_url' => $rescheduleUrl,
         ]
     );
 }

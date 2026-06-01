@@ -1,99 +1,53 @@
 <?php
+declare(strict_types=1);
+
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../system/tenant.php';
+
 header('Content-Type: application/json; charset=utf-8');
 
 start_secure_session();
-if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-    header('Allow: POST');
-    http_response_code(405);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Metoda niedozwolona.'
-    ], JSON_UNESCAPED_UNICODE);
+
+function email_settings_json(array $payload, int $statusCode = 200): void
+{
+    http_response_code($statusCode);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
-if (!isset($_SESSION['user']['tenant_id'])) {
-    http_response_code(401);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Brak autoryzacji'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+function email_settings_text($value, int $maxLength, bool $required = false): ?string
+{
+    if (is_array($value) || is_object($value)) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Nieprawidłowe dane wejściowe.'
+        ], 422);
+    }
+
+    $text = trim((string) ($value ?? ''));
+
+    if ($text === '') {
+        if ($required) {
+            email_settings_json([
+                'success' => false,
+                'error' => 'Uzupełnij wymagane pola.'
+            ], 422);
+        }
+
+        return null;
+    }
+
+    if (mb_strlen($text, 'UTF-8') > $maxLength) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Wpisany tekst jest zbyt długi.'
+        ], 422);
+    }
+
+    return $text;
 }
 
-$tenantId = (string) $_SESSION['user']['tenant_id'];
-
-$input = json_decode(file_get_contents('php://input'), true);
-
-if (!is_array($input)) {
-    http_response_code(400);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Brak danych wejściowych'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-$supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
-$serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
-$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'public';
-
-if ($supabaseUrl === '' || $serviceRoleKey === '') {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Brak konfiguracji Supabase w ENV'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
-    http_response_code(401);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Sesja nie pasuje do domeny'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-/**
- * Dane SMTP
- */
-$smtpHost = trim((string) ($input['smtp_host'] ?? ''));
-$smtpPort = (int) ($input['smtp_port'] ?? 587);
-$smtpUsername = trim((string) ($input['smtp_user'] ?? ''));
-$smtpPassword = trim((string) ($input['smtp_pass'] ?? ''));
-$fromEmail = trim((string) ($input['smtp_email'] ?? ''));
-$fromName = trim((string) ($input['smtp_name'] ?? ''));
-$replyToEmail = trim((string) ($input['reply_to_email'] ?? $fromEmail));
-$replyToName = trim((string) ($input['reply_to_name'] ?? $fromName));
-$adminNotifyEmail = trim((string) ($input['admin_notify_email'] ?? $fromEmail));
-
-$smtpEncryption = trim((string) ($input['smtp_encryption'] ?? 'tls'));
-if (!in_array($smtpEncryption, ['none', 'ssl', 'tls'], true)) {
-    $smtpEncryption = 'tls';
-}
-
-$smtpAuth = isset($input['smtp_auth']) ? (bool) $input['smtp_auth'] : true;
-$isActive = isset($input['is_active']) ? (bool) $input['is_active'] : true;
-$sendClientConfirmation = isset($input['send_client_confirmation']) ? (bool) $input['send_client_confirmation'] : true;
-$sendAdminNotification = isset($input['send_admin_notification']) ? (bool) $input['send_admin_notification'] : true;
-
-/**
- * Template klienta
- */
-$clientSubject = trim((string) ($input['mail_subject'] ?? ''));
-$clientIntroHtml = trim((string) ($input['mail_body'] ?? ''));
-$serviceName = trim((string) ($input['service_name'] ?? ''));
-
-/**
- * Template admina
- */
-$adminSubject = trim((string) ($input['admin_mail_subject'] ?? ''));
-$adminIntroHtml = trim((string) ($input['admin_mail_body'] ?? ''));
-
-function supabaseRequest(
+function email_settings_request(
     string $method,
     string $url,
     string $serviceRoleKey,
@@ -120,7 +74,7 @@ function supabaseRequest(
     ]);
 
     if ($payload !== null) {
-        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE));
+        curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 
     $response = curl_exec($ch);
@@ -138,150 +92,208 @@ function supabaseRequest(
     ];
 }
 
-// =====================
-// ODCZYT AKTUALNEGO email_settings DLA TENANTA
-// =====================
-$emailSettingsReadUrl = $supabaseUrl
-    . '/rest/v1/email_settings'
-    . '?tenant_id=eq.' . urlencode($tenantId)
-    . '&is_active=eq.true'
-    . '&limit=1';
-
-$emailSettingsReadResult = supabaseRequest(
-    'GET',
-    $emailSettingsReadUrl,
-    $serviceRoleKey,
-    $schema
-);
-
-if (!$emailSettingsReadResult['ok']) {
-    http_response_code(500);
-    echo json_encode([
+if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    header('Allow: POST');
+    email_settings_json([
         'success' => false,
-        'error' => 'Nie udało się odczytać obecnych ustawień email_settings',
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+        'error' => 'Metoda niedozwolona.'
+    ], 405);
 }
 
-$existingEmailSettings = $emailSettingsReadResult['json'][0] ?? null;
-$existingSmtpPassword = $existingEmailSettings['smtp_password'] ?? '';
-
-$newSmtpPassword = trim((string) ($input['smtp_pass'] ?? ''));
-$smtpPasswordToSave = $newSmtpPassword !== '' ? $newSmtpPassword : $existingSmtpPassword;
-
-$emailSettingsPayload = [[
-    'tenant_id' => $tenantId,
-    'smtp_host' => $smtpHost,
-    'smtp_port' => $smtpPort,
-    'smtp_encryption' => $smtpEncryption,
-    'smtp_auth' => $smtpAuth,
-    'smtp_username' => $smtpUsername,
-    'smtp_password' => $smtpPasswordToSave,
-    'from_email' => $fromEmail,
-    'from_name' => $fromName,
-    'reply_to_email' => $replyToEmail,
-    'reply_to_name' => $replyToName,
-    'admin_notify_email' => $adminNotifyEmail,
-    'send_client_confirmation' => $sendClientConfirmation,
-    'send_admin_notification' => $sendAdminNotification,
-    'is_active' => $isActive,
-]];
-
-$emailClientTemplatePayload = [[
-    'tenant_id' => $tenantId,
-    'template_key' => 'booking_client_confirmation',
-    'subject' => $clientSubject,
-    'body_html' => $clientIntroHtml,
-    'service_name' => $serviceName,
-    'is_enabled' => true,
-]];
-
-if ($adminSubject === '') {
-    $adminSubject = 'Nowa rezerwacja: {date} o godz. {time}';
-}
-
-if ($adminIntroHtml === '') {
-    $adminIntroHtml = "Nowa rezerwacja została zapisana w systemie.\n\n"
-        . "Klient: {name}\n"
-        . "Email: {email}\n"
-        . "Telefon: {phone}\n\n"
-        . "Termin: {date} o godz. {time}\n\n"
-        . "Uwagi:\n"
-        . "{message}";
-}
-
-$emailAdminTemplatePayload = [[
-    'tenant_id' => $tenantId,
-    'template_key' => 'booking_admin_notification',
-    'subject' => $adminSubject,
-    'body_html' => $adminIntroHtml,
-    'service_name' => $serviceName,
-    'is_enabled' => true,
-]];
-
-$emailSettingsUrl = $supabaseUrl . '/rest/v1/email_settings?on_conflict=tenant_id';
-$emailTemplatesUrl = $supabaseUrl . '/rest/v1/email_templates?on_conflict=tenant_id,template_key';
-
-$emailSettingsResult = supabaseRequest(
-    'POST',
-    $emailSettingsUrl,
-    $serviceRoleKey,
-    $schema,
-    $emailSettingsPayload
-);
-
-if (!$emailSettingsResult['ok']) {
-    http_response_code(500);
-    echo json_encode([
+if (empty($_SESSION['user']['tenant_id'])) {
+    email_settings_json([
         'success' => false,
-        'error' => 'Nie udało się zapisać email_settings',
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+        'error' => 'Brak autoryzacji.'
+    ], 401);
 }
 
-$emailClientTemplateResult = supabaseRequest(
-    'POST',
-    $emailTemplatesUrl,
-    $serviceRoleKey,
-    $schema,
-    $emailClientTemplatePayload
-);
+$tenantId = (string) $_SESSION['user']['tenant_id'];
+$input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
-if (!$emailClientTemplateResult['ok']) {
-    http_response_code(500);
-    echo json_encode([
+if (!is_array($input)) {
+    email_settings_json([
         'success' => false,
-        'error' => 'Nie udało się zapisać szablonu email klienta',
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+        'error' => 'Brak danych wejściowych.'
+    ], 400);
 }
 
-$emailAdminTemplateResult = supabaseRequest(
-    'POST',
-    $emailTemplatesUrl,
-    $serviceRoleKey,
-    $schema,
-    $emailAdminTemplatePayload
-);
+$section = (string) ($input['section'] ?? 'all');
 
-if (!$emailAdminTemplateResult['ok']) {
-    http_response_code(500);
-    echo json_encode([
+if (!in_array($section, ['all', 'smtp', 'global_template'], true)) {
+    email_settings_json([
         'success' => false,
-        'error' => 'Nie udało się zapisać szablonu email admina',
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
+        'error' => 'Nieprawidłowa sekcja zapisu.'
+    ], 422);
 }
 
-echo json_encode([
+$supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
+$serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
+$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'public';
+
+if ($supabaseUrl === '' || $serviceRoleKey === '') {
+    email_settings_json([
+        'success' => false,
+        'error' => 'Brak konfiguracji Supabase.'
+    ], 500);
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    email_settings_json([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny.'
+    ], 401);
+}
+
+$saved = [
+    'email_settings' => false,
+    'client_template' => false,
+    'admin_template' => false,
+];
+
+if ($section === 'all' || $section === 'smtp') {
+    $smtpHost = email_settings_text($input['smtp_host'] ?? null, 255, true);
+    $smtpPort = (int) ($input['smtp_port'] ?? 587);
+    $smtpUsername = email_settings_text($input['smtp_user'] ?? null, 255, true);
+    $fromEmail = email_settings_text($input['smtp_email'] ?? null, 255, true);
+    $fromName = email_settings_text($input['smtp_name'] ?? null, 255, true);
+
+    if ($smtpPort <= 0 || $smtpPort > 65535) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Podaj poprawny port SMTP.'
+        ], 422);
+    }
+
+    if (!filter_var($fromEmail, FILTER_VALIDATE_EMAIL) || !filter_var($smtpUsername, FILTER_VALIDATE_EMAIL)) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Podaj poprawny adres e-mail.'
+        ], 422);
+    }
+
+    $emailSettingsReadUrl = $supabaseUrl
+        . '/rest/v1/email_settings'
+        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&limit=1';
+
+    $emailSettingsReadResult = email_settings_request('GET', $emailSettingsReadUrl, $serviceRoleKey, $schema);
+
+    if (!$emailSettingsReadResult['ok']) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Nie udało się odczytać obecnych ustawień SMTP.'
+        ], 500);
+    }
+
+    $existingEmailSettings = $emailSettingsReadResult['json'][0] ?? [];
+    $newSmtpPassword = trim((string) ($input['smtp_pass'] ?? ''));
+    $smtpPasswordToSave = $newSmtpPassword !== ''
+        ? $newSmtpPassword
+        : (string) ($existingEmailSettings['smtp_password'] ?? '');
+
+    $emailSettingsPayload = [[
+        'tenant_id' => $tenantId,
+        'smtp_host' => $smtpHost,
+        'smtp_port' => $smtpPort,
+        'smtp_encryption' => $input['smtp_encryption'] ?? ($existingEmailSettings['smtp_encryption'] ?? 'tls'),
+        'smtp_auth' => isset($input['smtp_auth']) ? (bool) $input['smtp_auth'] : true,
+        'smtp_username' => $smtpUsername,
+        'smtp_password' => $smtpPasswordToSave,
+        'from_email' => $fromEmail,
+        'from_name' => $fromName,
+        'reply_to_email' => $input['reply_to_email'] ?? $fromEmail,
+        'reply_to_name' => $input['reply_to_name'] ?? $fromName,
+        'admin_notify_email' => $input['admin_notify_email'] ?? $fromEmail,
+        'send_client_confirmation' => isset($input['send_client_confirmation']) ? (bool) $input['send_client_confirmation'] : true,
+        'send_admin_notification' => isset($input['send_admin_notification']) ? (bool) $input['send_admin_notification'] : true,
+        'is_active' => isset($input['is_active']) ? (bool) $input['is_active'] : true,
+    ]];
+
+    $emailSettingsUrl = $supabaseUrl . '/rest/v1/email_settings?on_conflict=tenant_id';
+    $emailSettingsResult = email_settings_request('POST', $emailSettingsUrl, $serviceRoleKey, $schema, $emailSettingsPayload);
+
+    if (!$emailSettingsResult['ok']) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Nie udało się zapisać ustawień SMTP.'
+        ], 500);
+    }
+
+    $saved['email_settings'] = true;
+}
+
+if ($section === 'all' || $section === 'global_template') {
+    $clientSubject = email_settings_text($input['mail_subject'] ?? null, 255, true);
+    $clientIntroHtml = email_settings_text($input['mail_body'] ?? null, 10000, true);
+    $serviceName = email_settings_text($input['service_name'] ?? null, 255);
+
+    $adminSubject = email_settings_text($input['admin_mail_subject'] ?? null, 255) ?: 'Nowa rezerwacja: {date} o godz. {time}';
+    $adminIntroHtml = email_settings_text($input['admin_mail_body'] ?? null, 10000)
+        ?: "Nowa rezerwacja została zapisana w systemie.\n\n"
+            . "Klient: {name}\n"
+            . "Email: {email}\n"
+            . "Telefon: {phone}\n\n"
+            . "Termin: {date} o godz. {time}\n\n"
+            . "Uwagi:\n"
+            . "{message}";
+
+    $emailTemplatesUrl = $supabaseUrl . '/rest/v1/email_templates?on_conflict=tenant_id,template_key';
+
+    $emailClientTemplateResult = email_settings_request(
+        'POST',
+        $emailTemplatesUrl,
+        $serviceRoleKey,
+        $schema,
+        [[
+            'tenant_id' => $tenantId,
+            'template_key' => 'booking_client_confirmation',
+            'subject' => $clientSubject,
+            'body_html' => $clientIntroHtml,
+            'service_name' => $serviceName,
+            'is_enabled' => true,
+        ]]
+    );
+
+    if (!$emailClientTemplateResult['ok']) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Nie udało się zapisać globalnego szablonu e-mail.'
+        ], 500);
+    }
+
+    $emailAdminTemplateResult = email_settings_request(
+        'POST',
+        $emailTemplatesUrl,
+        $serviceRoleKey,
+        $schema,
+        [[
+            'tenant_id' => $tenantId,
+            'template_key' => 'booking_admin_notification',
+            'subject' => $adminSubject,
+            'body_html' => $adminIntroHtml,
+            'service_name' => $serviceName,
+            'is_enabled' => true,
+        ]]
+    );
+
+    if (!$emailAdminTemplateResult['ok']) {
+        email_settings_json([
+            'success' => false,
+            'error' => 'Nie udało się zapisać globalnego szablonu e-mail.'
+        ], 500);
+    }
+
+    $saved['client_template'] = true;
+    $saved['admin_template'] = true;
+}
+
+email_settings_json([
     'success' => true,
-    'message' => 'Ustawienia email zapisane do bazy',
-   'saved' => [
-    'email_settings' => true,
-    'client_template' => true,
-    'admin_template' => true,
-    'service_name' => $serviceName,
-],
-
-], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-exit;
+    'message' => $section === 'smtp'
+        ? 'Ustawienia SMTP zostały zapisane.'
+        : ($section === 'global_template'
+            ? 'Globalny szablon e-mail został zapisany.'
+            : 'Ustawienia e-mail zostały zapisane.'),
+    'saved' => $saved,
+]);

@@ -28,7 +28,8 @@
     confirmText = 'OK',
     cancelText = 'Anuluj',
     variant = 'primary',
-    icon = '⚠️'
+    icon = '⚠️',
+    showCancel = true
   } = {}) {
     return new Promise((resolve) => {
       const overlay = ensureAdminModal();
@@ -62,6 +63,7 @@
       }
 
       cancelBtn.textContent = cancelText || 'Anuluj';
+      cancelBtn.hidden = showCancel === false;
       okBtn.textContent = confirmText || 'OK';
       okBtn.className = `admin-confirm-btn ok ${variant || 'primary'}`;
 
@@ -71,6 +73,7 @@
       const close = (result) => {
         overlay.classList.remove('show');
         document.body.classList.remove('modal-open');
+        cancelBtn.hidden = false;
         cancelBtn.onclick = null;
         okBtn.onclick = null;
         document.removeEventListener('keydown', onKeyDown);

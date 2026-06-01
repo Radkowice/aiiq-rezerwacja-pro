@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <title>Panel personelu</title>
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=3">
+  <link rel="stylesheet" href="/assets/css/app-footer.css">
+</head>
+<body class="employee-panel-body">
+  <div class="employee-panel-layout">
+    <aside class="employee-panel-sidebar" aria-label="Nawigacja panelu personelu">
+      <div class="employee-panel-brand">
+        <div class="sidebar-logo employee-panel-brand-mark">AI-IQ</div>
+        <div>
+          <strong>Panel personelu</strong>
+          <span>Rezerwacja Pro</span>
+        </div>
+      </div>
+
+      <nav class="employee-panel-tabs" aria-label="Zakładki panelu personelu">
+        <button type="button" class="employee-panel-tab is-active" data-panel-tab="reservations">
+          Moje rezerwacje
+        </button>
+        <button type="button" class="employee-panel-tab" data-panel-tab="blocks">
+          Moje blokady
+        </button>
+        <button type="button" class="employee-panel-tab" data-panel-tab="information">
+          Informacje
+        </button>
+      </nav>
+    </aside>
+
+    <div class="employee-panel-main">
+      <header class="employee-panel-topbar">
+        <div>
+          <p class="employee-panel-eyebrow">Firma</p>
+          <h1 id="employeePanelTitle">Ładowanie danych firmy...</h1>
+          <p id="employeePanelSubtitle">Ładowanie danych personelu...</p>
+        </div>
+
+        <button type="button" class="employee-panel-logout" id="employeeLogoutBtn">
+          Wyloguj
+        </button>
+      </header>
+
+      <main class="employee-panel-content">
+        <p class="employee-panel-message" id="employeePanelMessage" aria-live="polite"></p>
+
+        <section class="employee-panel-section is-active" data-panel-section="reservations">
+          <article class="employee-panel-card">
+            <div class="employee-panel-card-header">
+              <div>
+                <h2>Moje rezerwacje</h2>
+                <p>Najbliższe rezerwacje przypisane do Twojego konta.</p>
+              </div>
+
+              <button type="button" class="employee-panel-secondary-btn" id="employeeRefreshBookingsBtn">
+                Odśwież
+              </button>
+            </div>
+
+            <div class="employee-bookings-table-wrap">
+              <table class="employee-bookings-table">
+                <thead>
+                  <tr>
+                    <th>Termin</th>
+                    <th>Klient</th>
+                    <th>Kontakt</th>
+                    <th>Usługa</th>
+                    <th>Status</th>
+                    <th>Notatka</th>
+                  </tr>
+                </thead>
+                <tbody id="employeeBookingsList">
+                  <tr>
+                    <td colspan="6" class="employee-bookings-empty">Ładowanie rezerwacji...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <section class="employee-panel-section" data-panel-section="blocks" hidden>
+          <article class="employee-panel-card">
+            <div class="employee-panel-card-header">
+              <div>
+                <h2>Moje blokady</h2>
+                <p>Sprawdź swoje rezerwacje, blokady firmy i godziny dostępne do blokowania.</p>
+              </div>
+              <button type="button" class="employee-panel-secondary-btn" id="employeeRefreshBlocksBtn">
+                Odśwież
+              </button>
+            </div>
+
+            <div class="employee-block-section">
+              <div class="employee-block-scope-card">
+                <div class="employee-block-scope-header">
+                  <h3>Zakres blokad</h3>
+                  <p>
+                    Blokady w tym panelu dotyczą tylko zalogowanego personelu. Blokady firmy są widoczne, ale personel nie może ich zmieniać.
+                  </p>
+                </div>
+                <div class="employee-block-scope-option" aria-label="Zakres blokad personelu">
+                  <span>
+                    <strong>Moje konto personelu</strong>
+                    <small>Blokuje terminy tylko dla zalogowanego personelu.</small>
+                  </span>
+                </div>
+              </div>
+
+              <div class="employee-admin-calendar-wrap">
+                <div id="employeeBlocksCalendar" class="employee-admin-calendar"></div>
+                <div class="employee-admin-time-slots">
+                  <div class="employee-admin-time-header">
+                    <h3 id="employeeBlocksTimeTitle">Godziny dla: -</h3>
+                    <div class="employee-time-actions">
+                      <button type="button" class="employee-btn-block-day" id="employeeBlockFullDayBtn">
+                        Zablokuj cały dzień
+                      </button>
+                      <button type="button" class="employee-btn-block-day employee-btn-unblock-day" id="employeeUnblockFullDayBtn">
+                        Odblokuj dzień
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="employee-admin-legend">
+                    <span class="employee-legend-item">
+                      <span class="employee-badge-r">R</span> - rezerwacja
+                    </span>
+                  </div>
+
+                  <p class="employee-blocks-message" id="employeeBlocksMessage" aria-live="polite"></p>
+
+                  <div class="employee-service-slots" id="employeeServiceSlots">
+                    <div class="employee-blocks-empty">Wybierz dzień w kalendarzu, aby pobrać godziny.</div>
+                  </div>
+                </div>
+              </div>
+
+              <p class="employee-staff-block-note">
+                Blokady firmy ustawia administrator. Personel może blokować własne pojedyncze dni oraz konkretne godziny.
+              </p>
+            </div>
+          </article>
+        </section>
+
+        <section class="employee-panel-section" data-panel-section="information" hidden>
+          <div class="employee-info-grid">
+            <article class="employee-panel-card employee-info-card">
+              <div class="employee-panel-card-header">
+                <div>
+                  <h2>Dane firmy</h2>
+                  <p>Podstawowe dane firmy przypisanej do tego panelu.</p>
+                </div>
+              </div>
+
+              <dl class="employee-info-list">
+                <div>
+                  <dt>Nazwa firmy</dt>
+                  <dd id="employeeCompanyName">Ładowanie...</dd>
+                </div>
+                <div>
+                  <dt>Adres</dt>
+                  <dd id="employeeCompanyAddress">Ładowanie...</dd>
+                </div>
+                <div>
+                  <dt>NIP</dt>
+                  <dd id="employeeCompanyNip">Ładowanie...</dd>
+                </div>
+                <div>
+                  <dt>Telefon</dt>
+                  <dd id="employeeCompanyPhone">Ładowanie...</dd>
+                </div>
+                <div>
+                  <dt>E-mail</dt>
+                  <dd id="employeeCompanyEmail">Ładowanie...</dd>
+                </div>
+              </dl>
+            </article>
+
+            <article class="employee-panel-card employee-info-card">
+              <div class="employee-panel-card-header">
+                <div>
+                  <h2>Dane personelu</h2>
+                  <p>Dane konta używanego do logowania w panelu personelu.</p>
+                </div>
+              </div>
+
+              <dl class="employee-info-list">
+                <div>
+                  <dt>Nazwa wyświetlana</dt>
+                  <dd id="employeeStaffDisplayName">Ładowanie...</dd>
+                </div>
+                <div>
+                  <dt>E-mail</dt>
+                  <dd id="employeeStaffEmail">Ładowanie...</dd>
+                </div>
+              </dl>
+            </article>
+
+            <article class="employee-panel-card employee-info-card">
+              <div class="employee-panel-card-header">
+                <div>
+                  <h2>Zmień hasło</h2>
+                  <p>Ustaw nowe hasło do panelu personelu.</p>
+                </div>
+              </div>
+
+              <form class="employee-password-form" id="employeePasswordForm" novalidate>
+                <label class="employee-password-field" for="employeeCurrentPassword">
+                  <span>Obecne hasło</span>
+                  <span class="employee-password-input-wrap">
+                    <input
+                      type="password"
+                      id="employeeCurrentPassword"
+                      name="current_password"
+                      autocomplete="current-password"
+                      required
+                    >
+                    <button
+                      type="button"
+                      class="employee-password-toggle"
+                      data-password-toggle="employeeCurrentPassword"
+                      aria-label="Pokaż hasło"
+                    >👁️</button>
+                  </span>
+                </label>
+
+                <label class="employee-password-field" for="employeeNewPassword">
+                  <span>Nowe hasło</span>
+                  <span class="employee-password-input-wrap">
+                    <input
+                      type="password"
+                      id="employeeNewPassword"
+                      name="new_password"
+                      autocomplete="new-password"
+                      required
+                    >
+                    <button
+                      type="button"
+                      class="employee-password-toggle"
+                      data-password-toggle="employeeNewPassword"
+                      aria-label="Pokaż hasło"
+                    >👁️</button>
+                  </span>
+                </label>
+
+                <label class="employee-password-field" for="employeeConfirmPassword">
+                  <span>Powtórz nowe hasło</span>
+                  <span class="employee-password-input-wrap">
+                    <input
+                      type="password"
+                      id="employeeConfirmPassword"
+                      name="confirm_password"
+                      autocomplete="new-password"
+                      required
+                    >
+                    <button
+                      type="button"
+                      class="employee-password-toggle"
+                      data-password-toggle="employeeConfirmPassword"
+                      aria-label="Pokaż hasło"
+                    >👁️</button>
+                  </span>
+                </label>
+
+                <p class="employee-password-hint">
+                  Hasło musi mieć minimum 8 znaków, małą i dużą literę, cyfrę oraz znak specjalny.
+                </p>
+
+                <button type="submit" class="employee-panel-secondary-btn employee-password-submit" id="employeePasswordSubmit">
+                  Zmień hasło
+                </button>
+              </form>
+
+              <p class="employee-password-message" id="employeePasswordMessage" aria-live="polite"></p>
+            </article>
+          </div>
+        </section>
+      </main>
+
+      <footer class="employee-panel-footer app-footer" data-app-footer></footer>
+    </div>
+  </div>
+
+  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=2"></script>
+  <script src="/assets/js/app-footer.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <title>Nowe hasło personelu</title>
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/auth-pracownika.css?v=3">
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/logowanie-pracownika.css?v=3">
+  <link rel="stylesheet" href="/assets/css/app-footer.css">
+</head>
+<body>
+  <main class="employee-auth-page">
+    <section class="employee-auth-header" aria-labelledby="employee-reset-page-title">
+      <h1 id="employee-reset-page-title">Panel personelu</h1>
+      <p>Ustaw nowe hasło do konta personelu.</p>
+    </section>
+
+    <section class="employee-auth-card" aria-labelledby="employee-reset-title">
+      <h2 id="employee-reset-title" class="employee-auth-title">Ustaw nowe hasło</h2>
+      <p class="employee-auth-description">
+        Hasło musi mieć minimum 8 znaków, małą i dużą literę, cyfrę oraz znak specjalny.
+      </p>
+
+      <form class="employee-auth-form" id="employeeResetPasswordForm" novalidate>
+        <label class="employee-auth-field" for="employeeResetPassword">
+          <span>Nowe hasło</span>
+          <span class="employee-auth-password-wrap">
+            <input
+              type="password"
+              id="employeeResetPassword"
+              name="password"
+              autocomplete="new-password"
+              required
+            >
+            <button
+              type="button"
+              class="employee-auth-password-toggle"
+              data-password-toggle
+              data-target="employeeResetPassword"
+              aria-label="Pokaż hasło"
+            >
+              <span class="employee-auth-password-eye employee-auth-password-eye-open">👁️</span>
+              <span class="employee-auth-password-eye employee-auth-password-eye-closed">🙈</span>
+            </button>
+          </span>
+        </label>
+
+        <label class="employee-auth-field" for="employeeResetPasswordConfirm">
+          <span>Powtórz nowe hasło</span>
+          <span class="employee-auth-password-wrap">
+            <input
+              type="password"
+              id="employeeResetPasswordConfirm"
+              name="password_confirm"
+              autocomplete="new-password"
+              required
+            >
+            <button
+              type="button"
+              class="employee-auth-password-toggle"
+              data-password-toggle
+              data-target="employeeResetPasswordConfirm"
+              aria-label="Pokaż hasło"
+            >
+              <span class="employee-auth-password-eye employee-auth-password-eye-open">👁️</span>
+              <span class="employee-auth-password-eye employee-auth-password-eye-closed">🙈</span>
+            </button>
+          </span>
+        </label>
+
+        <button type="submit" class="employee-auth-submit" id="employeeResetSubmit">
+          Zapisz nowe hasło
+        </button>
+      </form>
+
+      <p class="employee-auth-message" id="employeeResetMessage" aria-live="polite"></p>
+
+      <p class="employee-auth-link">
+        <a href="/panel-personelu/logowanie.html">Wróć do logowania personelu</a>
+      </p>
+    </section>
+
+    <footer class="employee-auth-footer app-footer" data-app-footer></footer>
+  </main>
+
+  <script src="/panel-pracownika/assets/js/reset-hasla.js?v=1"></script>
+  <script src="/assets/js/app-footer.js" defer></script>
+</body>
+</html>

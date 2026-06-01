@@ -2,11 +2,9 @@
 declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
-header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
-header('Pragma: no-cache');
-header('Expires: 0');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
@@ -84,16 +82,38 @@ if (!is_array($data) || empty($data[0])) {
 
 $row = $data[0];
 
-$logoUrlFront = trim((string)($row['logo_url_front'] ?? ''));
-$faviconUrlFront = trim((string)($row['favicon_url_front'] ?? ''));
+$updatedAt = trim((string)($row['updated_at'] ?? ''));
+$assetVersion = $updatedAt !== '' ? (string) strtotime($updatedAt) : (string) time();
+
+if ($assetVersion === '' || $assetVersion === '0' || $assetVersion === '-1') {
+    $assetVersion = (string) time();
+}
+
+$hasLogo = trim((string)($row['logo_url_front'] ?? '')) !== '';
+$hasFavicon = trim((string)($row['favicon_url_front'] ?? '')) !== '';
+$planContext = plan_features_get_context((string) $tenantId);
+$features = is_array($planContext['features'] ?? null) ? $planContext['features'] : [];
+$publicFeatures = [
+    'branding_logo' => !empty($features['branding_logo']),
+    'branding_favicon' => !empty($features['branding_favicon']),
+    'legal_documents' => !empty($features['legal_documents']),
+    'online_payments' => !empty($features['online_payments']),
+    'reschedule_booking' => !empty($features['reschedule_booking']),
+];
+$publicPlanCode = (string) ($planContext['plan_code'] ?? 'free');
 
 echo json_encode([
     'success' => true,
+    'plan_context' => [
+        'plan_code' => $publicPlanCode,
+        'is_free' => $publicPlanCode === 'free',
+        'features' => $publicFeatures,
+    ],
     'branding' => [
         'client_name' => $row['client_name'] ?? '',
         'service_title_front' => $row['service_title_front'] ?? '',
-        'logo_url_front' => $logoUrlFront,
-        'favicon_url_front' => $faviconUrlFront,
+        'logo_url_front' => $hasLogo ? '/api/system/logo-front.php?v=' . rawurlencode($assetVersion) : '',
+        'favicon_url_front' => $hasFavicon ? '/api/system/favicon-front.php?v=' . rawurlencode($assetVersion) : '',
         'calendar_front_style' => is_array($row['calendar_front_style'] ?? null)
             ? $row['calendar_front_style']
             : [],

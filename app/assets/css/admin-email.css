@@ -1,46 +1,118 @@
-/* ===== EMAIL ó uk≥ad zgodny z panelem ===== */
+/* ===== EMAIL - uk≈Çad zgodny z panelem ===== */
 
 section[data-section="email"] .settings-grid {
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  margin-top: 16px;
+  gap: var(--admin-section-gap, 18px);
+  margin-top: 0;
 }
 
 section[data-section="email"] .settings-card {
   width: 100%;
   min-width: 0;
-  background: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-main);
-  box-shadow: var(--shadow-main);
+  padding: var(--admin-card-padding, 22px);
+  background: var(--color-card);
+  border: var(--admin-card-border, 1px solid var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  box-shadow: var(--admin-card-shadow, var(--shadow-main));
   color: var(--color-text);
+  overflow: visible;
 }
 
 section[data-section="email"] .settings-card h3 {
-  font-weight: 600;
+  margin: 0 0 8px;
   color: var(--color-text);
+  font-size: 17px;
+  font-weight: var(--admin-heading-weight, 500);
+  line-height: 1.3;
+  letter-spacing: 0;
 }
 
 section[data-section="email"] .settings-desc {
+  margin: 0 0 14px;
   color: var(--color-muted);
+  font-size: 14px;
   font-weight: 400;
+  line-height: 1.5;
 }
 
-/* Edytor wiadomoúci */
+.email-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.email-action-message {
+  margin-top: 10px;
+  min-height: 20px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.email-action-message:empty,
+.email-action-message[hidden] {
+  display: none;
+}
+
+.email-action-message[data-type="success"] {
+  color: #166534;
+}
+
+.email-action-message[data-type="error"] {
+  color: #7f1d1d;
+}
+
+.email-action-message[data-type="muted"] {
+  color: var(--color-muted);
+}
+
+.staff-email-template-status {
+  margin: 12px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--admin-input-radius, var(--radius-small));
+  color: var(--color-muted);
+  background: color-mix(in srgb, var(--color-card) 94%, var(--color-border));
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+section[data-section="email"] select,
+section[data-section="email"] textarea,
+section[data-section="email"] input {
+  max-width: 100%;
+}
+
+section[data-section="email"] .staff-email-select-group {
+  position: relative;
+  z-index: 2;
+}
+
+section[data-section="email"] #staff-email-template-select {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  max-width: 100%;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+
+/* Edytor wiadomo≈õci */
 
 #booking-email-content {
   width: 100%;
   resize: vertical;
   min-height: 260px;
-  font-family: inherit;
-  font-size: 15px;
+  font-family: var(--admin-font-family, inherit);
+  font-size: 14px;
   font-weight: 400;
-  line-height: 1.6;
+  line-height: 1.55;
   color: var(--color-text);
-  background: transparent;
+  background: var(--color-card);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-small);
+  border-radius: var(--admin-input-radius, var(--radius-small));
 }
 
 .email-toolbar {
@@ -55,12 +127,12 @@ section[data-section="email"] .settings-desc {
   min-height: 34px;
   padding: 0 10px;
   cursor: pointer;
-  border-radius: var(--radius-small);
+  border-radius: var(--admin-input-radius, var(--radius-small));
   border: 1px solid var(--color-border);
-  background: transparent;
+  background: var(--color-card);
   color: var(--color-text);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: var(--admin-label-weight, 500);
 }
 
 .email-toolbar button:hover {
@@ -74,8 +146,8 @@ section[data-section="email"] .settings-desc {
   margin-top: 8px;
   padding: 12px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-main);
-  background: transparent;
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  background: var(--color-card);
   max-height: 220px;
   overflow-y: auto;
 }
@@ -88,52 +160,69 @@ section[data-section="email"] .settings-desc {
   height: 36px;
   margin: 4px;
   cursor: pointer;
-  border-radius: var(--radius-small);
+  border-radius: var(--admin-input-radius, var(--radius-small));
   font-size: 20px;
   transition: transform 0.15s ease, background 0.15s ease;
 }
 
 .emoji-picker span:hover {
-  background: rgba(127, 127, 127, 0.12);
+  background: color-mix(in srgb, var(--color-muted) 12%, transparent);
   transform: scale(1.12);
 }
 
-/* Podglπd wiadomoúci */
+/* PodglƒÖd wiadomo≈õci */
 
 .email-preview-box {
-  margin-top: 16px;
-  padding: 16px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-main);
-  background: transparent;
+  margin-top: var(--admin-section-gap, 18px);
+  padding: var(--admin-card-padding, 22px);
+  border: var(--admin-card-border, 1px solid var(--color-border));
+  border-radius: var(--admin-card-radius, var(--radius-main));
+  background: var(--color-card);
 }
 
 .email-preview-header {
-  font-size: 14px;
-  font-weight: 500;
   margin-bottom: 10px;
   color: var(--color-muted);
+  font-size: 14px;
+  font-weight: var(--admin-label-weight, 500);
 }
 
 .email-preview-subject {
-  font-size: 17px;
-  font-weight: 600;
   margin-bottom: 14px;
   padding-bottom: 10px;
   color: var(--color-text);
   border-bottom: 1px solid var(--color-border);
+  font-size: 16px;
+  font-weight: var(--admin-heading-weight, 500);
+  line-height: 1.35;
+}
+
+.email-preview-status {
+  margin-bottom: 12px;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.email-preview-heading {
+  margin-bottom: 12px;
+  color: var(--color-text);
+  font-size: 15px;
+  font-weight: var(--admin-heading-weight, 500);
+  line-height: 1.4;
+  overflow-wrap: break-word;
 }
 
 .email-preview-content {
-  font-size: 15px;
-  font-weight: 400;
-  line-height: 1.6;
   min-height: 120px;
   color: var(--color-text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.55;
   word-break: break-word;
 }
 
-/* Has≥o SMTP */
+/* Has≈Ço SMTP */
 
 .password-field {
   position: relative;
@@ -162,7 +251,7 @@ section[data-section="email"] .settings-desc {
   opacity: 1;
 }
 
-/* Temat wiadomoúci */
+/* Temat wiadomo≈õci */
 
 .subject-field {
   display: flex;
@@ -179,15 +268,42 @@ section[data-section="email"] .settings-desc {
   min-height: 38px;
   padding: 0 10px;
   cursor: pointer;
-  border-radius: var(--radius-small);
+  border-radius: var(--admin-input-radius, var(--radius-small));
   border: 1px solid var(--color-border);
-  background: transparent;
+  background: var(--color-card);
   color: var(--color-text);
-  font-weight: 500;
+  font-weight: var(--admin-label-weight, 500);
 }
 
 .subject-field .subject-emoji-btn:hover {
   border-color: var(--color-primary);
+}
+
+.subject-placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.subject-placeholders .toolbar-btn {
+  min-height: 32px;
+  padding: 0 10px;
+  cursor: pointer;
+  border-radius: var(--admin-input-radius, var(--radius-small));
+  border: 1px solid var(--color-border);
+  background: var(--color-card);
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: var(--admin-label-weight, 500);
+}
+
+.subject-placeholders .toolbar-btn:hover {
+  border-color: var(--color-primary);
+}
+
+.email-body-group {
+  margin-top: 18px;
 }
 
 /* Mobile */
@@ -195,18 +311,42 @@ section[data-section="email"] .settings-desc {
 @media (max-width: 768px) {
   section[data-section="email"] .settings-grid {
     gap: 14px;
-    margin-top: 14px;
+    margin-top: 0;
   }
 
   #booking-email-content {
     min-height: 220px;
   }
 
-  .email-toolbar {
+  section[data-section="email"] .email-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  section[data-section="email"] .email-toolbar button {
+    flex: 0 0 auto;
+  }
+
+  .subject-placeholders {
     gap: 6px;
   }
 
   .subject-field {
     align-items: stretch;
+  }
+
+  section[data-section="email"] .email-actions,
+  section[data-section="email"] .smtp-actions,
+  section[data-section="email"] .global-email-actions,
+  section[data-section="email"] .staff-email-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  section[data-section="email"] .email-actions .btn {
+    width: 100%;
   }
 }

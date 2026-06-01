@@ -66,7 +66,7 @@ function payu_fetch_booking(string $bookingId, string $tenantId): ?array
 
     $url = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=id,tenant_id,email,name,booking_date,booking_time,payment_required,payment_status,payment_amount,payment_currency,payment_expires_at'
+        . '?select=id,tenant_id,email,name,booking_date,booking_time,payment_required,payment_status,payment_amount,payment_currency,payment_expires_at,staff_id,service_name_snapshot'
         . '&id=eq.' . rawurlencode($bookingId)
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1';
@@ -83,6 +83,43 @@ function payu_fetch_booking(string $bookingId, string $tenantId): ?array
     }
 
     return $result['data'][0] ?? null;
+}
+
+function payu_fetch_staff_display_name(string $tenantId, string $staffId): string
+{
+    if ($tenantId === '' || $staffId === '') {
+        return '';
+    }
+
+    $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+    $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+    $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
+
+    if ($supabaseUrl === '' || $supabaseKey === '') {
+        payu_debug('PAYU_STAFF_ENV_MISSING');
+        return '';
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id,display_name'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=eq.' . rawurlencode($staffId)
+        . '&limit=1';
+
+    $result = payu_supabase_request($url, 'GET', $supabaseKey, $schema);
+
+    if ($result['error'] || $result['http_code'] !== 200) {
+        payu_debug('PAYU_STAFF_FETCH_ERROR', [
+            'tenant_id' => $tenantId,
+            'staff_id' => $staffId,
+            'http_code' => $result['http_code'],
+            'error' => $result['error'],
+        ]);
+        return '';
+    }
+
+    return trim((string)($result['data'][0]['display_name'] ?? ''));
 }
 
 function payu_update_booking_payment(string $bookingId, string $tenantId, array $payload): bool
@@ -164,6 +201,8 @@ function payu_create_order_send_pending_email(array $booking, string $paymentUrl
     $expiresAt = trim((string)($booking['payment_expires_at'] ?? ''));
     $amount = $booking['payment_amount'] ?? null;
     $currency = trim((string)($booking['payment_currency'] ?? 'PLN'));
+    $serviceName = trim((string)($booking['service_name_snapshot'] ?? ''));
+    $staffDisplayName = trim((string)($booking['staff_display_name'] ?? ''));
 
     $amountText = '';
 
@@ -196,12 +235,24 @@ $amountText = number_format((float)$amount, 2, ',', ' ') . ' ' . $displayCurrenc
     $safeAmount = htmlspecialchars($amountText !== '' ? $amountText : '—', ENT_QUOTES, 'UTF-8');
     $safeExpires = htmlspecialchars($expiresText, ENT_QUOTES, 'UTF-8');
     $safePaymentUrl = htmlspecialchars($paymentUrl, ENT_QUOTES, 'UTF-8');
+    $safeServiceName = htmlspecialchars($serviceName, ENT_QUOTES, 'UTF-8');
+    $safeStaffDisplayName = htmlspecialchars($staffDisplayName, ENT_QUOTES, 'UTF-8');
+
+    $serviceRow = $serviceName !== ''
+        ? '<tr><td style="padding:8px 0;color:#6b7280;">Usługa:</td><td style="padding:8px 0;text-align:right;"><strong>' . $safeServiceName . '</strong></td></tr>'
+        : '';
+
+    $staffRow = $staffDisplayName !== ''
+        ? '<tr><td style="padding:8px 0;color:#6b7280;">Osoba obsługująca:</td><td style="padding:8px 0;text-align:right;"><strong>' . $safeStaffDisplayName . '</strong></td></tr>'
+        : '';
 
     $message = ''
         . '<p style="margin:0 0 14px;"><strong>Twoja rezerwacja została rozpoczęta.</strong></p>'
         . '<p style="margin:0 0 12px;">Dziękujemy, <strong>' . $safeName . '</strong>.</p>'
         . '<p style="margin:0 0 10px;">Poniżej znajdziesz dane rezerwacji oraz link do płatności online PayU.</p>'
         . '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px;border-collapse:collapse;">'
+        . $serviceRow
+        . $staffRow
         . '<tr><td style="padding:8px 0;color:#6b7280;">Data:</td><td style="padding:8px 0;text-align:right;"><strong>' . $safeDate . '</strong></td></tr>'
         . '<tr><td style="padding:8px 0;color:#6b7280;">Godzina:</td><td style="padding:8px 0;text-align:right;"><strong>' . $safeTime . '</strong></td></tr>'
         . '<tr><td style="padding:8px 0;color:#6b7280;">Kwota:</td><td style="padding:8px 0;text-align:right;"><strong>' . $safeAmount . '</strong></td></tr>'
@@ -303,6 +354,16 @@ try {
             'success' => false,
             'error' => 'Nie znaleziono rezerwacji.'
         ], 404);
+    }
+
+    $staffId = trim((string)($booking['staff_id'] ?? ''));
+
+    if ($staffId !== '') {
+        $staffDisplayName = payu_fetch_staff_display_name($tenantId, $staffId);
+
+        if ($staffDisplayName !== '') {
+            $booking['staff_display_name'] = $staffDisplayName;
+        }
     }
 
     $paymentRequired = $booking['payment_required'] === true || $booking['payment_required'] === 'true';

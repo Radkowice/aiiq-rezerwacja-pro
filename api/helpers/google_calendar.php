@@ -283,7 +283,7 @@ function google_calendar_refresh_access_token_if_needed(
     return $updatedSecrets;
 }
 
-function google_calendar_update_booking_event_id(string $bookingId, string $googleEventId): bool
+function google_calendar_update_booking_event_id(string $bookingId, string $googleEventId, string $tenantId = ''): bool
 {
     if ($bookingId === '' || $googleEventId === '') {
         return false;
@@ -301,6 +301,10 @@ function google_calendar_update_booking_event_id(string $bookingId, string $goog
         . '/rest/v1/bookings'
         . '?id=eq.' . rawurlencode($bookingId);
 
+    if ($tenantId !== '') {
+        $url .= '&tenant_id=eq.' . rawurlencode($tenantId);
+    }
+
     $result = google_calendar_supabase_request(
         $url,
         'PATCH',
@@ -317,33 +321,147 @@ function google_calendar_update_booking_event_id(string $bookingId, string $goog
     return !$result['error'] && $result['http_code'] >= 200 && $result['http_code'] < 300;
 }
 
+function google_calendar_string_value(array $data, string $key): string
+{
+    $value = $data[$key] ?? '';
+
+    if (is_array($value) || is_object($value)) {
+        return '';
+    }
+
+    return trim((string) $value);
+}
+
+function google_calendar_payment_status_label(string $status): string
+{
+    return match (strtolower(trim($status))) {
+        'paid', 'completed', 'success' => 'Opłacona',
+        'pending', 'waiting' => 'Oczekuje na płatność',
+        'unpaid', 'new' => 'Nieopłacona',
+        'cancelled', 'canceled' => 'Anulowana',
+        'failed', 'error' => 'Nieudana',
+        'expired' => 'Wygasła',
+        'refunded' => 'Zwrócona',
+        '', 'not_required', 'no_payment' => 'Nie dotyczy',
+        default => $status,
+    };
+}
+
+function google_calendar_format_amount($amount, string $currency): string
+{
+    if ($amount === null || $amount === '' || !is_numeric($amount)) {
+        return '';
+    }
+
+    $currency = trim($currency) !== '' ? trim($currency) : 'PLN';
+
+    return number_format((float) $amount, 2, ',', ' ') . ' ' . $currency;
+}
+
 function google_calendar_build_event(array $booking, array $settings): array
 {
-    $name = trim((string) ($booking['name'] ?? ''));
-    $email = trim((string) ($booking['email'] ?? ''));
-    $phone = trim((string) ($booking['phone'] ?? ''));
-    $notes = trim((string) ($booking['notes'] ?? ''));
+    $bookingId = google_calendar_string_value($booking, 'id');
+    $name = google_calendar_string_value($booking, 'name');
+    $email = google_calendar_string_value($booking, 'email');
+    $phone = google_calendar_string_value($booking, 'phone');
+    $notes = google_calendar_string_value($booking, 'notes');
+    $serviceName = google_calendar_string_value($booking, 'service_name_snapshot');
+    $staffDisplayName = google_calendar_string_value($booking, 'staff_display_name');
+    $paymentStatus = google_calendar_string_value($booking, 'payment_status');
+    $paymentCurrency = google_calendar_string_value($booking, 'payment_currency');
+    $paymentRequired = filter_var($booking['payment_required'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $paymentAmount = $paymentRequired
+        ? google_calendar_format_amount($booking['payment_amount'] ?? null, $paymentCurrency)
+        : '';
 
-    $date = trim((string) ($booking['booking_date'] ?? ''));
-    $time = trim((string) ($booking['booking_time'] ?? ''));
+    $date = google_calendar_string_value($booking, 'booking_date');
+    $time = google_calendar_string_value($booking, 'booking_time');
 
     $timezone = trim((string) ($settings['timezone'] ?? 'Europe/Warsaw'));
-    $durationMinutes = (int) ($settings['duration_minutes'] ?? 60);
+    $bookingDuration = $booking['duration_minutes'] ?? null;
+    $durationMinutes = is_numeric($bookingDuration) && (int) $bookingDuration > 0
+        ? (int) $bookingDuration
+        : (int) ($settings['duration_minutes'] ?? 60);
 
-    if ($durationMinutes < 5) {
+    if ($durationMinutes < 1) {
         $durationMinutes = 60;
     }
 
     $start = new DateTimeImmutable($date . ' ' . $time, new DateTimeZone($timezone));
     $end = $start->modify('+' . $durationMinutes . ' minutes');
+    $termin = trim($date . ' ' . $time);
+    $summaryName = $name !== '' ? $name : 'Klient';
+    $summary = $serviceName !== ''
+        ? 'Rezerwacja: ' . $serviceName . ' - ' . $summaryName
+        : 'Rezerwacja: ' . $summaryName;
 
     $descriptionLines = [
         'Rezerwacja z AI-IQ Rezerwacja Pro',
         '',
+        'Rezerwacja:',
+    ];
+
+    if ($serviceName !== '') {
+        $descriptionLines[] = 'Usługa: ' . $serviceName;
+    }
+
+    if ($staffDisplayName !== '') {
+        $descriptionLines[] = 'Osoba obsługująca: ' . $staffDisplayName;
+    }
+
+    if ($termin !== '') {
+        $descriptionLines[] = 'Termin: ' . $termin;
+    }
+
+    if ($paymentStatus !== '') {
+        $descriptionLines[] = 'Status płatności: ' . google_calendar_payment_status_label($paymentStatus);
+    }
+
+    if ($paymentAmount !== '') {
+        $descriptionLines[] = 'Kwota: ' . $paymentAmount;
+    }
+
+    $previousDateLabel = google_calendar_string_value($booking, 'previous_date_label');
+    $newDateLabel = google_calendar_string_value($booking, 'new_date_label');
+    $rescheduleCount = google_calendar_string_value($booking, 'reschedule_count');
+    $rescheduleLimit = google_calendar_string_value($booking, 'reschedule_limit');
+
+    if ($previousDateLabel !== '' || $newDateLabel !== '' || $rescheduleCount !== '') {
+        $descriptionLines[] = '';
+        $descriptionLines[] = 'Zmiana terminu:';
+
+        if ($previousDateLabel !== '') {
+            $descriptionLines[] = 'Poprzedni termin: ' . $previousDateLabel;
+        }
+
+        if ($newDateLabel !== '') {
+            $descriptionLines[] = 'Nowy termin: ' . $newDateLabel;
+        }
+
+        if ($rescheduleCount !== '') {
+            $countText = $rescheduleCount;
+
+            if ($rescheduleLimit !== '') {
+                $countText .= '/' . $rescheduleLimit;
+            }
+
+            $descriptionLines[] = 'Liczba zmian: ' . $countText;
+        }
+    }
+
+    $descriptionLines[] = '';
+    $descriptionLines[] = 'Klient:';
+    $descriptionLines = array_merge($descriptionLines, [
         'Imię i nazwisko: ' . ($name !== '' ? $name : '-'),
         'E-mail: ' . ($email !== '' ? $email : '-'),
         'Telefon: ' . ($phone !== '' ? $phone : '-'),
-    ];
+    ]);
+
+    if ($bookingId !== '') {
+        $descriptionLines[] = '';
+        $descriptionLines[] = 'Dane techniczne:';
+        $descriptionLines[] = 'ID rezerwacji: ' . $bookingId;
+    }
 
     if ($notes !== '') {
         $descriptionLines[] = '';
@@ -352,7 +470,7 @@ function google_calendar_build_event(array $booking, array $settings): array
     }
 
     return [
-        'summary' => 'Rezerwacja: ' . ($name !== '' ? $name : 'Klient'),
+        'summary' => $summary,
         'description' => implode("\n", $descriptionLines),
         'start' => [
             'dateTime' => $start->format(DateTimeInterface::ATOM),
@@ -438,4 +556,92 @@ function createGoogleCalendarEventForBooking(string $tenantId, array $booking): 
     google_calendar_debug('GOOGLE_EVENT_ID', $googleEventId);
 
     return $googleEventId !== '' ? $googleEventId : null;
+}
+
+function updateGoogleCalendarEventForBooking(string $tenantId, string $googleEventId, array $booking): array
+{
+    $googleEventId = trim($googleEventId);
+
+    if ($tenantId === '' || $googleEventId === '') {
+        return [
+            'success' => false,
+            'not_found' => false,
+            'status_code' => 0,
+        ];
+    }
+
+    $integration = google_calendar_get_integration($tenantId);
+
+    if (!$integration) {
+        google_calendar_debug('UPDATE_NO_INTEGRATION_OR_DISABLED', $tenantId);
+        return [
+            'success' => false,
+            'not_found' => false,
+            'status_code' => 0,
+        ];
+    }
+
+    $settings = $integration['settings'];
+    $secrets = google_calendar_refresh_access_token_if_needed($tenantId, $settings, $integration['secrets']);
+
+    if (!$secrets || empty($secrets['access_token'])) {
+        google_calendar_debug('UPDATE_NO_ACCESS_TOKEN_AFTER_REFRESH');
+        return [
+            'success' => false,
+            'not_found' => false,
+            'status_code' => 0,
+        ];
+    }
+
+    $calendarId = trim((string) ($settings['calendar_id'] ?? 'primary'));
+
+    if ($calendarId === '') {
+        $calendarId = 'primary';
+    }
+
+    try {
+        $event = google_calendar_build_event($booking, $settings);
+        google_calendar_debug('UPDATE_EVENT_PAYLOAD', [
+            'event_id' => $googleEventId,
+            'event' => $event,
+        ]);
+    } catch (Throwable $e) {
+        google_calendar_debug('UPDATE_BUILD_EVENT_ERROR', $e->getMessage());
+        return [
+            'success' => false,
+            'not_found' => false,
+            'status_code' => 0,
+        ];
+    }
+
+    $url = 'https://www.googleapis.com/calendar/v3/calendars/'
+        . rawurlencode($calendarId)
+        . '/events/'
+        . rawurlencode($googleEventId);
+
+    $result = google_calendar_http_request(
+        $url,
+        'PATCH',
+        [
+            'Authorization: Bearer ' . $secrets['access_token'],
+            'Content-Type: application/json',
+            'Accept: application/json',
+        ],
+        $event
+    );
+
+    google_calendar_debug('UPDATE_GOOGLE_RESPONSE', [
+        'event_id' => $googleEventId,
+        'http_code' => $result['http_code'] ?? null,
+        'error' => $result['error'] ?? null,
+        'response' => $result['response'] ?? null,
+    ]);
+
+    $statusCode = (int) ($result['http_code'] ?? 0);
+
+    return [
+        'success' => !$result['error'] && $statusCode >= 200 && $statusCode < 300,
+        'not_found' => $statusCode === 404,
+        'status_code' => $statusCode,
+    ];
 }

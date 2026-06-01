@@ -299,16 +299,31 @@ if ($isCompanyInfoSave) {
         ], 422);
     }
 
-    $paymentTimeLimitValue = (int) ($input['payment_time_limit_value'] ?? 48);
+    $paymentTimeLimitRaw = $input['payment_time_limit_value'] ?? 48;
 
-    if ($paymentTimeLimitValue <= 0) {
-        $paymentTimeLimitValue = 48;
+    if (is_string($paymentTimeLimitRaw) && trim($paymentTimeLimitRaw) === '') {
+        sendServiceSettingsJson([
+            'success' => false,
+            'error' => 'Termin płatności musi być liczbą dodatnią.'
+        ], 422);
+    }
+
+    $paymentTimeLimitValue = filter_var($paymentTimeLimitRaw, FILTER_VALIDATE_INT);
+
+    if ($paymentTimeLimitValue === false || $paymentTimeLimitValue < 1) {
+        sendServiceSettingsJson([
+            'success' => false,
+            'error' => 'Termin płatności musi być liczbą dodatnią.'
+        ], 422);
     }
 
     $paymentTimeLimitUnit = trim((string) ($input['payment_time_limit_unit'] ?? 'hours'));
 
     if (!in_array($paymentTimeLimitUnit, ['hours', 'days'], true)) {
-        $paymentTimeLimitUnit = 'hours';
+        sendServiceSettingsJson([
+            'success' => false,
+            'error' => 'Jednostka terminu płatności musi mieć wartość hours albo days.'
+        ], 422);
     }
 
     $priceCurrency = trim((string) ($input['price_currency'] ?? 'PLN'));

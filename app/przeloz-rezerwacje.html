@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <title>Przełóż rezerwację</title>
+  <link rel="stylesheet" href="assets/css/style.css">
+  <link rel="stylesheet" href="assets/css/kalendarz.css">
+  <link rel="stylesheet" href="assets/css/app-loader.css">
+  <link rel="stylesheet" href="assets/css/app-footer.css">
+</head>
+<body class="app-loading">
+<div id="appLoader" class="app-loader" role="status" aria-live="polite" aria-hidden="false">
+  <div class="app-loader__box">
+    <div class="app-loader__spinner" aria-hidden="true"></div>
+    <p class="app-loader__text">Ładowanie danych rezerwacji...</p>
+    <p class="app-loader__error" data-loader-error></p>
+    <button type="button" class="app-loader__refresh" data-loader-refresh>Odśwież stronę</button>
+  </div>
+</div>
+
+<div class="box">
+  <div class="front-branding">
+    <img id="frontLogo" class="front-logo" src="" alt="" hidden>
+    <h1 id="serviceTitleFront">Przełóż rezerwację</h1>
+  </div>
+
+  <p class="helper">Sprawdź dane rezerwacji i wybierz nowy termin.</p>
+
+  <div id="errorBox" class="error-box"></div>
+  <div id="successBox" class="success"></div>
+
+  <div id="rescheduleContent" hidden>
+    <section class="front-service-box" aria-labelledby="rescheduleDetailsTitle">
+      <h2 id="rescheduleDetailsTitle">Aktualna rezerwacja</h2>
+
+      <div class="front-service-text">
+        <p><strong>Usługa:</strong> <span id="rescheduleServiceName">-</span></p>
+        <p id="rescheduleServiceDescriptionRow" hidden><strong>Opis:</strong> <span id="rescheduleServiceDescription"></span></p>
+        <p id="rescheduleAmountRow" hidden><strong>Kwota:</strong> <span id="rescheduleAmount"></span></p>
+        <p id="reschedulePaymentStatusRow" hidden><strong>Status płatności:</strong> <span id="reschedulePaymentStatus">-</span></p>
+        <p><strong>Osoba obsługująca:</strong> <span id="rescheduleStaffName">-</span></p>
+        <p class="helper"><strong>Twoje dane:</strong></p>
+        <p><strong>Imię i nazwisko:</strong> <span id="rescheduleCustomerName">-</span></p>
+        <p><strong>E-mail:</strong> <span id="rescheduleCustomerEmail">-</span></p>
+        <p><strong>Telefon:</strong> <span id="rescheduleCustomerPhone">-</span></p>
+        <p><strong>Aktualny termin:</strong> <span id="rescheduleCurrentDateTime">-</span></p>
+      </div>
+    </section>
+
+    <section class="front-service-box" aria-labelledby="rescheduleNewDateTitle">
+      <h2 id="rescheduleNewDateTitle">Nowy termin</h2>
+      <p class="helper">Wybierz nową datę i godzinę rezerwacji.</p>
+
+      <input type="hidden" id="date">
+      <div id="calendar"></div>
+
+      <select id="time" disabled>
+        <option value="">Najpierw wybierz datę</option>
+      </select>
+
+      <button id="rescheduleBtn" type="button" disabled>Zmień rezerwację</button>
+    </section>
+  </div>
+</div>
+
+<script src="assets/js/app-loader.js"></script>
+<script>
+  if (window.AppLoader) {
+    window.AppLoader.show();
+    window.AppLoader.initFallback(10000);
+  }
+</script>
+<script src="assets/js/przeloz-rezerwacje.js"></script>
+
+<footer class="front-footer app-footer" data-app-footer>
+  <nav class="front-legal-links" data-app-footer-extra aria-label="Dokumenty prawne i informacje o aplikacji">
+    <a href="/legal/regulamin.html" target="_blank" rel="noopener">Regulamin platformy</a>
+    <span aria-hidden="true">•</span>
+    <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener">Polityka prywatności platformy</a>
+    <span aria-hidden="true">•</span>
+    <a href="/o-aplikacji.html" target="_blank" rel="noopener">Informacje o aplikacji</a>
+  </nav>
+</footer>
+<script src="assets/js/app-footer.js" defer></script>
+</body>
+</html>

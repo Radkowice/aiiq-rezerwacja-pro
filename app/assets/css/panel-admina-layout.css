@@ -1,10 +1,33 @@
 /* ===== LAYOUT APP ===== */
 
+:root {
+  --admin-font-family: var(--font-main, Inter, Arial, sans-serif);
+  --admin-font-size: 15px;
+  --admin-line-height: 1.55;
+  --admin-heading-weight: 500;
+  --admin-label-weight: 500;
+  --admin-text-color: var(--color-text);
+  --admin-muted-color: var(--color-muted);
+  --admin-border-color: var(--color-border);
+  --admin-card-radius: var(--radius-main, 14px);
+  --admin-input-radius: var(--radius-small, 10px);
+  --admin-card-border: 1px solid var(--admin-border-color);
+  --admin-card-shadow: var(--shadow-main);
+  --admin-card-padding: 22px;
+  --admin-control-height: 42px;
+  --admin-control-padding: 10px 12px;
+  --admin-section-gap: 18px;
+}
+
 .admin-page {
   min-height: 100vh;
   padding: 24px;
   display: flex;
   flex-direction: column;
+  color: var(--admin-text-color);
+  font-family: var(--admin-font-family);
+  font-size: var(--admin-font-size);
+  line-height: var(--admin-line-height);
 }
 
 .admin-layout {
@@ -40,12 +63,12 @@
 .topbar {
   width: 100%;
   margin: 0 0 20px;
-  padding: 20px 24px;
-  background: #ffffff;
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-main);
-  box-shadow: var(--shadow-main);
+  padding: var(--admin-card-padding);
+  background: var(--color-card);
+  color: var(--admin-text-color);
+  border: var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
+  box-shadow: var(--admin-card-shadow);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -53,15 +76,165 @@
 
 .topbar h1 {
   margin: 0;
-  font-size: 22px;
-  font-weight: var(--font-weight-bold);
-  letter-spacing: -0.01em;
+  font-size: 21px;
+  font-weight: var(--admin-heading-weight);
+  letter-spacing: 0;
+  line-height: 1.25;
 }
 
 .topbar p {
   margin: 2px 0 0;
-  color: var(--color-muted);
+  color: var(--admin-muted-color);
   font-size: 13px;
+  font-weight: 400;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.admin-notifications {
+  position: relative;
+}
+
+.admin-notifications-toggle {
+  position: relative;
+  width: 42px;
+  height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--admin-border-color);
+  border-radius: 10px;
+  background: rgba(255,255,255,0.04);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.admin-notifications-toggle:hover {
+  background: var(--color-card-soft);
+}
+
+.admin-notifications-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-btn-danger, #dc2626);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 19px;
+  text-align: center;
+  box-shadow: 0 6px 14px rgba(15, 23, 42, 0.18);
+}
+
+.admin-notifications-dropdown {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 50;
+  width: min(360px, calc(100vw - 48px));
+  padding: 12px;
+  border: 1px solid #d8dee9;
+  border-radius: 12px;
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.18);
+}
+
+.admin-notifications-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.admin-notifications-header strong {
+  color: #111827;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.admin-notifications-mark {
+  padding: 6px 9px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.admin-notifications-mark:hover:not(:disabled) {
+  background: #eff6ff;
+  border-color: #93c5fd;
+}
+
+.admin-notifications-mark:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.admin-notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 0;
+}
+
+.admin-notifications-item {
+  padding: 10px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.admin-notifications-item.unread {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.admin-notifications-item p {
+  margin: 0;
+  color: #111827;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.admin-notifications-item span {
+  display: block;
+  margin-top: 4px;
+  color: #64748b;
+  font-size: 11px;
+}
+
+.admin-notifications-empty {
+  margin: 0;
+  padding: 12px;
+  color: #475569;
+  font-size: 13px;
+  text-align: center;
+}
+
+.admin-notifications-note {
+  margin: 0;
+  padding-top: 10px;
+  border-top: 1px solid #e5e7eb;
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .logout-btn {
@@ -89,43 +262,53 @@
 
 .panel-card {
   background: var(--color-card);
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  border-radius: var(--radius-main);
-  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.04);
-  padding: 24px;
+  border: var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
+  box-shadow: var(--admin-card-shadow);
+  padding: var(--admin-card-padding);
 }
 
 .panel-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: var(--admin-section-gap);
+  margin-bottom: var(--admin-section-gap);
 }
 
 .panel-header h2 {
-  font-size: 22px;
-  font-weight: 600;
-  color: var(--color-text);
-  letter-spacing: -0.01em;
+  margin: 0;
+  color: var(--admin-text-color);
+  font-size: 21px;
+  font-weight: var(--admin-heading-weight);
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.panel-header p {
+  margin: 4px 0 0;
+  color: var(--admin-muted-color);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.5;
 }
 
 .refresh-btn {
   height: 44px;
   padding: 0 18px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--admin-border-color);
   border-radius: 12px;
-  background: #fff;
+  background: var(--color-card);
   color: var(--color-primary);
   cursor: pointer;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: var(--admin-label-weight);
   transition: 0.2s ease;
 }
 
 .refresh-btn:hover {
-  background: #f8fafc;
-  border-color: #c7d2e3;
+  background: var(--color-card-soft);
+  border-color: var(--admin-border-color);
   transform: translateY(-1px);
 }
 
@@ -134,10 +317,10 @@
 .sidebar {
   position: sticky;
   top: 24px;
-  background: #ffffff;
-  border: 1px solid rgba(15, 23, 42, 0.06);
-  border-radius: var(--radius-main);
-  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.04);
+  background: var(--color-card);
+  border: var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
+  box-shadow: var(--admin-card-shadow);
   padding: 16px;
 }
 
@@ -155,7 +338,7 @@
   background: var(--color-primary);
   color: #fff;
   font-size: 16px;
-  font-weight: 600;
+  font-weight: var(--admin-heading-weight);
 }
 
 .sidebar-toggle {
@@ -182,6 +365,7 @@
   color: var(--color-muted);
   font-size: 14px;
   font-weight: 500;
+  line-height: 1.3;
   border: 1px solid transparent;
   transition: all 0.15s ease;
   gap: 10px;
@@ -230,10 +414,10 @@
 
 .dash-card {
   background: var(--color-card);
-  border: 1px solid rgba(15, 23, 42, 0.05);
-  border-radius: var(--radius-main);
+  border: var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
   padding: 18px;
-  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.04);
+  box-shadow: var(--admin-card-shadow);
 }
 
 .dash-card:hover {
@@ -250,9 +434,79 @@
 
 .dash-value {
   font-size: 22px;
-  font-weight: 700;
+  font-weight: 500;
   color: var(--color-text);
-  letter-spacing: -0.01em;
+  letter-spacing: 0;
+}
+
+.admin-page .settings-card,
+.admin-page .account-card,
+.admin-page .admin-card,
+.admin-page .service-payments-card,
+.admin-page .integration-card,
+.admin-page .info-card,
+.admin-page .admin-info-card,
+.admin-page .legal-card,
+.admin-page .personel-card {
+  border-radius: var(--admin-card-radius);
+}
+
+.admin-page .settings-card h3,
+.admin-page .account-card h3,
+.admin-page .admin-card h3,
+.admin-page .service-payments-card h3,
+.admin-page .integration-card h3,
+.admin-page .info-card h3,
+.admin-page .admin-info-card h3,
+.admin-page .legal-card h3,
+.admin-page .personel-card h3 {
+  font-weight: var(--admin-heading-weight);
+  letter-spacing: 0;
+  line-height: 1.3;
+}
+
+.admin-page label,
+.admin-page .form-group label,
+.admin-page .settings-card .form-group label,
+.admin-page .service-payments-form-grid label > span {
+  font-weight: var(--admin-label-weight);
+  line-height: 1.35;
+}
+
+.admin-page input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.admin-page select,
+.admin-page textarea {
+  min-height: var(--admin-control-height);
+  padding: var(--admin-control-padding);
+  border-radius: var(--admin-input-radius);
+  border: 1px solid var(--admin-border-color);
+  font-family: var(--admin-font-family);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.admin-page textarea {
+  min-height: 108px;
+}
+
+.admin-page table:not(.rezerwacje-table) {
+  border-collapse: separate;
+  border-spacing: 0;
+  border: var(--admin-card-border);
+  border-radius: var(--admin-card-radius);
+  overflow: hidden;
+}
+
+.admin-page table:not(.rezerwacje-table) th,
+.admin-page table:not(.rezerwacje-table) td {
+  padding: 12px 14px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.admin-page table:not(.rezerwacje-table) th {
+  font-weight: 500;
 }
 
 /* ===== FOOTER ===== */
@@ -262,9 +516,9 @@
   padding: 16px;
   text-align: center;
   font-size: 13px;
-  color: #64748b;
-  border-top: 1px solid rgba(15, 23, 42, 0.06);
-  background: rgba(255,255,255,0.8);
+  color: var(--admin-muted-color);
+  border-top: 1px solid var(--admin-border-color);
+  background: var(--color-card);
   backdrop-filter: blur(6px);
 }
 
@@ -292,9 +546,10 @@
 
   .topbar {
     padding: 18px;
-    border-radius: 18px;
+    border-radius: var(--admin-card-radius);
     flex-direction: column;
     align-items: stretch;
+    gap: 14px;
   }
 
   .topbar h1 {
@@ -303,7 +558,7 @@
 
   .panel-card {
     padding: 18px;
-    border-radius: 18px;
+    border-radius: var(--admin-card-radius);
   }
 
   .panel-header {
@@ -318,5 +573,20 @@
   .refresh-btn,
   .logout-btn {
     width: 100%;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .admin-notifications {
+    flex: 0 0 auto;
+  }
+
+  .admin-notifications-dropdown {
+    right: auto;
+    left: 0;
+    width: min(360px, calc(100vw - 28px));
   }
 }

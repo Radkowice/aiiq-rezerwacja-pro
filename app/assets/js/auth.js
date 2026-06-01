@@ -244,6 +244,18 @@ async function loadAccountData() {
     
     if (!data || !data.success) return;
 
+    window.AIIQ_PLAN_CONTEXT = data.plan_context || {
+      plan_code: 'free',
+      plan_name: 'Free',
+      status: 'active',
+      is_paid_plan_active: false,
+      features: {},
+      limits: {
+        services_count: 1,
+        staff_count: 1
+      }
+    };
+
     const user = data.user || {};
     const branding = data.branding || {};
 

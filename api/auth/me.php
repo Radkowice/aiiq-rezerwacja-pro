@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -60,6 +61,18 @@ if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
         'error' => 'Sesja nie pasuje do domeny'
     ], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+$planContext = plan_features_get_context('');
+
+try {
+    $resolvedPlanContext = plan_features_get_context($tenantId);
+
+    if (is_array($resolvedPlanContext)) {
+        $planContext = $resolvedPlanContext;
+    }
+} catch (Throwable $e) {
+    $planContext = plan_features_get_context('');
 }
 
 $headers = supabaseHeaders($supabaseKey, $schema);
@@ -151,5 +164,6 @@ $brandingData = json_decode((string) $brandingResponse, true);
 echo json_encode([
     'success' => true,
     'user' => $userData[0],
-    'branding' => is_array($brandingData) ? ($brandingData[0] ?? null) : null
+    'branding' => is_array($brandingData) ? ($brandingData[0] ?? null) : null,
+    'plan_context' => $planContext
 ], JSON_UNESCAPED_UNICODE);

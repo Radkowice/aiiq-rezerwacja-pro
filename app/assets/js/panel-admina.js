@@ -1,4 +1,66 @@
 let currentBookingsView = 'upcoming';
+const ADMIN_NOTIFICATIONS_ENDPOINT = '/api/system/admin-notifications.php';
+const PLAN_LOCKED_SECTIONS = {
+  personel: {
+    featureKey: 'staff_module',
+    title: 'Dostępne w wersji Pro'
+  },
+  integracje: {
+    featureKey: 'online_payments',
+    title: 'Dostępne w wersji Pro'
+  },
+  dokumenty_prawne: {
+    featureKey: 'legal_documents',
+    title: 'Dostępne w wersji Pro'
+  }
+};
+const PLAN_LOCKED_ELEMENTS = [
+  {
+    selector: '.service-manager-layout',
+    featureKey: 'multiple_services',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
+    selector: '.plan-payments-pro-group',
+    featureKey: 'online_payments',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
+    selector: '[data-email-card="staff-template"]',
+    featureKey: 'staff_module',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
+    selector: 'input[name="block-scope"][value="staff"]',
+    closest: '.block-scope-option',
+    featureKey: 'staff_blocks',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
+    selector: '#account-logo',
+    closest: '.admin-card',
+    featureKey: 'branding_logo',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
+    selector: '#reservations-bg-color',
+    closest: '.admin-card',
+    featureKey: 'branding_colors',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
+    selector: '#front-bg-color',
+    closest: '.admin-card',
+    featureKey: 'calendar_appearance',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
+    selector: '#label-name',
+    closest: '.admin-card',
+    featureKey: 'calendar_appearance',
+    title: 'Dostępne w wersji Pro'
+  }
+];
 
 const BOOKING_VIEWS = {
   upcoming: 'Nadchodzące',
@@ -17,9 +79,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     checkSystemStatus();
   }
 
-   initMenu();
+  initMenu();
   initSidebar();
   initTopbarActions();
+  initAdminNotifications();
   initBookingFilters();
   initCalendarEnabledToggle();
 
@@ -30,6 +93,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       accountReady,
       loadBookings(currentBookingsView)
     ]);
+
+    applyPlanLocks();
+
+    if (aiIqHasFeature('admin_staff_notifications')) {
+      await loadAdminNotifications();
+    }
   } finally {
     if (window.AppLoader) {
       window.AppLoader.hide();
@@ -44,6 +113,7 @@ function initMenu() {
   const sectionMap = [
     'rezerwacje',
     'blokady',
+    'personel',
     'usluga-platnosci',
     'email',
     'integracje',
@@ -66,8 +136,141 @@ function initMenu() {
       if (targetEl) {
         targetEl.classList.remove('hidden');
       }
+
+      window.dispatchEvent(new CustomEvent('aiiq:section-shown', {
+        detail: {
+          section: targetSection,
+        },
+      }));
     });
   });
+}
+
+function aiIqHasFeature(featureKey) {
+  const context = window.AIIQ_PLAN_CONTEXT || {};
+  const features = context.features || {};
+
+  return Boolean(features[featureKey]);
+}
+
+function aiIqIsFreePlan() {
+  const context = window.AIIQ_PLAN_CONTEXT || {};
+  return (context.plan_code || 'free') === 'free';
+}
+
+function disablePlanLockedControls(container) {
+  container.querySelectorAll('input, select, textarea, button').forEach(control => {
+    control.disabled = true;
+  });
+}
+
+function addPlanLockOverlay(container, config, options = {}) {
+  if (!container) {
+    return;
+  }
+
+  container.classList.add('plan-locked');
+
+  if (options.featureLocked !== false) {
+    container.classList.add('feature-locked');
+  }
+
+  if (options.disableControls) {
+    disablePlanLockedControls(container);
+  }
+
+  if (container.querySelector('[data-plan-lock-overlay="true"]')) {
+    return;
+  }
+
+  const overlay = document.createElement('div');
+  overlay.className = 'plan-lock-overlay';
+  overlay.dataset.planLockOverlay = 'true';
+  overlay.setAttribute('role', 'note');
+  overlay.setAttribute('aria-label', config.title);
+
+  const box = document.createElement('div');
+  box.className = 'plan-lock-box';
+
+  const title = document.createElement('strong');
+  title.className = 'plan-lock-title';
+  title.textContent = config.title;
+
+  box.appendChild(title);
+  overlay.appendChild(box);
+  container.appendChild(overlay);
+}
+
+function resolvePlanLockedElement(config) {
+  const element = document.querySelector(config.selector);
+
+  if (!element) {
+    return null;
+  }
+
+  return config.closest ? element.closest(config.closest) : element;
+}
+
+function renderPlanUpgradeNotice() {
+  const notice = document.getElementById('planUpgradeNotice');
+
+  if (!notice) {
+    return;
+  }
+
+  notice.hidden = false;
+}
+
+function applyPlanLocks() {
+  if (!aiIqIsFreePlan()) {
+    return;
+  }
+
+  const sectionMap = [
+    'rezerwacje',
+    'blokady',
+    'personel',
+    'usluga-platnosci',
+    'email',
+    'integracje',
+    'dokumenty_prawne',
+    'informacje',
+    'ustawienia',
+    'moje_konto'
+  ];
+
+  const menuItems = document.querySelectorAll('.menu-item');
+
+  Object.entries(PLAN_LOCKED_SECTIONS).forEach(([sectionName, config]) => {
+    if (aiIqHasFeature(config.featureKey)) {
+      return;
+    }
+
+    const menuIndex = sectionMap.indexOf(sectionName);
+    const menuButton = menuIndex >= 0 ? menuItems[menuIndex] : null;
+
+    if (menuButton) {
+      menuButton.classList.add('feature-locked', 'plan-disabled-menu-item');
+      menuButton.title = config.title;
+    }
+
+    const section = document.querySelector(`[data-section="${sectionName}"]`);
+
+    addPlanLockOverlay(section, config);
+  });
+
+  PLAN_LOCKED_ELEMENTS.forEach(config => {
+    if (aiIqHasFeature(config.featureKey)) {
+      return;
+    }
+
+    addPlanLockOverlay(resolvePlanLockedElement(config), config, {
+      disableControls: true
+    });
+  });
+
+  applyAdminNotificationsPlanLock();
+  renderPlanUpgradeNotice();
 }
 
 function initSidebar() {
@@ -114,6 +317,249 @@ function initTopbarActions() {
     refreshBtn.addEventListener('click', async () => {
       await loadBookings(currentBookingsView);
     });
+   }
+}
+
+function renderAdminNotificationsProMessage() {
+  const list = document.getElementById('adminNotificationsList');
+  const markReadBtn = document.getElementById('adminNotificationsMarkRead');
+
+  if (list) {
+    list.replaceChildren();
+
+    const message = document.createElement('p');
+    message.className = 'admin-notifications-empty';
+    message.textContent = 'Dostępne w wersji Pro';
+    list.appendChild(message);
+  }
+
+  if (markReadBtn) {
+    markReadBtn.disabled = true;
+  }
+}
+
+function applyAdminNotificationsPlanLock() {
+  if (aiIqHasFeature('admin_staff_notifications')) {
+    return;
+  }
+
+  const root = document.getElementById('adminNotifications');
+  const countEl = document.getElementById('adminNotificationsCount');
+
+  if (root) {
+    root.classList.add('feature-locked', 'plan-disabled-notification');
+    root.removeAttribute('title');
+  }
+
+  if (countEl) {
+    countEl.hidden = true;
+    countEl.textContent = '0';
+  }
+
+  renderAdminNotificationsProMessage();
+}
+
+function initAdminNotifications() {
+  const root = document.getElementById('adminNotifications');
+  const toggle = document.getElementById('adminNotificationsToggle');
+  const dropdown = document.getElementById('adminNotificationsDropdown');
+  const markReadBtn = document.getElementById('adminNotificationsMarkRead');
+
+  if (!root || !toggle || !dropdown) return;
+
+  toggle.addEventListener('click', async () => {
+    if (!aiIqHasFeature('admin_staff_notifications')) {
+      applyAdminNotificationsPlanLock();
+      dropdown.hidden = true;
+      toggle.setAttribute('aria-expanded', 'false');
+      return;
+    }
+
+    const shouldOpen = dropdown.hidden;
+    dropdown.hidden = !shouldOpen;
+    toggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
+
+    if (shouldOpen) {
+      await loadAdminNotifications();
+    }
+  });
+
+  document.addEventListener('click', event => {
+    if (dropdown.hidden || root.contains(event.target)) return;
+
+    dropdown.hidden = true;
+    toggle.setAttribute('aria-expanded', 'false');
+  });
+
+  if (markReadBtn) {
+    markReadBtn.addEventListener('click', async () => {
+      if (!aiIqHasFeature('admin_staff_notifications')) {
+        renderAdminNotificationsProMessage();
+        return;
+      }
+
+      await markAdminNotificationsRead(markReadBtn);
+    });
+  }
+}
+
+function setAdminNotificationsCount(count) {
+  const countEl = document.getElementById('adminNotificationsCount');
+  if (!countEl) return;
+
+  const safeCount = Math.max(0, Number(count) || 0);
+  countEl.textContent = String(safeCount);
+  countEl.hidden = safeCount === 0;
+}
+
+function renderAdminNotificationsList(notifications, options = {}) {
+  const list = document.getElementById('adminNotificationsList');
+  const markReadBtn = document.getElementById('adminNotificationsMarkRead');
+
+  if (!list) return;
+
+  list.replaceChildren();
+
+  if (options.error) {
+    const errorEl = document.createElement('p');
+    errorEl.className = 'admin-notifications-empty';
+    errorEl.textContent = options.error;
+    list.appendChild(errorEl);
+
+    if (markReadBtn) {
+      markReadBtn.disabled = true;
+    }
+
+    return;
+  }
+
+  if (!Array.isArray(notifications) || notifications.length === 0) {
+    const emptyEl = document.createElement('p');
+    emptyEl.className = 'admin-notifications-empty';
+    emptyEl.textContent = 'Brak nowych powiadomień.';
+    list.appendChild(emptyEl);
+
+    if (markReadBtn) {
+      markReadBtn.disabled = true;
+    }
+
+    return;
+  }
+
+  const unreadCount = notifications.filter(item => item?.is_read !== true).length;
+
+  notifications.forEach(item => {
+    const row = document.createElement('div');
+    row.className = 'admin-notifications-item';
+
+    if (item?.is_read !== true) {
+      row.classList.add('unread');
+    }
+
+    const message = document.createElement('p');
+    message.textContent = String(item?.message || 'Powiadomienie o blokadzie personelu.');
+
+    const meta = document.createElement('span');
+    meta.textContent = formatAdminNotificationDate(item?.created_at);
+
+    row.append(message, meta);
+    list.appendChild(row);
+  });
+
+  if (markReadBtn) {
+    markReadBtn.disabled = unreadCount === 0;
+  }
+}
+
+function formatAdminNotificationDate(value) {
+  if (!value) return '';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  return `${day}.${month}.${year}, ${hours}:${minutes}`;
+}
+
+async function loadAdminNotifications() {
+  try {
+    const response = await fetch(ADMIN_NOTIFICATIONS_ENDPOINT, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store'
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.success) {
+      setAdminNotificationsCount(0);
+      renderAdminNotificationsList([], {
+        error: data?.requires_migration
+          ? 'Powiadomienia wymagają konfiguracji bazy danych.'
+          : (data?.error || 'Nie udało się pobrać powiadomień.')
+      });
+      return;
+    }
+
+    setAdminNotificationsCount(data.unread_count || 0);
+    renderAdminNotificationsList(data.notifications || []);
+  } catch (error) {
+    console.error('admin notifications load error:', error);
+    setAdminNotificationsCount(0);
+    renderAdminNotificationsList([], {
+      error: 'Nie udało się pobrać powiadomień.'
+    });
+  }
+}
+
+async function markAdminNotificationsRead(button) {
+  const defaultText = button?.textContent || 'Oznacz jako przeczytane';
+
+  try {
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Oznaczanie...';
+    }
+
+    const response = await fetch(ADMIN_NOTIFICATIONS_ENDPOINT, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'mark_read'
+      })
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || !data?.success) {
+      renderAdminNotificationsList([], {
+        error: data?.error || 'Nie udało się oznaczyć powiadomień.'
+      });
+      return;
+    }
+
+    setAdminNotificationsCount(0);
+    await loadAdminNotifications();
+  } catch (error) {
+    console.error('admin notifications mark read error:', error);
+    renderAdminNotificationsList([], {
+      error: 'Nie udało się oznaczyć powiadomień.'
+    });
+  } finally {
+    if (button) {
+      button.textContent = defaultText;
+    }
   }
 }
 
@@ -155,7 +601,7 @@ function initBookingFilters() {
   </div>
 
   <p class="booking-retention-info">
-    Historia rezerwacji jest przechowywana przez 1 miesiąc.
+    Historia rezerwacji jest przechowywana przez 3 miesiące.
     Starsze rezerwacje zostaną automatycznie usunięte.
     Przed usunięciem pobierz historię do pliku CSV.
   </p>
@@ -325,7 +771,7 @@ async function loadBookings(view = currentBookingsView) {
 
   bookingList.innerHTML = `
     <tr>
-      <td colspan="9" class="empty">Ładowanie danych...</td>
+      <td colspan="6" class="empty">Ładowanie danych...</td>
     </tr>
   `;
 
@@ -335,7 +781,7 @@ async function loadBookings(view = currentBookingsView) {
     if (!data || !Array.isArray(data)) {
       bookingList.innerHTML = `
         <tr>
-          <td colspan="9" class="empty">Nie udało się wczytać danych</td>
+          <td colspan="6" class="empty">Nie udało się wczytać danych</td>
         </tr>
       `;
       updateTodayBookingsStat([]);
@@ -370,60 +816,19 @@ async function loadBookings(view = currentBookingsView) {
     if (data.length === 0) {
       bookingList.innerHTML = `
         <tr>
-          <td colspan="9" class="empty">${escapeHtml(getEmptyBookingsText(currentBookingsView))}</td>
+          <td colspan="6" class="empty">${escapeHtml(getEmptyBookingsText(currentBookingsView))}</td>
         </tr>
       `;
       return;
     }
 
-    bookingList.innerHTML = data.map(item => {
-      const clientName = escapeHtml(item.name || '—');
-      const contact = `
-        <div>${escapeHtml(item.email || '—')}</div>
-        <div>${escapeHtml(item.phone || '—')}</div>
-      `;
-
-      const bookingDate = escapeHtml(item.booking_date || item.date || '—');
-      const bookingTime = escapeHtml(item.booking_time || item.time || '—');
-
-      const description = escapeHtml(
-        item.description ||
-        item.message ||
-        item.notes ||
-        item.opis ||
-        ''
-      );
-
-      const bookingId = String(item.id ?? '');
-      const payment = renderPaymentBadge(item);
-      const paymentRowClass = getPaymentRowClass(item);
-
-      return `
-        <tr class="${paymentRowClass}">
-          <td class="col-name">${clientName}</td>
-          <td class="col-contact">${contact}</td>
-          <td class="col-date">${bookingDate}</td>
-          <td class="col-time">${bookingTime}</td>
-          <td class="col-desc">${description || '—'}</td>
-          <td class="col-payment">${payment}</td>
-          <td class="col-actions">
-            <button
-              class="delete-btn"
-              type="button"
-              onclick="deleteBooking('${escapeJs(bookingId)}','${escapeJs(bookingDate)}','${escapeJs(bookingTime)}','${escapeJs(item.status || '')}','${escapeJs(item.payment_status || '')}')"
-            >
-              Usuń
-            </button>
-          </td>
-        </tr>
-      `;
-    }).join('');
+    bookingList.innerHTML = data.map(item => renderBookingRow(item)).join('');
   } catch (error) {
     console.error('loadBookings error:', error);
 
     bookingList.innerHTML = `
       <tr>
-        <td colspan="9" class="empty">Nie udało się wczytać danych</td>
+        <td colspan="6" class="empty">Nie udało się wczytać danych</td>
       </tr>
     `;
 
@@ -525,6 +930,409 @@ function escapeJs(value) {
     .replaceAll('</', '<\\/');
 }
 
+function hasValue(value) {
+  return value !== null && value !== undefined && String(value).trim() !== '';
+}
+
+function getBookingDescription(item) {
+  return item.description || item.message || item.notes || item.opis || '';
+}
+
+function getBookingServiceName(item) {
+  return item.service_name_snapshot || item.service_name || 'Usługa domyślna';
+}
+
+function getBookingStaffName(item) {
+  if (hasValue(item.staff_display_name)) {
+    return item.staff_display_name;
+  }
+
+  if (hasValue(item.staff_id)) {
+    return 'przypisany, brak nazwy';
+  }
+
+  return 'Bez przypisanego pracownika';
+}
+
+function getBookingStaffDisplayText(item) {
+  if (hasValue(item.staff_display_name) || hasValue(item.staff_id)) {
+    return `Pracownik: ${getBookingStaffName(item)}`;
+  }
+
+  return getBookingStaffName(item);
+}
+
+function renderContactCell(item) {
+  const parts = [];
+
+  if (hasValue(item.email)) {
+    parts.push(`<div>${escapeHtml(item.email)}</div>`);
+  }
+
+  if (hasValue(item.phone)) {
+    parts.push(`<div>${escapeHtml(item.phone)}</div>`);
+  }
+
+  return parts.length ? parts.join('') : '<span class="booking-muted">Brak danych</span>';
+}
+
+function renderTermCell(item) {
+  const date = item.booking_date || item.date || '';
+  const time = item.booking_time || item.time || '';
+
+  return `
+    <div class="booking-term-date">${escapeHtml(date || 'Brak daty')}</div>
+    ${hasValue(time) ? `<div class="booking-term-time">${escapeHtml(time)}</div>` : ''}
+    ${renderRescheduleBadge(item)}
+  `;
+}
+
+function renderServiceStaffCell(item) {
+  return `
+    <div class="booking-service-name">${escapeHtml(getBookingServiceName(item))}</div>
+    <div class="booking-staff-name">${escapeHtml(getBookingStaffDisplayText(item))}</div>
+  `;
+}
+
+function formatBoolean(value) {
+  return value === true || value === 'true' || value === 1 || value === '1' ? 'Tak' : 'Nie';
+}
+
+function formatReadableText(value) {
+  const text = String(value || '')
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase();
+
+  if (!text) return '';
+
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+function formatBookingDateTime(value) {
+  if (!hasValue(value)) return '';
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+
+  const day = String(date.getDate()).padStart(2, '0');
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const year = date.getFullYear();
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+
+  return `${day}.${month}.${year}, ${hours}:${minutes}`;
+}
+
+function getBookingRescheduleCount(item) {
+  const count = parseInt(item?.reschedule_count ?? 0, 10);
+  return Number.isFinite(count) && count > 0 ? count : 0;
+}
+
+function isBookingRescheduled(item) {
+  return getBookingRescheduleCount(item) > 0 || hasValue(item?.rescheduled_at);
+}
+
+function renderRescheduleBadge(item) {
+  if (!isBookingRescheduled(item)) return '';
+
+  const count = getBookingRescheduleCount(item);
+  const countText = count > 0 ? ` x${count}/3` : '';
+
+  return `<span class="booking-reschedule-badge" title="Rezerwacja przeniesiona przez klienta">↻ Przeniesiona${countText}</span>`;
+}
+
+function getCurrentBookingTermLabel(item) {
+  const date = item.booking_date || item.date || '';
+  const time = item.booking_time || item.time || '';
+  const dateLabel = hasValue(date) ? date : '';
+  const timeLabel = hasValue(time) ? String(time).slice(0, 5) : '';
+
+  return `${dateLabel}${dateLabel && timeLabel ? ' ' : ''}${timeLabel}`.trim();
+}
+
+function mapBookingStatus(value) {
+  const status = String(value || '').trim().toLowerCase();
+
+  const labels = {
+    new: 'Nowa',
+    pending: 'Oczekuje',
+    pending_payment: 'Oczekuje na płatność',
+    payment_pending: 'Oczekuje na płatność',
+    payment_overdue: 'Płatność po terminie',
+    confirmed: 'Potwierdzona',
+    cancelled: 'Anulowana',
+    canceled: 'Anulowana',
+    completed: 'Zakończona',
+    deleted: 'Usunięta'
+  };
+
+  return labels[status] || formatReadableText(value);
+}
+
+function mapBookingSource(value) {
+  const source = String(value || '').trim().toLowerCase();
+
+  const labels = {
+    www: 'Strona WWW',
+    front: 'Strona WWW',
+    admin: 'Panel admina',
+    n8n: 'Automatyzacja'
+  };
+
+  return labels[source] || formatReadableText(value);
+}
+
+function isPaymentRequired(value) {
+  return value === true || value === 'true' || value === 1 || value === '1';
+}
+
+function mapPaymentStatus(item) {
+  const status = String(item.payment_status || '').trim().toLowerCase();
+
+  if (!status && item.payment_required === false) {
+    return 'Nie wymaga płatności';
+  }
+
+  if (!status && item.payment_required === 'false') {
+    return 'Nie wymaga płatności';
+  }
+
+  const labels = {
+    paid: 'Opłacona',
+    pending: 'Oczekuje na płatność',
+    pending_payment: 'Oczekuje na płatność',
+    payment_pending: 'Oczekuje na płatność',
+    expired: 'Nie opłacono',
+    failed: 'Płatność nieudana',
+    cancelled: 'Anulowana',
+    canceled: 'Anulowana',
+    not_required: 'Nie wymaga płatności'
+  };
+
+  if (labels[status]) {
+    return labels[status];
+  }
+
+  if (status) {
+    return formatReadableText(status);
+  }
+
+  if (!isPaymentRequired(item.payment_required)) {
+    return 'Nie wymaga płatności';
+  }
+
+  return '';
+}
+
+function formatBookingAmount(item) {
+  if (!hasValue(item.payment_amount)) return '';
+
+  const currency = item.payment_currency === 'PLN' ? 'zł' : (item.payment_currency || '');
+  const amount = Number(item.payment_amount);
+  const amountText = Number.isFinite(amount)
+    ? amount.toFixed(2).replace('.', ',')
+    : String(item.payment_amount);
+
+  return `${amountText}${currency ? ` ${currency}` : ''}`;
+}
+
+function getSafePaymentUrl(value) {
+  const url = String(value || '').trim();
+
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+
+  return '';
+}
+
+function buildBookingDetails(item) {
+  const details = [];
+  const description = getBookingDescription(item);
+  const amount = formatBookingAmount(item);
+  const bookingStatus = mapBookingStatus(item.status);
+  const bookingSource = mapBookingSource(item.source);
+  const paymentStatus = mapPaymentStatus(item);
+  const createdAt = formatBookingDateTime(item.created_at);
+  const bookingDate = item.booking_date || item.date || '';
+  const bookingTime = item.booking_time || item.time || '';
+
+  if (hasValue(item.name)) details.push(['Klient', item.name]);
+  if (hasValue(item.email)) details.push(['E-mail', item.email]);
+  if (hasValue(item.phone)) details.push(['Telefon', item.phone]);
+  if (hasValue(bookingDate)) details.push(['Data', bookingDate]);
+  if (hasValue(bookingTime)) details.push(['Godzina', bookingTime]);
+  if (isBookingRescheduled(item)) {
+    const count = getBookingRescheduleCount(item);
+    const lastChange = formatBookingDateTime(item.rescheduled_at);
+    details.push(['Rezerwacja przeniesiona', count > 0 ? `Tak, ${count} z 3` : 'Tak']);
+    details.push(['Aktualny termin po zmianie', getCurrentBookingTermLabel(item)]);
+    if (hasValue(lastChange)) details.push(['Ostatnia zmiana terminu', lastChange]);
+  }
+  if (hasValue(description)) details.push(['Opis / notatka', description]);
+  if (hasValue(bookingStatus)) details.push(['Status rezerwacji', bookingStatus]);
+  if (hasValue(bookingSource)) details.push(['Źródło rezerwacji', bookingSource]);
+  if (hasValue(getBookingServiceName(item))) details.push(['Usługa', getBookingServiceName(item)]);
+  if (hasValue(getBookingStaffDisplayText(item))) details.push(['Pracownik', getBookingStaffDisplayText(item)]);
+  if (hasValue(paymentStatus)) details.push(['Płatność', paymentStatus]);
+  if (hasValue(amount)) details.push(['Kwota', amount]);
+  if (hasValue(createdAt)) details.push(['Utworzono', createdAt]);
+
+  return details;
+}
+
+function buildBookingTechnicalDetails(item) {
+  const details = [];
+  const paymentUrl = getSafePaymentUrl(item.payment_url);
+  const paymentExpiresAt = formatBookingDateTime(item.payment_expires_at);
+  const updatedAt = formatBookingDateTime(item.updated_at);
+
+  if (hasValue(item.id)) details.push(['ID rezerwacji', item.id]);
+  if (hasValue(item.staff_id)) details.push(['ID pracownika', item.staff_id]);
+  if (hasValue(item.payment_provider)) details.push(['Operator płatności', item.payment_provider]);
+  if (hasValue(item.payment_order_id)) details.push(['ID zamówienia płatności', item.payment_order_id]);
+  if (hasValue(paymentUrl)) details.push(['Link płatności', paymentUrl, paymentUrl]);
+  if (hasValue(paymentExpiresAt)) details.push(['Płatność ważna do', paymentExpiresAt]);
+  if (hasValue(updatedAt)) details.push(['Zaktualizowano', updatedAt]);
+
+  return details;
+}
+
+function renderBookingDetailGrid(details) {
+  return `
+    <div class="booking-details-grid">
+      ${details.map(([label, value, href]) => `
+        <div class="booking-detail-item">
+          <span><i aria-hidden="true">${escapeHtml(getBookingDetailIcon(label))}</i>${escapeHtml(label)}</span>
+          ${href
+            ? `<a href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(value)}</a>`
+            : `<strong>${escapeHtml(value)}</strong>`
+          }
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function getBookingDetailIcon(label) {
+  const normalized = String(label || '').toLowerCase();
+
+  if (normalized.includes('klient') || normalized.includes('pracownik')) return '👤';
+  if (normalized.includes('email') || normalized.includes('e-mail')) return '✉️';
+  if (normalized.includes('tel')) return '☎️';
+  if (normalized.includes('data') || normalized.includes('utworzono') || normalized.includes('zaktualizowano')) return '📅';
+  if (normalized.includes('godzina') || normalized.includes('termin')) return '🕒';
+  if (normalized.includes('usługa')) return '🧾';
+  if (normalized.includes('płatność') || normalized.includes('kwota')) return '💳';
+  if (normalized.includes('status')) return 'ℹ️';
+
+  return '•';
+}
+
+function renderBookingDetails(item, detailsId) {
+  const details = buildBookingDetails(item);
+  const technicalDetails = buildBookingTechnicalDetails(item);
+  const technicalId = `${detailsId}-technical`;
+
+  return `
+    ${details.length ? renderBookingDetailGrid(details) : '<div class="booking-details-empty">Brak dodatkowych informacji.</div>'}
+    ${technicalDetails.length ? `
+      <div class="booking-technical">
+        <button
+          class="booking-technical-btn"
+          type="button"
+          aria-expanded="false"
+          aria-controls="${escapeHtml(technicalId)}"
+          onclick="toggleBookingTechnicalDetails('${escapeJs(technicalId)}', this)"
+        >
+          Pokaż dane techniczne
+        </button>
+        <div class="booking-technical-panel" id="${escapeHtml(technicalId)}" hidden>
+          ${renderBookingDetailGrid(technicalDetails)}
+        </div>
+      </div>
+    ` : ''}
+  `;
+}
+
+function renderBookingRow(item) {
+  const bookingId = String(item.id ?? '');
+  const bookingDate = item.booking_date || item.date || '';
+  const bookingTime = item.booking_time || item.time || '';
+  const detailsId = `booking-details-${bookingId.replace(/[^a-zA-Z0-9_-]/g, '') || Math.random().toString(36).slice(2)}`;
+  const payment = renderPaymentBadge(item);
+  const paymentRowClass = getPaymentRowClass(item);
+
+  return `
+    <tr class="booking-row${paymentRowClass}" data-booking-row="${escapeHtml(bookingId)}">
+      <td class="col-name">${escapeHtml(item.name || 'Brak danych')}</td>
+      <td class="col-contact">${renderContactCell(item)}</td>
+      <td class="col-term">${renderTermCell(item)}</td>
+      <td class="col-service">${renderServiceStaffCell(item)}</td>
+      <td class="col-payment">${payment}</td>
+      <td class="col-actions">
+        <div class="booking-actions">
+          <button
+            class="booking-details-btn"
+            type="button"
+            aria-expanded="false"
+            aria-controls="${escapeHtml(detailsId)}"
+            onclick="toggleBookingDetails('${escapeJs(detailsId)}', this)"
+          >
+            Więcej
+          </button>
+          <button
+            class="delete-btn"
+            type="button"
+            onclick="deleteBooking('${escapeJs(bookingId)}','${escapeJs(bookingDate)}','${escapeJs(bookingTime)}','${escapeJs(item.status || '')}','${escapeJs(item.payment_status || '')}')"
+          >
+            Usuń
+          </button>
+        </div>
+      </td>
+    </tr>
+    <tr class="booking-details-row" id="${escapeHtml(detailsId)}" hidden>
+      <td colspan="6">
+        <div class="booking-details-panel">
+          ${renderBookingDetails(item, detailsId)}
+        </div>
+      </td>
+    </tr>
+  `;
+}
+
+function toggleBookingDetails(detailsId, button) {
+  const row = document.getElementById(detailsId);
+  if (!row) return;
+
+  const shouldShow = row.hidden;
+  row.hidden = !shouldShow;
+
+  if (button) {
+    button.textContent = shouldShow ? 'Mniej' : 'Więcej';
+    button.setAttribute('aria-expanded', shouldShow ? 'true' : 'false');
+  }
+}
+
+window.toggleBookingDetails = toggleBookingDetails;
+
+function toggleBookingTechnicalDetails(technicalId, button) {
+  const panel = document.getElementById(technicalId);
+  if (!panel) return;
+
+  const shouldShow = panel.hidden;
+  panel.hidden = !shouldShow;
+
+  if (button) {
+    button.textContent = shouldShow ? 'Ukryj dane techniczne' : 'Pokaż dane techniczne';
+    button.setAttribute('aria-expanded', shouldShow ? 'true' : 'false');
+  }
+}
+
+window.toggleBookingTechnicalDetails = toggleBookingTechnicalDetails;
+
 function renderPaymentBadge(item) {
   const status = String(item.payment_status || 'not_required');
   const required = item.payment_required === true || item.payment_required === 'true';
@@ -538,7 +1346,7 @@ function renderPaymentBadge(item) {
     if (status === 'paid') {
       label = 'ZAPŁACONO';
       className = 'paid';
-    } else if (status === 'pending') {
+    } else if (status === 'pending' || status === 'pending_payment' || status === 'payment_pending') {
       label = 'OCZEKUJE';
       className = 'pending';
     } else if (status === 'expired') {

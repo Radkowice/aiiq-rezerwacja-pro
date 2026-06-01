@@ -9,6 +9,101 @@
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
 }
 
+section[data-section="blokady"] .block-refresh-btn {
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 104px;
+  max-width: 140px;
+  white-space: nowrap;
+  padding-inline: 16px;
+}
+
+.block-scope-card {
+  margin: 16px 0 20px;
+  padding: 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-card);
+}
+
+.block-scope-header h3 {
+  margin: 0 0 8px;
+  color: var(--color-text);
+  font-size: 17px;
+  line-height: 1.3;
+}
+
+.block-scope-header p {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.block-scope-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.block-scope-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-card);
+  cursor: pointer;
+}
+
+.block-scope-option input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.block-scope-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.block-scope-option strong {
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.block-scope-option small {
+  color: var(--color-muted);
+  line-height: 1.35;
+}
+
+.block-staff-select {
+  margin-top: 14px;
+}
+
+.block-staff-select label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.block-staff-select select {
+  width: 100%;
+  max-width: 420px;
+  min-height: 42px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-card);
+  color: var(--color-text);
+}
+
 .blocked-list-wrap {
   margin-top: 0;
 }
@@ -109,6 +204,7 @@
 .admin-day {
   min-height: 44px;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
   background: #ecfdf3;
@@ -120,6 +216,54 @@
 .admin-day.blocked {
   background: #fef3f2;
   color: #b42318;
+}
+
+.admin-day.staff-blocked {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.admin-day.day-has-reservations {
+  border: 2px solid #f59e0b;
+  background: #fffbeb;
+  color: #92400e;
+  box-shadow: 0 8px 18px rgba(245, 158, 11, 0.16);
+}
+
+.admin-day.blocked.day-has-reservations {
+  background: linear-gradient(145deg, #fef3c7, #fee2e2);
+  color: #991b1b;
+  border-color: #f97316;
+}
+
+.admin-day.selected.day-has-reservations {
+  background: linear-gradient(145deg, #b45309, #7c2d12);
+  color: #ffffff;
+  border-color: #ffffff;
+  outline-color: #f59e0b;
+}
+
+.admin-day .day-reservation-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  margin-top: 2px;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: #ef4444;
+  color: #ffffff;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 800;
+}
+
+.admin-day .day-label {
+  display: block;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 700;
 }
 
 .admin-day.disabled {
@@ -176,6 +320,210 @@
   color: #b42318;
 }
 
+.admin-time.booked {
+  background: #fef3f2;
+  color: #b42318;
+  border-color: #fecdca;
+}
+
+.admin-time.booked:hover {
+  background: #fee4e2;
+  color: #912018;
+  border-color: #fda29b;
+}
+
+.admin-time.staff-blocked {
+  background: #fff7ed;
+  color: #c2410c;
+}
+
+.admin-time .time-scope-label {
+  display: block;
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.admin-service-slots {
+  display: grid;
+  gap: 14px;
+}
+
+.admin-service-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(100, 116, 139, 0.48);
+  border-radius: 14px;
+  background: linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(202, 213, 228, 0.88));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62), 0 10px 28px rgba(15, 23, 42, 0.08);
+}
+
+.admin-service-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: flex-start;
+}
+
+.admin-service-card-header h3 {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.admin-service-card-header p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.admin-service-slot-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.admin-service-slot-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-service-slot {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: auto auto;
+  gap: 2px 6px;
+  align-items: center;
+  justify-content: center;
+  min-width: 84px;
+  min-height: 52px;
+  padding: 8px 10px;
+  border: 1px solid rgba(100, 116, 139, 0.54);
+  border-radius: 12px;
+  background: linear-gradient(145deg, rgba(248, 250, 252, 0.92), rgba(218, 226, 238, 0.9));
+  color: var(--text-main);
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+.admin-service-slot:hover,
+.admin-service-slot:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(40, 64, 107, 0.74);
+  outline: none;
+}
+
+.admin-service-slot strong {
+  color: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.admin-service-slot small {
+  grid-column: 1 / -1;
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.15;
+  opacity: 0.82;
+}
+
+.admin-service-slot.is-available {
+  border-color: rgba(6, 95, 70, 0.28);
+  background: rgba(187, 247, 208, 0.58);
+  color: #027a48;
+}
+
+.admin-service-slot.is-reserved {
+  border-color: rgba(185, 28, 28, 0.34);
+  background: rgba(254, 226, 226, 0.72);
+  color: #7f1d1d;
+}
+
+.admin-service-slot.is-staff_busy {
+  border-color: rgba(180, 83, 9, 0.32);
+  background: rgba(254, 243, 199, 0.74);
+  color: #92400e;
+}
+
+.admin-service-slot.is-blocked_staff {
+  border-color: rgba(40, 64, 107, 0.36);
+  background: rgba(219, 227, 238, 0.82);
+  color: #28406b;
+}
+
+.admin-service-slot.is-blocked_global {
+  border-color: rgba(100, 116, 139, 0.34);
+  background: rgba(203, 213, 225, 0.78);
+  color: #334155;
+}
+
+.admin-service-slot-r {
+  min-width: 19px;
+  min-height: 19px;
+  padding: 1px 5px;
+  border-radius: 6px;
+  font-size: 10px;
+  line-height: 1;
+}
+
+.admin-service-slot-detail {
+  width: min(320px, calc(100vw - 64px));
+  padding: 10px;
+  border: 1px solid rgba(100, 116, 139, 0.42);
+  border-radius: 10px;
+  background: rgba(248, 250, 252, 0.92);
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+}
+
+.admin-service-slot-detail[hidden] {
+  display: none;
+}
+
+.admin-service-reservation {
+  display: grid;
+  gap: 6px;
+}
+
+.admin-service-reservation span {
+  display: grid;
+  grid-template-columns: 20px auto minmax(0, 1fr);
+  gap: 5px;
+  align-items: baseline;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.admin-service-reservation i {
+  font-style: normal;
+}
+
+.admin-service-reservation strong {
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.admin-service-empty {
+  padding: 14px;
+  border: 1px dashed rgba(100, 116, 139, 0.42);
+  border-radius: 12px;
+  color: var(--text-muted);
+  background: rgba(248, 250, 252, 0.62);
+}
+
 /* ===== TODAY ===== */
 
 .admin-day.today {
@@ -201,7 +549,7 @@
   z-index: 2;
 }
 
-.admin-day.selected::after {
+.admin-day.selected::before {
   content: "";
   position: absolute;
   right: 8px;
@@ -304,7 +652,7 @@
   background: var(--color-btn-success-hover);
 }
 
-/* ===== BLOKADA ODñDO ===== */
+/* ===== BLOKADA OD‚ÄìDO ===== */
 
 .block-range-box {
   margin-top: 20px;
@@ -355,8 +703,35 @@
 /* MOBILE */
 
 @media (max-width: 640px) {
+  section[data-section="blokady"] .block-refresh-btn {
+    align-self: flex-start;
+    width: auto;
+  }
+
+  .block-scope-options {
+    grid-template-columns: 1fr;
+  }
+
+  .block-staff-select select {
+    max-width: 100%;
+  }
+
   .block-range-box .form-row {
     grid-template-columns: 1fr;
+  }
+
+  .block-range-box .form-group-button {
+    gap: 10px;
+  }
+
+  .block-range-box .form-group-button button,
+  .btn-block-day {
+    width: 100%;
+  }
+
+  .admin-time-header {
+    flex-direction: column;
+    gap: 10px;
   }
 }
 
@@ -392,7 +767,7 @@
   margin-bottom: 10px;
 }
 
-/* TYTU£ */
+/* TYTU≈Å */
 .confirm-title {
   font-size: 20px;
   font-weight: 700;
@@ -400,7 +775,7 @@
   color: var(--color-text);
 }
 
-/* TREå∆ */
+/* TRE≈öƒÜ */
 .confirm-message {
   font-size: 15px;
   color: #334155;
@@ -479,12 +854,19 @@ body.modal-open {
   position: absolute;
   left: 0;
   bottom: 120%;
+  top: auto;
+  right: auto;
+  width: max-content;
+  height: auto;
+  max-width: 320px;
   white-space: pre-line;
   background: #111827;
   color: #fff;
   padding: 8px 10px;
   border-radius: 8px;
   font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
   opacity: 0;
   pointer-events: none;
   transform: translateY(5px);
@@ -507,6 +889,52 @@ body.modal-open {
   margin-bottom: 10px;
 }
 
+.warning-box-strong {
+  background: #fff7ed;
+  color: #7c2d12;
+  border: 1px solid #fdba74;
+}
+
+.day-reservation-warning-list {
+  display: grid;
+  gap: 8px;
+  margin: 12px 0 8px;
+  padding: 0;
+  list-style: none;
+}
+
+.day-reservation-warning-list li {
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #111827;
+}
+
+.day-reservation-warning-list span {
+  display: block;
+  font-size: 12px;
+}
+
+.warning-more {
+  margin: 4px 0 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
 input[type="date"] {
   color-scheme: dark;
+}
+
+.staff-block-settings-note {
+  margin: 14px 0 0;
+  padding: 12px 14px;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-size: 14px;
+  line-height: 1.45;
+  font-weight: 600;
 }
