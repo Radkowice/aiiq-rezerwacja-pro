@@ -1,15 +1,3 @@
-export async function fetchBlockedData() {
-  const res = await fetch('/api/booking/blocked.php', {
-    cache: 'no-store'
-  });
-
-  if (!res.ok) {
-    throw new Error('B³¹d pobierania blocked.php');
-  }
-
-  return await res.json();
-}
-
 let blockedCache = null;
 let blockedCacheTime = 0;
 const CACHE_TTL = 5000; // 5 sekund
@@ -26,7 +14,7 @@ export async function fetchBlockedData() {
   });
 
   if (!res.ok) {
-    throw new Error('B³¹d pobierania blocked.php');
+    throw new Error('BÅ‚Ä…d pobierania blocked.php');
   }
 
   const data = await res.json();
@@ -42,7 +30,7 @@ export function invalidateBlockedCache() {
   blockedCacheTime = 0;
 }
 
-const adminApi = {
+export const adminApi = {
   async saveBlockSettings(payload) {
     try {
       const res = await fetch('/api/booking/block-settings.php', {
@@ -57,7 +45,7 @@ const adminApi = {
       return data;
 
     } catch (err) {
-      console.error('B³¹d zapisu ustawieñ blokad:', err);
+      console.error('BÅ‚Ä…d zapisu ustawieÅ„ blokad:', err);
     }
   }
 };

@@ -330,7 +330,6 @@ $tenantId = $context['tenantId'];
 require_tenant_feature($tenantId, 'multiple_services');
 
 $input = services_read_json_input();
-
 $serviceId = trim((string) ($input['id'] ?? ''));
 $isUpdate = $serviceId !== '';
 

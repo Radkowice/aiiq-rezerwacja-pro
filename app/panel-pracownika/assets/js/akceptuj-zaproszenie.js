@@ -136,7 +136,7 @@
 
       if (response.ok && data && data.success === true) {
         clearPasswordFields();
-        setMessage('Hasło zostało ustawione. Możesz przejść do logowania pracownika.', 'success');
+        setMessage('Hasło zostało ustawione. Możesz przejść do logowania personelu.', 'success');
         form.classList.add('is-complete');
         return;
       }

@@ -51,9 +51,9 @@ function booking_debug_log_service(array $data): void
 {
     $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: '');
     $appEnv = strtolower((string) getenv('APP_ENV'));
-    $isDebugEnvironment = stripos($schema, 'beta') !== false
+    $isDebugEnvironment = stripos($schema, ) !== false
         || stripos($schema, 'dev') !== false
-        || in_array($appEnv, ['dev', 'development', 'beta', 'local'], true);
+        || in_array($appEnv, ['dev', 'development', 'local'], true);
 
     if (!$isDebugEnvironment) {
         return;

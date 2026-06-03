@@ -553,7 +553,7 @@
     setMessage(els.formMessage, 'Zapisywanie usługi...', 'muted');
 
     try {
-      const data = await requestJson('/api/services/save.php', {
+      const data = await requestJson('/api/services/save.php?debug=1', {
         method: 'POST',
         body: JSON.stringify(payload),
       });

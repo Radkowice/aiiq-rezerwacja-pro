@@ -10,6 +10,20 @@ require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
+const STAFF_SERVICE_SETTINGS_HOLIDAYS = [
+    '01-01',
+    '01-06',
+    '05-01',
+    '05-02',
+    '05-03',
+    '08-15',
+    '11-01',
+    '11-11',
+    '12-24',
+    '12-25',
+    '12-26',
+];
+
 function staff_service_settings_json(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
@@ -57,6 +71,18 @@ function staff_service_settings_request(
         'httpCode' => $httpCode,
         'data' => json_decode((string) $response, true),
     ];
+}
+
+function staff_service_settings_fail_result(string $message, array $result): void
+{
+    $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+    $details = trim((string) ($data['message'] ?? $data['details'] ?? $result['error'] ?? ''));
+
+    staff_service_settings_json([
+        'success' => false,
+        'error' => $details !== '' ? $message . ': ' . substr($details, 0, 400) : $message,
+        'httpCode' => $result['httpCode'] ?? 500,
+    ], 500);
 }
 
 function staff_service_settings_clear_session(): void
@@ -316,6 +342,7 @@ function staff_service_settings_slot_status(
     string $serviceId,
     array $serviceSettings,
     bool $hasGlobalDateBlock,
+    bool $hasGlobalRuleBlock,
     bool $hasStaffDateBlock,
     array $globalBlockedTimes,
     array $staffBlockedTimes,
@@ -331,6 +358,14 @@ function staff_service_settings_slot_status(
             'time' => $time,
             'status' => 'blocked_global',
             'block_source' => $hasGlobalDateBlock ? 'global_date' : 'global_time',
+        ];
+    }
+
+    if ($hasGlobalRuleBlock) {
+        return [
+            'time' => $time,
+            'status' => 'blocked_global',
+            'block_source' => 'global_rule',
         ];
     }
 
@@ -401,6 +436,54 @@ function staff_service_settings_month_bounds(string $date): array
         date('Y-m-01', $timestamp),
         date('Y-m-t', $timestamp),
     ];
+}
+
+function staff_service_settings_date_range(string $start, string $end): array
+{
+    $startTimestamp = strtotime($start . ' 00:00:00');
+    $endTimestamp = strtotime($end . ' 00:00:00');
+
+    if ($startTimestamp === false || $endTimestamp === false || $startTimestamp > $endTimestamp) {
+        return [];
+    }
+
+    $dates = [];
+
+    for ($timestamp = $startTimestamp; $timestamp <= $endTimestamp; $timestamp = strtotime('+1 day', $timestamp)) {
+        if ($timestamp === false) {
+            break;
+        }
+
+        $dates[] = date('Y-m-d', $timestamp);
+    }
+
+    return $dates;
+}
+
+function staff_service_settings_is_global_rule_blocked(
+    string $date,
+    array $blockSettings,
+    array $globalAvailabilityExceptions,
+    array $staffAvailabilityExceptions
+): bool {
+    $timestamp = strtotime($date . ' 00:00:00');
+
+    if ($timestamp === false) {
+        return false;
+    }
+
+    $weekday = (int) date('w', $timestamp);
+    $monthDay = date('m-d', $timestamp);
+    $isBlockedByRule = (!empty($blockSettings['block_saturdays']) && $weekday === 6)
+        || (!empty($blockSettings['block_sundays']) && $weekday === 0)
+        || (!empty($blockSettings['block_holidays']) && in_array($monthDay, STAFF_SERVICE_SETTINGS_HOLIDAYS, true));
+
+    if (!$isBlockedByRule) {
+        return false;
+    }
+
+    return !in_array($date, $globalAvailabilityExceptions, true)
+        && !in_array($date, $staffAvailabilityExceptions, true);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
@@ -601,6 +684,11 @@ $blockedDateUrl = $supabaseUrl
     . '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
 
 $blockedDateResult = staff_service_settings_request('GET', $blockedDateUrl, $supabaseKey, $schema);
+
+if ($blockedDateResult['response'] === false || $blockedDateResult['error'] !== '' || $blockedDateResult['httpCode'] >= 400) {
+    staff_service_settings_fail_result('Nie udało się pobrać blokad dni personelu', $blockedDateResult);
+}
+
 $blockedDateRows = is_array($blockedDateResult['data'] ?? null) ? $blockedDateResult['data'] : [];
 
 $blockedTimeUrl = $supabaseUrl
@@ -611,6 +699,11 @@ $blockedTimeUrl = $supabaseUrl
     . '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
 
 $blockedTimeResult = staff_service_settings_request('GET', $blockedTimeUrl, $supabaseKey, $schema);
+
+if ($blockedTimeResult['response'] === false || $blockedTimeResult['error'] !== '' || $blockedTimeResult['httpCode'] >= 400) {
+    staff_service_settings_fail_result('Nie udało się pobrać blokad godzin personelu', $blockedTimeResult);
+}
+
 $blockedTimeRows = is_array($blockedTimeResult['data'] ?? null) ? $blockedTimeResult['data'] : [];
 
 $bookingsUrl = $supabaseUrl
@@ -645,6 +738,11 @@ $monthBlockedDateUrl = $supabaseUrl
     . '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
 
 $monthBlockedDateResult = staff_service_settings_request('GET', $monthBlockedDateUrl, $supabaseKey, $schema);
+
+if ($monthBlockedDateResult['response'] === false || $monthBlockedDateResult['error'] !== '' || $monthBlockedDateResult['httpCode'] >= 400) {
+    staff_service_settings_fail_result('Nie udało się pobrać miesięcznych blokad dni personelu', $monthBlockedDateResult);
+}
+
 $monthBlockedDateRows = is_array($monthBlockedDateResult['data'] ?? null) ? $monthBlockedDateResult['data'] : [];
 
 $monthBlockedTimeUrl = $supabaseUrl
@@ -656,7 +754,77 @@ $monthBlockedTimeUrl = $supabaseUrl
     . '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
 
 $monthBlockedTimeResult = staff_service_settings_request('GET', $monthBlockedTimeUrl, $supabaseKey, $schema);
+
+if ($monthBlockedTimeResult['response'] === false || $monthBlockedTimeResult['error'] !== '' || $monthBlockedTimeResult['httpCode'] >= 400) {
+    staff_service_settings_fail_result('Nie udało się pobrać miesięcznych blokad godzin personelu', $monthBlockedTimeResult);
+}
+
 $monthBlockedTimeRows = is_array($monthBlockedTimeResult['data'] ?? null) ? $monthBlockedTimeResult['data'] : [];
+
+$blockSettings = [
+    'block_saturdays' => false,
+    'block_sundays' => false,
+    'block_holidays' => false,
+];
+$blockSettingsUrl = $supabaseUrl
+    . '/rest/v1/block_settings'
+    . '?select=block_saturdays,block_sundays,block_holidays'
+    . '&tenant_id=eq.' . rawurlencode($tenantId)
+    . '&limit=1';
+
+$blockSettingsResult = staff_service_settings_request('GET', $blockSettingsUrl, $supabaseKey, $schema);
+
+if ($blockSettingsResult['response'] === false || $blockSettingsResult['error'] !== '' || $blockSettingsResult['httpCode'] >= 400) {
+    staff_service_settings_fail_result('Nie udało się pobrać globalnych ustawień blokad', $blockSettingsResult);
+}
+
+$blockSettingsRows = is_array($blockSettingsResult['data'] ?? null) ? $blockSettingsResult['data'] : [];
+
+if (is_array($blockSettingsRows[0] ?? null)) {
+    $blockSettings = [
+        'block_saturdays' => !empty($blockSettingsRows[0]['block_saturdays']),
+        'block_sundays' => !empty($blockSettingsRows[0]['block_sundays']),
+        'block_holidays' => !empty($blockSettingsRows[0]['block_holidays']),
+    ];
+}
+
+$availabilityExceptionsUrl = $supabaseUrl
+    . '/rest/v1/availability_exceptions'
+    . '?select=date,allow_booking,staff_id'
+    . '&tenant_id=eq.' . rawurlencode($tenantId)
+    . '&allow_booking=eq.true'
+    . '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
+
+$availabilityExceptionsResult = staff_service_settings_request('GET', $availabilityExceptionsUrl, $supabaseKey, $schema);
+
+if (
+    $availabilityExceptionsResult['response'] === false
+    || $availabilityExceptionsResult['error'] !== ''
+    || $availabilityExceptionsResult['httpCode'] >= 400
+) {
+    staff_service_settings_fail_result('Nie udało się pobrać wyjątków dostępności', $availabilityExceptionsResult);
+}
+
+$globalAvailabilityExceptions = [];
+$staffAvailabilityExceptions = [];
+$availabilityExceptionRows = is_array($availabilityExceptionsResult['data'] ?? null) ? $availabilityExceptionsResult['data'] : [];
+
+foreach ($availabilityExceptionRows as $row) {
+    if (!is_array($row) || empty($row['date'])) {
+        continue;
+    }
+
+    $exceptionDate = (string) $row['date'];
+
+    if (empty($row['staff_id'])) {
+        $globalAvailabilityExceptions[$exceptionDate] = true;
+    } elseif ((string) $row['staff_id'] === $staffId) {
+        $staffAvailabilityExceptions[$exceptionDate] = true;
+    }
+}
+
+$globalAvailabilityExceptionDates = array_keys($globalAvailabilityExceptions);
+$staffAvailabilityExceptionDates = array_keys($staffAvailabilityExceptions);
 
 $calendarDays = [];
 
@@ -743,7 +911,39 @@ foreach ($monthBlockedTimeRows as $row) {
     }
 }
 
+foreach (staff_service_settings_date_range($monthStart, $monthEnd) as $calendarDate) {
+    if (!staff_service_settings_is_global_rule_blocked(
+        $calendarDate,
+        $blockSettings,
+        $globalAvailabilityExceptionDates,
+        $staffAvailabilityExceptionDates
+    )) {
+        continue;
+    }
+
+    $calendarDays[$calendarDate] ??= [
+        'has_reserved' => false,
+        'has_staff_block' => false,
+        'has_staff_date_block' => false,
+        'has_staff_time_block' => false,
+        'has_global_block' => false,
+        'has_global_date_block' => false,
+        'has_global_time_block' => false,
+        'has_rescheduled' => false,
+        'max_reschedule_count' => 0,
+    ];
+    $calendarDays[$calendarDate]['has_global_block'] = true;
+    $calendarDays[$calendarDate]['has_global_date_block'] = true;
+    $calendarDays[$calendarDate]['has_global_rule_block'] = true;
+}
+
 $hasGlobalDateBlock = staff_service_settings_has_date_block($blockedDateRows, null);
+$hasGlobalRuleBlock = staff_service_settings_is_global_rule_blocked(
+    $date,
+    $blockSettings,
+    $globalAvailabilityExceptionDates,
+    $staffAvailabilityExceptionDates
+);
 $hasStaffDateBlock = staff_service_settings_has_date_block($blockedDateRows, $staffId);
 $globalBlockedTimes = staff_service_settings_time_set($blockedTimeRows, null);
 $staffBlockedTimes = staff_service_settings_time_set($blockedTimeRows, $staffId);
@@ -780,6 +980,7 @@ foreach ($servicesRows as $service) {
             $serviceId,
             $effective,
             $hasGlobalDateBlock,
+            $hasGlobalRuleBlock,
             $hasStaffDateBlock,
             $globalBlockedTimes,
             $staffBlockedTimes,
