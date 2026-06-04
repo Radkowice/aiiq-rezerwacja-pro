@@ -142,6 +142,28 @@ function getEl(id) {
   return document.getElementById(id);
 }
 
+function showTenantNotFoundView(message = '') {
+  const bookingApp = getEl('bookingApp');
+  const tenantNotFoundView = getEl('tenantNotFoundView');
+  const tenantNotFoundTitle = tenantNotFoundView?.querySelector('h1');
+
+  if (bookingApp) {
+    bookingApp.hidden = true;
+  }
+
+  if (tenantNotFoundTitle && message) {
+    tenantNotFoundTitle.textContent = message;
+  }
+
+  if (tenantNotFoundView) {
+    tenantNotFoundView.hidden = false;
+  }
+
+  if (window.AppLoader) {
+    window.AppLoader.hide();
+  }
+}
+
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
 function applyCalendarFrontStyle(style = {}) {
@@ -206,22 +228,25 @@ function applyCalendarFormFields(fields = {}) {
 }
 
 async function loadFrontBranding() {
-  try {
-    const res = await fetch('/api/system/branding-public.php', {
-      cache: 'no-store'
-    });
+  const res = await fetch('/api/system/branding-public.php', {
+    cache: 'no-store'
+  });
 
-    const data = await res.json();
+  const data = await res.json().catch(() => null);
 
-    if (!res.ok || data.success !== true || !data.branding) {
-      console.warn('Branding frontu niedostępny:', data);
-      return;
-    }
+  if (res.status === 404 && data?.error === 'tenant_not_found') {
+    showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.');
+    return false;
+  }
 
-    const branding = data.branding;
-    window.AIIQ_PUBLIC_PLAN_CONTEXT = data.plan_context || null;
+  if (!res.ok || data?.success !== true || !data?.branding) {
+    throw new Error('Nie udało się potwierdzić domeny kalendarza');
+  }
 
-   const clientName = (branding.client_name || '').trim();
+  const branding = data.branding;
+  window.AIIQ_PUBLIC_PLAN_CONTEXT = data.plan_context || null;
+
+const clientName = (branding.client_name || '').trim();
 const logoUrl = (branding.logo_url_front || '').trim();
 const faviconUrl = (branding.favicon_url_front || '').trim();
     
@@ -259,9 +284,7 @@ if (titleEl) {
   faviconEl.href = faviconUrl;
 }
 
-  } catch (e) {
-    console.error('loadFrontBranding error:', e);
-  }
+  return true;
 }
 
 async function loadFrontLegalDocumentsLinks() {
@@ -2090,7 +2113,12 @@ if (formStartedAtInput) {
   formStartedAtInput.value = String(Date.now());
 }
   try {
-    await loadFrontBranding();
+    const tenantAvailable = await loadFrontBranding();
+
+    if (!tenantAvailable) {
+      return;
+    }
+
     await loadFrontServiceSettings();
        await loadSettings();
     applyFrontCalendarEnabledState();
@@ -2113,6 +2141,12 @@ if (formStartedAtInput) {
     ALL_TIMES = generateTimeSlots();
   } catch (e) {
     console.error(e);
+
+    if (window.AppLoader) {
+      window.AppLoader.fail('Nie udało się potwierdzić adresu kalendarza. Odśwież stronę i spróbuj ponownie.');
+    }
+
+    return;
   }
 
   setDateLimits();

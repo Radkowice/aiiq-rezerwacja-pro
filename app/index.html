@@ -20,7 +20,7 @@
     <button type="button" class="app-loader__refresh" data-loader-refresh>Odśwież stronę</button>
   </div>
 </div>
-<div class="box">
+<div class="box" id="bookingApp">
   <div class="front-branding">
     <img id="frontLogo" class="front-logo" src="" alt="" hidden>
     <h1 id="serviceTitleFront">Rezerwacja konsultacji</h1>
@@ -124,6 +124,14 @@
   <div id="errorBox" class="error-box"></div>
 </div>
 
+<div class="box" id="tenantNotFoundView" hidden>
+  <div class="front-branding">
+    <h1>Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.</h1>
+  </div>
+  <p>Sprawdź poprawność adresu albo utwórz nowe konto.</p>
+  <a href="/rejestracja.html?plan=free">Utwórz konto</a>
+</div>
+
 <script src="assets/js/app-loader.js"></script>
 <script>
   if (window.AppLoader) {
@@ -131,7 +139,7 @@
     window.AppLoader.initFallback(10000);
   }
 </script>
-<script src="assets/js/app.js?v=8"></script>
+<script src="assets/js/app.js?v=9"></script>
 <footer class="front-footer app-footer" data-app-footer>
 
  <nav class="front-legal-links" data-app-footer-extra aria-label="Dokumenty prawne i informacje o aplikacji">

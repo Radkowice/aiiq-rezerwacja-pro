@@ -97,8 +97,9 @@ function getTenantIdFromHost(string $SUPABASE_URL, string $SUPABASE_KEY, string 
 
     foreach ($hosts as $host) {
         $url = rtrim($SUPABASE_URL, '/') . '/rest/v1/tenant_domains'
-            . '?select=tenant_id,domain'
+            . '?select=tenant_id,domain,is_active'
             . '&domain=eq.' . rawurlencode($host)
+            . '&is_active=eq.true'
             . '&limit=1';
 
         $ch = curl_init($url);

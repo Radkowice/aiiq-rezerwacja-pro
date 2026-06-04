@@ -26,7 +26,8 @@ if (!$tenantId) {
     http_response_code(404);
     echo json_encode([
         'success' => false,
-        'error' => 'Nie znaleziono klienta dla tej domeny'
+        'error' => 'tenant_not_found',
+        'message' => 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
