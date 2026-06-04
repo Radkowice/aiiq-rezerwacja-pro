@@ -1177,6 +1177,45 @@
     });
   }
 
+  function initEmployeeSidebarToggle() {
+    const layout = document.querySelector('.employee-panel-layout');
+    const sidebar = document.querySelector('.employee-panel-sidebar');
+    const toggleBtn = getElement('employeeSidebarToggle');
+    const desktopMedia = window.matchMedia('(min-width: 1101px)');
+
+    if (!layout || !sidebar || !toggleBtn) {
+      return;
+    }
+
+    const setCollapsed = (collapsed) => {
+      sidebar.classList.toggle('collapsed', collapsed);
+      layout.classList.toggle('sidebar-collapsed', collapsed);
+      toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+      toggleBtn.setAttribute('aria-label', collapsed ? 'Rozwiń panel boczny' : 'Zwiń panel boczny');
+    };
+
+    toggleBtn.addEventListener('click', () => {
+      if (!desktopMedia.matches) {
+        setCollapsed(false);
+        return;
+      }
+
+      setCollapsed(!sidebar.classList.contains('collapsed'));
+    });
+
+    const handleDesktopChange = (event) => {
+      if (!event.matches) {
+        setCollapsed(false);
+      }
+    };
+
+    if (typeof desktopMedia.addEventListener === 'function') {
+      desktopMedia.addEventListener('change', handleDesktopChange);
+    } else if (typeof desktopMedia.addListener === 'function') {
+      desktopMedia.addListener(handleDesktopChange);
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', async () => {
     const logoutBtn = getElement('employeeLogoutBtn');
     const refreshBtn = getElement('employeeRefreshBookingsBtn');
@@ -1185,6 +1224,7 @@
     const unblockFullDayBtn = getElement('employeeUnblockFullDayBtn');
     const passwordForm = getElement('employeePasswordForm');
 
+    initEmployeeSidebarToggle();
     bindTabs();
     bindPasswordToggles();
 

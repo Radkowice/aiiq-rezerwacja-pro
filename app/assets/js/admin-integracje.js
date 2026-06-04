@@ -95,6 +95,32 @@
     }, 3500);
   }
 
+  function handleGoogleOAuthReturn() {
+    const url = new URL(window.location.href);
+    const status = url.searchParams.get('google_calendar');
+
+    if (status !== 'success' && status !== 'error') {
+      return;
+    }
+
+    const message = url.searchParams.get('message')?.trim() || '';
+
+    if (status === 'success') {
+      showSimpleMessage('Google Calendar został połączony.', 'success');
+    } else {
+      showSimpleMessage(message || 'Nie udało się połączyć Google Calendar.', 'error');
+    }
+
+    url.searchParams.delete('google_calendar');
+    url.searchParams.delete('message');
+
+    const cleanUrl = url.pathname
+      + (url.searchParams.toString() ? `?${url.searchParams.toString()}` : '')
+      + url.hash;
+
+    window.history.replaceState({}, '', cleanUrl);
+  }
+
   function applyIntegrationsData(integrations) {
     const google = integrations?.google_calendar || {};
     const payu = integrations?.payu || {};
@@ -332,5 +358,6 @@ if (googleConnected) {
 
     bindEvents();
     loadIntegrations();
+    handleGoogleOAuthReturn();
   });
 })();

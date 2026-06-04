@@ -123,27 +123,47 @@ function initMenu() {
     'moje_konto'
   ];
 
+  function showSection(targetSection) {
+    const menuIndex = sectionMap.indexOf(targetSection);
+    const targetEl = document.querySelector(`[data-section="${targetSection}"]`);
+
+    if (menuIndex < 0 || !targetEl) {
+      return false;
+    }
+
+    menuItems.forEach(item => item.classList.remove('active'));
+    menuItems[menuIndex]?.classList.add('active');
+    sections.forEach(section => section.classList.add('hidden'));
+    targetEl.classList.remove('hidden');
+
+    window.dispatchEvent(new CustomEvent('aiiq:section-shown', {
+      detail: {
+        section: targetSection,
+      },
+    }));
+
+    return true;
+  }
+
+  function showSectionFromHash() {
+    const targetSection = window.location.hash.replace(/^#/, '');
+
+    if (targetSection !== '') {
+      showSection(targetSection);
+    }
+  }
+
   menuItems.forEach((btn, index) => {
     btn.addEventListener('click', () => {
-      menuItems.forEach(item => item.classList.remove('active'));
-      btn.classList.add('active');
-
-      sections.forEach(section => section.classList.add('hidden'));
-
       const targetSection = sectionMap[index];
-      const targetEl = document.querySelector(`[data-section="${targetSection}"]`);
-
-      if (targetEl) {
-        targetEl.classList.remove('hidden');
-      }
-
-      window.dispatchEvent(new CustomEvent('aiiq:section-shown', {
-        detail: {
-          section: targetSection,
-        },
-      }));
+      showSection(targetSection);
     });
   });
+
+  window.addEventListener('hashchange', showSectionFromHash);
+
+  showSectionFromHash();
+  window.requestAnimationFrame(showSectionFromHash);
 }
 
 function aiIqHasFeature(featureKey) {

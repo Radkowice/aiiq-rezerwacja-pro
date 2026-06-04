@@ -3,18 +3,83 @@
 require_once __DIR__ . '/../../helpers/supabase.php';
 require_once __DIR__ . '/../../helpers/crypto.php';
 
-$frontendReturnUrl = '/panel-admina.php';
+const GOOGLE_CALLBACK_FALLBACK_HOST = 'rezerwacja-ai-iq.pl';
+const GOOGLE_CALLBACK_RETURN_PATH = '/panel-admina.php';
+const GOOGLE_CALLBACK_RETURN_HOST_ERROR = 'Nie udało się ustalić domeny powrotu';
 
-function redirect_with_status(string $status, string $message = ''): void
+function google_callback_normalize_return_host(?string $rawHost): string
 {
-    global $frontendReturnUrl;
+    $host = strtolower(trim((string) $rawHost));
 
-    $query = http_build_query([
-        'google_calendar' => $status,
-        'message' => $message,
-    ]);
+    if ($host === '' || preg_match('/[\x00-\x1F\x7F]/', $host)) {
+        return '';
+    }
 
-    header('Location: ' . $frontendReturnUrl . '?' . $query . '#integracje');
+    $host = preg_replace('#^https?://#i', '', $host);
+
+    if (!is_string($host) || $host === '') {
+        return '';
+    }
+
+    $host = preg_replace('/:\d+$/', '', $host);
+
+    if (!is_string($host)) {
+        return '';
+    }
+
+    $host = rtrim($host, '.');
+
+    if (
+        $host === ''
+        || strlen($host) > 253
+        || preg_match('/[\/\\\\:?#\s]/', $host)
+        || !preg_match('/^[a-z0-9.-]+$/', $host)
+    ) {
+        return '';
+    }
+
+    foreach (explode('.', $host) as $label) {
+        if (
+            $label === ''
+            || strlen($label) > 63
+            || str_starts_with($label, '-')
+            || str_ends_with($label, '-')
+        ) {
+            return '';
+        }
+    }
+
+    return $host;
+}
+
+function redirect_with_status(string $status, string $message = '', string $returnHost = ''): void
+{
+    $returnHost = google_callback_normalize_return_host($returnHost);
+
+    if ($returnHost === '') {
+        $returnHost = GOOGLE_CALLBACK_FALLBACK_HOST;
+        $status = 'error';
+        $message = GOOGLE_CALLBACK_RETURN_HOST_ERROR;
+    }
+
+    $query = http_build_query(
+        [
+            'google_calendar' => $status,
+            'message' => $message,
+        ],
+        '',
+        '&',
+        PHP_QUERY_RFC3986
+    );
+
+    header(
+        'Location: https://'
+        . $returnHost
+        . GOOGLE_CALLBACK_RETURN_PATH
+        . '?'
+        . $query
+        . '#integracje'
+    );
     exit;
 }
 
@@ -63,34 +128,83 @@ function google_callback_supabase_request(
     ];
 }
 
+function google_callback_tenant_owns_host(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $host
+): bool {
+    $url = $supabaseUrl
+        . '/rest/v1/tenant_domains'
+        . '?select=tenant_id'
+        . '&domain=eq.' . rawurlencode($host)
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&limit=1';
+
+    $result = google_callback_supabase_request(
+        $url,
+        'GET',
+        $supabaseKey,
+        $schema
+    );
+
+    return $result['error'] === ''
+        && $result['http_code'] === 200
+        && isset($result['data'][0])
+        && is_array($result['data'][0])
+        && hash_equals($tenantId, (string) ($result['data'][0]['tenant_id'] ?? ''));
+}
+
+function google_callback_mark_state_used(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $stateId,
+    string $stateToken
+): bool {
+    $url = $supabaseUrl
+        . '/rest/v1/google_oauth_states'
+        . '?id=eq.' . rawurlencode($stateId)
+        . '&state_token=eq.' . rawurlencode($stateToken)
+        . '&provider=eq.google_calendar'
+        . '&used_at=is.null';
+
+    $result = google_callback_supabase_request(
+        $url,
+        'PATCH',
+        $supabaseKey,
+        $schema,
+        [
+            'used_at' => date('c'),
+        ],
+        [
+            'Prefer: return=representation',
+        ]
+    );
+
+    return $result['error'] === ''
+        && $result['http_code'] >= 200
+        && $result['http_code'] < 300
+        && isset($result['data'][0])
+        && is_array($result['data'][0]);
+}
+
 $code = trim((string) ($_GET['code'] ?? ''));
 $stateToken = trim((string) ($_GET['state'] ?? ''));
 $error = trim((string) ($_GET['error'] ?? ''));
 
-if ($error !== '') {
-    redirect_with_status('error', 'Autoryzacja Google została przerwana.');
-}
-
-if ($code === '' || $stateToken === '') {
-    redirect_with_status('error', 'Brak kodu autoryzacji Google.');
+if ($stateToken === '') {
+    redirect_with_status('error');
 }
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
 $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
-$googleClientId = trim((string) getenv('GOOGLE_CLIENT_ID'));
-$googleClientSecret = trim((string) getenv('GOOGLE_CLIENT_SECRET'));
-$googleRedirectUri = trim((string) getenv('GOOGLE_REDIRECT_URI'));
-
-if (
-    $supabaseUrl === ''
-    || $supabaseKey === ''
-    || $googleClientId === ''
-    || $googleClientSecret === ''
-    || $googleRedirectUri === ''
-) {
-    redirect_with_status('error', 'Brak konfiguracji Google OAuth.');
+if ($supabaseUrl === '' || $supabaseKey === '') {
+    redirect_with_status('error');
 }
 
 /**
@@ -98,7 +212,7 @@ if (
  */
 $stateUrl = $supabaseUrl
     . '/rest/v1/google_oauth_states'
-    . '?select=id,state_token,tenant_id,user_id,expires_at,used_at'
+    . '?select=id,state_token,tenant_id,user_id,expires_at,used_at,return_host'
     . '&state_token=eq.' . rawurlencode($stateToken)
     . '&provider=eq.google_calendar'
     . '&limit=1';
@@ -130,7 +244,42 @@ if (!$expiresAt || $expiresAt < time()) {
     redirect_with_status('error', 'Token Google wygasł. Spróbuj połączyć konto ponownie.');
 }
 
-$tenantId = (string) $stateRow['tenant_id'];
+$stateId = trim((string) ($stateRow['id'] ?? ''));
+$tenantId = trim((string) ($stateRow['tenant_id'] ?? ''));
+$returnHost = google_callback_normalize_return_host((string) ($stateRow['return_host'] ?? ''));
+
+if (
+    $stateId === ''
+    || $tenantId === ''
+    || $returnHost === ''
+    || !google_callback_tenant_owns_host($supabaseUrl, $supabaseKey, $schema, $tenantId, $returnHost)
+) {
+    redirect_with_status('error');
+}
+
+if (!google_callback_mark_state_used($supabaseUrl, $supabaseKey, $schema, $stateId, $stateToken)) {
+    redirect_with_status(
+        'error',
+        'Nie udało się bezpiecznie zakończyć autoryzacji Google.',
+        $returnHost
+    );
+}
+
+if ($error !== '') {
+    redirect_with_status('error', 'Autoryzacja Google została przerwana.', $returnHost);
+}
+
+if ($code === '') {
+    redirect_with_status('error', 'Brak kodu autoryzacji Google.', $returnHost);
+}
+
+$googleClientId = trim((string) getenv('GOOGLE_CLIENT_ID'));
+$googleClientSecret = trim((string) getenv('GOOGLE_CLIENT_SECRET'));
+$googleRedirectUri = trim((string) getenv('GOOGLE_REDIRECT_URI'));
+
+if ($googleClientId === '' || $googleClientSecret === '' || $googleRedirectUri === '') {
+    redirect_with_status('error', 'Brak konfiguracji Google OAuth.', $returnHost);
+}
 
 /**
  * 2. Wymiana code na tokeny.
@@ -176,19 +325,19 @@ if ($tokenCurlError || $tokenHttpCode < 200 || $tokenHttpCode >= 300) {
             'http_code' => $tokenHttpCode,
             'curl_error' => $tokenCurlError,
             'response' => $tokenResponse,
-            'redirect_uri' => $redirectUri,
-            'client_id' => $clientId,
+            'redirect_uri' => $googleRedirectUri,
+            'client_id' => $googleClientId,
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
         FILE_APPEND
     );
 
-    redirect_with_status('error', 'Nie udało się pobrać tokenów Google.');
+    redirect_with_status('error', 'Nie udało się pobrać tokenów Google.', $returnHost);
 }
 
 $tokenData = json_decode((string) $tokenResponse, true);
 
 if (!is_array($tokenData) || empty($tokenData['access_token'])) {
-    redirect_with_status('error', 'Google nie zwrócił poprawnych tokenów.');
+    redirect_with_status('error', 'Google nie zwrócił poprawnych tokenów.', $returnHost);
 }
 
 $expiresIn = (int) ($tokenData['expires_in'] ?? 3600);
@@ -250,7 +399,7 @@ $mergedSecrets = array_merge($existingSecrets, $newSecrets);
 try {
     $encryptedSecrets = encrypt_json_secret($mergedSecrets);
 } catch (Throwable $e) {
-    redirect_with_status('error', 'Nie udało się zaszyfrować tokenów Google.');
+    redirect_with_status('error', 'Nie udało się zaszyfrować tokenów Google.', $returnHost);
 }
 
 $settings = array_merge(
@@ -289,27 +438,7 @@ $saveResult = google_callback_supabase_request(
 );
 
 if ($saveResult['error'] || $saveResult['http_code'] < 200 || $saveResult['http_code'] >= 300) {
-    redirect_with_status('error', 'Nie udało się zapisać integracji Google.');
+    redirect_with_status('error', 'Nie udało się zapisać integracji Google.', $returnHost);
 }
 
-/**
- * 4. Oznaczenie state jako użyte.
- */
-$markStateUrl = $supabaseUrl
-    . '/rest/v1/google_oauth_states'
-    . '?state_token=eq.' . rawurlencode($stateToken);
-
-google_callback_supabase_request(
-    $markStateUrl,
-    'PATCH',
-    $supabaseKey,
-    $schema,
-    [
-        'used_at' => date('c'),
-    ],
-    [
-        'Prefer: return=minimal',
-    ]
-);
-
-redirect_with_status('success', 'Google Calendar połączony.');
+redirect_with_status('success', 'Google Calendar połączony.', $returnHost);

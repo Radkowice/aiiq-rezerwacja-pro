@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Panel personelu</title>
-  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=3">
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=5">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body class="employee-panel-body">
@@ -13,21 +13,27 @@
     <aside class="employee-panel-sidebar" aria-label="Nawigacja panelu personelu">
       <div class="employee-panel-brand">
         <div class="sidebar-logo employee-panel-brand-mark">AI-IQ</div>
-        <div>
-          <strong>Panel personelu</strong>
-          <span>Rezerwacja Pro</span>
-        </div>
+        <button
+          type="button"
+          id="employeeSidebarToggle"
+          class="employee-sidebar-toggle"
+          aria-label="Zwiń panel boczny"
+          aria-expanded="true"
+        >&#9776;</button>
       </div>
 
       <nav class="employee-panel-tabs" aria-label="Zakładki panelu personelu">
         <button type="button" class="employee-panel-tab is-active" data-panel-tab="reservations">
-          Moje rezerwacje
+          <span class="employee-panel-tab-label">Moje rezerwacje</span>
+          <span class="employee-panel-tab-icon" aria-hidden="true">&#128197;</span>
         </button>
         <button type="button" class="employee-panel-tab" data-panel-tab="blocks">
-          Moje blokady
+          <span class="employee-panel-tab-label">Moje blokady</span>
+          <span class="employee-panel-tab-icon" aria-hidden="true">&#128683;</span>
         </button>
         <button type="button" class="employee-panel-tab" data-panel-tab="information">
-          Informacje
+          <span class="employee-panel-tab-label">Informacje</span>
+          <span class="employee-panel-tab-icon" aria-hidden="true">&#8505;</span>
         </button>
       </nav>
     </aside>
@@ -286,7 +292,7 @@
     </div>
   </div>
 
-  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=2"></script>
+  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=3"></script>
   <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>
