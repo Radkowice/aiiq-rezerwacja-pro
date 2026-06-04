@@ -6,6 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rejestracja</title>
   <link rel="stylesheet" href="assets/css/login.css">
+  <link rel="stylesheet" href="assets/css/rejestracja.css?v=1">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body>
@@ -14,6 +15,10 @@
       <h2>AI-IQ Rezerwacja Pro</h2>
       <p>
         Utwórz konto administratora i uzupełnij podstawowe dane firmy.
+        <br>
+        <strong>Twój plan: <span id="selectedPlanName">Free</span></strong>
+        <br>
+        <span id="selectedPlanHint">Plan Free możesz później rozszerzyć do wersji Pro.</span>
       </p>
     </div>
 
@@ -22,7 +27,7 @@
 
       <form id="registerForm">
         <div class="register-section">
-          <h3>Dane konta</h3>
+          <h3>Dane firmy</h3>
 
           <input
             type="text"
@@ -33,31 +38,6 @@
           >
 
           <input
-            type="email"
-            id="email"
-            placeholder="E-mail administratora"
-            autocomplete="email"
-            required
-          >
-
-          <input
-            type="password"
-            id="password"
-            placeholder="Hasło"
-            autocomplete="new-password"
-            required
-          >
-
-          <label class="password-toggle-row">
-            <input type="checkbox" onclick="togglePassword()">
-            <span>Pokaż hasło</span>
-          </label>
-        </div>
-
-        <div class="register-section">
-          <h3>Dane firmy / dane do FV</h3>
-
-          <input
             type="text"
             id="companyFullName"
             placeholder="Pełna nazwa firmy"
@@ -65,42 +45,43 @@
             required
           >
 
-         <input
-  type="text"
-  id="companyOwnerName"
-  placeholder="Imię i nazwisko osoby kontaktowej"
-  autocomplete="name"
-  required
->
+          <input
+            type="text"
+            id="companyOwnerName"
+            placeholder="Imię i nazwisko osoby kontaktowej"
+            autocomplete="name"
+            required
+          >
 
-<small class="field-hint">
-  Wpisz imię i nazwisko
-</small>
+          <small class="field-hint">
+            Wpisz imię i nazwisko
+          </small>
 
-         <input
-  type="text"
-  id="companyTaxId"
-  placeholder="NIP 1111111111 lub 111-111-11-11"
-  inputmode="numeric"
-  autocomplete="off"
-  required
->
+          <input
+            type="text"
+            id="companyTaxId"
+            placeholder="NIP 1111111111 lub 111-111-11-11"
+            inputmode="numeric"
+            autocomplete="off"
+            required
+          >
 
-<small class="field-hint">
-  Wpisz NIP
-</small>
+          <small class="field-hint">
+            Wpisz NIP
+          </small>
 
-         <textarea
-  id="companyAddress"
-  placeholder="Adres firmy: ulica i numer, kod pocztowy XX-XXX, miejscowość"
-  rows="3"
-  autocomplete="street-address"
-  required
-></textarea>
+          <textarea
+            id="companyAddress"
+            placeholder="Adres firmy: ulica i numer, kod pocztowy XX-XXX, miejscowość"
+            rows="3"
+            autocomplete="street-address"
+            required
+          ></textarea>
 
-<small class="field-hint">
-  ulica nr, Miejscowość, xx-xxx
-</small>
+          <small class="field-hint">
+            ulica nr, Miejscowość, xx-xxx
+          </small>
+
           <input
             type="email"
             id="companyEmail"
@@ -112,18 +93,108 @@
             Jeśli zostawisz puste, użyjemy e-maila administratora
           </small>
 
-        <input
-  type="tel"
-  id="companyPhone"
-  placeholder="Telefon firmy: 123456789 lub +48 123-456-789"
-  inputmode="tel"
-  autocomplete="tel"
-  required
->
+          <input
+            type="tel"
+            id="companyPhone"
+            placeholder="Telefon firmy: 123456789 lub +48 123-456-789"
+            inputmode="tel"
+            autocomplete="tel"
+            required
+          >
 
-<small class="field-hint">
-  Dozwolone formaty: 123456789, +48123456789, 123-456-789 lub +48 123-456-789
-</small>
+          <small class="field-hint">
+            Dozwolone formaty: 123456789, +48123456789, 123-456-789 lub +48 123-456-789
+          </small>
+        </div>
+
+        <div class="register-section">
+          <h3>Adres panelu</h3>
+
+          <label for="subdomainSlug">Adres panelu</label>
+
+          <div class="subdomain-address-field">
+            <input
+              type="text"
+              id="subdomainSlug"
+              placeholder="salon-anna"
+              autocomplete="off"
+              autocapitalize="none"
+              spellcheck="false"
+              aria-describedby="subdomainAvailabilityMessage"
+              required
+            >
+            <span class="subdomain-address-suffix">.rezerwacja-ai-iq.pl</span>
+          </div>
+
+          <button type="button" class="login-submit-btn subdomain-check-btn" id="checkSubdomainAvailability">
+            Sprawdź dostępność
+          </button>
+
+          <small class="field-hint subdomain-availability-message" id="subdomainAvailabilityMessage" aria-live="polite"></small>
+        </div>
+
+        <div class="register-section">
+          <h3>Konto administratora</h3>
+
+          <input
+            type="email"
+            id="email"
+            placeholder="E-mail administratora"
+            autocomplete="email"
+            required
+          >
+
+          <div class="login-password-field">
+            <input
+              type="password"
+              id="password"
+              placeholder="Hasło"
+              autocomplete="new-password"
+              required
+            >
+
+            <button
+              type="button"
+              class="login-toggle-password"
+              data-password-toggle="password"
+              aria-label="Pokaż hasło"
+            >
+              <span class="password-eye password-eye-open">👁️</span>
+              <span class="password-eye password-eye-closed">🙈</span>
+            </button>
+          </div>
+
+          <div class="login-password-field">
+            <input
+              type="password"
+              id="passwordConfirm"
+              placeholder="Powtórz hasło"
+              autocomplete="new-password"
+              required
+            >
+
+            <button
+              type="button"
+              class="login-toggle-password"
+              data-password-toggle="passwordConfirm"
+              aria-label="Pokaż powtórzone hasło"
+            >
+              <span class="password-eye password-eye-open">👁️</span>
+              <span class="password-eye password-eye-closed">🙈</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="register-section">
+          <h3>Zgody</h3>
+
+          <label class="password-toggle-row">
+            <input type="checkbox" id="registrationConsent" required>
+            <span>
+              Akceptuję <a href="/legal/regulamin.html" target="_blank" rel="noopener noreferrer">Regulamin</a>
+              oraz <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener noreferrer">Politykę prywatności</a>.
+            </span>
+          </label>
         </div>
 
         <button type="submit">Utwórz konto</button>
@@ -135,7 +206,7 @@
    <div class="auth-footer app-footer" data-app-footer></div>
   </div>
 
-  <script src="assets/js/register.js"></script>
+  <script src="assets/js/register.js?v=7"></script>
   <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>

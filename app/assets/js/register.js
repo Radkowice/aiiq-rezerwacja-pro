@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('registerForm');
   const passwordInput = document.getElementById('password');
+  const subdomainInput = document.getElementById('subdomainSlug');
 
   if (!form) return;
 
@@ -10,7 +11,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  initSelectedRegistrationPlan();
+
+  const subdomainAvailability = initSubdomainAvailabilityState();
+
   initRegisterPasswordStrength(passwordInput);
+  initSubdomainPreview(subdomainInput, subdomainAvailability);
+  initSubdomainAvailabilityCheck(subdomainInput, subdomainAvailability);
+  initPasswordVisibilityToggles();
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -18,8 +26,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     showRegisterError('');
 
     const clientName = getRegisterValue('registerClientName');
+    const subdomainInputValue = getRegisterValue('subdomainSlug');
+    const subdomainSlug = normalizeSubdomainSlug(subdomainInputValue);
     const email = getRegisterValue('email');
     const password = document.getElementById('password')?.value || '';
+    const passwordConfirm = document.getElementById('passwordConfirm')?.value || '';
+    const registrationConsent = document.getElementById('registrationConsent')?.checked === true;
 
     const companyFullName = getRegisterValue('companyFullName');
     const companyOwnerName = getRegisterValue('companyOwnerName');
@@ -30,10 +42,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const companyEmail = companyEmailInput || email;
     const passwordResult = evaluateRegisterPasswordStrength(password);
+    const selectedPlan = getSelectedRegistrationPlan();
 
     if (!clientName) {
       showRegisterError('Podaj nazwę publiczną / markę.');
       focusRegisterField('registerClientName');
+      return;
+    }
+
+    const subdomainError = getSubdomainInputError(subdomainInputValue);
+
+    if (subdomainError) {
+      showRegisterError(subdomainError);
+      setSubdomainAvailabilityMessage(subdomainError, 'error');
+      focusRegisterField('subdomainSlug');
+      return;
+    }
+
+    const availabilityResult = await ensureSubdomainAvailability(subdomainSlug, subdomainAvailability);
+
+    if (!availabilityResult.available) {
+      showRegisterError(availabilityResult.message || 'Ten adres panelu nie jest dostępny.');
+      focusRegisterField('subdomainSlug');
       return;
     }
 
@@ -55,7 +85,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-        if (!isValidCompanyName(companyFullName)) {
+    if (!passwordConfirm || password !== passwordConfirm) {
+      showRegisterError('Hasła muszą być identyczne.');
+      focusRegisterField('passwordConfirm');
+      return;
+    }
+
+    if (!isValidCompanyName(companyFullName)) {
       showRegisterError('Podaj poprawną pełną nazwę firmy.');
       focusRegisterField('companyFullName');
       return;
@@ -91,6 +127,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    if (!registrationConsent) {
+      showRegisterError('Zaakceptuj Regulamin oraz Politykę prywatności.');
+      focusRegisterField('registrationConsent');
+      return;
+    }
+
     const submitBtn = form.querySelector('button[type="submit"]');
     const originalBtnText = submitBtn ? submitBtn.textContent : '';
 
@@ -107,8 +149,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         },
         body: JSON.stringify({
           client_name: clientName,
+          subdomain_slug: subdomainSlug,
+          plan_code: selectedPlan.code,
           email,
           password,
+          password_confirm: passwordConfirm,
+          terms_accepted: registrationConsent,
+          privacy_accepted: registrationConsent,
 
           company_full_name: companyFullName,
           company_owner_name: companyOwnerName,
@@ -134,7 +181,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       window.location.href = '/logowanie.html';
     } catch (error) {
-      console.error('register error:', error);
       showRegisterError('Błąd połączenia z serwerem.');
     } finally {
       if (submitBtn) {
@@ -206,7 +252,6 @@ async function checkRegistrationAvailability() {
 
     return true;
   } catch (error) {
-    console.error('registration availability error:', error);
     showRegisterError('Błąd połączenia z serwerem podczas sprawdzania rejestracji.');
     return false;
   }
@@ -214,6 +259,260 @@ async function checkRegistrationAvailability() {
 
 function isValidEmail(email) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(email || '').trim());
+}
+
+function normalizeSubdomainSlug(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function isValidSubdomainSlug(value) {
+  const slug = normalizeSubdomainSlug(value);
+
+  if (slug.length < 3 || slug.length > 63 || slug.includes('--')) {
+    return false;
+  }
+
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug);
+}
+
+function getSubdomainInputError(value) {
+  const rawValue = String(value || '').trim();
+  const normalizedValue = normalizeSubdomainSlug(rawValue);
+
+  if (!rawValue) {
+    return 'Podaj krótką nazwę adresu panelu, np. salon-anna.';
+  }
+
+  const addressScopeError = getSubdomainAddressScopeError(rawValue);
+
+  if (addressScopeError) {
+    return addressScopeError;
+  }
+
+  if (!isValidSubdomainSlug(normalizedValue)) {
+    return 'Nazwa musi mieć od 3 do 63 znaków i może zawierać tylko małe litery, cyfry oraz pojedyncze myślniki.';
+  }
+
+  return '';
+}
+
+function getSubdomainAddressScopeError(value) {
+  const rawValue = String(value || '').trim();
+  const normalizedValue = normalizeSubdomainSlug(rawValue);
+
+  if (
+    /^https?:\/\//i.test(rawValue)
+    || /^www\./i.test(rawValue)
+    || normalizedValue.includes('.rezerwacja-ai-iq.pl')
+    || /[./\\:?#\s]/.test(rawValue)
+  ) {
+    return 'Wpisz tylko krótką nazwę, np. salon-anna, bez https, www i końcówki domeny.';
+  }
+
+  return '';
+}
+
+function initSubdomainPreview(input, subdomainAvailability) {
+  if (!input) return;
+
+  const clearAvailability = () => {
+    if (subdomainAvailability) {
+      subdomainAvailability.slug = '';
+      subdomainAvailability.available = false;
+      subdomainAvailability.checked = false;
+    }
+  };
+
+  input.addEventListener('input', () => {
+    input.value = String(input.value || '').toLowerCase();
+    clearAvailability();
+    setSubdomainAvailabilityMessage('');
+  });
+
+  input.addEventListener('blur', () => {
+    input.value = normalizeSubdomainSlug(input.value);
+  });
+}
+
+function initSubdomainAvailabilityState() {
+  return {
+    slug: '',
+    available: false,
+    checked: false
+  };
+}
+
+function initSubdomainAvailabilityCheck(input, subdomainAvailability) {
+  const button = document.getElementById('checkSubdomainAvailability');
+
+  if (!input || !button) return;
+
+  button.addEventListener('click', async () => {
+    const rawValue = input.value;
+    const error = getSubdomainInputError(rawValue);
+
+    if (error) {
+      setSubdomainAvailabilityMessage(error, 'error');
+      input.focus();
+      return;
+    }
+
+    const slug = normalizeSubdomainSlug(rawValue);
+    const originalButtonText = button.textContent;
+
+    try {
+      button.disabled = true;
+      button.textContent = 'Sprawdzam...';
+      setSubdomainAvailabilityMessage('Sprawdzam dostępność adresu...', 'info');
+
+      const result = await checkSubdomainAvailability(slug);
+
+      subdomainAvailability.slug = slug;
+      subdomainAvailability.available = result.available === true;
+      subdomainAvailability.checked = true;
+
+      setSubdomainAvailabilityMessage(
+        result.message || (
+          result.available
+            ? `Adres ${slug}.rezerwacja-ai-iq.pl jest dostępny.`
+            : 'Ten adres panelu jest niedostępny.'
+        ),
+        result.available ? 'success' : 'error'
+      );
+    } catch (error) {
+      subdomainAvailability.slug = '';
+      subdomainAvailability.available = false;
+      subdomainAvailability.checked = false;
+      setSubdomainAvailabilityMessage('Nie udało się sprawdzić adresu. Spróbuj ponownie.', 'error');
+    } finally {
+      button.disabled = false;
+      button.textContent = originalButtonText || 'Sprawdź dostępność';
+    }
+  });
+}
+
+async function ensureSubdomainAvailability(slug, subdomainAvailability) {
+  if (
+    subdomainAvailability
+    && subdomainAvailability.checked
+    && subdomainAvailability.slug === slug
+    && subdomainAvailability.available
+  ) {
+    return {
+      available: true,
+      message: `Adres ${slug}.rezerwacja-ai-iq.pl jest dostępny.`
+    };
+  }
+
+  setSubdomainAvailabilityMessage('Sprawdzam dostępność adresu...', 'info');
+
+  const result = await checkSubdomainAvailability(slug);
+
+  if (subdomainAvailability) {
+    subdomainAvailability.slug = slug;
+    subdomainAvailability.available = result.available === true;
+    subdomainAvailability.checked = true;
+  }
+
+  setSubdomainAvailabilityMessage(
+    result.message || (
+      result.available
+        ? `Adres ${slug}.rezerwacja-ai-iq.pl jest dostępny.`
+        : 'Ten adres panelu jest niedostępny.'
+    ),
+    result.available ? 'success' : 'error'
+  );
+
+  return result;
+}
+
+async function checkSubdomainAvailability(slug) {
+  const res = await fetch(`/api/auth/register.php?action=check_subdomain&slug=${encodeURIComponent(slug)}`, {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json'
+    },
+    cache: 'no-store'
+  });
+
+  let data = null;
+
+  try {
+    data = await res.json();
+  } catch (jsonError) {
+    data = null;
+  }
+
+  if (!res.ok || !data?.success) {
+    return {
+      available: false,
+      message: data?.error || 'Nie udało się sprawdzić dostępności adresu.'
+    };
+  }
+
+  return {
+    available: data.available === true,
+    message: data.message || '',
+    domain: data.domain || ''
+  };
+}
+
+function setSubdomainAvailabilityMessage(message, type = '') {
+  const messageElement = document.getElementById('subdomainAvailabilityMessage');
+
+  if (!messageElement) return;
+
+  messageElement.textContent = message || '';
+  messageElement.classList.remove('is-success', 'is-error', 'is-info');
+
+  if (type === 'success') {
+    messageElement.classList.add('is-success');
+  }
+
+  if (type === 'error') {
+    messageElement.classList.add('is-error');
+  }
+
+  if (type === 'info') {
+    messageElement.classList.add('is-info');
+  }
+}
+
+function initSelectedRegistrationPlan() {
+  const selectedPlan = getSelectedRegistrationPlan();
+  const planNameElement = document.getElementById('selectedPlanName');
+  const planHintElement = document.getElementById('selectedPlanHint');
+
+  if (planNameElement) {
+    planNameElement.textContent = selectedPlan.label;
+  }
+
+  if (planHintElement) {
+    planHintElement.textContent = selectedPlan.hint;
+  }
+
+  document.body.dataset.registrationPlan = selectedPlan.code;
+
+  return selectedPlan;
+}
+
+function getSelectedRegistrationPlan() {
+  const params = new URLSearchParams(window.location.search);
+  const rawPlan = String(params.get('plan') || params.get('pakiet') || 'free').trim().toLowerCase();
+
+  if (rawPlan === 'pro') {
+    return {
+      code: 'pro',
+      label: 'Pro',
+      hint: 'Po rejestracji konto zostanie przygotowane do aktywacji planu Pro.'
+    };
+  }
+
+  return {
+    code: 'free',
+    label: 'Free',
+    hint: 'Plan Free możesz później rozszerzyć do wersji Pro.'
+  };
 }
 
 function normalizeDigits(value) {
@@ -370,7 +669,9 @@ function initRegisterPasswordStrength(passwordInput) {
     strengthBox = document.createElement('div');
     strengthBox.id = 'register-password-strength';
     strengthBox.className = 'register-password-strength';
-    passwordInput.insertAdjacentElement('afterend', strengthBox);
+
+    const passwordField = passwordInput.closest('.login-password-field');
+    (passwordField || passwordInput).insertAdjacentElement('afterend', strengthBox);
   }
 
   passwordInput.addEventListener('input', () => {
@@ -389,9 +690,25 @@ function initRegisterPasswordStrength(passwordInput) {
   });
 }
 
-function togglePassword() {
-  const passwordInput = document.getElementById('password');
-  if (!passwordInput) return;
+function initPasswordVisibilityToggles() {
+  document.querySelectorAll('[data-password-toggle]').forEach((button) => {
+    button.addEventListener('click', () => {
+      const targetId = button.getAttribute('data-password-toggle') || '';
+      const input = document.getElementById(targetId);
 
-  passwordInput.type = passwordInput.type === 'password' ? 'text' : 'password';
+      if (!input) return;
+
+      const isHidden = input.type === 'password';
+      const isConfirmation = targetId === 'passwordConfirm';
+
+      input.type = isHidden ? 'text' : 'password';
+      button.classList.toggle('is-visible', isHidden);
+      button.setAttribute(
+        'aria-label',
+        isHidden
+          ? isConfirmation ? 'Ukryj powtórzone hasło' : 'Ukryj hasło'
+          : isConfirmation ? 'Pokaż powtórzone hasło' : 'Pokaż hasło'
+      );
+    });
+  });
 }

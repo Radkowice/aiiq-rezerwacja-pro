@@ -1,0 +1,85 @@
+/* Rejestracja — dopracowanie pola subdomeny */
+
+.subdomain-address-field {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto;
+  align-items: stretch;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.subdomain-address-field #subdomainSlug {
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  height: 46px;
+  margin: 0;
+  box-sizing: border-box;
+  border-right: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.subdomain-address-suffix {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 46px;
+  box-sizing: border-box;
+  padding: 0 18px;
+  border: 1px solid #aeb8c7;
+  border-left: 0;
+  border-top-right-radius: 12px;
+  border-bottom-right-radius: 12px;
+  background: #eef2f7;
+  color: #0f172a;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.subdomain-check-btn {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.subdomain-availability-message {
+  display: block;
+  min-height: 18px;
+  margin-top: 8px;
+}
+
+.subdomain-availability-message.is-success {
+  color: #15803d;
+  font-weight: 700;
+}
+
+.subdomain-availability-message.is-error {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.subdomain-availability-message.is-info {
+  color: #334155;
+}
+
+@media (max-width: 640px) {
+  .subdomain-address-field {
+    grid-template-columns: 1fr;
+  }
+
+  .subdomain-address-field #subdomainSlug {
+    width: 100%;
+    border-right: 1px solid #aeb8c7;
+    border-radius: 12px 12px 0 0;
+  }
+
+  .subdomain-address-suffix {
+    width: 100%;
+    height: 42px;
+    border: 1px solid #aeb8c7;
+    border-top: 0;
+    border-radius: 0 0 12px 12px;
+  }
+}
