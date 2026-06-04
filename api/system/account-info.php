@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -170,6 +171,7 @@ if (!$subscriptionResult['ok']) {
 }
 
 $subscription = $subscriptionResult['data'][0] ?? null;
+$planContext = plan_features_get_context($tenantId);
 
 account_info_json(200, [
     'success' => true,
@@ -177,4 +179,5 @@ account_info_json(200, [
     'branding' => is_array($branding) ? $branding : null,
     'company' => is_array($company) ? $company : null,
     'subscription' => is_array($subscription) ? $subscription : null,
+    'plan_context' => $planContext,
 ]);

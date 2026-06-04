@@ -5,11 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Panel personelu</title>
-  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=5">
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=6">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body class="employee-panel-body">
-  <div class="employee-panel-layout">
+  <main class="employee-plan-lock" id="employeePlanLock" hidden>
+    <section class="employee-panel-card employee-plan-lock-card">
+      <h1>Panel personelu jest dostępny w planie Pro.</h1>
+      <p>Ta funkcja będzie dostępna po aktywacji planu Pro.</p>
+    </section>
+  </main>
+
+  <div class="employee-panel-layout" hidden>
     <aside class="employee-panel-sidebar" aria-label="Nawigacja panelu personelu">
       <div class="employee-panel-brand">
         <div class="sidebar-logo employee-panel-brand-mark">AI-IQ</div>
@@ -292,7 +299,7 @@
     </div>
   </div>
 
-  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=3"></script>
+  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=4"></script>
   <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>

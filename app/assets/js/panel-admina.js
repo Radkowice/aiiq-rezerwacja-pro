@@ -94,6 +94,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       loadBookings(currentBookingsView)
     ]);
 
+    document.body.classList.toggle('plan-free', aiIqIsFreePlan());
     applyPlanLocks();
 
     if (aiIqHasFeature('admin_staff_notifications')) {

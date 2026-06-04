@@ -95,6 +95,23 @@
     window.location.href = LOGIN_URL;
   }
 
+  function showPlanLock(message) {
+    const layout = document.querySelector('.employee-panel-layout');
+    const lock = getElement('employeePlanLock');
+
+    if (layout) {
+      layout.hidden = true;
+    }
+
+    if (lock) {
+      const title = lock.querySelector('h1');
+      if (title && message) {
+        title.textContent = message;
+      }
+      lock.hidden = false;
+    }
+  }
+
   function valueOrFallback(value, fallback) {
     const normalized = String(value ?? '').trim();
 
@@ -938,6 +955,11 @@
 
       const data = await response.json().catch(() => null);
 
+      if (response.status === 403 && data?.upgrade_required === true) {
+        showPlanLock(data.error || 'Panel personelu jest dostępny w planie Pro.');
+        return null;
+      }
+
       if (!response.ok || !data || data.success !== true || !data.staff) {
         redirectToLogin();
         return null;
@@ -955,6 +977,11 @@
 
       if (subtitle) {
         subtitle.textContent = 'Zalogowano jako: ' + (staff.display_name || staff.email || 'personel');
+      }
+
+      const layout = document.querySelector('.employee-panel-layout');
+      if (layout) {
+        layout.hidden = false;
       }
 
       renderStaffInformation(company, staff);

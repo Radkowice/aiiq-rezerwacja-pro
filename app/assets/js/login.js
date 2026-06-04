@@ -31,6 +31,24 @@ function clearLoginError() {
   setLoginError('');
 }
 
+function showActivationMessage() {
+  const params = new URLSearchParams(window.location.search);
+  const activated = params.get('activated');
+  const activationError = params.get('activation');
+
+  if (activated === '1') {
+    setLoginError('Konto zostało aktywowane. Możesz się teraz zalogować.');
+  } else if (activationError === 'domain_unavailable') {
+    setLoginError('Konto zostało aktywowane, ale adres panelu nie jest jeszcze dostępny.');
+  } else if (activationError) {
+    setLoginError('Link aktywacyjny jest nieprawidłowy, wygasł albo został już użyty.');
+  } else {
+    return;
+  }
+
+  window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
+}
+
 async function login() {
   clearLoginError();
 
@@ -86,7 +104,8 @@ function togglePassword() {
   button.classList.toggle('is-visible', !isVisible);
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
   clearLoginError();
-  checkSetupBeforeLogin();
+  await checkSetupBeforeLogin();
+  showActivationMessage();
 });

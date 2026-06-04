@@ -179,7 +179,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      window.location.href = '/logowanie.html';
+      window.location.href = '/aktywacja.html';
     } catch (error) {
       showRegisterError('Błąd połączenia z serwerem.');
     } finally {

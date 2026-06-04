@@ -1,5 +1,6 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../helpers/php_mail.php';
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
@@ -59,7 +60,7 @@ if ($method === 'GET') {
             'slug' => $subdomainSlug,
             'domain' => $availability['domain'],
             'message' => $availability['message'],
-        ], $availability['available'] ? 200 : 200);
+        ]);
     }
 
     $domain = normalize_domain(
@@ -153,17 +154,17 @@ $companyEmail = $companyEmailRaw !== ''
     ? filter_var($companyEmailRaw, FILTER_VALIDATE_EMAIL)
     : $email;
 
+if ($planCode === '') {
+    json_response([
+        'success' => false,
+        'error' => 'Nieprawidłowy plan rejestracji.'
+    ], 400);
+}
+
 if (!is_valid_subdomain_slug($subdomainSlug)) {
     json_response([
         'success' => false,
         'error' => 'Adres panelu musi mieć od 3 do 63 znaków i może zawierać tylko małe litery, cyfry oraz pojedyncze myślniki.'
-    ], 400);
-}
-
-if (!is_valid_registration_plan_code($planCode)) {
-    json_response([
-        'success' => false,
-        'error' => 'Nieprawidłowy plan rejestracji.'
     ], 400);
 }
 
@@ -309,6 +310,7 @@ $createdUser = false;
 $createdDomain = false;
 $createdServiceSettings = false;
 $createdConsent = false;
+$createdActivationToken = false;
 
 try {
     register_debug('GENERATE_IDS_BEFORE');
@@ -369,7 +371,7 @@ try {
         'email'         => $email,
         'password_hash' => $passwordHash,
         'role'          => 'administrator',
-        'is_active'     => true,
+        'is_active'     => false,
         'created_at'    => date('c'),
     ];
 
@@ -477,13 +479,62 @@ try {
 
     $createdConsent = true;
 
+    // 6. TOKEN I WIADOMOSC AKTYWACYJNA
+    $activationToken = bin2hex(random_bytes(32));
+    $activationTokenHash = hash('sha256', $activationToken);
+    $activationCreatedAt = gmdate('c');
+    $activationExpiresAt = gmdate('c', time() + (48 * 60 * 60));
+
+    $activationTokenPayload = [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $email,
+        'token_hash' => $activationTokenHash,
+        'expires_at' => $activationExpiresAt,
+        'used_at' => null,
+        'revoked_at' => null,
+        'created_at' => $activationCreatedAt,
+        'ip_address' => get_registration_ip_address(),
+        'user_agent' => get_registration_user_agent(),
+    ];
+
+    $activationTokenInsert = supabase_request(
+        'POST',
+        '/rest/v1/user_activation_tokens',
+        $activationTokenPayload
+    );
+
+    if (!$activationTokenInsert['ok']) {
+        throw new Exception('Nie udało się przygotować aktywacji konta.');
+    }
+
+    $createdActivationToken = true;
+
+    $activationUrl = 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($activationToken);
+    $safeActivationUrl = htmlspecialchars($activationUrl, ENT_QUOTES, 'UTF-8');
+    $activationMessage = '<p style="margin:0 0 16px;">Kliknij poniższy przycisk, aby aktywować konto administratora.</p>'
+        . '<p style="margin:0 0 16px;"><a href="' . $safeActivationUrl . '">Aktywuj konto</a></p>'
+        . '<p style="margin:0;">Link aktywacyjny jest ważny przez 48 godzin.</p>';
+    $activationMailHtml = buildSystemMailLayout(
+        'Aktywacja konta',
+        'Dziękujemy za utworzenie konta w AI-IQ Rezerwacja Pro.',
+        $activationMessage,
+        'Jeśli nie zakładałeś tego konta, zignoruj tę wiadomość.'
+    );
+
+    if (!sendSystemMail($email, 'Aktywuj konto w AI-IQ Rezerwacja Pro', $activationMailHtml)) {
+        throw new Exception('Nie udało się wysłać wiadomości aktywacyjnej.');
+    }
+
+    unset($activationToken, $activationUrl, $safeActivationUrl);
+
     register_debug('SUCCESS', [
         'created' => true
     ]);
 
     json_response([
         'success'       => true,
-        'message'       => 'Konto zostało utworzone',
+        'message'       => 'Konto zostało utworzone. Sprawdź e-mail i kliknij link aktywacyjny.',
         'tenant_id'     => $tenantId,
         'company_id'    => $companyId,
         'client_number' => $clientNumber,
@@ -496,8 +547,13 @@ try {
         'createdBranding' => $createdBranding,
         'createdUser' => $createdUser,
         'createdDomain' => $createdDomain,
-        'createdServiceSettings' => $createdServiceSettings
+        'createdServiceSettings' => $createdServiceSettings,
+        'createdActivationToken' => $createdActivationToken
     ]);
+
+    if (!empty($tenantId) && $createdActivationToken) {
+        supabase_request('DELETE', '/rest/v1/user_activation_tokens?tenant_id=eq.' . rawurlencode($tenantId));
+    }
 
     if (!empty($tenantId) && $createdConsent) {
         supabase_request('DELETE', '/rest/v1/registration_consents?tenant_id=eq.' . rawurlencode($tenantId));
@@ -527,78 +583,6 @@ try {
         'success' => false,
         'error'   => 'Nie udało się utworzyć konta. Spróbuj ponownie.'
     ], 500);
-}
-
-
-function check_subdomain_availability(string $subdomainSlug): array
-{
-    global $REGISTER_BASE_DOMAIN;
-
-    if (!is_valid_subdomain_slug($subdomainSlug)) {
-        return [
-            'available' => false,
-            'domain' => '',
-            'message' => 'Adres panelu musi mieć od 3 do 63 znaków i może zawierać tylko małe litery, cyfry oraz pojedyncze myślniki.',
-        ];
-    }
-
-    $domain = $subdomainSlug . '.' . $REGISTER_BASE_DOMAIN;
-
-    if (!is_valid_domain($domain)) {
-        return [
-            'available' => false,
-            'domain' => $domain,
-            'message' => 'Nieprawidłowy adres panelu.',
-        ];
-    }
-
-    $reservedSubdomain = supabase_request(
-        'GET',
-        '/rest/v1/reserved_subdomain_names?select=*'
-    );
-
-    if (!$reservedSubdomain['ok']) {
-        json_response([
-            'success' => false,
-            'available' => false,
-            'error' => 'Nie udało się sprawdzić listy zarezerwowanych adresów panelu.'
-        ], 500);
-    }
-
-    if (is_reserved_subdomain_slug($reservedSubdomain['data'] ?? [], $subdomainSlug)) {
-        return [
-            'available' => false,
-            'domain' => $domain,
-            'message' => 'Ta nazwa adresu jest zarezerwowana. Wybierz inną.',
-        ];
-    }
-
-    $domainExists = supabase_request(
-        'GET',
-        '/rest/v1/tenant_domains?select=id,domain&domain=eq.' . rawurlencode($domain) . '&limit=1'
-    );
-
-    if (!$domainExists['ok']) {
-        json_response([
-            'success' => false,
-            'available' => false,
-            'error' => 'Nie udało się sprawdzić dostępności adresu panelu.'
-        ], 500);
-    }
-
-    if (!empty($domainExists['data'])) {
-        return [
-            'available' => false,
-            'domain' => $domain,
-            'message' => 'Ten adres panelu jest już zajęty. Wybierz inną nazwę.',
-        ];
-    }
-
-    return [
-        'available' => true,
-        'domain' => $domain,
-        'message' => 'Adres ' . $domain . ' jest dostępny.',
-    ];
 }
 
 function json_response(array $payload, int $status = 200): void
@@ -794,19 +778,6 @@ function is_valid_domain(string $domain): bool
     );
 }
 
-
-function normalize_registration_plan_code($planCode): string
-{
-    $planCode = strtolower(trim((string) $planCode));
-
-    return $planCode === 'pro' ? 'pro' : 'free';
-}
-
-function is_valid_registration_plan_code(string $planCode): bool
-{
-    return in_array($planCode, ['free', 'pro'], true);
-}
-
 function normalize_subdomain_slug($slug): string
 {
     if (!is_string($slug)) {
@@ -854,6 +825,93 @@ function is_reserved_subdomain_slug($rows, string $slug): bool
     }
 
     return false;
+}
+
+
+function check_subdomain_availability(string $slug): array
+{
+    global $REGISTER_BASE_DOMAIN;
+
+    if (!is_valid_subdomain_slug($slug)) {
+        return [
+            'available' => false,
+            'domain' => '',
+            'message' => 'Nazwa musi mieć od 3 do 63 znaków i może zawierać tylko małe litery, cyfry oraz pojedyncze myślniki.'
+        ];
+    }
+
+    $domain = $slug . '.' . $REGISTER_BASE_DOMAIN;
+
+    if (!is_valid_domain($domain)) {
+        return [
+            'available' => false,
+            'domain' => $domain,
+            'message' => 'Nieprawidłowy adres panelu.'
+        ];
+    }
+
+    $reservedSubdomain = supabase_request(
+        'GET',
+        '/rest/v1/reserved_subdomain_names?select=*'
+    );
+
+    if (!$reservedSubdomain['ok']) {
+        return [
+            'available' => false,
+            'domain' => $domain,
+            'message' => 'Nie udało się sprawdzić dostępności adresu. Spróbuj ponownie.'
+        ];
+    }
+
+    if (is_reserved_subdomain_slug($reservedSubdomain['data'] ?? [], $slug)) {
+        return [
+            'available' => false,
+            'domain' => $domain,
+            'message' => 'Ta nazwa adresu jest zarezerwowana. Wybierz inną.'
+        ];
+    }
+
+    $domainExists = supabase_request(
+        'GET',
+        '/rest/v1/tenant_domains?select=id,domain&domain=eq.' . rawurlencode($domain) . '&limit=1'
+    );
+
+    if (!$domainExists['ok']) {
+        return [
+            'available' => false,
+            'domain' => $domain,
+            'message' => 'Nie udało się sprawdzić dostępności adresu. Spróbuj ponownie.'
+        ];
+    }
+
+    if (!empty($domainExists['data'])) {
+        return [
+            'available' => false,
+            'domain' => $domain,
+            'message' => 'Ten adres panelu jest już zajęty. Wybierz inną nazwę.'
+        ];
+    }
+
+    return [
+        'available' => true,
+        'domain' => $domain,
+        'message' => 'Adres ' . $domain . ' jest dostępny.'
+    ];
+}
+
+function normalize_registration_plan_code($value): string
+{
+    $planCode = strtolower(trim((string) $value));
+
+    if ($planCode === '') {
+        return 'free';
+    }
+
+    if (in_array($planCode, ['free', 'pro'], true)) {
+        return $planCode;
+    }
+
+    return '';
 }
 
 function normalize_digits(string $value): string

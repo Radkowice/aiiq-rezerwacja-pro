@@ -241,6 +241,7 @@
       const branding = data.branding || {};
       const company = data.company || {};
       const subscription = data.subscription || null;
+      const planContext = data.plan_context || {};
 
       setText('info-company-name', branding.client_name);
       setText('info-company-full-name', company.company_full_name);
@@ -264,11 +265,16 @@
         setText('info-current-period', `${formatDate(subscription.current_period_start)} – ${formatDate(subscription.current_period_end)}`);
         setText('info-grace-period', `${subscription.grace_period_days ?? 0} dni`);
       } else {
-        setText('info-plan-name', 'Brak danych abonamentu');
+        const fallbackPlanName = planContext.plan_name || (planContext.plan_code === 'free' ? 'Free' : 'Brak danych abonamentu');
+        const fallbackStatus = planContext.plan_code === 'free'
+          ? 'Aktywny'
+          : formatSubscriptionStatus(planContext.status);
+
+        setText('info-plan-name', fallbackPlanName);
         setText('info-billing-period', '—');
         setText('info-next-payment', '—');
         setText('info-amount', '—');
-        setText('info-status', 'Nie ustawiono');
+        setText('info-status', fallbackStatus || 'Nie ustawiono');
         setText('info-current-period', '—');
         setText('info-grace-period', '—');
       }

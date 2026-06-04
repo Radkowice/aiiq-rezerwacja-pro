@@ -51,7 +51,7 @@ if ($email === '' || $password === '') {
 
 // 🔎 zapytanie do users z tenant_id
 $url = $SUPABASE_URL
-    . "/rest/v1/users?select=id,email,password_hash,tenant_id,role"
+    . "/rest/v1/users?select=id,email,password_hash,tenant_id,role,is_active"
     . "&email=eq." . rawurlencode($email)
     . "&tenant_id=eq." . rawurlencode($tenantId)
     . "&limit=1";
@@ -99,6 +99,15 @@ if (!password_verify($password, $user['password_hash'])) {
 }
 
 // ✅ zapis do sesji
+if (!filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Konto nie zostało jeszcze aktywowane. Sprawdź e-mail i kliknij link aktywacyjny.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $_SESSION['user'] = [
     'id'        => $user['id'],
     'email'     => $user['email'],

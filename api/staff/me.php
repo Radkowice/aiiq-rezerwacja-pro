@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -146,6 +147,12 @@ if (!$hostTenantId || !hash_equals($sessionTenantId, (string) $hostTenantId)) {
         'error' => 'Sesja personelu nie pasuje do domeny.'
     ], 401);
 }
+
+require_tenant_feature(
+    $sessionTenantId,
+    'staff_module',
+    'Panel personelu jest dostępny w planie Pro.'
+);
 
 $accountId = (string) ($staffSession['account_id'] ?? '');
 $staffId = (string) ($staffSession['staff_id'] ?? '');

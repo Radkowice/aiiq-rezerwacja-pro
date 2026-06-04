@@ -12,6 +12,18 @@
   --reservations-button-border-color: #111827;
 }
 
+body.plan-free .panel-card[data-section="rezerwacje"] {
+  --reservations-bg-color: #dfe5ec !important;
+  --reservations-card-color: #d5dde7 !important;
+  --reservations-table-color: #e4e9ef !important;
+  --reservations-header-color: #52657d !important;
+  --reservations-border-color: #aab6c5 !important;
+  --reservations-text-color: #172033 !important;
+  --reservations-muted-color: #445269 !important;
+  --reservations-button-text-color: #172033 !important;
+  --reservations-button-border-color: #7c899a !important;
+}
+
 /* ===== REZERWACJE — IZOLACJA TEKSTU OD MOTYWU GLOBALNEGO ===== */
 
 .panel-card[data-section="rezerwacje"] {
