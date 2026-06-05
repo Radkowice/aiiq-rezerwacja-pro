@@ -30,10 +30,39 @@
   function formatBillingPeriod(value) {
     const map = {
       monthly: 'Miesięczny',
-      yearly: 'Roczny'
+      yearly: 'Roczny',
+      annual: 'Roczny'
     };
 
     return map[value] || value || '—';
+  }
+
+  function isFreePlan(planCode) {
+    return String(planCode || '').trim().toLowerCase() === 'free';
+  }
+
+  function formatCurrentPeriod(subscription) {
+    const start = subscription?.current_period_start;
+    const end = subscription?.current_period_end;
+
+    if (isFreePlan(subscription?.plan_code)) {
+      return start ? `Od ${formatDate(start)}` : 'Bezterminowo';
+    }
+
+    return `${formatDate(start)} – ${formatDate(end)}`;
+  }
+
+  function renderFreeSubscription(subscription = {}) {
+    setText('info-plan-name', subscription.plan_name || 'Free');
+    setText('info-billing-period', 'Nie dotyczy');
+    setText('info-next-payment', '—');
+    setText('info-amount', formatMoney(subscription.amount ?? 0, subscription.currency || 'PLN'));
+    setText('info-status', formatSubscriptionStatus(subscription.status || 'active'));
+    setText('info-current-period', formatCurrentPeriod({
+      ...subscription,
+      plan_code: 'free'
+    }));
+    setText('info-grace-period', 'Nie dotyczy');
   }
 
   function formatSubscriptionStatus(value) {
@@ -257,12 +286,17 @@
       setText('info-user-role', user.role);
 
       if (subscription) {
+        if (isFreePlan(subscription.plan_code)) {
+          renderFreeSubscription(subscription);
+          return;
+        }
+
         setText('info-plan-name', subscription.plan_name);
         setText('info-billing-period', formatBillingPeriod(subscription.billing_period));
         setText('info-next-payment', formatDate(subscription.next_payment_due_at));
         setText('info-amount', formatMoney(subscription.amount, subscription.currency));
         setText('info-status', formatSubscriptionStatus(subscription.status));
-        setText('info-current-period', `${formatDate(subscription.current_period_start)} – ${formatDate(subscription.current_period_end)}`);
+        setText('info-current-period', formatCurrentPeriod(subscription));
         setText('info-grace-period', `${subscription.grace_period_days ?? 0} dni`);
       } else {
         const fallbackPlanName = planContext.plan_name || (planContext.plan_code === 'free' ? 'Free' : 'Brak danych abonamentu');

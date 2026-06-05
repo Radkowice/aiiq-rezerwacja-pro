@@ -308,6 +308,7 @@ if ($domainExists['ok'] && !empty($domainExists['data'])) {
 $createdBranding = false;
 $createdUser = false;
 $createdDomain = false;
+$createdSubscription = false;
 $createdServiceSettings = false;
 $createdConsent = false;
 $createdActivationToken = false;
@@ -413,7 +414,40 @@ try {
 
     $createdDomain = true;
 
-    // 4. USTAWIENIA USŁUGI + DANE FIRMY / DANE DO FV
+    // 4. ABONAMENT FREE
+    $subscriptionPayload = [
+        'tenant_id' => $tenantId,
+        'plan_code' => 'free',
+        'plan_name' => 'Free',
+        'billing_period' => 'monthly',
+        'status' => 'active',
+        'amount' => 0.00,
+        'currency' => 'PLN',
+        'current_period_start' => date('Y-m-d'),
+        'current_period_end' => null,
+        'next_payment_due_at' => null,
+        'grace_period_days' => 0,
+        'reminder_count' => 0,
+        'notes' => 'Wpis abonamentu utworzony automatycznie przy rejestracji Free.',
+    ];
+
+    register_debug('INSERT_TENANT_SUBSCRIPTION_BEFORE');
+
+    $subscriptionInsert = supabase_request(
+        'POST',
+        '/rest/v1/tenant_subscriptions',
+        $subscriptionPayload
+    );
+
+    register_debug_result('INSERT_TENANT_SUBSCRIPTION_AFTER', $subscriptionInsert);
+
+    if (!$subscriptionInsert['ok']) {
+        throw new Exception('Nie udało się utworzyć tenant_subscriptions: ' . $subscriptionInsert['error']);
+    }
+
+    $createdSubscription = true;
+
+    // 5. USTAWIENIA USŁUGI + DANE FIRMY / DANE DO FV
     $serviceSettingsPayload = [
         'tenant_id' => $tenantId,
 
@@ -454,7 +488,7 @@ try {
 
     $createdServiceSettings = true;
 
-    // 5. ZGODY REJESTRACYJNE
+    // 6. ZGODY REJESTRACYJNE
     $acceptedAt = date('c');
     $consentPayload = [
         'tenant_id' => $tenantId,
@@ -479,7 +513,7 @@ try {
 
     $createdConsent = true;
 
-    // 6. TOKEN I WIADOMOSC AKTYWACYJNA
+    // 7. TOKEN I WIADOMOSC AKTYWACYJNA
     $activationToken = bin2hex(random_bytes(32));
     $activationTokenHash = hash('sha256', $activationToken);
     $activationCreatedAt = gmdate('c');
@@ -547,6 +581,7 @@ try {
         'createdBranding' => $createdBranding,
         'createdUser' => $createdUser,
         'createdDomain' => $createdDomain,
+        'createdSubscription' => $createdSubscription,
         'createdServiceSettings' => $createdServiceSettings,
         'createdActivationToken' => $createdActivationToken
     ]);
@@ -562,6 +597,11 @@ try {
     if (!empty($tenantId) && $createdServiceSettings) {
         $rollbackServiceSettings = supabase_request('DELETE', '/rest/v1/tenant_service_settings?tenant_id=eq.' . rawurlencode($tenantId));
         register_debug_result('ROLLBACK_SERVICE_SETTINGS', $rollbackServiceSettings);
+    }
+
+    if (!empty($tenantId) && $createdSubscription) {
+        $rollbackSubscription = supabase_request('DELETE', '/rest/v1/tenant_subscriptions?tenant_id=eq.' . rawurlencode($tenantId));
+        register_debug_result('ROLLBACK_TENANT_SUBSCRIPTION', $rollbackSubscription);
     }
 
     if (!empty($tenantId) && $createdDomain) {
