@@ -1,4 +1,6 @@
 let currentBookingsView = 'upcoming';
+let bookingSearchQuery = '';
+let bookingSearchTimer = null;
 const ADMIN_NOTIFICATIONS_ENDPOINT = '/api/system/admin-notifications.php';
 const PLAN_LOCKED_SECTIONS = {
   personel: {
@@ -621,6 +623,21 @@ function initBookingFilters() {
     </a>
   </div>
 
+  <div class="booking-search-tools">
+    <label class="booking-search-field" for="bookingSearchInput">
+      <span class="sr-only">Szukaj w rezerwacjach</span>
+      <input
+        type="search"
+        id="bookingSearchInput"
+        placeholder="Szukaj w rezerwacjach..."
+        autocomplete="off"
+      >
+    </label>
+    <button type="button" class="booking-search-clear" id="bookingSearchClearBtn" hidden>
+      Wyczyść
+    </button>
+  </div>
+
   <p class="booking-retention-info">
     Historia rezerwacji jest przechowywana przez 3 miesiące.
     Starsze rezerwacje zostaną automatycznie usunięte.
@@ -645,6 +662,42 @@ function initBookingFilters() {
       await loadBookings(currentBookingsView);
     });
   });
+
+  const searchInput = document.getElementById('bookingSearchInput');
+  const clearBtn = document.getElementById('bookingSearchClearBtn');
+
+  if (searchInput) {
+    searchInput.value = bookingSearchQuery;
+    searchInput.addEventListener('input', () => {
+      window.clearTimeout(bookingSearchTimer);
+
+      bookingSearchTimer = window.setTimeout(() => {
+        bookingSearchQuery = searchInput.value.trim();
+
+        if (clearBtn) {
+          clearBtn.hidden = bookingSearchQuery === '';
+        }
+
+        renderBookingList(window._bookingsData || []);
+      }, 280);
+    });
+  }
+
+  if (clearBtn) {
+    clearBtn.hidden = bookingSearchQuery === '';
+    clearBtn.addEventListener('click', () => {
+      window.clearTimeout(bookingSearchTimer);
+      bookingSearchQuery = '';
+
+      if (searchInput) {
+        searchInput.value = '';
+        searchInput.focus();
+      }
+
+      clearBtn.hidden = true;
+      renderBookingList(window._bookingsData || []);
+    });
+  }
 }
 
 function updateCalendarEnabledUi(isEnabled) {
@@ -784,6 +837,77 @@ function getEmptyBookingsText(view) {
   return 'Brak nadchodzących rezerwacji';
 }
 
+function normalizeBookingSearchText(value) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+}
+
+function getActiveBookingSearchQuery() {
+  const query = normalizeBookingSearchText(bookingSearchQuery);
+
+  return query.length >= 2 ? query : '';
+}
+
+function getBookingSearchFields(item) {
+  return [
+    item.name,
+    item.email,
+    item.phone,
+    item.service_name_snapshot,
+    item.service_name,
+    item.staff_display_name,
+    item.staff_id,
+    item.booking_date,
+    item.booking_time,
+    item.status,
+    item.payment_status,
+    item.description,
+    item.message,
+    item.notes,
+    item.opis,
+    getBookingServiceName(item),
+    getBookingStaffName(item),
+    getBookingStaffDisplayText(item),
+    getBookingDescription(item),
+    mapBookingStatus(item.status),
+    mapPaymentStatus(item)
+  ];
+}
+
+function filterBookingsBySearch(bookings) {
+  const query = getActiveBookingSearchQuery();
+
+  if (!query) {
+    return bookings;
+  }
+
+  return bookings.filter(item => getBookingSearchFields(item)
+    .some(value => normalizeBookingSearchText(value).includes(query)));
+}
+
+function renderBookingList(bookings) {
+  const bookingList = document.getElementById('bookingList');
+  if (!bookingList) return;
+
+  const data = Array.isArray(bookings) ? bookings : [];
+  const filteredData = filterBookingsBySearch(data);
+  const hasSearch = getActiveBookingSearchQuery() !== '' && data.length > 0;
+
+  if (filteredData.length === 0) {
+    bookingList.innerHTML = `
+      <tr>
+        <td colspan="6" class="empty">${escapeHtml(hasSearch ? 'Brak rezerwacji pasujących do wyszukiwania.' : getEmptyBookingsText(currentBookingsView))}</td>
+      </tr>
+    `;
+    return;
+  }
+
+  bookingList.innerHTML = filteredData.map(item => renderBookingRow(item)).join('');
+}
+
 async function loadBookings(view = currentBookingsView) {
   const bookingList = document.getElementById('bookingList');
   if (!bookingList) return;
@@ -810,9 +934,8 @@ async function loadBookings(view = currentBookingsView) {
       return;
     }
 
-    window._bookingsData = data;
-
     sortBookingsForView(data, currentBookingsView);
+    window._bookingsData = data;
 
     let todayData = [];
 
@@ -834,16 +957,7 @@ async function loadBookings(view = currentBookingsView) {
     updateTodayBookingsStat(todayData);
     renderTodayBookings(todayData);
 
-    if (data.length === 0) {
-      bookingList.innerHTML = `
-        <tr>
-          <td colspan="6" class="empty">${escapeHtml(getEmptyBookingsText(currentBookingsView))}</td>
-        </tr>
-      `;
-      return;
-    }
-
-    bookingList.innerHTML = data.map(item => renderBookingRow(item)).join('');
+    renderBookingList(data);
   } catch (error) {
     console.error('loadBookings error:', error);
 

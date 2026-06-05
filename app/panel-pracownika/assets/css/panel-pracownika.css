@@ -33,6 +33,18 @@
   box-sizing: border-box;
 }
 
+.employee-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 html,
 body {
   margin: 0;
@@ -437,6 +449,81 @@ body.employee-panel-body {
   border: 1px solid #fecdca;
   background: var(--employee-danger-bg);
   color: var(--employee-danger-text);
+}
+
+.employee-booking-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(100%, 560px);
+  margin: 4px 0 16px;
+}
+
+.employee-booking-search-field {
+  flex: 1 1 auto;
+  min-width: 220px;
+}
+
+.employee-booking-search-field input {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 13px;
+  border: 1px solid rgba(100, 116, 139, 0.72);
+  border-radius: var(--employee-radius-small);
+  background:
+    linear-gradient(145deg, rgba(219, 227, 238, 0.96), rgba(203, 213, 225, 0.92));
+  color: var(--employee-text);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.4;
+  outline: none;
+  box-shadow: var(--employee-shadow-inset);
+  transition:
+    border-color 0.16s ease,
+    box-shadow 0.16s ease,
+    background 0.16s ease;
+}
+
+.employee-booking-search-field input::placeholder {
+  color: var(--employee-muted);
+  opacity: 0.85;
+}
+
+.employee-booking-search-field input:focus {
+  border-color: var(--employee-primary);
+  box-shadow:
+    0 0 0 3px rgba(40, 64, 107, 0.16),
+    var(--employee-shadow-inset);
+}
+
+.employee-booking-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
+  padding: 8px 13px;
+  border: 1px solid var(--employee-primary);
+  border-radius: var(--employee-radius-small);
+  background: transparent;
+  color: var(--employee-primary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease,
+    border-color 0.16s ease;
+}
+
+.employee-booking-search-clear:hover {
+  border-color: var(--employee-primary-hover);
+  background: var(--employee-primary);
+  color: #ffffff;
+}
+
+.employee-booking-search-clear[hidden] {
+  display: none;
 }
 
 .employee-bookings-table-wrap {
@@ -1522,6 +1609,21 @@ body.modal-open {
 }
 
 @media (max-width: 760px) {
+  .employee-booking-search {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .employee-booking-search-field {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .employee-booking-search-clear {
+    width: 100%;
+  }
+
   .employee-bookings-table-wrap {
     overflow: visible;
     border: 0;

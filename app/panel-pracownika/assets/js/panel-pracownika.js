@@ -16,6 +16,9 @@
   let employeeBlocksViewDate = new Date();
   let employeeSelectedBlocksDate = '';
   let employeeCalendarDays = {};
+  let employeeBookingsData = [];
+  let employeeBookingSearchQuery = '';
+  let employeeBookingSearchTimer = null;
 
   function getElement(id) {
     return document.getElementById(id);
@@ -32,6 +35,20 @@
 
   function hasValue(value) {
     return String(value ?? '').trim() !== '';
+  }
+
+  function normalizeEmployeeBookingSearchText(value) {
+    return String(value ?? '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  function getActiveEmployeeBookingSearchQuery() {
+    const query = normalizeEmployeeBookingSearchText(employeeBookingSearchQuery);
+
+    return query.length >= 2 ? query : '';
   }
 
   function setMessage(message, type) {
@@ -554,6 +571,39 @@
     `;
   }
 
+  function getEmployeeBookingSearchFields(booking) {
+    return [
+      booking.name,
+      booking.email,
+      booking.phone,
+      booking.service_name_snapshot,
+      booking.service_name,
+      booking.staff_display_name,
+      booking.staff_id,
+      booking.booking_date,
+      booking.booking_time,
+      booking.status,
+      booking.payment_status,
+      booking.description,
+      booking.message,
+      booking.notes,
+      booking.opis,
+      mapBookingStatus(booking.status),
+      mapPaymentStatus(booking.payment_status, booking.payment_required)
+    ];
+  }
+
+  function filterEmployeeBookingsBySearch(bookings) {
+    const query = getActiveEmployeeBookingSearchQuery();
+
+    if (!query) {
+      return bookings;
+    }
+
+    return bookings.filter((booking) => getEmployeeBookingSearchFields(booking)
+      .some((value) => normalizeEmployeeBookingSearchText(value).includes(query)));
+  }
+
   function renderBookings(bookings) {
     const list = getElement('employeeBookingsList');
 
@@ -561,16 +611,20 @@
       return;
     }
 
-    if (!Array.isArray(bookings) || bookings.length === 0) {
+    const sourceBookings = Array.isArray(bookings) ? bookings : [];
+    const filteredBookings = filterEmployeeBookingsBySearch(sourceBookings);
+    const hasSearch = getActiveEmployeeBookingSearchQuery() !== '' && sourceBookings.length > 0;
+
+    if (filteredBookings.length === 0) {
       list.innerHTML = `
         <tr>
-          <td colspan="6" class="employee-bookings-empty">Nie masz jeszcze przypisanych rezerwacji.</td>
+          <td colspan="6" class="employee-bookings-empty">${hasSearch ? 'Brak rezerwacji pasujących do wyszukiwania.' : 'Nie masz jeszcze przypisanych rezerwacji.'}</td>
         </tr>
       `;
       return;
     }
 
-    list.innerHTML = bookings.map((booking) => {
+    list.innerHTML = filteredBookings.map((booking) => {
       const serviceName = hasValue(booking.service_name_snapshot)
         ? booking.service_name_snapshot
         : 'Bez nazwy usługi';
@@ -1023,9 +1077,11 @@
         throw new Error(data && data.error ? data.error : 'Nie udało się pobrać rezerwacji.');
       }
 
-      renderBookings(data.bookings || []);
+      employeeBookingsData = Array.isArray(data.bookings) ? data.bookings : [];
+      renderBookings(employeeBookingsData);
     } catch (error) {
-      renderBookings([]);
+      employeeBookingsData = [];
+      renderBookings(employeeBookingsData);
       setMessage(error.message || 'Nie udało się pobrać rezerwacji.', 'error');
     } finally {
       if (refreshBtn) {
@@ -1243,6 +1299,44 @@
     }
   }
 
+  function initEmployeeBookingSearch() {
+    const searchInput = getElement('employeeBookingSearchInput');
+    const clearBtn = getElement('employeeBookingSearchClearBtn');
+
+    if (searchInput) {
+      searchInput.value = employeeBookingSearchQuery;
+      searchInput.addEventListener('input', () => {
+        window.clearTimeout(employeeBookingSearchTimer);
+
+        employeeBookingSearchTimer = window.setTimeout(() => {
+          employeeBookingSearchQuery = searchInput.value.trim();
+
+          if (clearBtn) {
+            clearBtn.hidden = employeeBookingSearchQuery === '';
+          }
+
+          renderBookings(employeeBookingsData);
+        }, 280);
+      });
+    }
+
+    if (clearBtn) {
+      clearBtn.hidden = employeeBookingSearchQuery === '';
+      clearBtn.addEventListener('click', () => {
+        window.clearTimeout(employeeBookingSearchTimer);
+        employeeBookingSearchQuery = '';
+
+        if (searchInput) {
+          searchInput.value = '';
+          searchInput.focus();
+        }
+
+        clearBtn.hidden = true;
+        renderBookings(employeeBookingsData);
+      });
+    }
+  }
+
   document.addEventListener('DOMContentLoaded', async () => {
     const logoutBtn = getElement('employeeLogoutBtn');
     const refreshBtn = getElement('employeeRefreshBookingsBtn');
@@ -1254,6 +1348,7 @@
     initEmployeeSidebarToggle();
     bindTabs();
     bindPasswordToggles();
+    initEmployeeBookingSearch();
 
     employeeSelectedBlocksDate = formatLocalDate(new Date());
     employeeBlocksViewDate = dateFromLocalString(employeeSelectedBlocksDate);
