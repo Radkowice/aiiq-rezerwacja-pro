@@ -1,4 +1,7 @@
 (function () {
+  const PRO_PLAN_PRICES_ENDPOINT = '/api/system/subscription-plan-prices.php';
+  const PRO_UPGRADE_PAYMENT_MESSAGE = 'Płatność za plan Pro będzie dostępna w kolejnym kroku wdrożenia.';
+
   function formatDate(value) {
     if (!value) return '—';
 
@@ -31,7 +34,8 @@
     const map = {
       monthly: 'Miesięczny',
       yearly: 'Roczny',
-      annual: 'Roczny'
+      annual: 'Roczny',
+      manual: 'Ustalany indywidualnie'
     };
 
     return map[value] || value || '—';
@@ -63,6 +67,195 @@
       plan_code: 'free'
     }));
     setText('info-grace-period', 'Nie dotyczy');
+  }
+
+  function normalizePlanCode(planCode) {
+    return String(planCode || '').trim().toLowerCase();
+  }
+
+  function resolveVisiblePlanCode(subscription, planContext) {
+    if (planContext?.plan_code) {
+      return normalizePlanCode(planContext.plan_code);
+    }
+
+    if (subscription?.plan_code) {
+      return normalizePlanCode(subscription.plan_code);
+    }
+
+    return normalizePlanCode(planContext?.subscription_plan_code);
+  }
+
+  function setProUpgradeMessage(message, type = 'info') {
+    const messageEl = document.getElementById('pro-upgrade-message');
+    if (!messageEl) return;
+
+    messageEl.textContent = message || '';
+    messageEl.hidden = !message;
+    messageEl.classList.remove('info', 'error');
+
+    if (message) {
+      messageEl.classList.add(type);
+    }
+  }
+
+  function setProUpgradeButtonState(isEnabled) {
+    const button = document.getElementById('pro-upgrade-btn');
+    if (!button) return;
+
+    button.disabled = !isEnabled;
+  }
+
+  function setProUpgradeOptionsState(isEnabled) {
+    document.querySelectorAll('input[name="pro-upgrade-period"]').forEach(input => {
+      input.disabled = !isEnabled;
+    });
+  }
+
+  function hideProUpgradeSection() {
+    const card = document.getElementById('pro-upgrade-card');
+    if (card) {
+      card.hidden = true;
+    }
+  }
+
+  function showProUpgradeSection() {
+    const card = document.getElementById('pro-upgrade-card');
+    if (card) {
+      card.hidden = false;
+    }
+  }
+
+  function showProUpgradeUnavailable(message) {
+    showProUpgradeSection();
+    setText('pro-price-monthly', '—');
+    setText('pro-price-yearly', '—');
+    setProUpgradeOptionsState(false);
+    setProUpgradeButtonState(false);
+    setProUpgradeMessage(message, 'error');
+  }
+
+  function normalizePlanPrice(row) {
+    const billingPeriod = String(row?.billing_period || '').trim().toLowerCase();
+    const planCode = String(row?.plan_code || '').trim().toLowerCase();
+    const amount = row?.amount;
+
+    if (
+      planCode !== 'pro'
+      || !['monthly', 'yearly'].includes(billingPeriod)
+      || row?.is_active !== true
+      || amount === null
+      || amount === undefined
+      || amount === ''
+    ) {
+      return null;
+    }
+
+    return {
+      plan_code: planCode,
+      plan_name: row?.plan_name || 'Pro',
+      billing_period: billingPeriod,
+      amount,
+      currency: row?.currency || 'PLN',
+      is_active: true
+    };
+  }
+
+  function getProPricesByPeriod(prices) {
+    return (Array.isArray(prices) ? prices : [])
+      .map(normalizePlanPrice)
+      .filter(Boolean)
+      .reduce((acc, item) => {
+        acc[item.billing_period] = item;
+        return acc;
+      }, {});
+  }
+
+  function renderProUpgradePrices(prices) {
+    const pricesByPeriod = getProPricesByPeriod(prices);
+    const monthly = pricesByPeriod.monthly;
+    const yearly = pricesByPeriod.yearly;
+
+    if (!monthly || !yearly) {
+      showProUpgradeUnavailable('Nie udało się pobrać aktualnej ceny planu Pro. Spróbuj ponownie później.');
+      return;
+    }
+
+    showProUpgradeSection();
+    setText('pro-price-monthly', formatMoney(monthly.amount, monthly.currency));
+    setText('pro-price-yearly', formatMoney(yearly.amount, yearly.currency));
+    setProUpgradeOptionsState(true);
+    setProUpgradeButtonState(true);
+    setProUpgradeMessage('', 'info');
+
+    const selected = document.querySelector('input[name="pro-upgrade-period"]:checked');
+    if (!selected) {
+      const monthlyInput = document.querySelector('input[name="pro-upgrade-period"][value="monthly"]');
+      if (monthlyInput) {
+        monthlyInput.checked = true;
+      }
+    }
+  }
+
+  async function loadProUpgradePrices() {
+    showProUpgradeSection();
+    setProUpgradeOptionsState(false);
+    setProUpgradeButtonState(false);
+    setProUpgradeMessage('Pobieranie aktualnej ceny planu Pro...', 'info');
+
+    try {
+      const res = await fetch(PRO_PLAN_PRICES_ENDPOINT, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      const text = await res.text();
+      let data = null;
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Serwer zwrócił nieprawidłową odpowiedź.');
+      }
+
+      if (!res.ok || data?.success !== true) {
+        throw new Error(data?.error || 'Nie udało się pobrać aktualnej ceny planu Pro.');
+      }
+
+      renderProUpgradePrices(data.prices || []);
+    } catch (error) {
+      console.error('pro plan prices load error:', error);
+      showProUpgradeUnavailable('Nie udało się pobrać aktualnej ceny planu Pro. Spróbuj ponownie później.');
+    }
+  }
+
+  function renderProUpgradeSection(subscription, planContext) {
+    const planCode = resolveVisiblePlanCode(subscription, planContext);
+
+    if (planCode !== 'free') {
+      hideProUpgradeSection();
+      return;
+    }
+
+    loadProUpgradePrices();
+  }
+
+  async function handleProUpgradeClick() {
+    setProUpgradeMessage(PRO_UPGRADE_PAYMENT_MESSAGE, 'info');
+
+    if (typeof openAdminConfirm === 'function') {
+      await openAdminConfirm({
+        title: 'Plan Pro',
+        message: PRO_UPGRADE_PAYMENT_MESSAGE,
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        variant: 'primary',
+        icon: 'i'
+      });
+    }
   }
 
   function formatSubscriptionStatus(value) {
@@ -288,6 +481,7 @@
       if (subscription) {
         if (isFreePlan(subscription.plan_code)) {
           renderFreeSubscription(subscription);
+          renderProUpgradeSection(subscription, planContext);
           return;
         }
 
@@ -298,11 +492,24 @@
         setText('info-status', formatSubscriptionStatus(subscription.status));
         setText('info-current-period', formatCurrentPeriod(subscription));
         setText('info-grace-period', `${subscription.grace_period_days ?? 0} dni`);
+        renderProUpgradeSection(subscription, planContext);
       } else {
         const fallbackPlanName = planContext.plan_name || (planContext.plan_code === 'free' ? 'Free' : 'Brak danych abonamentu');
         const fallbackStatus = planContext.plan_code === 'free'
           ? 'Aktywny'
           : formatSubscriptionStatus(planContext.status);
+
+        if (isFreePlan(planContext.plan_code)) {
+          renderFreeSubscription({
+            plan_code: 'free',
+            plan_name: 'Free',
+            status: 'active',
+            amount: 0,
+            currency: 'PLN'
+          });
+          renderProUpgradeSection(subscription, planContext);
+          return;
+        }
 
         setText('info-plan-name', fallbackPlanName);
         setText('info-billing-period', '—');
@@ -311,12 +518,14 @@
         setText('info-status', fallbackStatus || 'Nie ustawiono');
         setText('info-current-period', '—');
         setText('info-grace-period', '—');
+        renderProUpgradeSection(subscription, planContext);
       }
     } catch (error) {
       console.error('account info load error:', error);
 
       setText('info-plan-name', 'Błąd pobierania danych');
       setText('info-status', error.message || 'Błąd');
+      hideProUpgradeSection();
     }
   }
 
@@ -326,6 +535,11 @@
     const saveButton = document.getElementById('save-company-contact-btn');
     if (saveButton) {
       saveButton.addEventListener('click', () => saveCompanyContact(saveButton));
+    }
+
+    const proUpgradeButton = document.getElementById('pro-upgrade-btn');
+    if (proUpgradeButton) {
+      proUpgradeButton.addEventListener('click', handleProUpgradeClick);
     }
   });
 })();

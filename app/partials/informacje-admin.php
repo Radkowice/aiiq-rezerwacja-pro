@@ -4,7 +4,7 @@
   </div>
 
   <div class="admin-info-grid">
-    <div class="admin-info-card">
+    <div class="admin-info-card admin-info-subscription-card">
       <h3>Abonament</h3>
 
       <div class="admin-info-list">
@@ -45,7 +45,55 @@
       </div>
     </div>
 
-    <div class="admin-info-card">
+    <div class="admin-info-card admin-info-pro-upgrade-card" id="pro-upgrade-card" hidden>
+      <h3>Przejdź na plan Pro</h3>
+
+      <p class="admin-info-desc">
+        Odblokuj pełne możliwości systemu rezerwacji i rozwijaj obsługę klientów bez ręcznego pilnowania wszystkiego.
+      </p>
+
+      <ul class="pro-upgrade-benefits">
+        <li>obsługa personelu,</li>
+        <li>wiele usług,</li>
+        <li>płatności online,</li>
+        <li>integracja z Google Calendar,</li>
+        <li>własne logo i wygląd kalendarza,</li>
+        <li>zaawansowane ustawienia rezerwacji,</li>
+        <li>automatyczne przypomnienia i większa kontrola nad rezerwacjami.</li>
+      </ul>
+
+      <div class="pro-upgrade-options" id="pro-upgrade-options" role="radiogroup" aria-label="Okres rozliczeniowy planu Pro">
+        <label class="pro-upgrade-option">
+          <input type="radio" name="pro-upgrade-period" value="monthly">
+          <span>
+            <strong>Miesięczny</strong>
+            <small id="pro-price-monthly">—</small>
+          </span>
+        </label>
+
+        <label class="pro-upgrade-option">
+          <input type="radio" name="pro-upgrade-period" value="yearly">
+          <span>
+            <strong>Roczny</strong>
+            <small id="pro-price-yearly">—</small>
+          </span>
+        </label>
+      </div>
+
+      <div class="admin-info-actions pro-upgrade-actions">
+        <button type="button" class="btn btn-primary" id="pro-upgrade-btn" disabled>
+          Przejdź na plan Pro
+        </button>
+      </div>
+
+      <p class="pro-upgrade-note" id="pro-upgrade-note">
+        W kolejnym kroku zostaniesz przekierowany do płatności. Funkcje Pro zostaną aktywowane po zaksięgowaniu płatności.
+      </p>
+
+      <p class="pro-upgrade-message" id="pro-upgrade-message" hidden></p>
+    </div>
+
+    <div class="admin-info-card admin-info-company-card">
       <h3>Dane firmy</h3>
 
      <div class="admin-info-list">
@@ -118,7 +166,7 @@
       
     </div>
 
-    <div class="admin-info-card">
+    <div class="admin-info-card admin-info-version-card">
       <h3>Wersja aplikacji</h3>
 
       <div class="admin-info-list">
@@ -139,7 +187,7 @@
       </div>
     </div>
 
-    <div class="admin-info-card">
+    <div class="admin-info-card admin-info-support-card">
       <h3>Support</h3>
 
       <p class="admin-info-desc">

@@ -74,24 +74,29 @@
   overflow-wrap: anywhere;
 }
 
-.admin-info-card:nth-child(1) {
+.admin-info-subscription-card {
   grid-column: 1;
   grid-row: 1;
 }
 
-.admin-info-card:nth-child(2) {
-  grid-column: 2;
-  grid-row: 1 / span 2;
-}
-
-.admin-info-card:nth-child(3) {
+.admin-info-pro-upgrade-card {
   grid-column: 1;
   grid-row: 2;
 }
 
-.admin-info-card:nth-child(4) {
+.admin-info-company-card {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+}
+
+.admin-info-version-card {
   grid-column: 1;
   grid-row: 3;
+}
+
+.admin-info-support-card {
+  grid-column: 1;
+  grid-row: 4;
 }
 
 @media (max-width: 1200px) {
@@ -99,10 +104,11 @@
     grid-template-columns: 1fr;
   }
 
-  .admin-info-card:nth-child(1),
-  .admin-info-card:nth-child(2),
-  .admin-info-card:nth-child(3),
-  .admin-info-card:nth-child(4) {
+  .admin-info-subscription-card,
+  .admin-info-pro-upgrade-card,
+  .admin-info-company-card,
+  .admin-info-version-card,
+  .admin-info-support-card {
     grid-column: auto;
     grid-row: auto;
   }
@@ -171,6 +177,90 @@
   justify-content: flex-end;
   margin-top: 18px;
 }
+
+.pro-upgrade-benefits {
+  display: grid;
+  gap: 8px;
+  margin: 0 0 20px;
+  padding-left: 18px;
+  color: var(--color-text);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.pro-upgrade-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.pro-upgrade-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--color-bg) 92%, var(--color-primary) 8%);
+  cursor: pointer;
+}
+
+.pro-upgrade-option:has(input:checked) {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+}
+
+.pro-upgrade-option input {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.pro-upgrade-option span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pro-upgrade-option strong {
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.pro-upgrade-option small {
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.pro-upgrade-actions {
+  justify-content: stretch;
+}
+
+.pro-upgrade-actions .btn {
+  width: 100%;
+}
+
+.pro-upgrade-note,
+.pro-upgrade-message {
+  margin: 12px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.pro-upgrade-message.error {
+  color: var(--color-danger, #dc2626);
+}
+
+.pro-upgrade-message.info {
+  color: var(--color-muted);
+}
+
 @media (max-width: 768px) {
   .admin-info-row:has(.admin-info-input) {
     grid-template-columns: 1fr;
@@ -188,5 +278,9 @@
 
   .admin-info-actions .btn {
     width: 100%;
+  }
+
+  .pro-upgrade-options {
+    grid-template-columns: 1fr;
   }
 }
