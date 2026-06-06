@@ -345,7 +345,12 @@ function staff_save_enforce_staff_limit(
     $limit = (int) $limit;
 
     if ($limit <= 0) {
-        return;
+        staff_save_json([
+            'success' => false,
+            'error' => 'Twój obecny plan nie obejmuje modułu personelu. Potrzebujesz większego limitu? Napisz do producenta.',
+            'limit_reached' => true,
+            'limit_type' => 'staff_count',
+        ], 403);
     }
 
     $activeStaffCount = staff_save_count_active_staff($supabaseUrl, $supabaseKey, $schema, $tenantId);

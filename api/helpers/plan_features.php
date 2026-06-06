@@ -286,6 +286,7 @@ function plan_features_features_from_effective(array $effective, string $effecti
     $paymentsEnabled = plan_features_feature_value($effective, 'payments_enabled', $fallbackFeatures['online_payments'] ?? false);
     $servicePaymentsEnabled = plan_features_feature_value($effective, 'service_payments_enabled', $fallbackFeatures['payu'] ?? $paymentsEnabled);
     $googleCalendarEnabled = plan_features_feature_value($effective, 'google_calendar_enabled', $fallbackFeatures['google_calendar'] ?? false);
+    $legalDocumentsEnabled = plan_features_feature_value($effective, 'legal_documents_enabled', $fallbackFeatures['legal_documents'] ?? false);
     $brandingEnabled = plan_features_feature_value($effective, 'branding_enabled', $fallbackFeatures['branding_logo'] ?? false);
     $remindersEnabled = plan_features_feature_value($effective, 'reminders_enabled', $fallbackFeatures['payment_reminders'] ?? false);
     $rescheduleEnabled = plan_features_feature_value($effective, 'reschedule_enabled', $fallbackFeatures['reschedule_booking'] ?? false);
@@ -303,7 +304,7 @@ function plan_features_features_from_effective(array $effective, string $effecti
         'payu' => $servicePaymentsEnabled,
         'google_calendar' => $googleCalendarEnabled,
         'branding' => $brandingEnabled,
-        'legal_documents' => $fallbackFeatures['legal_documents'] ?? $effectivePlanCode !== 'free',
+        'legal_documents' => $legalDocumentsEnabled,
         'branding_logo' => $brandingEnabled,
         'branding_favicon' => $brandingEnabled,
         'branding_colors' => $brandingEnabled,
@@ -328,6 +329,7 @@ function plan_features_merge_override(array $globalLimits, ?array $override): ar
         'staff_enabled',
         'payments_enabled',
         'google_calendar_enabled',
+        'legal_documents_enabled',
         'branding_enabled',
         'custom_domain_enabled',
         'sms_enabled',
@@ -395,7 +397,7 @@ function plan_features_get_context_from_database(string $tenantId, array $config
     $fallbackFeatures = $featuresMap[$effectivePlanCode] ?? $featuresMap['free'];
     $fallbackLimits = $limitsMap[$effectivePlanCode] ?? $limitsMap['free'];
 
-    $globalSelect = 'select=' . rawurlencode('plan_code,plan_name,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active');
+    $globalSelect = 'select=' . rawurlencode('plan_code,plan_name,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active');
     $global = plan_features_fetch_single(
         'subscription_plan_limits',
         $globalSelect
@@ -410,7 +412,7 @@ function plan_features_get_context_from_database(string $tenantId, array $config
 
     $override = plan_features_fetch_single(
         'tenant_plan_overrides',
-        'select=' . rawurlencode('plan_code,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active')
+        'select=' . rawurlencode('plan_code,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active')
             . '&tenant_id=eq.' . rawurlencode($tenantId)
             . '&is_active=eq.true',
         $config

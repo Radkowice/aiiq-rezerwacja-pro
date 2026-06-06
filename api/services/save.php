@@ -305,7 +305,12 @@ function services_save_enforce_services_limit(
     $limit = (int) $limit;
 
     if ($limit <= 0) {
-        return;
+        services_json([
+            'success' => false,
+            'error' => 'Twój obecny plan nie obejmuje dodawania kolejnych usług. Potrzebujesz większego limitu? Napisz do producenta.',
+            'limit_reached' => true,
+            'limit_type' => 'services_count',
+        ], 403);
     }
 
     $activeServicesCount = services_save_count_active_services($supabaseUrl, $supabaseKey, $schema, $tenantId);
