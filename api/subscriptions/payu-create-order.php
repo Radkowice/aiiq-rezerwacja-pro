@@ -84,7 +84,9 @@ function subscription_payu_fetch_single(string $supabaseUrl, array $headers, str
 function subscription_payu_insert_payment(string $supabaseUrl, array $headers, array $payload): ?array
 {
     $url = rtrim($supabaseUrl, '/') . '/rest/v1/tenant_subscription_payments';
-    $result = subscription_payu_request('POST', $url, $headers, $payload);
+    $insertHeaders = $headers;
+    $insertHeaders[] = 'Prefer: return=representation';
+    $result = subscription_payu_request('POST', $url, $insertHeaders, $payload);
 
     if (!$result['ok']) {
         aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYMENT_INSERT_ERROR', [
@@ -186,6 +188,42 @@ function subscription_payu_normalize_plan_code(?string $planCode): string
     return $planCode === 'biznes' ? 'business' : $planCode;
 }
 
+function subscription_payu_valid_email(?string $email): string
+{
+    $email = trim((string) $email);
+
+    return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+}
+
+function subscription_payu_split_buyer_name(?string $name): array
+{
+    $name = trim(preg_replace('/\s+/', ' ', (string) $name));
+
+    if ($name === '') {
+        return [
+            'firstName' => '',
+            'lastName' => '',
+        ];
+    }
+
+    $parts = explode(' ', $name);
+    $firstName = trim((string) array_shift($parts));
+    $lastName = trim(implode(' ', $parts));
+
+    return [
+        'firstName' => $firstName,
+        'lastName' => $lastName,
+    ];
+}
+
+function subscription_payu_build_buyer(?string $email, ?string $ownerName): array
+{
+    return [
+        'email' => subscription_payu_valid_email($email),
+        'language' => 'pl',
+    ];
+}
+
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
         header('Allow: POST');
@@ -256,7 +294,7 @@ try {
         $supabaseUrl,
         $headers,
         'users',
-        'select=id,tenant_id,role,is_active'
+        'select=id,email,tenant_id,role,is_active'
             . '&id=eq.' . rawurlencode($userId)
             . '&tenant_id=eq.' . rawurlencode($tenantId)
     );
@@ -285,6 +323,14 @@ try {
             'error' => 'Brak uprawnień administratora.',
         ]);
     }
+
+    $companySettings = subscription_payu_fetch_single(
+        $supabaseUrl,
+        $headers,
+        'tenant_service_settings',
+        'select=company_full_name,company_owner_name,company_email'
+            . '&tenant_id=eq.' . rawurlencode($tenantId)
+    );
 
     $subscription = subscription_payu_fetch_single(
         $supabaseUrl,
@@ -366,6 +412,20 @@ try {
         ]);
     }
 
+    $payuCurrency = strtoupper(trim((string) ($payu['currency'] ?? '')));
+
+    if ($currency !== $payuCurrency) {
+        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_CURRENCY_MISMATCH', [
+            'price_currency' => $currency,
+            'payu_currency' => $payuCurrency,
+        ]);
+
+        subscription_payu_json(503, [
+            'success' => false,
+            'error' => 'Konfiguracja ceny planu Pro jest chwilowo niedostępna. Spróbuj ponownie później.',
+        ]);
+    }
+
     $publicBaseUrl = subscription_payu_public_base_url();
 
     if ($publicBaseUrl === '') {
@@ -375,6 +435,24 @@ try {
         ]);
     }
 
+    $buyerEmail = subscription_payu_valid_email((string) ($_SESSION['user']['email'] ?? ''));
+
+    if ($buyerEmail === '') {
+        $buyerEmail = subscription_payu_valid_email((string) ($user['email'] ?? ''));
+    }
+
+    if ($buyerEmail === '') {
+        $buyerEmail = subscription_payu_valid_email((string) ($companySettings['company_email'] ?? ''));
+    }
+
+    if ($buyerEmail === '') {
+        subscription_payu_json(422, [
+            'success' => false,
+            'error' => 'Nie udało się ustalić adresu e-mail kupującego. Uzupełnij dane administratora albo e-mail firmowy i spróbuj ponownie.',
+        ]);
+    }
+
+    $buyer = subscription_payu_build_buyer($buyerEmail, (string) ($companySettings['company_owner_name'] ?? ''));
     $now = gmdate('c');
     $paymentRow = subscription_payu_insert_payment($supabaseUrl, $headers, [
         'tenant_id' => $tenantId,
@@ -401,7 +479,7 @@ try {
     $timestamp = (string) time();
     $extOrderId = 'subscription-' . $paymentId . '-' . $timestamp;
     $amountInMinorUnits = (int) round($amount * 100);
-    $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
+    $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesieczny';
     $description = 'AI-IQ Rezerwacja Pro - plan Pro ' . $periodLabel;
 
     $orderPayload = [
@@ -413,6 +491,7 @@ try {
         'currencyCode' => $currency,
         'totalAmount' => (string) $amountInMinorUnits,
         'extOrderId' => $extOrderId,
+        'buyer' => $buyer,
         'products' => [
             [
                 'name' => $description,
@@ -475,14 +554,16 @@ try {
         ]);
     }
 
-    subscription_payu_json(200, [
+    $responsePayload = [
         'success' => true,
         'payment_url' => $paymentUrl,
         'payment_id' => $paymentId,
         'amount' => $amount,
         'currency' => $currency,
         'billing_period' => $billingPeriod,
-    ]);
+    ];
+
+    subscription_payu_json(200, $responsePayload);
 } catch (Throwable $e) {
     aiiq_payu_debug('AI_IQ_SUBSCRIPTION_CREATE_ORDER_FATAL', [
         'exception_type' => get_class($e),

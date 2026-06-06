@@ -50,7 +50,6 @@ function setPaymentReturnFavicon(faviconUrl) {
 function setPaymentReturnLogo(logoUrl, clientName) {
   const logoEl = getPaymentReturnEl('paymentReturnLogo');
   const fallbackEl = getPaymentReturnEl('paymentReturnLogoFallback');
-
   const cleanLogo = String(logoUrl || '').trim();
   const cleanClientName = String(clientName || '').trim();
 
@@ -76,16 +75,33 @@ function setPaymentReturnLogo(logoUrl, clientName) {
   }
 }
 
-function applyPaymentReturnStatus(paymentStatus) {
+function buildBookingSubjectNominative(serviceName) {
+  const cleanServiceName = String(serviceName || '').trim();
+  return cleanServiceName ? `rezerwacja: ${cleanServiceName}` : 'rezerwacja';
+}
+
+function buildBookingSubjectAccusative(serviceName) {
+  const cleanServiceName = String(serviceName || '').trim();
+  return cleanServiceName ? `rezerwację ${cleanServiceName}` : 'rezerwację';
+}
+
+function thanksPrefix(name) {
+  const cleanName = String(name || '').trim();
+  return cleanName ? `Dziękujemy, ${cleanName}. ` : 'Dziękujemy. ';
+}
+
+function applyPaymentReturnStatus(paymentStatus, context = {}) {
   const titleEl = getPaymentReturnEl('paymentReturnTitle');
   const leadEl = document.querySelector('.payment-return-lead');
-
   const status = String(paymentStatus || '').trim();
+  const subjectNominative = buildBookingSubjectNominative(context.serviceName);
+  const subjectAccusative = buildBookingSubjectAccusative(context.serviceName);
+  const thanks = thanksPrefix(context.name);
 
   if (status === 'paid') {
     if (titleEl) titleEl.textContent = 'Płatność została potwierdzona';
     if (leadEl) {
-      leadEl.textContent = 'Twoja rezerwacja została opłacona i potwierdzona. Dziękujemy.';
+      leadEl.textContent = `${thanks}Twoja ${subjectNominative} została opłacona.`;
     }
     return;
   }
@@ -93,7 +109,7 @@ function applyPaymentReturnStatus(paymentStatus) {
   if (status === 'failed' || status === 'cancelled') {
     if (titleEl) titleEl.textContent = 'Płatność nie została zakończona';
     if (leadEl) {
-      leadEl.textContent = 'Twoja rezerwacja została przyjęta, ale płatność nie została poprawnie zakończona.';
+      leadEl.textContent = `${thanks}Twoja ${subjectNominative} została przyjęta, ale PayU nie potwierdziło zakończenia płatności.`;
     }
     return;
   }
@@ -101,7 +117,7 @@ function applyPaymentReturnStatus(paymentStatus) {
   if (status === 'expired') {
     if (titleEl) titleEl.textContent = 'Termin płatności minął';
     if (leadEl) {
-      leadEl.textContent = 'Twoja rezerwacja nie została opłacona w wymaganym czasie.';
+      leadEl.textContent = `${thanks}Twoja ${subjectNominative} nie została opłacona w wymaganym czasie.`;
     }
     return;
   }
@@ -111,7 +127,7 @@ function applyPaymentReturnStatus(paymentStatus) {
   }
 
   if (leadEl) {
-    leadEl.textContent = 'Twoja rezerwacja została przyjęta, a status płatności zostanie zaktualizowany po potwierdzeniu przez PayU.';
+    leadEl.textContent = `${thanks}Płatność za ${subjectAccusative} została przekazana do PayU. Status zostanie zaktualizowany po potwierdzeniu płatności.`;
   }
 }
 
@@ -141,27 +157,26 @@ async function loadPaymentReturnData() {
     const bookingName = String(booking.name || '').trim();
     const branding = data.branding || {};
     const service = data.service || {};
-    
-    
-    const serviceName = String(service.service_name || '').trim()
+    const serviceName = String(booking.service_name_snapshot || '').trim()
+      || String(service.service_name || '').trim()
       || String(branding.client_name || '').trim()
       || 'Rezerwacja';
-      
-      if (bookingName) {
-  setPaymentReturnText('paymentReturnThanks', `Dziękujemy, ${bookingName}`);
-}
+
+    if (bookingName) {
+      setPaymentReturnText('paymentReturnThanks', `Dziękujemy, ${bookingName}`);
+    }
 
     document.title = `${serviceName} — płatność`;
 
     setPaymentReturnLogo(branding.logo_url_front, branding.client_name);
     setPaymentReturnFavicon(branding.favicon_url_front);
-
     setPaymentReturnText('paymentReturnServiceName', serviceName);
     setPaymentReturnText('paymentReturnDate', formatPaymentReturnDate(booking.booking_date));
     setPaymentReturnText('paymentReturnTime', booking.booking_time);
-
-    applyPaymentReturnStatus(booking.payment_status);
-
+    applyPaymentReturnStatus(booking.payment_status, {
+      name: bookingName,
+      serviceName
+    });
   } catch (e) {
     console.error('loadPaymentReturnData error:', e);
     setPaymentReturnText('paymentReturnServiceName', 'Rezerwacja');

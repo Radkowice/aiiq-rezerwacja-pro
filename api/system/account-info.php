@@ -62,6 +62,201 @@ function account_info_request(string $method, string $url, array $headers, ?arra
     ];
 }
 
+function account_info_format_date_label(?string $value): string
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return '—';
+    }
+
+    try {
+        return (new DateTimeImmutable($value))->format('d.m.Y');
+    } catch (Throwable $e) {
+        return $value;
+    }
+}
+
+function account_info_date_start(?string $value): ?DateTimeImmutable
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    try {
+        return (new DateTimeImmutable($value))->setTime(0, 0, 0);
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function account_info_days_until(?DateTimeImmutable $date): ?int
+{
+    if (!$date) {
+        return null;
+    }
+
+    $today = (new DateTimeImmutable('today'))->setTime(0, 0, 0);
+    $seconds = $date->getTimestamp() - $today->getTimestamp();
+
+    return (int) floor($seconds / 86400);
+}
+
+function account_info_billing_period_label(?string $value): string
+{
+    return match (strtolower(trim((string) $value))) {
+        'monthly' => 'Miesięczny',
+        'yearly', 'annual' => 'Roczny',
+        'manual' => 'Ustalany indywidualnie',
+        default => '—',
+    };
+}
+
+function account_info_status_label(?string $value): string
+{
+    return match (strtolower(trim((string) $value))) {
+        'trial' => 'Okres próbny',
+        'active' => 'Aktywny',
+        'payment_due' => 'Do zapłaty',
+        'overdue' => 'Po terminie',
+        'suspended' => 'Zawieszony',
+        'cancelled' => 'Anulowany',
+        default => trim((string) $value) !== '' ? (string) $value : '—',
+    };
+}
+
+function account_info_money_label($amount, ?string $currency): string
+{
+    if ($amount === null || $amount === '') {
+        return '—';
+    }
+
+    if (!is_numeric($amount)) {
+        return trim((string) $amount . ' ' . (string) $currency);
+    }
+
+    $displayCurrency = strtoupper(trim((string) $currency)) === 'PLN' ? 'zł' : trim((string) $currency);
+
+    return trim(number_format((float) $amount, 2, ',', ' ') . ' ' . $displayCurrency);
+}
+
+function account_info_subscription_notice(?array $subscription): array
+{
+    if (!is_array($subscription)) {
+        return [
+            'variant' => 'neutral',
+            'title' => 'Brak danych abonamentu',
+            'text' => 'Nie udało się odczytać szczegółów abonamentu.',
+            'days_left' => null,
+            'grace_days_left' => null,
+            'current_period_start_label' => '—',
+            'current_period_end_label' => '—',
+            'next_payment_due_at_label' => '—',
+            'amount_label' => '—',
+            'billing_period_label' => '—',
+            'status_label' => '—',
+        ];
+    }
+
+    $planCode = strtolower(trim((string) ($subscription['plan_code'] ?? 'free')));
+    $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
+    $periodStart = account_info_date_start($subscription['current_period_start'] ?? null);
+    $periodEnd = account_info_date_start($subscription['current_period_end'] ?? null);
+    $nextPaymentDue = account_info_date_start($subscription['next_payment_due_at'] ?? null);
+    $daysLeft = account_info_days_until($periodEnd);
+    $graceDays = is_numeric($subscription['grace_period_days'] ?? null)
+        ? max(0, (int) $subscription['grace_period_days'])
+        : null;
+    $graceBase = $periodEnd ?: $nextPaymentDue;
+    $graceDaysLeft = null;
+
+    if ($graceBase && $graceDays !== null) {
+        $graceEnd = $graceBase->modify('+' . $graceDays . ' days');
+        $graceDaysLeft = max(0, (int) account_info_days_until($graceEnd));
+    }
+
+    $periodEndLabel = account_info_format_date_label($subscription['current_period_end'] ?? null);
+    $notice = [
+        'variant' => 'neutral',
+        'title' => 'Plan Free jest aktywny',
+        'text' => 'Korzystasz z podstawowej wersji systemu.',
+        'days_left' => $daysLeft,
+        'grace_days_left' => $graceDaysLeft,
+        'current_period_start_label' => account_info_format_date_label($subscription['current_period_start'] ?? null),
+        'current_period_end_label' => $periodEndLabel,
+        'next_payment_due_at_label' => account_info_format_date_label($subscription['next_payment_due_at'] ?? null),
+        'amount_label' => account_info_money_label($subscription['amount'] ?? null, $subscription['currency'] ?? null),
+        'billing_period_label' => $planCode === 'free' ? 'Nie dotyczy' : account_info_billing_period_label($subscription['billing_period'] ?? null),
+        'status_label' => account_info_status_label($status),
+    ];
+
+    if ($planCode === 'free') {
+        return $notice;
+    }
+
+    if ($status === 'cancelled') {
+        return array_merge($notice, [
+            'variant' => 'neutral',
+            'title' => 'Abonament zakończony',
+            'text' => 'Abonament Pro został zakończony.',
+        ]);
+    }
+
+    if ($status === 'suspended') {
+        return array_merge($notice, [
+            'variant' => 'danger',
+            'title' => 'Plan Pro jest zablokowany',
+            'text' => 'Funkcje Pro są obecnie niedostępne. Opłać abonament albo skontaktuj się z supportem.',
+        ]);
+    }
+
+    if ($status === 'payment_due' || $status === 'overdue') {
+        $text = 'Masz zaległą płatność za abonament.';
+
+        if ($graceDaysLeft !== null) {
+            $text .= ' Pozostało ' . $graceDaysLeft . ' dni okresu ochronnego. Po tym czasie funkcje Pro zostaną wyłączone, a konto przejdzie na plan Free.';
+        } else {
+            $text .= ' Opłać abonament, aby zachować dostęp do funkcji Pro.';
+        }
+
+        return array_merge($notice, [
+            'variant' => $status === 'payment_due' ? 'warning' : 'danger',
+            'title' => 'Płatność po terminie',
+            'text' => $text,
+        ]);
+    }
+
+    if ($status === 'active' || $status === 'trial') {
+        if ($periodEnd) {
+            if ($daysLeft !== null && $daysLeft <= 7 && $daysLeft >= 0) {
+                return array_merge($notice, [
+                    'variant' => 'warning',
+                    'title' => 'Abonament wkrótce wygaśnie',
+                    'text' => 'Twój plan Pro jest aktywny do ' . $periodEndLabel . '. Opłać abonament, aby zachować dostęp do funkcji Pro.',
+                ]);
+            }
+
+            if ($daysLeft !== null && $daysLeft > 7) {
+                return array_merge($notice, [
+                    'variant' => 'success',
+                    'title' => 'Brak zaległości w płatnościach',
+                    'text' => 'Twój plan Pro jest aktywny do ' . $periodEndLabel . '.',
+                ]);
+            }
+        }
+
+        return array_merge($notice, [
+            'variant' => 'warning',
+            'title' => 'Brak daty końca abonamentu',
+            'text' => 'Nie udało się ustalić daty końca planu Pro. Sprawdź dane abonamentu albo skontaktuj się z supportem.',
+        ]);
+    }
+
+    return $notice;
+}
+
 if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     account_info_json(405, [
         'success' => false,
@@ -172,6 +367,7 @@ if (!$subscriptionResult['ok']) {
 
 $subscription = $subscriptionResult['data'][0] ?? null;
 $planContext = plan_features_get_context($tenantId);
+$subscriptionNotice = account_info_subscription_notice(is_array($subscription) ? $subscription : null);
 
 account_info_json(200, [
     'success' => true,
@@ -179,5 +375,6 @@ account_info_json(200, [
     'branding' => is_array($branding) ? $branding : null,
     'company' => is_array($company) ? $company : null,
     'subscription' => is_array($subscription) ? $subscription : null,
+    'subscription_notice' => $subscriptionNotice,
     'plan_context' => $planContext,
 ]);

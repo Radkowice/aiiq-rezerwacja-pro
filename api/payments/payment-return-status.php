@@ -79,7 +79,7 @@ if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
     if ($supabaseUrl === '' || $supabaseKey === '') {
         payment_return_response([
             'success' => false,
-            'error' => 'Brak konfiguracji Supabase.'
+            'error' => 'Nie udało się pobrać danych płatności.'
         ], 500);
     }
 
@@ -94,7 +94,7 @@ if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
 
     $bookingUrl = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=id,tenant_id,name,booking_date,booking_time,payment_status,payment_required,payment_amount,payment_currency'
+        . '?select=id,tenant_id,name,booking_date,booking_time,service_name_snapshot,payment_status,payment_required,payment_amount,payment_currency'
         . '&id=eq.' . rawurlencode($bookingId)
         . '&tenant_id=eq.' . rawurlencode((string)$tenantId)
         . '&limit=1';
@@ -149,6 +149,7 @@ if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
             'id' => $booking['id'] ?? '',
             'booking_date' => $booking['booking_date'] ?? '',
             'name' => $booking['name'] ?? '',
+            'service_name_snapshot' => $booking['service_name_snapshot'] ?? '',
             'booking_time' => $booking['booking_time'] ?? '',
             'payment_status' => $booking['payment_status'] ?? '',
             'payment_required' => $booking['payment_required'] ?? false,

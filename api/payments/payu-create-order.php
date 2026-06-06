@@ -266,9 +266,9 @@ $amountText = number_format((float)$amount, 2, ',', ' ') . ' ' . $displayCurrenc
         . 'Jeżeli jeszcze nie opłaciłeś rezerwacji albo płatność została przerwana, możesz wrócić do płatności, korzystając z poniższego przycisku.'
         . '</p>'
         . '<div style="margin-top:22px;text-align:center;">'
-        . '<a href="' . $safePaymentUrl . '" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;">Przejdź do płatności</a>'
+        . '<a href="' . $safePaymentUrl . '" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;">Opłać rezerwację</a>'
         . '</div>'
-        . '<p style="margin:18px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">Jeśli przycisk nie działa, skopiuj i otwórz ten link w przeglądarce:<br>'
+        . '<p style="margin:18px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">Jeśli przycisk nie działa, skopiuj poniższy link do przeglądarki:<br>'
         . '<span style="word-break:break-all;">' . $safePaymentUrl . '</span></p>';
 
     $html = buildSystemMailLayout(
@@ -425,10 +425,11 @@ try {
     $customerName = trim((string) ($booking['name'] ?? 'Klient'));
     $customerEmail = trim((string) ($booking['email'] ?? ''));
 
-    $description = 'Rezerwacja terminu';
+    $serviceName = trim((string) ($booking['service_name_snapshot'] ?? ''));
+    $description = 'Rezerwacja: ' . ($serviceName !== '' ? $serviceName : 'termin');
 
     if ($bookingDate !== '' || $bookingTime !== '') {
-        $description .= ' ' . trim($bookingDate . ' ' . $bookingTime);
+        $description .= ' - ' . trim($bookingDate . ' ' . $bookingTime);
     }
 
     $extOrderId = 'booking-' . $bookingId . '-' . time();

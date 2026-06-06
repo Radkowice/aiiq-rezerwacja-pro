@@ -11,7 +11,10 @@ function aiiq_payu_debug(string $tag, $data = null): void
                 $data['client_secret'],
                 $data['second_key'],
                 $data['AI_IQ_PAYU_CLIENT_SECRET'],
-                $data['AI_IQ_PAYU_SECOND_KEY']
+                $data['AI_IQ_PAYU_SECOND_KEY'],
+                $data['access_token'],
+                $data['token'],
+                $data['authorization']
             );
             $line .= ' ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
         } else {
@@ -154,6 +157,80 @@ function aiiq_payu_http_request(
     ];
 }
 
+function aiiq_payu_safe_text($value, int $maxLength = 240): string
+{
+    if (!is_scalar($value)) {
+        return '';
+    }
+
+    $text = trim((string) $value);
+
+    if ($text === '') {
+        return '';
+    }
+
+    if (strlen($text) > $maxLength) {
+        return substr($text, 0, $maxLength) . '...';
+    }
+
+    return $text;
+}
+
+function aiiq_payu_response_diagnostics(array $result, array $payu): array
+{
+    $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+    $status = is_array($data['status'] ?? null) ? $data['status'] : [];
+
+    return [
+        'http_code' => (int) ($result['http_code'] ?? 0),
+        'curl_error' => (($result['error'] ?? '') !== '') ? aiiq_payu_safe_text($result['error']) : '',
+        'status' => aiiq_payu_safe_text($status['status'] ?? ($data['status'] ?? '')),
+        'code' => aiiq_payu_safe_text($status['code'] ?? ($data['code'] ?? '')),
+        'status_code' => aiiq_payu_safe_text($status['statusCode'] ?? ($data['statusCode'] ?? '')),
+        'status_desc' => aiiq_payu_safe_text($status['statusDesc'] ?? ($data['statusDesc'] ?? '')),
+        'code_literal' => aiiq_payu_safe_text($status['codeLiteral'] ?? ($data['codeLiteral'] ?? '')),
+        'description' => aiiq_payu_safe_text($status['description'] ?? ($data['description'] ?? '')),
+        'order_id_set' => aiiq_payu_safe_text($data['orderId'] ?? '') !== '',
+        'redirect_uri_set' => aiiq_payu_safe_text($data['redirectUri'] ?? '') !== '',
+        'location_header_set' => aiiq_payu_safe_text($result['location'] ?? '') !== '',
+        'env' => aiiq_payu_safe_text($payu['env'] ?? ''),
+    ];
+}
+
+function aiiq_payu_url_diagnostics(string $url): array
+{
+    $parts = parse_url($url);
+
+    if (!is_array($parts)) {
+        return [
+            'auth_url_host' => '',
+            'auth_url_path' => '',
+        ];
+    }
+
+    return [
+        'auth_url_host' => aiiq_payu_safe_text($parts['host'] ?? ''),
+        'auth_url_path' => aiiq_payu_safe_text($parts['path'] ?? ''),
+    ];
+}
+
+function aiiq_payu_token_request_diagnostics(array $result, array $payu): array
+{
+    $clientId = (string) ($payu['client_id'] ?? '');
+    $clientSecret = (string) ($payu['client_secret'] ?? '');
+
+    return array_merge(
+        aiiq_payu_response_diagnostics($result, $payu),
+        aiiq_payu_url_diagnostics((string) ($payu['auth_url'] ?? '')),
+        [
+            'client_id_set' => $clientId !== '',
+            'client_id_length' => strlen($clientId),
+            'client_secret_set' => $clientSecret !== '',
+            'client_secret_length' => strlen($clientSecret),
+        ]
+    );
+}
+
 function aiiq_payu_get_access_token(array $payu): array
 {
     $body = http_build_query([
@@ -173,12 +250,7 @@ function aiiq_payu_get_access_token(array $payu): array
     );
 
     if ($result['error'] || $result['http_code'] < 200 || $result['http_code'] >= 300) {
-        aiiq_payu_debug('AI_IQ_PAYU_TOKEN_ERROR', [
-            'http_code' => $result['http_code'],
-            'curl_error' => $result['error'] !== '',
-            'effective_url' => $result['effective_url'],
-            'env' => $payu['env'] ?? '',
-        ]);
+        aiiq_payu_debug('AI_IQ_PAYU_TOKEN_ERROR', aiiq_payu_token_request_diagnostics($result, $payu));
 
         return [
             'success' => false,
@@ -189,10 +261,7 @@ function aiiq_payu_get_access_token(array $payu): array
     $token = (string) ($result['data']['access_token'] ?? '');
 
     if ($token === '') {
-        aiiq_payu_debug('AI_IQ_PAYU_TOKEN_EMPTY', [
-            'http_code' => $result['http_code'],
-            'env' => $payu['env'] ?? '',
-        ]);
+        aiiq_payu_debug('AI_IQ_PAYU_TOKEN_EMPTY', aiiq_payu_token_request_diagnostics($result, $payu));
 
         return [
             'success' => false,
@@ -243,14 +312,11 @@ function aiiq_payu_create_order(array $payu, array $orderPayload): array
         $orderId = (string) $orderPayload['extOrderId'];
     }
 
-    aiiq_payu_debug('AI_IQ_PAYU_CREATE_ORDER_RESPONSE', [
-        'http_code' => $result['http_code'],
-        'curl_error' => $result['error'] !== '',
-        'status_code' => $statusCode,
-        'order_id_set' => $orderId !== '',
-        'redirect_uri_set' => $redirectUri !== '',
-        'env' => $payu['env'] ?? '',
-    ]);
+    $diagnostics = aiiq_payu_response_diagnostics($result, $payu);
+    $diagnostics['order_id_set'] = $orderId !== '';
+    $diagnostics['redirect_uri_set'] = $redirectUri !== '';
+
+    aiiq_payu_debug('AI_IQ_PAYU_CREATE_ORDER_RESPONSE', $diagnostics);
 
     if (
         !$result['error']

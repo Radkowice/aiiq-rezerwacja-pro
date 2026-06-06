@@ -85,21 +85,31 @@ function getReadableReservationsColors(baseColor) {
     text_color: isDark ? '#f8fafc' : '#0f172a',
     muted_color: isDark ? '#cbd5e1' : '#334155',
     button_text_color: isDark ? '#f8fafc' : '#0f172a',
-    button_border_color: isDark ? '#cbd5e1' : '#111827'
+    button_border_color: isDark ? '#cbd5e1' : '#64748b'
   };
 }
+
+const DEFAULT_RESERVATIONS_STYLE = {
+  bg_color: '#e5ebf2',
+  card_color: '#f8fafc',
+  table_color: '#eef2f7',
+  header_color: '#cbd5e1',
+  border_color: '#94a3b8',
+  radius: '16'
+};
 
 function applyReservationsStyle(style = {}) {
   const root = document.documentElement;
 
-  const bgColor = normalizeHexColor(style.bg_color, '#ffffff');
-  const cardColor = normalizeHexColor(style.card_color, '#ffffff');
-  const tableColor = normalizeHexColor(style.table_color, '#ffffff');
-  const headerColor = normalizeHexColor(style.header_color, '#2563eb');
-  const borderColor = normalizeHexColor(style.border_color, '#dbeafe');
+  const bgColor = normalizeHexColor(style.bg_color, DEFAULT_RESERVATIONS_STYLE.bg_color);
+  const cardColor = normalizeHexColor(style.card_color, DEFAULT_RESERVATIONS_STYLE.card_color);
+  const tableColor = normalizeHexColor(style.table_color, DEFAULT_RESERVATIONS_STYLE.table_color);
+  const headerColor = normalizeHexColor(style.header_color, DEFAULT_RESERVATIONS_STYLE.header_color);
+  const borderColor = normalizeHexColor(style.border_color, DEFAULT_RESERVATIONS_STYLE.border_color);
 
   const readableTextColors = getReadableReservationsColors(tableColor);
   const readableButtonColors = getReadableReservationsColors(cardColor);
+  const readableHeaderColors = getReadableReservationsColors(headerColor);
 
   root.style.setProperty('--reservations-bg-color', bgColor);
   root.style.setProperty('--reservations-card-color', cardColor);
@@ -111,35 +121,36 @@ function applyReservationsStyle(style = {}) {
   root.style.setProperty('--reservations-muted-color', readableTextColors.muted_color);
   root.style.setProperty('--reservations-button-text-color', readableButtonColors.button_text_color);
   root.style.setProperty('--reservations-button-border-color', readableButtonColors.button_border_color);
+  root.style.setProperty('--reservations-header-text-color', readableHeaderColors.text_color);
 
-  const radius = String(style.radius || '14').replace(/[^\d]/g, '');
-  root.style.setProperty('--reservations-radius', `${radius || 14}px`);
+  const radius = String(style.radius || DEFAULT_RESERVATIONS_STYLE.radius).replace(/[^\d]/g, '');
+  root.style.setProperty('--reservations-radius', `${radius || DEFAULT_RESERVATIONS_STYLE.radius}px`);
 }
 
 function getReservationsStyleFromInputs() {
   const bgColor = normalizeHexColor(
     document.getElementById('reservations-bg-color')?.value,
-    '#ffffff'
+    DEFAULT_RESERVATIONS_STYLE.bg_color
   );
 
   const cardColor = normalizeHexColor(
     document.getElementById('reservations-card-color')?.value,
-    '#ffffff'
+    DEFAULT_RESERVATIONS_STYLE.card_color
   );
 
   const tableColor = normalizeHexColor(
     document.getElementById('reservations-table-color')?.value,
-    '#ffffff'
+    DEFAULT_RESERVATIONS_STYLE.table_color
   );
 
   const headerColor = normalizeHexColor(
     document.getElementById('reservations-header-color')?.value,
-    '#2563eb'
+    DEFAULT_RESERVATIONS_STYLE.header_color
   );
 
   const borderColor = normalizeHexColor(
     document.getElementById('reservations-border-color')?.value,
-    '#dbeafe'
+    DEFAULT_RESERVATIONS_STYLE.border_color
   );
 
   const readableColors = getReadableReservationsColors(tableColor);
@@ -151,7 +162,7 @@ function getReservationsStyleFromInputs() {
     table_color: tableColor,
     header_color: headerColor,
     border_color: borderColor,
-    radius: document.getElementById('reservations-radius')?.value || '14',
+    radius: document.getElementById('reservations-radius')?.value || DEFAULT_RESERVATIONS_STYLE.radius,
 
     text_color: readableColors.text_color,
     muted_color: readableColors.muted_color,
@@ -290,27 +301,27 @@ const reservationsBorderColor = document.getElementById('reservations-border-col
 const reservationsRadius = document.getElementById('reservations-radius');
 
 if (reservationsBgColor) {
-  reservationsBgColor.value = reservationsStyle.bg_color || '#ffffff';
+  reservationsBgColor.value = reservationsStyle.bg_color || DEFAULT_RESERVATIONS_STYLE.bg_color;
 }
 
 if (reservationsCardColor) {
-  reservationsCardColor.value = reservationsStyle.card_color || '#ffffff';
+  reservationsCardColor.value = reservationsStyle.card_color || DEFAULT_RESERVATIONS_STYLE.card_color;
 }
 
 if (reservationsTableColor) {
-  reservationsTableColor.value = reservationsStyle.table_color || '#ffffff';
+  reservationsTableColor.value = reservationsStyle.table_color || DEFAULT_RESERVATIONS_STYLE.table_color;
 }
 
 if (reservationsHeaderColor) {
-  reservationsHeaderColor.value = reservationsStyle.header_color || '#2563eb';
+  reservationsHeaderColor.value = reservationsStyle.header_color || DEFAULT_RESERVATIONS_STYLE.header_color;
 }
 
 if (reservationsBorderColor) {
-  reservationsBorderColor.value = reservationsStyle.border_color || '#d1d5db';
+  reservationsBorderColor.value = reservationsStyle.border_color || DEFAULT_RESERVATIONS_STYLE.border_color;
 }
 
 if (reservationsRadius) {
-  reservationsRadius.value = reservationsStyle.radius || '12';
+  reservationsRadius.value = reservationsStyle.radius || DEFAULT_RESERVATIONS_STYLE.radius;
 }
 
 applyReservationsStyle(reservationsStyle);

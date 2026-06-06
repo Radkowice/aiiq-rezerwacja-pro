@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Plan Pro — płatność</title>
+
+  <link rel="stylesheet" href="/assets/css/platnosc-powrot.css">
+  <link rel="stylesheet" href="/assets/css/app-footer.css">
+</head>
+
+<body>
+  <main class="payment-return-page">
+    <section class="payment-return-card">
+      <div class="payment-return-logo-wrap">
+        <img
+          id="subscriptionReturnLogo"
+          class="payment-return-logo hidden"
+          src=""
+          alt="Logo"
+        >
+
+        <div id="subscriptionReturnLogoFallback" class="payment-return-logo-fallback">
+          AI-IQ
+        </div>
+      </div>
+
+      <div class="payment-return-icon" aria-hidden="true">
+        ✓
+      </div>
+
+      <p class="payment-return-kicker">
+        Plan Pro
+      </p>
+
+      <h1 id="subscriptionReturnTitle">
+        Dziękujemy
+      </h1>
+
+      <p class="payment-return-lead" id="subscriptionReturnLead">
+        Płatność za dostęp do planu Pro została przekazana do PayU.
+      </p>
+
+      <div class="payment-return-details">
+        <div class="payment-return-detail-row">
+          <span>Płatność</span>
+          <strong id="subscriptionReturnType">Plan Pro</strong>
+        </div>
+
+        <div class="payment-return-detail-row">
+          <span>Okres</span>
+          <strong id="subscriptionReturnPeriod">—</strong>
+        </div>
+
+        <div class="payment-return-detail-row">
+          <span>Firma</span>
+          <strong id="subscriptionReturnCompany">—</strong>
+        </div>
+      </div>
+
+      <div class="payment-return-message">
+        <p id="subscriptionReturnMessage">
+          System oczekuje na potwierdzenie płatności przez PayU. Plan Pro zostanie aktywowany albo przedłużony dopiero po potwierdzeniu płatności.
+        </p>
+
+        <p>
+          Ten ekran nie aktywuje planu Pro samodzielnie. Aktywacja lub przedłużenie nastąpi dopiero po potwierdzeniu płatności przez PayU.
+        </p>
+      </div>
+
+      <div class="payment-return-actions">
+        <a class="payment-return-btn primary" href="/panel-admina.php">
+          Wróć do panelu
+        </a>
+
+        <a class="payment-return-btn secondary" href="https://www.ai-iq.pl" target="_blank" rel="noopener">
+          Obsługiwane przez AI-IQ
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="app-footer" data-app-footer></footer>
+  <script src="/assets/js/platnosc-abonament-powrot.js"></script>
+  <script src="/assets/js/app-footer.js" defer></script>
+</body>
+</html>

@@ -182,32 +182,32 @@
 
       <div class="form-group">
         <label for="reservations-bg-color">Kolor tła sekcji</label>
-        <input type="color" id="reservations-bg-color" value="#0f172a">
+        <input type="color" id="reservations-bg-color" value="#e5ebf2">
       </div>
 
       <div class="form-group">
         <label for="reservations-card-color">Kolor kafelków</label>
-        <input type="color" id="reservations-card-color" value="#111827">
+        <input type="color" id="reservations-card-color" value="#f8fafc">
       </div>
 
       <div class="form-group">
         <label for="reservations-table-color">Kolor tabeli</label>
-        <input type="color" id="reservations-table-color" value="#ffffff">
+        <input type="color" id="reservations-table-color" value="#eef2f7">
       </div>
 
       <div class="form-group">
         <label for="reservations-header-color">Kolor nagłówka tabeli</label>
-        <input type="color" id="reservations-header-color" value="#2563eb">
+        <input type="color" id="reservations-header-color" value="#cbd5e1">
       </div>
 
       <div class="form-group">
         <label for="reservations-border-color">Kolor ramek</label>
-        <input type="color" id="reservations-border-color" value="#d1d5db">
+        <input type="color" id="reservations-border-color" value="#94a3b8">
       </div>
 
       <div class="form-group">
         <label for="reservations-radius">Zaokrąglenia</label>
-        <input type="range" id="reservations-radius" min="0" max="30" value="14">
+        <input type="range" id="reservations-radius" min="0" max="30" value="16">
       </div>
 
       <button class="btn" type="button" id="save-reservations-style-btn">

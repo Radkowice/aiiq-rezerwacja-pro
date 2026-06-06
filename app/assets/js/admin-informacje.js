@@ -1,6 +1,8 @@
 (function () {
   const PRO_PLAN_PRICES_ENDPOINT = '/api/system/subscription-plan-prices.php';
-  const PRO_UPGRADE_PAYMENT_MESSAGE = 'Płatność za plan Pro będzie dostępna w kolejnym kroku wdrożenia.';
+  const PRO_UPGRADE_ORDER_ENDPOINT = '/api/subscriptions/payu-create-order.php';
+  let currentSubscription = null;
+  let currentPlanContext = {};
 
   function formatDate(value) {
     if (!value) return '—';
@@ -45,6 +47,10 @@
     return String(planCode || '').trim().toLowerCase() === 'free';
   }
 
+  function isProPlan(planCode) {
+    return String(planCode || '').trim().toLowerCase() === 'pro';
+  }
+
   function formatCurrentPeriod(subscription) {
     const start = subscription?.current_period_start;
     const end = subscription?.current_period_end;
@@ -56,16 +62,54 @@
     return `${formatDate(start)} – ${formatDate(end)}`;
   }
 
-  function renderFreeSubscription(subscription = {}) {
+  function formatDaysLeft(value) {
+    if (value === null || value === undefined || value === '') {
+      return '—';
+    }
+
+    const days = Number(value);
+
+    if (Number.isNaN(days)) {
+      return '—';
+    }
+
+    return `${Math.max(0, days)} dni`;
+  }
+
+  function renderSubscriptionNotice(notice) {
+    const noticeEl = document.getElementById('info-subscription-notice');
+    const titleEl = document.getElementById('info-subscription-notice-title');
+    const textEl = document.getElementById('info-subscription-notice-text');
+
+    if (!noticeEl || !titleEl || !textEl || !notice) {
+      if (noticeEl) {
+        noticeEl.hidden = true;
+      }
+      return;
+    }
+
+    const variant = ['success', 'warning', 'danger', 'neutral'].includes(notice.variant)
+      ? notice.variant
+      : 'neutral';
+
+    noticeEl.classList.remove('success', 'warning', 'danger', 'neutral');
+    noticeEl.classList.add(variant);
+    titleEl.textContent = notice.title || 'Status abonamentu';
+    textEl.textContent = notice.text || 'Brak szczegółowych informacji o abonamencie.';
+    noticeEl.hidden = false;
+  }
+
+  function renderFreeSubscription(subscription = {}, notice = null) {
     setText('info-plan-name', subscription.plan_name || 'Free');
-    setText('info-billing-period', 'Nie dotyczy');
-    setText('info-next-payment', '—');
-    setText('info-amount', formatMoney(subscription.amount ?? 0, subscription.currency || 'PLN'));
-    setText('info-status', formatSubscriptionStatus(subscription.status || 'active'));
+    setText('info-billing-period', notice?.billing_period_label || 'Nie dotyczy');
+    setText('info-next-payment', notice?.next_payment_due_at_label || '—');
+    setText('info-amount', notice?.amount_label || formatMoney(subscription.amount ?? 0, subscription.currency || 'PLN'));
+    setText('info-status', notice?.status_label || formatSubscriptionStatus(subscription.status || 'active'));
     setText('info-current-period', formatCurrentPeriod({
       ...subscription,
       plan_code: 'free'
     }));
+    setText('info-days-left', '—');
     setText('info-grace-period', 'Nie dotyczy');
   }
 
@@ -244,17 +288,77 @@
   }
 
   async function handleProUpgradeClick() {
-    setProUpgradeMessage(PRO_UPGRADE_PAYMENT_MESSAGE, 'info');
+    const button = document.getElementById('pro-upgrade-btn');
+    const selected = document.querySelector('input[name="pro-upgrade-period"]:checked');
+    const consent = document.getElementById('pro-upgrade-consent');
+    const billingPeriod = String(selected?.value || '').trim();
+    const planCode = resolveVisiblePlanCode(currentSubscription, currentPlanContext);
+    const originalText = button ? button.textContent : '';
 
-    if (typeof openAdminConfirm === 'function') {
-      await openAdminConfirm({
-        title: 'Plan Pro',
-        message: PRO_UPGRADE_PAYMENT_MESSAGE,
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        variant: 'primary',
-        icon: 'i'
+    if (!isFreePlan(planCode) && !isProPlan(planCode)) {
+      setProUpgradeMessage('Zakup albo przedłużenie planu Pro nie jest dostępne dla obecnego planu.', 'error');
+      return;
+    }
+
+    if (!consent || !consent.checked) {
+      setProUpgradeMessage('Przed przejściem do płatności zaakceptuj Regulamin i Politykę prywatności.', 'error');
+      if (consent) {
+        consent.focus();
+      }
+      return;
+    }
+
+    if (!['monthly', 'yearly'].includes(billingPeriod)) {
+      setProUpgradeMessage('Wybierz miesięczny albo roczny okres rozliczeniowy.', 'error');
+      return;
+    }
+
+    try {
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Przygotowuję płatność...';
+      }
+
+      setProUpgradeOptionsState(false);
+      setProUpgradeMessage('Przygotowuję płatność...', 'info');
+
+      const res = await fetch(PRO_UPGRADE_ORDER_ENDPOINT, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          billing_period: billingPeriod,
+          payment_type: isProPlan(planCode) ? 'subscription_renewal' : 'subscription_upgrade'
+        })
       });
+
+      const text = await res.text();
+      let data = null;
+
+      try {
+        data = JSON.parse(text);
+      } catch {
+        throw new Error('Serwer zwrócił nieprawidłową odpowiedź.');
+      }
+
+      if (!res.ok || data?.success !== true || !data?.payment_url) {
+        throw new Error(data?.error || 'Nie udało się przygotować płatności za plan Pro.');
+      }
+
+      window.location.href = data.payment_url;
+    } catch (error) {
+      console.error('pro upgrade payment error:', error);
+      setProUpgradeMessage(error.message || 'Nie udało się przygotować płatności za plan Pro. Spróbuj ponownie później.', 'error');
+
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText || 'Przejdź na plan Pro';
+      }
+
+      setProUpgradeOptionsState(true);
     }
   }
 
@@ -463,7 +567,10 @@
       const branding = data.branding || {};
       const company = data.company || {};
       const subscription = data.subscription || null;
+      const subscriptionNotice = data.subscription_notice || null;
       const planContext = data.plan_context || {};
+      currentSubscription = subscription;
+      currentPlanContext = planContext;
 
       setText('info-company-name', branding.client_name);
       setText('info-company-full-name', company.company_full_name);
@@ -480,18 +587,23 @@
 
       if (subscription) {
         if (isFreePlan(subscription.plan_code)) {
-          renderFreeSubscription(subscription);
+          renderFreeSubscription(subscription, subscriptionNotice);
+          renderSubscriptionNotice(subscriptionNotice);
           renderProUpgradeSection(subscription, planContext);
           return;
         }
 
         setText('info-plan-name', subscription.plan_name);
-        setText('info-billing-period', formatBillingPeriod(subscription.billing_period));
-        setText('info-next-payment', formatDate(subscription.next_payment_due_at));
-        setText('info-amount', formatMoney(subscription.amount, subscription.currency));
-        setText('info-status', formatSubscriptionStatus(subscription.status));
+        setText('info-billing-period', subscriptionNotice?.billing_period_label || formatBillingPeriod(subscription.billing_period));
+        setText('info-next-payment', subscriptionNotice?.next_payment_due_at_label || formatDate(subscription.next_payment_due_at));
+        setText('info-amount', subscriptionNotice?.amount_label || formatMoney(subscription.amount, subscription.currency));
+        setText('info-status', subscriptionNotice?.status_label || formatSubscriptionStatus(subscription.status));
         setText('info-current-period', formatCurrentPeriod(subscription));
-        setText('info-grace-period', `${subscription.grace_period_days ?? 0} dni`);
+        setText('info-days-left', formatDaysLeft(subscriptionNotice?.days_left));
+        setText('info-grace-period', subscriptionNotice?.grace_days_left !== null && subscriptionNotice?.grace_days_left !== undefined
+          ? formatDaysLeft(subscriptionNotice.grace_days_left)
+          : `${subscription.grace_period_days ?? 0} dni`);
+        renderSubscriptionNotice(subscriptionNotice);
         renderProUpgradeSection(subscription, planContext);
       } else {
         const fallbackPlanName = planContext.plan_name || (planContext.plan_code === 'free' ? 'Free' : 'Brak danych abonamentu');
@@ -506,7 +618,8 @@
             status: 'active',
             amount: 0,
             currency: 'PLN'
-          });
+          }, subscriptionNotice);
+          renderSubscriptionNotice(subscriptionNotice);
           renderProUpgradeSection(subscription, planContext);
           return;
         }
@@ -517,7 +630,9 @@
         setText('info-amount', '—');
         setText('info-status', fallbackStatus || 'Nie ustawiono');
         setText('info-current-period', '—');
+        setText('info-days-left', '—');
         setText('info-grace-period', '—');
+        renderSubscriptionNotice(subscriptionNotice);
         renderProUpgradeSection(subscription, planContext);
       }
     } catch (error) {
@@ -525,6 +640,7 @@
 
       setText('info-plan-name', 'Błąd pobierania danych');
       setText('info-status', error.message || 'Błąd');
+      renderSubscriptionNotice(null);
       hideProUpgradeSection();
     }
   }
@@ -540,6 +656,15 @@
     const proUpgradeButton = document.getElementById('pro-upgrade-btn');
     if (proUpgradeButton) {
       proUpgradeButton.addEventListener('click', handleProUpgradeClick);
+    }
+
+    const proUpgradeConsent = document.getElementById('pro-upgrade-consent');
+    if (proUpgradeConsent) {
+      proUpgradeConsent.addEventListener('change', () => {
+        if (proUpgradeConsent.checked) {
+          setProUpgradeMessage('', 'info');
+        }
+      });
     }
   });
 })();
