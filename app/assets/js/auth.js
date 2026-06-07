@@ -1,10 +1,8 @@
 async function checkAuth() {
   try {
-    const res = await fetch('/api/auth/me.php', {
-      credentials: 'include'
-    });
+    const data = await getAdminAccountDataReady();
 
-    if (res.status !== 200) {
+    if (!data || data.success !== true) {
       window.location.href = '/logowanie.html';
     }
   } catch (e) {
@@ -12,26 +10,82 @@ async function checkAuth() {
   }
 }
 
-async function apiFetch(url, options = {}) {
+function createAdminRequestError(message, response = null, data = null) {
+  const error = new Error(message || 'Nie udało się wykonać operacji.');
+  error.status = response?.status || 0;
+  error.data = data;
+  return error;
+}
+
+async function readAdminResponsePayload(response) {
+  const text = await response.text();
+
+  if (!text) {
+    return {
+      text: '',
+      data: null
+    };
+  }
+
   try {
-    const res = await fetch(url, {
+    return {
+      text,
+      data: JSON.parse(text)
+    };
+  } catch {
+    return {
+      text,
+      data: null
+    };
+  }
+}
+
+async function adminRequest(url, options = {}) {
+  let response;
+
+  try {
+    response = await fetch(url, {
       credentials: 'include',
       ...options
     });
+  } catch (error) {
+    throw createAdminRequestError(
+      error?.message || 'Nie udało się połączyć z serwerem.',
+      null,
+      null
+    );
+  }
 
-    // ?? AUTO LOGOUT
-    if (res.status === 401) {
-      window.location.href = '/logowanie.html';
-      return null;
-    }
+  if (response.ok) {
+    return response;
+  }
+
+  const payload = await readAdminResponsePayload(response);
+  const message = payload.data?.error
+    || payload.data?.message
+    || payload.text
+    || `Nie udało się wykonać operacji. Status: ${response.status}`;
+
+  throw createAdminRequestError(message, response, payload.data);
+}
+
+window.adminRequest = adminRequest;
+
+async function apiFetch(url, options = {}) {
+  try {
+    const res = await adminRequest(url, options);
 
     const text = await res.text();
+
+    if (!text) {
+      return null;
+    }
 
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      throw new Error(text || 'Nieprawidłowa odpowiedź serwera');
+      throw createAdminRequestError(text || 'Nieprawidłowa odpowiedź serwera', res, null);
     }
 
     return data;
@@ -253,7 +307,7 @@ async function loadAccountData() {
   try {
     const data = await apiFetch('/api/auth/me.php');
     
-    if (!data || !data.success) return;
+    if (!data || !data.success) return data;
 
     window.AIIQ_PLAN_CONTEXT = data.plan_context || {
       plan_code: 'free',
@@ -379,15 +433,31 @@ if (faviconPreview && faviconEmpty) {
 }
     
     applyAdminTheme(branding.admin_theme || 'light');
+
+    return data;
    
   } catch (err) {
     console.error(' error:', err);
+    return null;
   }
+}
+
+function getAdminAccountDataReady() {
+  const ready = window.adminAccountDataReady;
+
+  if (ready && typeof ready.then === 'function') {
+    return ready;
+  }
+
+  window.adminAccountDataReady = loadAccountData();
+  return window.adminAccountDataReady;
 }
 
 // auto start po załadowaniu
 document.addEventListener('DOMContentLoaded', () => {
-  window.adminAccountDataReady = loadAccountData();
+  if (!window.adminAccountDataReady) {
+    window.adminAccountDataReady = loadAccountData();
+  }
   bindReservationsStylePreview();
 });
 

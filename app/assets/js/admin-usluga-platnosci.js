@@ -14,9 +14,7 @@
 
   const els = {};
 
-  document.addEventListener('DOMContentLoaded', initServicePaymentsSettings);
-
-  function initServicePaymentsSettings() {
+  window.initAdminServicePaymentsModule = async function initAdminServicePaymentsModule() {
     if (initialized) return;
 
     const section = document.querySelector('section[data-section="usluga-platnosci"]');
@@ -25,9 +23,9 @@
     initialized = true;
     cacheElements(section);
     bindEvents();
-    loadServiceCompanyNamePreview();
-    loadServicePaymentsData();
-  }
+    await loadServiceCompanyNamePreview();
+    await loadServicePaymentsData();
+  };
 
   function cacheElements(section) {
     els.section = section;
@@ -624,8 +622,28 @@
   }
 
   async function requestJson(url, options = {}) {
-    const response = await fetch(url, {
-      credentials: 'include',
+    if (typeof window.apiFetch === 'function') {
+      const data = await window.apiFetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+        },
+        ...options,
+      });
+
+      if (!data || data.success !== true) {
+        throw new Error(data?.error || 'Nie udało się wykonać operacji.');
+      }
+
+      return data;
+    }
+
+    if (typeof window.adminRequest !== 'function') {
+      throw new Error('Brak helpera requestów administracyjnych.');
+    }
+
+    const response = await window.adminRequest(url, {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',

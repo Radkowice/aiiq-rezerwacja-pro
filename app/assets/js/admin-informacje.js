@@ -1,6 +1,7 @@
 (function () {
   const PRO_PLAN_PRICES_ENDPOINT = '/api/system/subscription-plan-prices.php';
   const PRO_UPGRADE_ORDER_ENDPOINT = '/api/subscriptions/payu-create-order.php';
+  let adminInfoInitialized = false;
   let currentSubscription = null;
   let currentPlanContext = {};
 
@@ -680,8 +681,10 @@
     }
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
-    loadAccountInfo();
+  window.initAdminInfoModule = async function initAdminInfoModule() {
+    if (adminInfoInitialized) return;
+
+    adminInfoInitialized = true;
 
     const saveButton = document.getElementById('save-company-contact-btn');
     if (saveButton) {
@@ -701,5 +704,7 @@
         }
       });
     }
-  });
+
+    await loadAccountInfo();
+  };
 })();

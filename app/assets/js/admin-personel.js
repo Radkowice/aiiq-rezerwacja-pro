@@ -1,5 +1,5 @@
 (function () {
-  let initialized = false;
+  let adminStaffInitialized = false;
 
   const weekdays = [
     { value: 1, label: 'Poniedziałek' },
@@ -165,8 +165,28 @@
   }
 
   async function requestJson(url, options) {
-    const response = await fetch(url, {
-      credentials: 'same-origin',
+    if (typeof window.apiFetch === 'function') {
+      const data = await window.apiFetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+          ...(options && options.headers ? options.headers : {}),
+        },
+        ...options,
+      });
+
+      if (!data || data.success !== true) {
+        throw createRequestError(data, 'Nie udało się wykonać operacji');
+      }
+
+      return data;
+    }
+
+    if (typeof window.adminRequest !== 'function') {
+      throw new Error('Brak helpera requestów administracyjnych.');
+    }
+
+    const response = await window.adminRequest(url, {
       headers: {
         Accept: 'application/json',
         'Content-Type': 'application/json',
@@ -683,19 +703,17 @@
     });
   }
 
-  function initAdminPersonel() {
-    if (initialized) return;
+  window.initAdminStaffModule = async function initAdminStaffModule() {
+    if (adminStaffInitialized) return;
 
     const section = document.querySelector('section[data-section="personel"]');
     if (!section) return;
 
-    initialized = true;
+    adminStaffInitialized = true;
     cacheElements(section);
     renderAvailabilityRows(new Map());
     bindEvents();
     startNewPerson();
-    loadStaffList();
-  }
-
-  document.addEventListener('DOMContentLoaded', initAdminPersonel);
+    await loadStaffList();
+  };
 })();

@@ -1,3 +1,256 @@
+window.AdminLoadQueue = window.AdminLoadQueue || (() => {
+  let chain = Promise.resolve();
+  let stopped = false;
+
+  function log(message, name) {
+    const suffix = name ? ` ${name}` : '';
+    console.log(`[AdminLoadQueue] ${message}${suffix}`);
+  }
+
+  function enqueue(name, task, options = {}) {
+    const taskName = name || 'unnamed-task';
+    const optional = options.optional === true;
+
+    const run = async () => {
+      if (stopped) {
+        log('skipped after required error:', taskName);
+        return null;
+      }
+
+      log('start:', taskName);
+
+      try {
+        const result = await task();
+        log('done:', taskName);
+        return result;
+      } catch (error) {
+        log('error:', taskName);
+        console.error(`[AdminLoadQueue] ${taskName}`, error);
+
+        if (typeof options.onError === 'function') {
+          options.onError(error);
+        }
+
+        if (optional) {
+          return null;
+        }
+
+        stopped = true;
+        throw error;
+      }
+    };
+
+    const result = chain.then(run);
+    chain = result.catch(() => null);
+    return result;
+  }
+
+  return {
+    enqueue
+  };
+})();
+
+let adminEmailModuleQueued = false;
+let adminIntegrationsModuleQueued = false;
+let adminStaffModuleQueued = false;
+let adminSettingsModuleQueued = false;
+let adminBlocksModuleQueued = false;
+let adminLegalDocumentsModuleQueued = false;
+let adminInfoModuleQueued = false;
+let adminServicePaymentsModuleQueued = false;
+
+function enqueueAdminEmailModule() {
+  if (adminEmailModuleQueued) return;
+
+  adminEmailModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('email-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminEmailModule === 'function') {
+      await window.initAdminEmailModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
+function enqueueAdminIntegrationsModule() {
+  if (adminIntegrationsModuleQueued) return;
+
+  adminIntegrationsModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('integrations-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminIntegrationsModule === 'function') {
+      await window.initAdminIntegrationsModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
+function enqueueAdminStaffModule() {
+  if (adminStaffModuleQueued) return;
+
+  adminStaffModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('staff-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminStaffModule === 'function') {
+      await window.initAdminStaffModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
+function enqueueAdminSettingsModule() {
+  if (adminSettingsModuleQueued) return;
+
+  adminSettingsModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('settings-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminSettingsModule === 'function') {
+      await window.initAdminSettingsModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
+function enqueueAdminBlocksModule() {
+  if (adminBlocksModuleQueued) return;
+
+  adminBlocksModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('blocks-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminBlocksModule === 'function') {
+      await window.initAdminBlocksModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
+function enqueueAdminLegalDocumentsModule() {
+  if (adminLegalDocumentsModuleQueued) return;
+
+  adminLegalDocumentsModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('legal-documents-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminLegalDocumentsModule === 'function') {
+      await window.initAdminLegalDocumentsModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
+function enqueueAdminInfoModule() {
+  if (adminInfoModuleQueued) return;
+
+  adminInfoModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('info-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminInfoModule === 'function') {
+      await window.initAdminInfoModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
+function enqueueAdminServicePaymentsModule() {
+  if (adminServicePaymentsModuleQueued) return;
+
+  adminServicePaymentsModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('service-payments-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initAdminServicePaymentsModule === 'function') {
+      await window.initAdminServicePaymentsModule();
+    }
+  }, {
+    optional: true
+  });
+}
+
 let currentBookingsView = 'upcoming';
 let bookingSearchQuery = '';
 let bookingSearchTimer = null;
@@ -75,33 +328,58 @@ function isValidBookingsView(view) {
   return Object.prototype.hasOwnProperty.call(BOOKING_VIEWS, view);
 }
 
-document.addEventListener('DOMContentLoaded', async () => {
-  if (typeof checkAuth === 'function') {
-    checkAuth();
-    checkSystemStatus();
-  }
+function scheduleAdminBackgroundTasks() {
+  window.setTimeout(() => {
+    window.AdminLoadQueue.enqueue('calendar-enabled-toggle', () => initCalendarEnabledToggle(), {
+      optional: true
+    });
 
+    window.AdminLoadQueue.enqueue('system-status', () => checkSystemStatus(), {
+      optional: true
+    });
+
+    if (aiIqHasFeature('admin_staff_notifications')) {
+      window.AdminLoadQueue.enqueue('admin-notifications', () => loadAdminNotifications(), {
+        optional: true
+      });
+    }
+  }, 700);
+}
+
+document.addEventListener('DOMContentLoaded', async () => {
   initMenu();
   initSidebar();
   initTopbarActions();
   initAdminNotifications();
   initBookingFilters();
-  initCalendarEnabledToggle();
 
   try {
-    const accountReady = window.adminAccountDataReady || Promise.resolve();
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
 
-    await Promise.all([
-      accountReady,
-      loadBookings(currentBookingsView)
-    ]);
+    await window.AdminLoadQueue.enqueue('admin-auth-ready', async () => {
+      const data = await accountReady;
+
+      if (!data || data.success !== true) {
+        window.location.href = '/logowanie.html';
+        throw new Error('Brak aktywnej sesji administratora.');
+      }
+
+      window.dispatchEvent(new CustomEvent('aiiq:admin-auth-ready', {
+        detail: data
+      }));
+
+      return data;
+    });
+
+    await window.AdminLoadQueue.enqueue('rezerwacje', () => loadBookings(currentBookingsView));
 
     document.body.classList.toggle('plan-free', aiIqIsFreePlan());
     applyPlanLocks();
 
-    if (aiIqHasFeature('admin_staff_notifications')) {
-      await loadAdminNotifications();
-    }
+    scheduleAdminBackgroundTasks();
   } finally {
     if (window.AppLoader) {
       window.AppLoader.hide();
@@ -145,6 +423,38 @@ function initMenu() {
         section: targetSection,
       },
     }));
+
+    if (targetSection === 'email') {
+      enqueueAdminEmailModule();
+    }
+
+    if (targetSection === 'blokady') {
+      enqueueAdminBlocksModule();
+    }
+
+    if (targetSection === 'personel') {
+      enqueueAdminStaffModule();
+    }
+
+    if (targetSection === 'usluga-platnosci') {
+      enqueueAdminServicePaymentsModule();
+    }
+
+    if (targetSection === 'integracje') {
+      enqueueAdminIntegrationsModule();
+    }
+
+    if (targetSection === 'dokumenty_prawne') {
+      enqueueAdminLegalDocumentsModule();
+    }
+
+    if (targetSection === 'informacje') {
+      enqueueAdminInfoModule();
+    }
+
+    if (targetSection === 'ustawienia') {
+      enqueueAdminSettingsModule();
+    }
 
     return true;
   }

@@ -3,6 +3,7 @@
 ========================= */
 
 (function () {
+  let adminIntegrationsInitialized = false;
   const API_URL = '/api/system/integrations.php';
 
   async function integrationApi(url, options = {}) {
@@ -10,8 +11,11 @@
       return await window.apiFetch(url, options);
     }
 
-    const response = await fetch(url, {
-      credentials: 'include',
+    if (typeof window.adminRequest !== 'function') {
+      throw new Error('Brak helpera requestów administracyjnych');
+    }
+
+    const response = await window.adminRequest(url, {
       headers: {
         'Content-Type': 'application/json',
         ...(options.headers || {})
@@ -349,7 +353,11 @@ if (googleConnected) {
     }
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
+  window.initAdminIntegrationsModule = async function initAdminIntegrationsModule() {
+    if (adminIntegrationsInitialized) return;
+
+    adminIntegrationsInitialized = true;
+
     const section = document.querySelector('[data-section="integracje"]');
 
     if (!section) {
@@ -357,7 +365,7 @@ if (googleConnected) {
     }
 
     bindEvents();
-    loadIntegrations();
+    await loadIntegrations();
     handleGoogleOAuthReturn();
-  });
+  };
 })();

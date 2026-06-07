@@ -1,18 +1,20 @@
 (() => {
-  document.addEventListener('DOMContentLoaded', () => {
-    loadSettingsForm();
-  });
+  let adminSettingsInitialized = false;
+
+  window.initAdminSettingsModule = async function initAdminSettingsModule() {
+    if (adminSettingsInitialized) return;
+
+    adminSettingsInitialized = true;
+    await loadSettingsForm();
+  };
   
   async function loadSettingsForm() {
   try {
-    const res = await fetch('/api/system/settings.php', {
-      cache: 'no-store',
-      credentials: 'include'
+    const data = await requestSettingsJson('/api/system/settings.php', {
+      cache: 'no-store'
     });
 
-    const data = await res.json();
-
-    if (!res.ok || !data?.success || !data?.settings) {
+    if (!data?.success || !data?.settings) {
       throw new Error(data?.error || 'Nie udało się pobrać ustawień');
     }
     document.getElementById('booking-buffer').value = data.settings.booking_buffer || 0;
@@ -28,6 +30,19 @@
     showSettingsMessage('Nie udało się wczytać ustawień', 'error');
   }
 }
+
+  async function requestSettingsJson(url, options = {}) {
+    if (typeof window.apiFetch === 'function') {
+      return await window.apiFetch(url, options);
+    }
+
+    if (typeof window.adminRequest !== 'function') {
+      throw new Error('Brak helpera requestów administracyjnych.');
+    }
+
+    const response = await window.adminRequest(url, options);
+    return await response.json();
+  }
 
   function isValidTimeRange(start, end) {
     return timeToMinutes(end) > timeToMinutes(start);

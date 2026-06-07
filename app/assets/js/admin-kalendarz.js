@@ -1,4 +1,5 @@
 (() => {
+  let adminBlocksInitialized = false;
   let calendarSettings = null;
 
   const HOLIDAYS = [
@@ -50,9 +51,11 @@
     staffAvailabilityExceptions: []
   };
 
-  document.addEventListener('DOMContentLoaded', async () => {
+  window.initAdminBlocksModule = async function initAdminBlocksModule() {
+    if (adminBlocksInitialized) return;
     if (!document.getElementById('adminCalendar')) return;
 
+    adminBlocksInitialized = true;
     initCalendarControls();
     setRangeMinDates();
 
@@ -62,7 +65,7 @@
       console.error('initAdminCalendar error:', error);
       showMessage(error.message || 'Nie udało się uruchomić kalendarza admina', 'error');
     }
-  });
+  };
 
   function delay(ms) {
     return new Promise(resolve => window.setTimeout(resolve, ms));

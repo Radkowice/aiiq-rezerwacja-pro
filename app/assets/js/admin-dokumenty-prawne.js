@@ -1,18 +1,19 @@
-document.addEventListener('DOMContentLoaded', () => {
-  initLegalDocuments();
-});
+let adminLegalDocumentsInitialized = false;
 
-async function initLegalDocuments() {
+window.initAdminLegalDocumentsModule = async function initAdminLegalDocumentsModule() {
+  if (adminLegalDocumentsInitialized) return;
+
   const saveBtn = document.getElementById('save-legal-documents-btn');
 
   if (!saveBtn) return;
 
+  adminLegalDocumentsInitialized = true;
   await loadLegalDocuments();
 
   saveBtn.addEventListener('click', async () => {
     await saveLegalDocuments(saveBtn);
   });
-}
+};
 
 function getLegalDocumentsFormData() {
   return {
@@ -54,15 +55,12 @@ async function loadLegalDocuments() {
   try {
     setLegalDocumentsMessage('Wczytywanie dokumentów...', '');
 
-    const response = await fetch('/api/system/legal-documents.php', {
+    const data = await legalDocumentsRequestJson('/api/system/legal-documents.php', {
       method: 'GET',
-      credentials: 'include',
       cache: 'no-store'
     });
 
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
+    if (!data.success) {
       throw new Error(data.error || 'Nie udało się wczytać dokumentów prawnych');
     }
 
@@ -84,9 +82,8 @@ async function saveLegalDocuments(button) {
 
     const payload = getLegalDocumentsFormData();
 
-    const response = await fetch('/api/system/legal-documents.php', {
+    const data = await legalDocumentsRequestJson('/api/system/legal-documents.php', {
       method: 'POST',
-      credentials: 'include',
       cache: 'no-store',
       headers: {
         'Content-Type': 'application/json'
@@ -94,9 +91,7 @@ async function saveLegalDocuments(button) {
       body: JSON.stringify(payload)
     });
 
-    const data = await response.json();
-
-    if (!response.ok || !data.success) {
+    if (!data.success) {
       throw new Error(data.error || 'Nie udało się zapisać dokumentów prawnych');
     }
 
@@ -108,4 +103,17 @@ async function saveLegalDocuments(button) {
     button.disabled = false;
     button.textContent = originalText;
   }
+}
+
+async function legalDocumentsRequestJson(url, options = {}) {
+  if (typeof window.apiFetch === 'function') {
+    return await window.apiFetch(url, options);
+  }
+
+  if (typeof window.adminRequest !== 'function') {
+    throw new Error('Brak helpera requestów administracyjnych.');
+  }
+
+  const response = await window.adminRequest(url, options);
+  return await response.json();
 }

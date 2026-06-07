@@ -1,6 +1,10 @@
 (function () {
+  let adminEmailInitialized = false;
   const section = document.querySelector('section[data-section="email"]');
-  if (!section) return;
+  if (!section) {
+    window.initAdminEmailModule = async function initAdminEmailModule() {};
+    return;
+  }
 
   const els = {
     content: section.querySelector('#booking-email-content'),
@@ -45,12 +49,19 @@
     savingStaff: false,
   };
 
-  syncEmojiPickers();
-  bindEvents();
-  loadEmailSettings();
-  loadStaffEmailTemplates();
-  updateGlobalEmailPreview();
-  updateStaffEmailPreview();
+  window.initAdminEmailModule = async function initAdminEmailModule() {
+    if (adminEmailInitialized) return;
+
+    adminEmailInitialized = true;
+
+    syncEmojiPickers();
+    bindEvents();
+    updateGlobalEmailPreview();
+    updateStaffEmailPreview();
+
+    await loadEmailSettings();
+    await loadStaffEmailTemplates();
+  };
 
   function bindEvents() {
     els.smtpToggle?.addEventListener('click', toggleSmtpPassword);
@@ -604,9 +615,29 @@
   }
 
   async function requestJson(url, payload) {
-    const response = await fetch(url, {
+    if (typeof window.apiFetch === 'function') {
+      const data = await window.apiFetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!data || data.success !== true) {
+        throw new Error(data?.error || 'Nie udało się zapisać zmian. Spróbuj ponownie.');
+      }
+
+      return data;
+    }
+
+    if (typeof window.adminRequest !== 'function') {
+      throw new Error('Brak helpera requestów administracyjnych.');
+    }
+
+    const response = await window.adminRequest(url, {
       method: 'POST',
-      credentials: 'include',
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
@@ -624,9 +655,27 @@
   }
 
   async function fetchJson(url) {
-    const response = await fetch(url, {
+    if (typeof window.apiFetch === 'function') {
+      const data = await window.apiFetch(url, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!data || data.success !== true) {
+        throw new Error(data?.error || 'Nie udało się pobrać danych.');
+      }
+
+      return data;
+    }
+
+    if (typeof window.adminRequest !== 'function') {
+      throw new Error('Brak helpera requestów administracyjnych.');
+    }
+
+    const response = await window.adminRequest(url, {
       method: 'GET',
-      credentials: 'include',
       headers: {
         Accept: 'application/json',
       },
