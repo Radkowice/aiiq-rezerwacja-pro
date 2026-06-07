@@ -475,9 +475,7 @@ function getEffectiveFrontService(staff = null) {
     service_break_minutes: hasStaff && hasFrontValue(staff.service_break_minutes)
       ? staff.service_break_minutes
       : calendarSettings.consultation_break,
-    booking_buffer_minutes: hasStaff && hasFrontValue(staff.booking_buffer_minutes)
-      ? staff.booking_buffer_minutes
-      : calendarSettings.booking_buffer
+    booking_buffer_minutes: calendarSettings.booking_buffer
   };
 }
 
@@ -560,6 +558,59 @@ function getSelectedFrontServiceOption() {
   selectedServiceId = selectedService?.id || '';
 
   return option;
+}
+
+function getEffectiveFrontMinNoticeMinutes(service = null) {
+  const selectedOption = service ? null : getSelectedFrontServiceOption();
+  const effectiveService = service || selectedOption?.service || selectedService || null;
+  const serviceBufferRaw = effectiveService?.booking_buffer_minutes;
+  const serviceBuffer = serviceBufferRaw === null || serviceBufferRaw === undefined || serviceBufferRaw === ''
+    ? null
+    : parseInt(serviceBufferRaw, 10);
+
+  if (Number.isFinite(serviceBuffer) && serviceBuffer > 0) {
+    return Math.max(0, serviceBuffer);
+  }
+
+  const globalBuffer = parseInt(calendarSettings.booking_buffer || 0, 10);
+  return Number.isFinite(globalBuffer) && globalBuffer > 0 ? globalBuffer : 0;
+}
+
+function frontSlotRespectsMinNotice(dateStr, time, minNoticeMinutes = null) {
+  const noticeMinutes = minNoticeMinutes === null || minNoticeMinutes === undefined
+    ? getEffectiveFrontMinNoticeMinutes()
+    : Math.max(0, parseInt(minNoticeMinutes || 0, 10) || 0);
+
+  if (noticeMinutes <= 0) {
+    return true;
+  }
+
+  if (!dateStr || !/^\d{2}:\d{2}$/.test(String(time || '').slice(0, 5))) {
+    return false;
+  }
+
+  const slotDate = new Date(`${dateStr}T${String(time).slice(0, 5)}:00`);
+
+  if (Number.isNaN(slotDate.getTime())) {
+    return false;
+  }
+
+  const minAllowedDate = new Date(Date.now() + (noticeMinutes * 60 * 1000));
+  return slotDate >= minAllowedDate;
+}
+
+function filterFrontTimesByMinNotice(dateStr, times, service = null) {
+  if (!Array.isArray(times) || times.length === 0) {
+    return [];
+  }
+
+  const noticeMinutes = getEffectiveFrontMinNoticeMinutes(service);
+
+  if (noticeMinutes <= 0) {
+    return [...times];
+  }
+
+  return times.filter(time => frontSlotRespectsMinNotice(dateStr, time, noticeMinutes));
 }
 
 function getStaffForSelectedService() {
@@ -1316,7 +1367,7 @@ function isGlobalRuleBlocked(dateStr, blockSettings = {}) {
   return false;
 }
 
-async function renderTimeOptions() {                 
+async function renderTimeOptions() {
   const timeEl = getEl('time');
   const dateEl = getEl('date');
 
@@ -1330,7 +1381,6 @@ async function renderTimeOptions() {
 
   try {
     let availableTimes = [];
-    let bufferMinutesForToday = parseInt(calendarSettings.booking_buffer || 0, 10);
 
     if (FRONT_STAFF_REQUIRED) {
       const staffId = getSelectedStaffId();
@@ -1364,22 +1414,11 @@ async function renderTimeOptions() {
           ? settings.availableTimes
           : [];
       } else {
+        if (!staffRes.ok || staffData?.success !== true || !Array.isArray(staffData?.availableTimes)) {
+          throw new Error(staffData?.message || staffData?.error || 'Nie udało się pobrać dostępności osoby');
+        }
 
-      if (!staffRes.ok || staffData?.success !== true || !Array.isArray(staffData?.availableTimes)) {
-        throw new Error(staffData?.message || staffData?.error || 'Nie udało się pobrać dostępności osoby');
-      }
-
-      const staffTimes = staffData.availableTimes;
-      availableTimes = staffTimes;
-
-      const staffBufferRaw = staffData.settings?.booking_buffer_minutes;
-      const staffBufferMinutes = staffBufferRaw === null || staffBufferRaw === undefined || staffBufferRaw === ''
-        ? null
-        : parseInt(staffBufferRaw, 10);
-
-      if (Number.isFinite(staffBufferMinutes)) {
-        bufferMinutesForToday = staffBufferMinutes;
-      }
+        availableTimes = staffData.availableTimes;
       }
     } else {
       const settings = await getSettings(selectedDate);
@@ -1387,27 +1426,12 @@ async function renderTimeOptions() {
         ? settings.availableTimes
         : [];
     }
-      
-      const todayStr = formatLocalDate(new Date());
 
-let filteredTimes = [...availableTimes];
+    const filteredTimes = filterFrontTimesByMinNotice(selectedDate, availableTimes);
 
-if (selectedDate === todayStr) {
-  const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const bufferMinutes = parseInt(bufferMinutesForToday || 0, 10);
-  const minAllowedMinutes = nowMinutes + bufferMinutes;
+    if (!filteredTimes.length) return;
 
-  filteredTimes = availableTimes.filter(time => {
-    const [hours, minutes] = time.split(':').map(Number);
-    const slotMinutes = hours * 60 + minutes;
-    return slotMinutes >= minAllowedMinutes;
-  });
-}
-
-  if (!filteredTimes.length) return;
-
-filteredTimes.forEach(time => {
+    filteredTimes.forEach(time => {
       const option = document.createElement('option');
       option.value = time;
       option.textContent = time;
@@ -1698,19 +1722,7 @@ const isFullBlocked =
         available = ALL_TIMES;
       }
 
-      let availableCount = available.length;
-
-      if (dateStr === formatLocalDate(today)) {
-        const nowMinutes = today.getHours() * 60 + today.getMinutes();
-        const bufferMinutes = parseInt(calendarSettings.booking_buffer || 0, 10);
-        const minAllowedMinutes = nowMinutes + bufferMinutes;
-
-        availableCount = available.filter(time => {
-          const [hours, minutes] = time.split(':').map(Number);
-          const slotMinutes = hours * 60 + minutes;
-          return slotMinutes >= minAllowedMinutes;
-        }).length;
-      }
+      const availableCount = filterFrontTimesByMinNotice(dateStr, available).length;
 
       if (availableCount <= 0) {
         dayDisabled = true;
@@ -1999,70 +2011,24 @@ if (FRONT_STAFF_REQUIRED) {
         delete booking.staff_id;
 
         const settings = await getSettings(booking.date);
-        const available = settings?.availableTimes || [];
-
-        finalAvailable = [...available];
-
-        const todayStr = formatLocalDate(new Date());
-
-        if (booking.date === todayStr) {
-          const now = new Date();
-          const nowMinutes = now.getHours() * 60 + now.getMinutes();
-          const bufferMinutes = parseInt(calendarSettings.booking_buffer || 0, 10);
-          const minAllowedMinutes = nowMinutes + bufferMinutes;
-
-          finalAvailable = available.filter(time => {
-            const [hours, minutes] = time.split(':').map(Number);
-            const slotMinutes = hours * 60 + minutes;
-            return slotMinutes >= minAllowedMinutes;
-          });
-        }
+        finalAvailable = Array.isArray(settings?.availableTimes)
+          ? settings.availableTimes
+          : [];
       } else {
+        if (!staffRes.ok || staffData?.success !== true || !Array.isArray(staffData?.availableTimes)) {
+          throw new Error('Nie udało się pobrać dostępności osoby');
+        }
 
-      if (!staffRes.ok || staffData?.success !== true || !Array.isArray(staffData?.availableTimes)) {
-        throw new Error('Nie udało się pobrać dostępności osoby');
-      }
-
-      finalAvailable = [...staffData.availableTimes];
-
-      const staffBufferRaw = staffData.settings?.booking_buffer_minutes;
-      const staffBufferMinutes = staffBufferRaw === null || staffBufferRaw === undefined || staffBufferRaw === ''
-        ? null
-        : parseInt(staffBufferRaw, 10);
-
-      if (Number.isFinite(staffBufferMinutes) && staffBufferMinutes > 0 && booking.date === formatLocalDate(new Date())) {
-        const now = new Date();
-        const nowMinutes = now.getHours() * 60 + now.getMinutes();
-        const minAllowedMinutes = nowMinutes + staffBufferMinutes;
-
-        finalAvailable = finalAvailable.filter(time => {
-          const [hours, minutes] = time.split(':').map(Number);
-          const slotMinutes = hours * 60 + minutes;
-          return slotMinutes >= minAllowedMinutes;
-        });
-      }
+        finalAvailable = staffData.availableTimes;
       }
     } else {
       const settings = await getSettings(booking.date);
-      const available = settings?.availableTimes || [];
-
-      finalAvailable = [...available];
-
-      const todayStr = formatLocalDate(new Date());
-
-      if (booking.date === todayStr) {
-        const now = new Date();
-        const nowMinutes = now.getHours() * 60 + now.getMinutes();
-        const bufferMinutes = parseInt(calendarSettings.booking_buffer || 0, 10);
-        const minAllowedMinutes = nowMinutes + bufferMinutes;
-
-        finalAvailable = available.filter(time => {
-          const [hours, minutes] = time.split(':').map(Number);
-          const slotMinutes = hours * 60 + minutes;
-          return slotMinutes >= minAllowedMinutes;
-        });
-      }
+      finalAvailable = Array.isArray(settings?.availableTimes)
+        ? settings.availableTimes
+        : [];
     }
+
+    finalAvailable = filterFrontTimesByMinNotice(booking.date, finalAvailable);
 
     if (!finalAvailable.includes(booking.time)) {
       showError('Wybrana godzina jest już niedostępna');

@@ -43,7 +43,8 @@
     els.description = section.querySelector('#service-description');
     els.durationMinutes = section.querySelector('#service-duration-minutes');
     els.breakMinutes = section.querySelector('#service-break-minutes');
-    els.bookingBufferMinutes = section.querySelector('#service-booking-buffer-minutes');
+    els.minNoticeValue = section.querySelector('#service-min-notice-value');
+    els.minNoticeUnit = section.querySelector('#service-min-notice-unit');
     els.priceAmount = section.querySelector('#service-price-amount');
     els.priceCurrency = section.querySelector('#service-price-currency');
     els.paymentsEnabled = section.querySelector('#service-payments-enabled');
@@ -372,6 +373,44 @@
     renderServiceList();
   }
 
+  function splitNoticeMinutes(totalMinutes) {
+    const minutes = Math.max(0, parseInt(totalMinutes || 0, 10) || 0);
+
+    if (minutes >= 1440 && minutes % 1440 === 0) {
+      return {
+        value: minutes / 1440,
+        unit: 'days',
+      };
+    }
+
+    if (minutes >= 60 && minutes % 60 === 0) {
+      return {
+        value: minutes / 60,
+        unit: 'hours',
+      };
+    }
+
+    return {
+      value: minutes,
+      unit: 'minutes',
+    };
+  }
+
+  function readMinNoticeMinutes() {
+    const value = Math.max(0, parseInt(els.minNoticeValue?.value || '0', 10) || 0);
+    const unit = els.minNoticeUnit?.value || 'minutes';
+
+    if (unit === 'days') {
+      return value * 1440;
+    }
+
+    if (unit === 'hours') {
+      return value * 60;
+    }
+
+    return value;
+  }
+
   function populateForm(service) {
     const selected = service || null;
     state.selectedId = selected ? selected.id : null;
@@ -381,7 +420,11 @@
     setFieldValue(els.description, selected?.description || '');
     setFieldValue(els.durationMinutes, selected?.duration_minutes || 60);
     setFieldValue(els.breakMinutes, selected?.break_minutes || 0);
-    setFieldValue(els.bookingBufferMinutes, selected?.booking_buffer_minutes || 0);
+
+    const minNotice = splitNoticeMinutes(selected?.booking_buffer_minutes || 0);
+    setFieldValue(els.minNoticeValue, minNotice.value);
+    setFieldValue(els.minNoticeUnit, minNotice.unit);
+
     setFieldValue(els.priceAmount, selected?.price_amount || '');
     setFieldValue(els.priceCurrency, selected?.price_currency || 'PLN');
     setFieldValue(els.paymentMessage, selected?.payment_message || '');
@@ -452,7 +495,7 @@
     const description = els.description.value.trim();
     const durationMinutes = readInteger(els.durationMinutes, 'Czas trwania', 1, 1440);
     const breakMinutes = readInteger(els.breakMinutes, 'Przerwa po usłudze', 0, 1440);
-    const bookingBufferMinutes = readInteger(els.bookingBufferMinutes, 'Bufor rezerwacji', 0, 10080);
+    const bookingBufferMinutes = readMinNoticeMinutes();
     const sortOrder = readInteger(els.sortOrder, 'Kolejność', -1000000, 1000000);
     const priceAmount = readPrice();
     const priceCurrency = (els.priceCurrency.value.trim() || 'PLN').toUpperCase();

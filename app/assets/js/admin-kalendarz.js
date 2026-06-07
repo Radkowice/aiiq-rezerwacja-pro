@@ -687,7 +687,6 @@
         name: String(service.name || 'Usługa'),
         duration: settings.duration,
         break: settings.break,
-        buffer: settings.buffer,
         slots: generateServiceSlotsForDate(date, settings)
       };
     });
@@ -697,8 +696,7 @@
       if (service.id) {
         settingsByServiceId.set(normalizeServiceId(service.id), {
           duration: service.duration,
-          break: service.break,
-          buffer: service.buffer
+          break: service.break
         });
       }
     });
@@ -750,17 +748,10 @@
       staff?.service_break_minutes,
       calendarSettings?.consultation_break
     );
-    const buffer = firstNonNegativeInteger(
-      service?.booking_buffer_minutes,
-      staff?.booking_buffer_minutes,
-      calendarSettings?.booking_buffer,
-      0
-    );
 
     return {
       duration: duration || 60,
-      break: breakTime || 0,
-      buffer: buffer || 0
+      break: breakTime || 0
     };
   }
 
@@ -826,14 +817,12 @@
         : fallbackSettings;
       const duration = Math.max(1, settings.duration);
       const breakTime = Math.max(0, settings.break);
-      const buffer = Math.max(0, settings.buffer);
       const reservedEnd = start + duration;
       const activeEnd = reservedEnd + breakTime;
-      const total = duration + breakTime + buffer;
 
       return {
         start,
-        end: start + total,
+        end: activeEnd,
         reservedEnd,
         activeEnd,
         serviceId,
@@ -844,11 +833,9 @@
 
   function getAdminServiceSlot(date, time, service, busyIntervals) {
     const start = timeToMinutes(time);
-    const end = start + Math.max(1, service.duration) + Math.max(0, service.break) + Math.max(0, service.buffer);
-    const visitEnd = start + Math.max(1, service.duration);
+    const end = start + Math.max(1, service.duration) + Math.max(0, service.break);
     const serviceId = normalizeServiceId(service.id);
     let staffBusy = false;
-    let bufferBusy = false;
 
     for (const interval of busyIntervals) {
       if (!rangesOverlap(start, end, interval.start, interval.end)) {
@@ -866,16 +853,7 @@
         };
       }
 
-      const overlapsReservedTime = rangesOverlap(start, visitEnd, interval.start, interval.reservedEnd);
-      const overlapsOnlyBufferOrBreak = !overlapsReservedTime
-        || start >= interval.reservedEnd
-        || visitEnd <= interval.start;
-
-      if (overlapsOnlyBufferOrBreak) {
-        bufferBusy = true;
-      } else {
-        staffBusy = true;
-      }
+      staffBusy = true;
     }
 
     const block = getAdminSlotBlockInfo(date, time, start, end);
@@ -891,13 +869,6 @@
       return {
         time,
         status: 'staff_busy'
-      };
-    }
-
-    if (bufferBusy) {
-      return {
-        time,
-        status: 'booking_buffer'
       };
     }
 
@@ -1551,7 +1522,6 @@
             <p>
               ${escapeHtmlText(String(service.duration || 0))} min
               · przerwa ${escapeHtmlText(String(service.break || 0))} min
-              · bufor ${escapeHtmlText(String(service.buffer || 0))} min
             </p>
           </div>
         </div>
@@ -1636,9 +1606,7 @@
           return;
         }
 
-        if (status === 'booking_buffer') {
-          showMessage('Ten termin jest niedostępny przez bufor wokół rezerwacji.', 'error');
-        }
+
       });
     });
   }
@@ -1648,7 +1616,6 @@
       available: 'Wolny',
       reserved: 'Rezerwacja',
       staff_busy: 'Zajęty',
-      booking_buffer: 'Bufor',
       blocked_staff: 'Pracownik',
       blocked_global: 'Firma'
     };

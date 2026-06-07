@@ -231,8 +231,7 @@ function reschedule_interval_end(int $start, array $settings): int
 {
     return $start
         + max(1, (int) ($settings['consultation_duration'] ?? 60))
-        + max(0, (int) ($settings['consultation_break'] ?? 0))
-        + max(0, (int) ($settings['booking_buffer'] ?? 0));
+        + max(0, (int) ($settings['consultation_break'] ?? 0));
 }
 
 function reschedule_slots_from_ranges(array $ranges, array $settings, string $date): array
@@ -272,23 +271,52 @@ function reschedule_slots_from_ranges(array $ranges, array $settings, string $da
     return $slots;
 }
 
+function reschedule_effective_min_notice_minutes(array $service, array $calendar): int
+{
+    $serviceBuffer = reschedule_int_or_null($service['booking_buffer_minutes'] ?? null);
+    $globalBuffer = reschedule_int_or_null($calendar['booking_buffer'] ?? null);
+
+    if ($serviceBuffer !== null && $serviceBuffer > 0) {
+        return max(0, $serviceBuffer);
+    }
+
+    return max(0, (int) ($globalBuffer ?? 0));
+}
+
 function reschedule_effective_settings(array $service, array $staff, array $calendar): array
 {
     return [
         'consultation_duration' => max(1, (int) (reschedule_int_or_null($service['duration_minutes'] ?? null) ?? reschedule_int_or_null($staff['service_duration_minutes'] ?? null) ?? (int) ($calendar['consultation_duration'] ?? 60))),
         'consultation_break' => max(0, (int) (reschedule_int_or_null($service['break_minutes'] ?? null) ?? reschedule_int_or_null($staff['service_break_minutes'] ?? null) ?? (int) ($calendar['consultation_break'] ?? 0))),
-        'booking_buffer' => max(0, (int) (reschedule_int_or_null($service['booking_buffer_minutes'] ?? null) ?? reschedule_int_or_null($staff['booking_buffer_minutes'] ?? null) ?? (int) ($calendar['booking_buffer'] ?? 0))),
+        'booking_buffer' => reschedule_effective_min_notice_minutes($service, $calendar),
     ];
 }
 
 function reschedule_slot_respects_buffer(string $date, string $time, int $bufferMinutes): bool
 {
-    if ($bufferMinutes <= 0 || $date !== date('Y-m-d')) {
+    $bufferMinutes = max(0, $bufferMinutes);
+
+    if ($bufferMinutes <= 0) {
         return true;
     }
 
-    $nowMinutes = ((int) date('H') * 60) + (int) date('i');
-    return reschedule_time_to_minutes($time) >= $nowMinutes + $bufferMinutes;
+    $time = reschedule_normalize_time($time);
+
+    if ($date === '' || $time === '') {
+        return false;
+    }
+
+    $timezone = new DateTimeZone('Europe/Warsaw');
+    $slotDateTime = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $date . ' ' . $time, $timezone);
+
+    if (!$slotDateTime instanceof DateTimeImmutable || $slotDateTime->format('Y-m-d H:i') !== $date . ' ' . $time) {
+        return false;
+    }
+
+    $now = new DateTimeImmutable('now', $timezone);
+    $minAllowedDateTime = $now->modify('+' . $bufferMinutes . ' minutes');
+
+    return $slotDateTime >= $minAllowedDateTime;
 }
 
 function reschedule_slot_is_free(string $time, array $settings, array $occupiedIntervals): bool
@@ -429,7 +457,7 @@ function reschedule_load_staff(string $supabaseUrl, string $key, string $schema,
     }
 
     $select = $forAvailability
-        ? 'id,display_name,description,service_duration_minutes,service_break_minutes,booking_buffer_minutes,is_active'
+        ? 'id,display_name,description,service_duration_minutes,service_break_minutes,is_active'
         : 'id,display_name,description';
 
     $staffRow = reschedule_fetch_single($supabaseUrl, $key, $schema, 'staff_profiles', [
@@ -736,14 +764,10 @@ function reschedule_availability(
         }));
     }
 
-    if (!reschedule_slot_respects_buffer($date, '00:00', 0)) {
-        return [];
-    }
-
-    if ($date === date('Y-m-d') && (int) ($settings['booking_buffer'] ?? 0) > 0) {
-        $minAllowedMinutes = ((int) date('H') * 60) + (int) date('i') + (int) $settings['booking_buffer'];
-        $slots = array_values(array_filter($slots, static function (string $time) use ($minAllowedMinutes): bool {
-            return reschedule_time_to_minutes($time) >= $minAllowedMinutes;
+    if ((int) ($settings['booking_buffer'] ?? 0) > 0) {
+        $bufferMinutes = (int) $settings['booking_buffer'];
+        $slots = array_values(array_filter($slots, static function (string $time) use ($date, $bufferMinutes): bool {
+            return reschedule_slot_respects_buffer($date, $time, $bufferMinutes);
         }));
     }
 

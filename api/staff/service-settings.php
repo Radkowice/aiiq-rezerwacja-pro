@@ -156,24 +156,41 @@ function staff_service_settings_source(?int $serviceValue, ?int $staffValue): st
     return 'global';
 }
 
+function staff_service_settings_effective_min_notice_minutes(array $service, array $calendar): int
+{
+    $serviceBuffer = staff_service_settings_nullable_int($service, 'booking_buffer_minutes');
+    $globalBuffer = staff_service_settings_nullable_int($calendar, 'booking_buffer');
+
+    if ($serviceBuffer !== null && $serviceBuffer > 0) {
+        return max(0, $serviceBuffer);
+    }
+
+    return max(0, (int) ($globalBuffer ?? 0));
+}
+
+function staff_service_settings_min_notice_source(array $service): string
+{
+    $serviceBuffer = staff_service_settings_nullable_int($service, 'booking_buffer_minutes');
+
+    return ($serviceBuffer !== null && $serviceBuffer > 0) ? 'service' : 'global';
+}
+
 function staff_service_settings_effective_settings(array $service, array $staff, array $calendar): array
 {
     $serviceDuration = staff_service_settings_nullable_int($service, 'duration_minutes');
     $serviceBreak = staff_service_settings_nullable_int($service, 'break_minutes');
-    $serviceBuffer = staff_service_settings_nullable_int($service, 'booking_buffer_minutes');
 
     $staffDuration = staff_service_settings_nullable_int($staff, 'service_duration_minutes');
     $staffBreak = staff_service_settings_nullable_int($staff, 'service_break_minutes');
-    $staffBuffer = staff_service_settings_nullable_int($staff, 'booking_buffer_minutes');
 
     $duration = $serviceDuration ?? $staffDuration ?? (int) ($calendar['consultation_duration'] ?? 60);
     $break = $serviceBreak ?? $staffBreak ?? (int) ($calendar['consultation_break'] ?? 0);
-    $buffer = $serviceBuffer ?? $staffBuffer ?? (int) ($calendar['booking_buffer'] ?? 0);
+    $buffer = staff_service_settings_effective_min_notice_minutes($service, $calendar);
 
     $sources = array_values(array_unique([
         staff_service_settings_source($serviceDuration, $staffDuration),
         staff_service_settings_source($serviceBreak, $staffBreak),
-        staff_service_settings_source($serviceBuffer, $staffBuffer),
+        staff_service_settings_min_notice_source($service),
     ]));
 
     return [
@@ -213,8 +230,32 @@ function staff_service_settings_interval_end(int $start, array $settings): int
 {
     return $start
         + max(1, (int) ($settings['duration'] ?? 60))
-        + max(0, (int) ($settings['break'] ?? 0))
-        + max(0, (int) ($settings['buffer'] ?? 0));
+        + max(0, (int) ($settings['break'] ?? 0));
+}
+
+function staff_service_settings_slot_respects_min_notice(string $date, string $time, int $bufferMinutes): bool
+{
+    $bufferMinutes = max(0, $bufferMinutes);
+
+    if ($bufferMinutes <= 0) {
+        return true;
+    }
+
+    $timezone = new DateTimeZone('Europe/Warsaw');
+    $slotDateTime = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i',
+        $date . ' ' . substr($time, 0, 5),
+        $timezone
+    );
+
+    if (!$slotDateTime instanceof DateTimeImmutable || $slotDateTime->format('Y-m-d H:i') !== $date . ' ' . substr($time, 0, 5)) {
+        return false;
+    }
+
+    $now = new DateTimeImmutable('now', $timezone);
+    $minAllowedDateTime = $now->modify('+' . $bufferMinutes . ' minutes');
+
+    return $slotDateTime >= $minAllowedDateTime;
 }
 
 function staff_service_settings_reservation_payload(array $booking, string $time): array
@@ -377,16 +418,12 @@ function staff_service_settings_slot_status(
         ];
     }
 
-    if ($date === date('Y-m-d') && $buffer > 0) {
-        $minAllowedMinutes = ((int) date('H') * 60) + (int) date('i') + $buffer;
-
-        if (staff_service_settings_time_to_minutes($time) < $minAllowedMinutes) {
-            return [
-                'time' => $time,
-                'status' => 'blocked_global',
-                'block_source' => 'booking_buffer',
-            ];
-        }
+    if ($buffer > 0 && !staff_service_settings_slot_respects_min_notice($date, $time, $buffer)) {
+        return [
+            'time' => $time,
+            'status' => 'blocked_global',
+            'block_source' => 'booking_min_notice',
+        ];
     }
 
     foreach ($occupiedIntervals as $interval) {
@@ -966,12 +1003,8 @@ foreach ($servicesRows as $service) {
     $slots = [];
 
     foreach ($times as $time) {
-        if ($date === date('Y-m-d') && $effective['buffer'] > 0) {
-            $minAllowedMinutes = ((int) date('H') * 60) + (int) date('i') + $effective['buffer'];
-
-            if (staff_service_settings_time_to_minutes($time) < $minAllowedMinutes) {
-                continue;
-            }
+        if ($effective['buffer'] > 0 && !staff_service_settings_slot_respects_min_notice($date, $time, (int) $effective['buffer'])) {
+            continue;
         }
 
         $slots[] = staff_service_settings_slot_status(

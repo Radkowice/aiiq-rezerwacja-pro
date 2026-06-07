@@ -7,6 +7,29 @@
     adminSettingsInitialized = true;
     await loadSettingsForm();
   };
+
+  function splitBookingBufferMinutes(totalMinutes) {
+    const minutes = Math.max(0, parseInt(totalMinutes || 0, 10) || 0);
+
+    if (minutes >= 1440 && minutes % 1440 === 0) {
+      return {
+        value: minutes / 1440,
+        unit: 'days'
+      };
+    }
+
+    if (minutes >= 60 && minutes % 60 === 0) {
+      return {
+        value: minutes / 60,
+        unit: 'hours'
+      };
+    }
+
+    return {
+      value: minutes,
+      unit: 'minutes'
+    };
+  }
   
   async function loadSettingsForm() {
   try {
@@ -17,7 +40,19 @@
     if (!data?.success || !data?.settings) {
       throw new Error(data?.error || 'Nie udało się pobrać ustawień');
     }
-    document.getElementById('booking-buffer').value = data.settings.booking_buffer || 0;
+
+    const minNotice = splitBookingBufferMinutes(data.settings.booking_buffer);
+    const minNoticeValue = document.getElementById('booking-min-notice-value');
+    const minNoticeUnit = document.getElementById('booking-min-notice-unit');
+
+    if (minNoticeValue) {
+      minNoticeValue.value = minNotice.value;
+    }
+
+    if (minNoticeUnit) {
+      minNoticeUnit.value = minNotice.unit;
+    }
+
     document.getElementById('work-start').value = data.settings.work_start || '00:00';
     document.getElementById('work-end').value = data.settings.work_end || '23:59';
     document.getElementById('consultation-duration').value = data.settings.consultation_duration || 60;

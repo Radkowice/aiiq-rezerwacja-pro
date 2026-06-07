@@ -26,7 +26,7 @@
     <div class="settings-card">
       <h3>Czas rezerwacji</h3>
       <p class="settings-desc">
-        Ustaw długość usługi, przerwę między terminami oraz bufor przed rezerwacją.
+        Ustaw długość usługi, przerwę między terminami oraz minimalne wyprzedzenie rezerwacji.
       </p>
 
       <div class="settings-row">
@@ -49,9 +49,20 @@
         </div>
 
         <div class="form-group">
-          <label for="booking-buffer">Bufor rezerwacji</label>
-          <input type="number" id="booking-buffer" min="0" step="15" value="0">
-          <div class="settings-help">Ile minut przed wizytą klient nie może już wybrać terminu.</div>
+          <label for="booking-min-notice-value">Minimalne wyprzedzenie rezerwacji</label>
+          <div class="settings-row">
+            <input type="number" id="booking-min-notice-value" min="0" step="1" value="0">
+            <select id="booking-min-notice-unit">
+              <option value="minutes">minuty</option>
+              <option value="hours">godziny</option>
+              <option value="days">dni</option>
+            </select>
+          </div>
+          <div class="settings-help">
+            Określa, z jakim wyprzedzeniem klient może najwcześniej zarezerwować termin.
+            Przykład: ustaw 2 godziny, jeśli klient ma móc zarezerwować wizytę najwcześniej za 2 godziny.
+            Ustaw 1 dzień, jeśli rezerwacje mają być możliwe dopiero od następnego dnia.
+          </div>
         </div>
       </div>
     </div>

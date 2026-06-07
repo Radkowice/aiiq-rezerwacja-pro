@@ -25,23 +25,32 @@ function booking_availability_interval_end(int $start, array $settings): int
 {
     return $start
         + max(1, (int) ($settings['consultation_duration'] ?? 60))
-        + max(0, (int) ($settings['consultation_break'] ?? 0))
-        + max(0, (int) ($settings['booking_buffer'] ?? 0));
+        + max(0, (int) ($settings['consultation_break'] ?? 0));
+}
+
+function booking_availability_effective_min_notice_minutes(array $service, array $calendar): int
+{
+    $serviceBuffer = booking_availability_nullable_int($service, 'booking_buffer_minutes');
+    $globalBuffer = booking_availability_nullable_int($calendar, 'booking_buffer');
+
+    if ($serviceBuffer !== null && $serviceBuffer > 0) {
+        return $serviceBuffer;
+    }
+
+    return max(0, (int) ($globalBuffer ?? 0));
 }
 
 function booking_availability_effective_settings(array $service, array $staff, array $calendar): array
 {
     $serviceDuration = booking_availability_nullable_int($service, 'duration_minutes');
     $serviceBreak = booking_availability_nullable_int($service, 'break_minutes');
-    $serviceBuffer = booking_availability_nullable_int($service, 'booking_buffer_minutes');
     $staffDuration = booking_availability_nullable_int($staff, 'service_duration_minutes');
     $staffBreak = booking_availability_nullable_int($staff, 'service_break_minutes');
-    $staffBuffer = booking_availability_nullable_int($staff, 'booking_buffer_minutes');
 
     return [
         'consultation_duration' => max(1, (int) ($serviceDuration ?? $staffDuration ?? (int) ($calendar['consultation_duration'] ?? 60))),
         'consultation_break' => max(0, (int) ($serviceBreak ?? $staffBreak ?? (int) ($calendar['consultation_break'] ?? 0))),
-        'booking_buffer' => max(0, (int) ($serviceBuffer ?? $staffBuffer ?? (int) ($calendar['booking_buffer'] ?? 0))),
+        'booking_buffer' => booking_availability_effective_min_notice_minutes($service, $calendar),
     ];
 }
 
@@ -123,12 +132,20 @@ function booking_availability_global_rule_blocked(string $date, array $blockSett
 
 function booking_availability_slot_respects_buffer(string $date, string $time, int $bufferMinutes): bool
 {
-    if ($bufferMinutes <= 0 || $date !== date('Y-m-d')) {
+    if ($bufferMinutes <= 0) {
         return true;
     }
 
-    $nowMinutes = ((int) date('H') * 60) + (int) date('i');
-    return booking_availability_time_to_minutes($time) >= $nowMinutes + $bufferMinutes;
+    $timezone = new DateTimeZone('Europe/Warsaw');
+    $slotDateTime = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $date . ' ' . substr($time, 0, 5), $timezone);
+
+    if (!$slotDateTime instanceof DateTimeImmutable || $slotDateTime->format('Y-m-d H:i') !== $date . ' ' . substr($time, 0, 5)) {
+        return false;
+    }
+
+    $minAllowedDateTime = (new DateTimeImmutable('now', $timezone))->modify('+' . $bufferMinutes . ' minutes');
+
+    return $slotDateTime >= $minAllowedDateTime;
 }
 
 function booking_availability_blocked_time_overlaps(string $time, array $settings, array $blockedTimes): bool
@@ -255,7 +272,7 @@ function booking_availability_times_for_day(
         }));
     }
 
-    if ($date === date('Y-m-d') && (int) ($settings['booking_buffer'] ?? 0) > 0) {
+    if ((int) ($settings['booking_buffer'] ?? 0) > 0) {
         $bufferMinutes = (int) $settings['booking_buffer'];
         $slots = array_values(array_filter($slots, static function (string $time) use ($date, $bufferMinutes): bool {
             return booking_availability_slot_respects_buffer($date, $time, $bufferMinutes);

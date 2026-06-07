@@ -67,8 +67,7 @@ function staff_public_availability_interval_end(int $start, array $settings): in
 {
     return $start
         + max(1, (int) ($settings['consultation_duration'] ?? 60))
-        + max(0, (int) ($settings['consultation_break'] ?? 0))
-        + max(0, (int) ($settings['booking_buffer'] ?? 0));
+        + max(0, (int) ($settings['consultation_break'] ?? 0));
 }
 
 function staff_public_availability_nullable_int(array $row, string $key): ?int
@@ -126,20 +125,30 @@ function staff_public_availability_slots(array $availability, array $settings, ?
     return $slots;
 }
 
+function staff_public_availability_effective_min_notice_minutes(array $service, array $calendar): int
+{
+    $serviceBuffer = staff_public_availability_nullable_int($service, 'booking_buffer_minutes');
+    $globalBuffer = staff_public_availability_nullable_int($calendar, 'booking_buffer');
+
+    if ($serviceBuffer !== null && $serviceBuffer > 0) {
+        return max(0, $serviceBuffer);
+    }
+
+    return max(0, (int) ($globalBuffer ?? 0));
+}
+
 function staff_public_availability_effective_settings(array $service, array $staff, array $calendar): array
 {
     $serviceDuration = staff_public_availability_nullable_int($service, 'duration_minutes');
     $serviceBreak = staff_public_availability_nullable_int($service, 'break_minutes');
-    $serviceBuffer = staff_public_availability_nullable_int($service, 'booking_buffer_minutes');
 
     $staffDuration = staff_public_availability_nullable_int($staff, 'service_duration_minutes');
     $staffBreak = staff_public_availability_nullable_int($staff, 'service_break_minutes');
-    $staffBuffer = staff_public_availability_nullable_int($staff, 'booking_buffer_minutes');
 
     return [
         'consultation_duration' => max(1, (int) ($serviceDuration ?? $staffDuration ?? (int) ($calendar['consultation_duration'] ?? 60))),
         'consultation_break' => max(0, (int) ($serviceBreak ?? $staffBreak ?? (int) ($calendar['consultation_break'] ?? 0))),
-        'booking_buffer' => max(0, (int) ($serviceBuffer ?? $staffBuffer ?? (int) ($calendar['booking_buffer'] ?? 0))),
+        'booking_buffer' => staff_public_availability_effective_min_notice_minutes($service, $calendar),
     ];
 }
 
@@ -268,6 +277,28 @@ function staff_public_availability_blocked_time_overlaps(string $time, array $ca
     return false;
 }
 
+function staff_public_availability_slot_respects_min_notice(string $date, string $time, int $minNoticeMinutes): bool
+{
+    $minNoticeMinutes = max(0, $minNoticeMinutes);
+
+    if ($minNoticeMinutes <= 0) {
+        return true;
+    }
+
+    $timezone = new DateTimeZone('Europe/Warsaw');
+    $slotTime = substr($time, 0, 5);
+    $slotDateTime = DateTimeImmutable::createFromFormat('!Y-m-d H:i', $date . ' ' . $slotTime, $timezone);
+
+    if (!$slotDateTime instanceof DateTimeImmutable || $slotDateTime->format('Y-m-d H:i') !== $date . ' ' . $slotTime) {
+        return false;
+    }
+
+    $now = new DateTimeImmutable('now', $timezone);
+    $minAllowedDateTime = $now->modify('+' . $minNoticeMinutes . ' minutes');
+
+    return $slotDateTime >= $minAllowedDateTime;
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
     header('Allow: GET');
     staff_public_availability_json([
@@ -329,7 +360,7 @@ if ($serviceId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}
 
 $staffUrl = $supabaseUrl
     . '/rest/v1/staff_profiles'
-    . '?select=id,display_name,service_duration_minutes,service_break_minutes,booking_buffer_minutes'
+    . '?select=id,display_name,service_duration_minutes,service_break_minutes'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&id=eq.' . rawurlencode($staffId)
     . '&is_active=eq.true'
@@ -534,13 +565,11 @@ if ($date !== '') {
         }
     }
 
-    $today = date('Y-m-d');
+    if ((int) ($effectiveSettings['booking_buffer'] ?? 0) > 0) {
+        $minNoticeMinutes = (int) $effectiveSettings['booking_buffer'];
 
-    if ($date === $today && $effectiveSettings['booking_buffer'] > 0) {
-        $minAllowedMinutes = ((int) date('H') * 60) + (int) date('i') + $effectiveSettings['booking_buffer'];
-
-        $availableTimes = array_values(array_filter($availableTimes, static function (string $time) use ($minAllowedMinutes): bool {
-            return staff_public_availability_time_to_minutes($time) >= $minAllowedMinutes;
+        $availableTimes = array_values(array_filter($availableTimes, static function (string $time) use ($date, $minNoticeMinutes): bool {
+            return staff_public_availability_slot_respects_min_notice($date, $time, $minNoticeMinutes);
         }));
     }
 

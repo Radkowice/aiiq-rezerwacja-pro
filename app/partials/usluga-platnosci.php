@@ -120,9 +120,21 @@
             <input type="number" id="service-break-minutes" min="0" max="1440" step="1" value="0">
           </label>
 
-          <label>
-            <span>Bufor rezerwacji w minutach</span>
-            <input type="number" id="service-booking-buffer-minutes" min="0" max="10080" step="1" value="0">
+          <label class="full">
+            <span>Minimalne wyprzedzenie rezerwacji dla tej usługi</span>
+            <div class="settings-row">
+              <input type="number" id="service-min-notice-value" min="0" step="1" value="0">
+              <select id="service-min-notice-unit">
+                <option value="minutes">minuty</option>
+                <option value="hours">godziny</option>
+                <option value="days">dni</option>
+              </select>
+            </div>
+            <small>
+              Określa, z jakim wyprzedzeniem klient może najwcześniej zarezerwować tę usługę.
+              Jeśli ustawisz 2 godziny, klient będzie mógł wybrać termin najwcześniej za 2 godziny.
+              Jeśli pole zostanie ustawione na 0, użyte zostanie ustawienie globalne.
+            </small>
           </label>
 
           <label>

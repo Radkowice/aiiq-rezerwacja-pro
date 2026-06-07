@@ -296,15 +296,39 @@ function booking_time_to_minutes(string $time): int
     return ($hours * 60) + $minutes;
 }
 
+function booking_effective_min_notice_minutes(?int $serviceBufferMinutes, int $globalBookingBuffer): int
+{
+    if ($serviceBufferMinutes !== null && $serviceBufferMinutes > 0) {
+        return max(0, $serviceBufferMinutes);
+    }
+
+    return max(0, $globalBookingBuffer);
+}
+
 function booking_slot_respects_buffer(string $date, string $time, int $bufferMinutes): bool
 {
-    if ($bufferMinutes <= 0 || $date !== date('Y-m-d')) {
+    $bufferMinutes = max(0, $bufferMinutes);
+
+    if ($bufferMinutes <= 0) {
         return true;
     }
 
-    $nowMinutes = ((int) date('H') * 60) + (int) date('i');
+    $timezone = new DateTimeZone('Europe/Warsaw');
+    $slotTime = substr($time, 0, 5);
+    $slotDateTime = DateTimeImmutable::createFromFormat(
+        '!Y-m-d H:i',
+        $date . ' ' . $slotTime,
+        $timezone
+    );
 
-    return booking_time_to_minutes($time) >= ($nowMinutes + $bufferMinutes);
+    if (!$slotDateTime instanceof DateTimeImmutable || $slotDateTime->format('Y-m-d H:i') !== $date . ' ' . $slotTime) {
+        return false;
+    }
+
+    $now = new DateTimeImmutable('now', $timezone);
+    $minAllowedDateTime = $now->modify('+' . $bufferMinutes . ' minutes');
+
+    return $slotDateTime >= $minAllowedDateTime;
 }
 
 function staff_slot_matches_schedule(
@@ -1251,15 +1275,13 @@ if ($staffId !== '') {
 
     $staffDuration = booking_nullable_int($staffRow, 'service_duration_minutes');
     $staffBreak = booking_nullable_int($staffRow, 'service_break_minutes');
-    $staffBuffer = booking_nullable_int($staffRow, 'booking_buffer_minutes');
-
     $serviceDuration = is_array($selectedService) ? booking_nullable_int($selectedService, 'duration_minutes') : null;
     $serviceBreak = is_array($selectedService) ? booking_nullable_int($selectedService, 'break_minutes') : null;
     $serviceBuffer = is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null;
 
     $effectiveDuration = max(1, $serviceDuration ?? $staffDuration ?? (int)($calendarSettingsRow['consultation_duration'] ?? 60));
     $effectiveBreak = max(0, $serviceBreak ?? $staffBreak ?? (int)($calendarSettingsRow['consultation_break'] ?? 0));
-    $effectiveBuffer = max(0, $serviceBuffer ?? $staffBuffer ?? $globalBookingBuffer);
+    $effectiveBuffer = booking_effective_min_notice_minutes($serviceBuffer, $globalBookingBuffer);
 
     if (!booking_slot_respects_buffer($date, $time, $effectiveBuffer)) {
         json_response([
@@ -1302,7 +1324,10 @@ if ($staffId !== '') {
 } elseif (!booking_slot_respects_buffer(
     $date,
     $time,
-    max(0, (is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null) ?? $globalBookingBuffer)
+    booking_effective_min_notice_minutes(
+        is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null,
+        $globalBookingBuffer
+    )
 )) {
     json_response([
         'success' => false,

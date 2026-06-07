@@ -745,6 +745,14 @@ if (saveFormFieldsBtn) {
 
         const workStart = document.getElementById('work-start')?.value || '00:00';
         const workEnd = document.getElementById('work-end')?.value || '23:59';
+        const minNoticeValue = Math.max(
+          0,
+          parseInt(document.getElementById('booking-min-notice-value')?.value || '0', 10) || 0
+        );
+        const minNoticeUnit = document.getElementById('booking-min-notice-unit')?.value || 'minutes';
+        const bookingBufferMinutes = minNoticeUnit === 'days'
+          ? minNoticeValue * 1440
+          : (minNoticeUnit === 'hours' ? minNoticeValue * 60 : minNoticeValue);
 
         const payload = {
           work_start: workStart,
@@ -757,10 +765,7 @@ if (saveFormFieldsBtn) {
             document.getElementById('consultation-break')?.value || '0',
             10
           ),
-          booking_buffer: parseInt(
-            document.getElementById('booking-buffer')?.value || '0',
-            10
-          ),
+          booking_buffer: bookingBufferMinutes,
           booking_start_month_offset: parseInt(
             document.getElementById('booking-start-month-offset')?.value || '0',
             10
