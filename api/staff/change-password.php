@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -105,6 +106,34 @@ if (!is_array($staffSession) || empty($staffSession['account_id']) || empty($sta
     ], 401);
 }
 
+$supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+$supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
+$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+
+if ($supabaseUrl === '' || $supabaseKey === '') {
+    staff_change_password_json([
+        'success' => false,
+        'error' => 'Brak konfiguracji Supabase.'
+    ], 500);
+}
+
+$hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+$sessionTenantId = (string) ($staffSession['tenant_id'] ?? '');
+
+if (!$hostTenantId || !hash_equals($sessionTenantId, (string) $hostTenantId)) {
+    staff_change_password_clear_session();
+    staff_change_password_json([
+        'success' => false,
+        'error' => 'Sesja personelu nie pasuje do domeny.'
+    ], 401);
+}
+
+require_tenant_feature(
+    $sessionTenantId,
+    'staff_module',
+    'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.'
+);
+
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
@@ -139,28 +168,6 @@ if ($passwordError !== '') {
         'success' => false,
         'error' => $passwordError
     ], 422);
-}
-
-$supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
-$supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
-$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
-
-if ($supabaseUrl === '' || $supabaseKey === '') {
-    staff_change_password_json([
-        'success' => false,
-        'error' => 'Brak konfiguracji Supabase.'
-    ], 500);
-}
-
-$hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
-$sessionTenantId = (string) ($staffSession['tenant_id'] ?? '');
-
-if (!$hostTenantId || !hash_equals($sessionTenantId, (string) $hostTenantId)) {
-    staff_change_password_clear_session();
-    staff_change_password_json([
-        'success' => false,
-        'error' => 'Sesja personelu nie pasuje do domeny.'
-    ], 401);
 }
 
 $accountId = (string) ($staffSession['account_id'] ?? '');

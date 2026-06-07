@@ -76,6 +76,34 @@
     return `${Math.max(0, days)} dni`;
   }
 
+  function getConfiguredGracePeriodDays(subscription) {
+    const configuredDays = Number(subscription?.grace_period_days);
+
+    if (Number.isFinite(configuredDays) && configuredDays > 0) {
+      return configuredDays;
+    }
+
+    return 30;
+  }
+
+  function resolveGracePeriodLabel(subscription, notice) {
+    if (notice?.grace_period_label) {
+      return notice.grace_period_label;
+    }
+
+    const daysLeft = Number(notice?.days_left);
+
+    if (!isFreePlan(subscription?.plan_code) && Number.isFinite(daysLeft) && daysLeft >= 0) {
+      return formatDaysLeft(getConfiguredGracePeriodDays(subscription));
+    }
+
+    if (notice?.grace_days_left !== null && notice?.grace_days_left !== undefined) {
+      return formatDaysLeft(notice.grace_days_left);
+    }
+
+    return `${getConfiguredGracePeriodDays(subscription)} dni`;
+  }
+
   function renderSubscriptionNotice(notice) {
     const noticeEl = document.getElementById('info-subscription-notice');
     const titleEl = document.getElementById('info-subscription-notice-title');
@@ -100,7 +128,7 @@
   }
 
   function renderFreeSubscription(subscription = {}, notice = null) {
-    setText('info-plan-name', subscription.plan_name || 'Free');
+    setText('info-plan-name', notice?.display_plan_name || subscription.plan_name || 'Free');
     setText('info-billing-period', notice?.billing_period_label || 'Nie dotyczy');
     setText('info-next-payment', notice?.next_payment_due_at_label || '—');
     setText('info-amount', notice?.amount_label || formatMoney(subscription.amount ?? 0, subscription.currency || 'PLN'));
@@ -109,8 +137,10 @@
       ...subscription,
       plan_code: 'free'
     }));
+    setText('info-days-left-label', notice?.days_left_row_label || 'Pozostało do końca abonamentu');
     setText('info-days-left', '—');
-    setText('info-grace-period', 'Nie dotyczy');
+    setText('info-grace-period-label', notice?.grace_period_row_label || 'Okres ochronny danych');
+    setText('info-grace-period', notice?.grace_period_label || 'Nie dotyczy');
   }
 
   function normalizePlanCode(planCode) {
@@ -569,8 +599,11 @@
       const subscription = data.subscription || null;
       const subscriptionNotice = data.subscription_notice || null;
       const planContext = data.plan_context || {};
+      const displayPlanContext = subscriptionNotice?.effective_plan_code
+        ? { ...planContext, plan_code: subscriptionNotice.effective_plan_code }
+        : planContext;
       currentSubscription = subscription;
-      currentPlanContext = planContext;
+      currentPlanContext = displayPlanContext;
 
       setText('info-company-name', branding.client_name);
       setText('info-company-full-name', company.company_full_name);
@@ -589,22 +622,22 @@
         if (isFreePlan(subscription.plan_code)) {
           renderFreeSubscription(subscription, subscriptionNotice);
           renderSubscriptionNotice(subscriptionNotice);
-          renderProUpgradeSection(subscription, planContext);
+          renderProUpgradeSection(subscription, displayPlanContext);
           return;
         }
 
-        setText('info-plan-name', subscription.plan_name);
+        setText('info-plan-name', subscriptionNotice?.display_plan_name || subscription.plan_name);
         setText('info-billing-period', subscriptionNotice?.billing_period_label || formatBillingPeriod(subscription.billing_period));
         setText('info-next-payment', subscriptionNotice?.next_payment_due_at_label || formatDate(subscription.next_payment_due_at));
         setText('info-amount', subscriptionNotice?.amount_label || formatMoney(subscription.amount, subscription.currency));
         setText('info-status', subscriptionNotice?.status_label || formatSubscriptionStatus(subscription.status));
         setText('info-current-period', formatCurrentPeriod(subscription));
-        setText('info-days-left', formatDaysLeft(subscriptionNotice?.days_left));
-        setText('info-grace-period', subscriptionNotice?.grace_days_left !== null && subscriptionNotice?.grace_days_left !== undefined
-          ? formatDaysLeft(subscriptionNotice.grace_days_left)
-          : `${subscription.grace_period_days ?? 0} dni`);
+        setText('info-days-left-label', subscriptionNotice?.days_left_row_label || 'Pozostało do końca abonamentu');
+        setText('info-days-left', subscriptionNotice?.days_left_label || formatDaysLeft(subscriptionNotice?.days_left));
+        setText('info-grace-period-label', subscriptionNotice?.grace_period_row_label || 'Okres ochronny danych');
+        setText('info-grace-period', resolveGracePeriodLabel(subscription, subscriptionNotice));
         renderSubscriptionNotice(subscriptionNotice);
-        renderProUpgradeSection(subscription, planContext);
+        renderProUpgradeSection(subscription, displayPlanContext);
       } else {
         const fallbackPlanName = planContext.plan_name || (planContext.plan_code === 'free' ? 'Free' : 'Brak danych abonamentu');
         const fallbackStatus = planContext.plan_code === 'free'
@@ -620,7 +653,7 @@
             currency: 'PLN'
           }, subscriptionNotice);
           renderSubscriptionNotice(subscriptionNotice);
-          renderProUpgradeSection(subscription, planContext);
+          renderProUpgradeSection(subscription, displayPlanContext);
           return;
         }
 
@@ -630,10 +663,12 @@
         setText('info-amount', '—');
         setText('info-status', fallbackStatus || 'Nie ustawiono');
         setText('info-current-period', '—');
+        setText('info-days-left-label', subscriptionNotice?.days_left_row_label || 'Pozostało do końca abonamentu');
         setText('info-days-left', '—');
+        setText('info-grace-period-label', subscriptionNotice?.grace_period_row_label || 'Okres ochronny danych');
         setText('info-grace-period', '—');
         renderSubscriptionNotice(subscriptionNotice);
-        renderProUpgradeSection(subscription, planContext);
+        renderProUpgradeSection(subscription, displayPlanContext);
       }
     } catch (error) {
       console.error('account info load error:', error);

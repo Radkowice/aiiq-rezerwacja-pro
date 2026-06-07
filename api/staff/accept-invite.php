@@ -4,6 +4,8 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../system/tenant.php';
 
 function staff_accept_invite_json(array $payload, int $statusCode = 200): void
 {
@@ -59,6 +61,17 @@ function staff_accept_invite_database_error(): void
         'success' => false,
         'error' => 'Nie udało się zaakceptować zaproszenia.'
     ], 500);
+}
+
+function staff_accept_invite_feature_locked(): void
+{
+    staff_accept_invite_json([
+        'success' => false,
+        'code' => 'staff_panel_requires_pro',
+        'feature' => 'staff_module',
+        'upgrade_required' => true,
+        'error' => 'Panel pracownika jest dostępny w planie Pro. Twój abonament Pro wygasł albo konto działa w planie Free. Opłać abonament Pro, aby odzyskać dostęp do funkcji personelu.',
+    ], 403);
 }
 
 function staff_accept_invite_token_error(): void
@@ -121,6 +134,19 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
     ], 500);
 }
 
+$hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+
+if (!$hostTenantId) {
+    staff_accept_invite_json([
+        'success' => false,
+        'error' => 'Nie udało się ustalić firmy dla tej domeny.'
+    ], 400);
+}
+
+if (!tenant_has_feature((string) $hostTenantId, 'staff_module')) {
+    staff_accept_invite_feature_locked();
+}
+
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
@@ -156,6 +182,7 @@ $now = gmdate('c');
 $inviteUrl = $supabaseUrl
     . '/rest/v1/staff_invites'
     . '?select=id,tenant_id,staff_id,email,expires_at'
+    . '&tenant_id=eq.' . rawurlencode((string) $hostTenantId)
     . '&token_hash=eq.' . rawurlencode($tokenHash)
     . '&accepted_at=is.null'
     . '&revoked_at=is.null'

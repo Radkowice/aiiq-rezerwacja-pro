@@ -268,8 +268,8 @@ $amountText = number_format((float)$amount, 2, ',', ' ') . ' ' . $displayCurrenc
         . '<div style="margin-top:22px;text-align:center;">'
         . '<a href="' . $safePaymentUrl . '" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;">Opłać rezerwację</a>'
         . '</div>'
-        . '<p style="margin:18px 0 0;color:#6b7280;font-size:13px;line-height:1.5;">Jeśli przycisk nie działa, skopiuj poniższy link do przeglądarki:<br>'
-        . '<span style="word-break:break-all;">' . $safePaymentUrl . '</span></p>';
+        . '<p style="margin:18px 0 0;color:#6b7280;font-size:13px;line-height:1.5;text-align:center;">Jeśli przycisk nie działa, kliknij poniższy link:<br>'
+        . '<a href="' . $safePaymentUrl . '" style="color:#2563eb;text-decoration:none;font-weight:700;">Otwórz link płatności</a></p>';
 
     $html = buildSystemMailLayout(
         'Twoja rezerwacja — link do płatności',

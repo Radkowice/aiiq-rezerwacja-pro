@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function staff_public_availability_json(array $payload, int $statusCode = 200): void
@@ -37,6 +38,17 @@ function staff_public_availability_request(string $url, string $key, string $sch
         'httpCode' => $httpCode,
         'data' => json_decode((string) $response, true),
     ];
+}
+
+function staff_public_availability_feature_locked(): void
+{
+    staff_public_availability_json([
+        'success' => false,
+        'code' => 'staff_panel_requires_pro',
+        'feature' => 'staff_module',
+        'upgrade_required' => true,
+        'error' => 'Panel pracownika jest dostępny w planie Pro. Twój abonament Pro wygasł albo konto działa w planie Free. Opłać abonament Pro, aby odzyskać dostęp do funkcji personelu.',
+    ], 403);
 }
 
 function staff_public_availability_time_to_minutes(string $time): int
@@ -256,21 +268,38 @@ function staff_public_availability_blocked_time_overlaps(string $time, array $ca
     return false;
 }
 
-function staff_public_availability_plan_allows_staff(?string $planCode, ?string $status): bool
-{
-    $planValue = strtolower(trim((string) $planCode));
-    $statusValue = strtolower(trim((string) $status));
-
-    return in_array($planValue, ['pro', 'vip', 'business'], true)
-        && in_array($statusValue, ['active', 'trial'], true);
-}
-
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
     header('Allow: GET');
     staff_public_availability_json([
         'success' => false,
         'error' => 'Metoda niedozwolona'
     ], 405);
+}
+
+$supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+$supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+
+if ($supabaseUrl === '' || $supabaseKey === '') {
+    staff_public_availability_json([
+        'success' => false,
+        'error' => 'Brak konfiguracji Supabase'
+    ], 500);
+}
+
+$tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+
+if (!$tenantId) {
+    staff_public_availability_json([
+        'success' => false,
+        'error' => 'Nie znaleziono klienta dla tej domeny'
+    ], 404);
+}
+
+$tenantId = (string) $tenantId;
+
+if (!tenant_has_feature($tenantId, 'staff_module')) {
+    staff_public_availability_feature_locked();
 }
 
 $staffId = trim((string) ($_GET['staff_id'] ?? ''));
@@ -296,57 +325,6 @@ if ($serviceId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}
         'success' => false,
         'error' => 'Nieprawidłowa usługa'
     ], 400);
-}
-
-$supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
-$supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
-$schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
-
-if ($supabaseUrl === '' || $supabaseKey === '') {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
-    ], 500);
-}
-
-$tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
-
-if (!$tenantId) {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Nie znaleziono klienta dla tej domeny'
-    ], 404);
-}
-
-$tenantId = (string) $tenantId;
-
-$subscriptionUrl = $supabaseUrl
-    . '/rest/v1/tenant_subscriptions'
-    . '?select=plan_code,status'
-    . '&tenant_id=eq.' . rawurlencode($tenantId)
-    . '&limit=1';
-
-$subscriptionResult = staff_public_availability_request($subscriptionUrl, $supabaseKey, $schema);
-
-if ($subscriptionResult['error'] !== '' || $subscriptionResult['httpCode'] >= 400) {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Nie udało się sprawdzić abonamentu'
-    ], 500);
-}
-
-$subscription = is_array($subscriptionResult['data'] ?? null)
-    ? ($subscriptionResult['data'][0] ?? null)
-    : null;
-
-$planCode = is_array($subscription) ? (string) ($subscription['plan_code'] ?? 'free') : 'free';
-$status = is_array($subscription) ? (string) ($subscription['status'] ?? '') : '';
-
-if (!staff_public_availability_plan_allows_staff($planCode, $status)) {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Personel jest niedostępny'
-    ], 403);
 }
 
 $staffUrl = $supabaseUrl

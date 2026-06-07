@@ -57,15 +57,75 @@
     setRangeMinDates();
 
     try {
-      await initAdminCalendar();
+      await initAdminCalendarAfterAuth();
     } catch (error) {
       console.error('initAdminCalendar error:', error);
       showMessage(error.message || 'Nie udało się uruchomić kalendarza admina', 'error');
     }
   });
 
- async function initAdminCalendar() {
+  function delay(ms) {
+    return new Promise(resolve => window.setTimeout(resolve, ms));
+  }
+
+  function createHttpError(message, response) {
+    const error = new Error(message);
+    error.status = response?.status || 0;
+    return error;
+  }
+
+  function isStartupAuthError(error) {
+    return error && (error.status === 401 || error.status === 403);
+  }
+
+  async function waitForAdminAccountDataReady() {
+    const ready = window.adminAccountDataReady;
+
+    if (ready && typeof ready.then === 'function') {
+      try {
+        await ready;
+      } catch (error) {
+        console.warn('adminAccountDataReady error before blocks init:', error);
+      }
+
+      return;
+    }
+
+    await delay(100);
+
+    const lateReady = window.adminAccountDataReady;
+    if (lateReady && typeof lateReady.then === 'function') {
+      try {
+        await lateReady;
+      } catch (error) {
+        console.warn('late adminAccountDataReady error before blocks init:', error);
+      }
+    }
+  }
+
+  async function initAdminCalendarAfterAuth() {
+    await waitForAdminAccountDataReady();
+
+    try {
+      await initAdminCalendar();
+    } catch (error) {
+      if (!isStartupAuthError(error)) {
+        throw error;
+      }
+
+      await delay(600);
+      await waitForAdminAccountDataReady();
+      await initAdminCalendar();
+    }
+  }
+
+  async function initAdminCalendar() {
   await loadBlockStaffOptions();
+
+  if (hasActiveBlockStaff()) {
+    await loadAdminServicesForBlockMode();
+  }
+
   const settingsReady = await loadCalendarSettings();
 
   if (!settingsReady) {
@@ -90,7 +150,7 @@
   });
 
   if (!res.ok) {
-      throw new Error('Nie udało się pobrać blokad');
+      throw createHttpError('Nie udało się pobrać blokad', res);
   }
 
   const data = await res.json();
@@ -317,9 +377,7 @@
       staffAvailabilityLoadedFor = '';
       staffAvailability = [];
 
-      await refreshAdminCalendarData();
-      await renderAdminCalendar();
-      await renderAdminTimeSlots();
+      await refreshAdminBlocksAfterMutation();
       showMessage('Odświeżono dane blokad.', 'success');
 
       if (button) {
@@ -347,6 +405,28 @@
   }
 
   window.refreshAdminCalendarData = refreshAdminCalendarData;
+
+  function dispatchStaffBlocksChangedEvent() {
+    if (blockScope !== 'staff' || typeof window.dispatchEvent !== 'function') {
+      return;
+    }
+
+    window.dispatchEvent(new CustomEvent('aiiq:staff-blocks-changed'));
+  }
+
+  async function refreshAdminBlocksAfterMutation() {
+    adminCalendarBookingsLoaded = false;
+    adminCalendarBookings = [];
+    staffWorkingHoursDate = '';
+    staffWorkingHours = [];
+    staffAvailabilityLoadedFor = '';
+    staffAvailability = [];
+
+    await refreshAdminCalendarData();
+    await renderAdminCalendar();
+    await renderAdminTimeSlots();
+    dispatchStaffBlocksChangedEvent();
+  }
 
   async function loadBlockStaffOptions() {
     const select = document.getElementById('block-staff-select');
@@ -431,7 +511,7 @@
     });
 
     if (!res.ok) {
-      throw new Error('Nie udało się pobrać blokad');
+      throw createHttpError('Nie udało się pobrać blokad', res);
     }
 
     const data = await res.json();
@@ -543,6 +623,16 @@
 
     adminServices = Array.isArray(data.services) ? data.services : [];
     adminServicesLoaded = true;
+  }
+
+  async function loadAdminServicesForBlockMode() {
+    try {
+      await loadAdminServices();
+    } catch (error) {
+      console.error('loadAdminServicesForBlockMode error:', error);
+      adminServices = [];
+      adminServicesLoaded = true;
+    }
   }
 
   async function loadStaffAvailabilityForDate(date) {
@@ -731,11 +821,18 @@
       const settings = serviceId && settingsByServiceId.has(serviceId)
         ? settingsByServiceId.get(serviceId)
         : fallbackSettings;
-      const total = Math.max(1, settings.duration) + Math.max(0, settings.break) + Math.max(0, settings.buffer);
+      const duration = Math.max(1, settings.duration);
+      const breakTime = Math.max(0, settings.break);
+      const buffer = Math.max(0, settings.buffer);
+      const reservedEnd = start + duration;
+      const activeEnd = reservedEnd + breakTime;
+      const total = duration + breakTime + buffer;
 
       return {
         start,
         end: start + total,
+        reservedEnd,
+        activeEnd,
         serviceId,
         booking
       };
@@ -745,8 +842,10 @@
   function getAdminServiceSlot(date, time, service, busyIntervals) {
     const start = timeToMinutes(time);
     const end = start + Math.max(1, service.duration) + Math.max(0, service.break) + Math.max(0, service.buffer);
+    const visitEnd = start + Math.max(1, service.duration);
     const serviceId = normalizeServiceId(service.id);
     let staffBusy = false;
+    let bufferBusy = false;
 
     for (const interval of busyIntervals) {
       if (!rangesOverlap(start, end, interval.start, interval.end)) {
@@ -764,7 +863,16 @@
         };
       }
 
-      staffBusy = true;
+      const overlapsReservedTime = rangesOverlap(start, visitEnd, interval.start, interval.reservedEnd);
+      const overlapsOnlyBufferOrBreak = !overlapsReservedTime
+        || start >= interval.reservedEnd
+        || visitEnd <= interval.start;
+
+      if (overlapsOnlyBufferOrBreak) {
+        bufferBusy = true;
+      } else {
+        staffBusy = true;
+      }
     }
 
     const block = getAdminSlotBlockInfo(date, time, start, end);
@@ -780,6 +888,13 @@
       return {
         time,
         status: 'staff_busy'
+      };
+    }
+
+    if (bufferBusy) {
+      return {
+        time,
+        status: 'booking_buffer'
       };
     }
 
@@ -940,19 +1055,36 @@
     return Array.isArray(blockStaff) && blockStaff.length > 0;
   }
 
+  function hasActiveAdminServices() {
+    return Array.isArray(adminServices)
+      && adminServices.some(service => service && service.is_active !== false);
+  }
+
+  function shouldUseStaffServicesBlockMode() {
+    return hasActiveBlockStaff() && hasActiveAdminServices();
+  }
+
+  function shouldShowCalendarDayReservationMarkers() {
+    if (blockScope === 'staff') {
+      return !!selectedBlockStaffId;
+    }
+
+    return true;
+  }
+
   function shouldShowBookingsInCurrentBlockScope() {
     if (blockScope === 'staff') {
       return !!selectedBlockStaffId;
     }
 
-    return !hasActiveBlockStaff();
+    return true;
   }
 
   function syncReservationLegendVisibility() {
     const legend = document.getElementById('adminReservationLegend');
     if (!legend) return;
 
-    legend.hidden = !shouldShowBookingsInCurrentBlockScope();
+    legend.hidden = !shouldShowCalendarDayReservationMarkers();
   }
 
   function shouldShowGlobalDayReservationMarkers() {
@@ -976,6 +1108,27 @@
     return getAdminBookingsSource().filter(item =>
       normalizeBookingDate(item?.booking_date || item?.date || '') === targetDate
     );
+  }
+
+  function getCalendarDayReservations(date) {
+    if (!shouldShowCalendarDayReservationMarkers()) {
+      return [];
+    }
+
+    const targetDate = normalizeBookingDate(date);
+    const source = getAdminBookingsSource();
+
+    return source.filter(item => {
+      if (normalizeBookingDate(item?.booking_date || item?.date || '') !== targetDate) {
+        return false;
+      }
+
+      if (blockScope === 'staff') {
+        return normalizeBookingStaffId(item?.staff_id) === normalizeBookingStaffId(selectedBlockStaffId);
+      }
+
+      return true;
+    });
   }
 
   function getDayReservationBadgeText(bookings) {
@@ -1113,11 +1266,11 @@
     const container = document.getElementById('adminCalendar');
     if (!container) return;
 
-    if (shouldShowGlobalDayReservationMarkers() && !adminCalendarBookingsLoaded) {
+    if (shouldShowCalendarDayReservationMarkers() && !adminCalendarBookingsLoaded) {
       try {
         await loadAdminCalendarBookings();
       } catch (error) {
-        console.error('loadAdminCalendarBookings for global day markers error:', error);
+        console.error('loadAdminCalendarBookings for day markers error:', error);
       }
     }
 
@@ -1167,7 +1320,7 @@
       const isFullBlocked = dateInfo.effectiveBlocked;
       const dateScope = dateInfo.reason;
       const dateLabel = getScopeLabel(dateScope);
-      const dayReservations = getGlobalDayReservations(dateStr);
+      const dayReservations = getCalendarDayReservations(dateStr);
       const hasDayReservations = dayReservations.length > 0;
       const dayReservationBadge = hasDayReservations ? getDayReservationBadgeText(dayReservations) : '';
       const dayReservationTooltip = hasDayReservations
@@ -1228,6 +1381,15 @@
 
     if (!selectedAdminDate) {
       container.innerHTML = '<p>Wybierz dzień w kalendarzu.</p>';
+      return;
+    }
+
+    if (blockScope !== 'staff' && hasActiveBlockStaff() && !adminServicesLoaded) {
+      await loadAdminServicesForBlockMode();
+    }
+
+    if (blockScope !== 'staff' && shouldUseStaffServicesBlockMode()) {
+      renderAdminGlobalDayOnly(container);
       return;
     }
 
@@ -1301,6 +1463,31 @@
         await handleTimeToggle(selectedAdminDate, time, isBlocked);
       });
     });
+  }
+
+  function renderAdminGlobalDayOnly(container) {
+    const dayButtonLabel = getDayToggleLabel(selectedAdminDate);
+
+    container.innerHTML = `
+      <div class="admin-time-header admin-time-header-day-only">
+        <div>
+          <h3>Dzień: ${escapeHtmlText(selectedAdminDate)}</h3>
+          <p class="admin-time-mode-note">
+            Godziny są zarządzane przy konkretnych pracownikach i usługach.
+          </p>
+        </div>
+        <button id="blockFullDayBtn" class="btn-block-day" type="button">
+          ${escapeHtmlText(dayButtonLabel)}
+        </button>
+      </div>
+    `;
+
+    const fullDayBtn = document.getElementById('blockFullDayBtn');
+    if (fullDayBtn) {
+      fullDayBtn.addEventListener('click', async () => {
+        await handleFullDayToggle(selectedAdminDate);
+      });
+    }
   }
 
   async function renderAdminStaffServiceSlots(container) {
@@ -1443,6 +1630,11 @@
 
         if (status === 'staff_busy') {
           showMessage('Ten termin jest zajęty przez rezerwację pracownika w innej usłudze.', 'error');
+          return;
+        }
+
+        if (status === 'booking_buffer') {
+          showMessage('Ten termin jest niedostępny przez bufor wokół rezerwacji.', 'error');
         }
       });
     });
@@ -1453,6 +1645,7 @@
       available: 'Wolny',
       reserved: 'Rezerwacja',
       staff_busy: 'Zajęty',
+      booking_buffer: 'Bufor',
       blocked_staff: 'Pracownik',
       blocked_global: 'Firma'
     };
@@ -1587,9 +1780,7 @@
         showMessage(result.message || getScopeMessage('block', 'day'), 'success');
       }
 
-      await refreshAdminCalendarData();
-      await renderAdminCalendar();
-      await renderAdminTimeSlots();
+      await refreshAdminBlocksAfterMutation();
     } catch (error) {
       console.error('handleFullDayToggle error:', error);
       showMessage(error.message || 'Błąd operacji na dniu', 'error');
@@ -1628,9 +1819,7 @@
         showMessage(result.message || getScopeMessage('block', 'time'), 'success');
       }
 
-      await refreshAdminCalendarData();
-      await renderAdminCalendar();
-      await renderAdminTimeSlots();
+      await refreshAdminBlocksAfterMutation();
     } catch (error) {
       console.error('handleTimeToggle error:', error);
       showMessage(error.message || 'Błąd operacji na godzinie', 'error');
@@ -1673,12 +1862,7 @@
 
       showMessage(`Zablokowano zakres: ${from} -> ${to} (${dates.length} dni)`, 'success');
 
-      await refreshAdminCalendarData();
-      await renderAdminCalendar();
-
-      if (selectedAdminDate && selectedAdminDate >= from && selectedAdminDate <= to) {
-        await renderAdminTimeSlots();
-      }
+      await refreshAdminBlocksAfterMutation();
     } catch (error) {
       console.error('handleBlockRange error:', error);
       showMessage(error.message || 'Błąd przy blokowaniu zakresu', 'error');
@@ -1719,9 +1903,7 @@
         await deleteDayBlock(date, true);
       }
 
-      await loadBlockedData();
-      await renderAdminCalendar();
-      await renderAdminTimeSlots();
+      await refreshAdminBlocksAfterMutation();
 
       showMessage(`Odblokowano zakres: ${from} - ${to}`, 'success');
     } catch (error) {

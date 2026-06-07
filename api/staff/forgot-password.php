@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 
@@ -23,6 +24,17 @@ function staff_forgot_password_neutral(): void
         'success' => true,
         'message' => 'Jeśli konto personelu istnieje, wysłaliśmy wiadomość z instrukcją resetu hasła.'
     ]);
+}
+
+function staff_forgot_password_feature_locked(): void
+{
+    staff_forgot_password_json([
+        'success' => false,
+        'code' => 'staff_panel_requires_pro',
+        'feature' => 'staff_module',
+        'upgrade_required' => true,
+        'error' => 'Panel pracownika jest dostępny w planie Pro. Twój abonament Pro wygasł albo konto działa w planie Free. Opłać abonament Pro, aby odzyskać dostęp do funkcji personelu.',
+    ], 403);
 }
 
 function staff_forgot_password_request(
@@ -233,6 +245,10 @@ if (!$tenantId) {
         'success' => false,
         'error' => 'Nie udało się ustalić firmy dla tej domeny.'
     ], 400);
+}
+
+if (!tenant_has_feature((string) $tenantId, 'staff_module')) {
+    staff_forgot_password_feature_locked();
 }
 
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);

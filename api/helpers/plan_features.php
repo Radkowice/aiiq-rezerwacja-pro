@@ -162,6 +162,75 @@ function plan_features_is_paid_plan_active(string $planCode, string $status): bo
         && in_array($status, ['active', 'trial'], true);
 }
 
+function plan_features_date_start(?string $value): ?DateTimeImmutable
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    try {
+        return (new DateTimeImmutable($value, new DateTimeZone('Europe/Warsaw')))->setTime(0, 0, 0);
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function plan_features_days_until(?DateTimeImmutable $date): ?int
+{
+    if (!$date) {
+        return null;
+    }
+
+    $today = (new DateTimeImmutable('today', new DateTimeZone('Europe/Warsaw')))->setTime(0, 0, 0);
+    $seconds = $date->getTimestamp() - $today->getTimestamp();
+
+    return (int) floor($seconds / 86400);
+}
+
+function plan_features_grace_days(array $subscription): int
+{
+    $configured = is_numeric($subscription['grace_period_days'] ?? null)
+        ? (int) $subscription['grace_period_days']
+        : 0;
+
+    return $configured > 0 ? $configured : 30;
+}
+
+function plan_features_access_state(array $subscription): array
+{
+    $subscriptionPlanCode = plan_features_normalize_plan_code((string) ($subscription['plan_code'] ?? 'free'));
+    $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
+    $periodEnd = plan_features_date_start($subscription['current_period_end'] ?? null);
+    $periodDaysLeft = plan_features_days_until($periodEnd);
+    $basePaidActive = plan_features_is_paid_plan_active($subscriptionPlanCode, $status);
+    $periodAllowsAccess = $periodDaysLeft === null || $periodDaysLeft >= 0;
+    $hasProAccess = $basePaidActive && $periodAllowsAccess;
+    $proAccessExpired = $basePaidActive && $periodDaysLeft !== null && $periodDaysLeft < 0;
+    $graceDays = plan_features_grace_days($subscription);
+    $dataGraceDaysLeft = null;
+    $isInDataGracePeriod = false;
+
+    if ($periodEnd && $proAccessExpired) {
+        $dataGraceDaysLeft = plan_features_days_until($periodEnd->modify('+' . $graceDays . ' days'));
+        $isInDataGracePeriod = $dataGraceDaysLeft !== null && $dataGraceDaysLeft >= 0;
+    }
+
+    return [
+        'subscription_plan_code' => $subscriptionPlanCode,
+        'status' => $status !== '' ? $status : 'active',
+        'current_period_end' => trim((string) ($subscription['current_period_end'] ?? '')),
+        'current_period_days_left' => $periodDaysLeft,
+        'has_pro_access' => $hasProAccess,
+        'is_paid_plan_active' => $hasProAccess,
+        'pro_access_expired' => $proAccessExpired,
+        'is_in_data_grace_period' => $isInDataGracePeriod,
+        'data_grace_days_left' => $dataGraceDaysLeft !== null ? max(0, $dataGraceDaysLeft) : null,
+        'data_grace_period_days' => $graceDays,
+    ];
+}
+
 function plan_features_get_subscription_from_config(string $tenantId, array $config): array
 {
     $tenantId = trim($tenantId);
@@ -176,7 +245,7 @@ function plan_features_get_subscription_from_config(string $tenantId, array $con
 
     $url = $config['supabase_url']
         . '/rest/v1/tenant_subscriptions'
-        . '?select=tenant_id,plan_code,plan_name,status'
+        . '?select=tenant_id,plan_code,plan_name,status,current_period_end,grace_period_days'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1';
 
@@ -199,6 +268,8 @@ function plan_features_get_subscription_from_config(string $tenantId, array $con
         'plan_code' => $planCode,
         'plan_name' => trim((string) ($subscription['plan_name'] ?? '')) ?: ucfirst($planCode),
         'status' => $status,
+        'current_period_end' => trim((string) ($subscription['current_period_end'] ?? '')),
+        'grace_period_days' => $subscription['grace_period_days'] ?? null,
         'source' => 'tenant_subscriptions',
     ];
 }
@@ -352,25 +423,26 @@ function plan_features_merge_override(array $globalLimits, ?array $override): ar
 function plan_features_get_context_fallback(string $tenantId, ?array $subscription = null): array
 {
     $subscription = is_array($subscription) ? $subscription : plan_features_get_subscription($tenantId);
-    $subscriptionPlanCode = plan_features_normalize_plan_code((string) ($subscription['plan_code'] ?? 'free'));
-    $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
-    $isPaidPlanActive = plan_features_is_paid_plan_active($subscriptionPlanCode, $status);
-    $effectivePlanCode = $isPaidPlanActive ? $subscriptionPlanCode : 'free';
+    $accessState = plan_features_access_state($subscription);
+    $subscriptionPlanCode = $accessState['subscription_plan_code'];
+    $status = $accessState['status'];
+    $hasProAccess = $accessState['has_pro_access'];
+    $effectivePlanCode = $hasProAccess ? $subscriptionPlanCode : 'free';
     $featuresMap = plan_features_map();
     $limitsMap = plan_features_limits_map();
 
-    return [
+    return array_merge($accessState, [
         'plan_code' => $effectivePlanCode,
         'plan_name' => $effectivePlanCode === 'free'
             ? 'Free'
             : (trim((string) ($subscription['plan_name'] ?? '')) ?: ucfirst($effectivePlanCode)),
         'subscription_plan_code' => $subscriptionPlanCode,
         'status' => $status,
-        'is_paid_plan_active' => $isPaidPlanActive,
+        'is_paid_plan_active' => $hasProAccess,
         'features' => $featuresMap[$effectivePlanCode] ?? $featuresMap['free'],
         'limits' => $limitsMap[$effectivePlanCode] ?? $limitsMap['free'],
         'source' => 'php_fallback',
-    ];
+    ]);
 }
 
 function plan_features_get_context_from_database(string $tenantId, array $config): ?array
@@ -387,10 +459,11 @@ function plan_features_get_context_from_database(string $tenantId, array $config
         return null;
     }
 
-    $subscriptionPlanCode = plan_features_normalize_plan_code((string) ($subscription['plan_code'] ?? 'free'));
-    $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
-    $isPaidPlanActive = plan_features_is_paid_plan_active($subscriptionPlanCode, $status);
-    $effectivePlanCode = $isPaidPlanActive ? $subscriptionPlanCode : 'free';
+    $accessState = plan_features_access_state($subscription);
+    $subscriptionPlanCode = $accessState['subscription_plan_code'];
+    $status = $accessState['status'];
+    $hasProAccess = $accessState['has_pro_access'];
+    $effectivePlanCode = $hasProAccess ? $subscriptionPlanCode : 'free';
     $storagePlanCode = plan_features_storage_plan_code($effectivePlanCode);
     $featuresMap = plan_features_map();
     $limitsMap = plan_features_limits_map();
@@ -417,6 +490,10 @@ function plan_features_get_context_from_database(string $tenantId, array $config
             . '&is_active=eq.true',
         $config
     );
+
+    if (!$hasProAccess) {
+        $override = null;
+    }
 
     if (is_array($override) && $override['plan_code'] !== null && trim((string) $override['plan_code']) !== '') {
         $overridePlanCode = plan_features_normalize_plan_code((string) $override['plan_code']);
@@ -446,18 +523,18 @@ function plan_features_get_context_from_database(string $tenantId, array $config
     $features = plan_features_features_from_effective($effective, $effectivePlanCode, $fallbackFeatures, $limits);
     $effectiveStoragePlanCode = plan_features_storage_plan_code((string) ($effective['plan_code'] ?? $storagePlanCode));
 
-    return [
+    return array_merge($accessState, [
         'plan_code' => plan_features_public_plan_code($effectivePlanCode),
         'plan_name' => trim((string) ($effective['plan_name'] ?? '')) ?: ($effectivePlanCode === 'free' ? 'Free' : ucfirst($effectivePlanCode)),
         'subscription_plan_code' => plan_features_public_plan_code($subscriptionPlanCode),
         'effective_storage_plan_code' => $effectiveStoragePlanCode,
         'status' => $status,
-        'is_paid_plan_active' => $isPaidPlanActive,
+        'is_paid_plan_active' => $hasProAccess,
         'features' => $features,
         'limits' => $limits,
         'source' => 'database',
         'override_active' => is_array($override),
-    ];
+    ]);
 }
 
 function plan_features_get_context(string $tenantId): array

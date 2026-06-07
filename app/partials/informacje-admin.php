@@ -40,12 +40,12 @@
           </div>
 
           <div class="admin-info-row">
-            <span>Pozostało do końca</span>
+            <span id="info-days-left-label">Pozostało do końca abonamentu</span>
             <strong id="info-days-left">—</strong>
           </div>
 
           <div class="admin-info-row">
-            <span>Okres ochronny</span>
+            <span id="info-grace-period-label">Okres ochronny danych</span>
             <strong id="info-grace-period">—</strong>
           </div>
         </div>

@@ -272,6 +272,40 @@ body {
   text-decoration: underline;
 }
 
+.employee-auth-lock {
+  text-align: center;
+}
+
+.employee-auth-lock-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  margin-top: 4px;
+  padding: 11px 16px;
+  border: 1px solid #1f2937;
+  border-radius: var(--employee-auth-radius-md);
+  color: var(--employee-auth-text);
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.2;
+  text-decoration: none;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.18s ease;
+}
+
+.employee-auth-lock-link:hover,
+.employee-auth-lock-link:focus-visible {
+  border-color: #ffffff;
+  background: var(--employee-auth-accent);
+  color: #ffffff;
+  outline: none;
+  transform: translateY(-1px);
+}
+
 .employee-auth-footer {
   text-align: center;
   color: var(--employee-auth-muted);

@@ -1,6 +1,6 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
-require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
@@ -334,11 +334,11 @@ try {
         'company_id'    => $companyId,
         'created_at'    => date('c'),
         'reservations_style' => [
-    'bg_color'     => '#eef1f5',
-    'card_color'   => '#ffffff',
-    'table_color'  => '#f8fafc',
-    'header_color' => '#e2e8f0',
-    'border_color' => '#cbd5e1',
+    'bg_color'     => '#e5ebf2',
+    'card_color'   => '#f8fafc',
+    'table_color'  => '#eef2f7',
+    'header_color' => '#cbd5e1',
+    'border_color' => '#94a3b8',
     'radius'       => '16'
 ],
 'calendar_front_style' => [
@@ -545,22 +545,19 @@ try {
     $createdActivationToken = true;
 
     $activationUrl = 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($activationToken);
-    $safeActivationUrl = htmlspecialchars($activationUrl, ENT_QUOTES, 'UTF-8');
-    $activationMessage = '<p style="margin:0 0 16px;">Kliknij poniższy przycisk, aby aktywować konto administratora.</p>'
-        . '<p style="margin:0 0 16px;"><a href="' . $safeActivationUrl . '">Aktywuj konto</a></p>'
-        . '<p style="margin:0;">Link aktywacyjny jest ważny przez 48 godzin.</p>';
-    $activationMailHtml = buildSystemMailLayout(
-        'Aktywacja konta',
-        'Dziękujemy za utworzenie konta w AI-IQ Rezerwacja Pro.',
-        $activationMessage,
-        'Jeśli nie zakładałeś tego konta, zignoruj tę wiadomość.'
-    );
+    $registrationMailHtml = buildRegistrationConfirmationMailHtml([
+        'company_name' => $companyFullName !== '' ? $companyFullName : $clientName,
+        'plan' => $planCode === 'pro' ? 'Pro' : 'Free',
+        'panel_domain' => $domain,
+        'activation_url' => $activationUrl,
+        'activation_expires_label' => 'przez 48 godzin',
+    ]);
 
-    if (!sendSystemMail($email, 'Aktywuj konto w AI-IQ Rezerwacja Pro', $activationMailHtml)) {
+    if (!sendSystemMail($email, 'Potwierdzenie rejestracji w AI-IQ Rezerwacja Pro', $registrationMailHtml)) {
         throw new Exception('Nie udało się wysłać wiadomości aktywacyjnej.');
     }
 
-    unset($activationToken, $activationUrl, $safeActivationUrl);
+    unset($activationToken, $activationUrl);
 
     register_debug('SUCCESS', [
         'created' => true

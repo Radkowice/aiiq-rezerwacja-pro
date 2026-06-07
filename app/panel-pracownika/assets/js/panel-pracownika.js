@@ -8,6 +8,8 @@
   const LOGOUT_ENDPOINT = '/api/staff/logout.php';
   const CHANGE_PASSWORD_ENDPOINT = '/api/staff/change-password.php';
   const LOGIN_URL = '/panel-pracownika/logowanie.html';
+  const LOCKED_TITLE = 'Panel pracownika dostępny w planie Pro';
+  const LOCKED_MESSAGE = 'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.';
   const EMPLOYEE_MONTH_NAMES = [
     'Styczeń', 'Luty', 'Marzec', 'Kwiecień', 'Maj', 'Czerwiec',
     'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień'
@@ -122,11 +124,30 @@
 
     if (lock) {
       const title = lock.querySelector('h1');
-      if (title && message) {
-        title.textContent = message;
+      const description = lock.querySelector('p');
+
+      if (title) {
+        title.textContent = LOCKED_TITLE;
+      }
+
+      if (description) {
+        description.textContent = message || LOCKED_MESSAGE;
       }
       lock.hidden = false;
     }
+  }
+
+  function isFeatureLockResponse(response, data) {
+    return response.status === 403 && data?.upgrade_required === true;
+  }
+
+  function handleFeatureLockResponse(response, data) {
+    if (!isFeatureLockResponse(response, data)) {
+      return false;
+    }
+
+    showPlanLock(data.error || LOCKED_MESSAGE);
+    return true;
   }
 
   function valueOrFallback(value, fallback) {
@@ -803,6 +824,10 @@
         return;
       }
 
+      if (handleFeatureLockResponse(response, data)) {
+        return;
+      }
+
       if (!response.ok || !data || data.success !== true) {
         throw new Error(data && data.error ? data.error : 'Nie udało się pobrać godzin.');
       }
@@ -976,6 +1001,10 @@
         return;
       }
 
+      if (handleFeatureLockResponse(response, data)) {
+        return;
+      }
+
       if (!response.ok || !data || data.success !== true) {
         throw new Error(data && data.error ? data.error : 'Nie udało się zapisać blokady.');
       }
@@ -1009,8 +1038,7 @@
 
       const data = await response.json().catch(() => null);
 
-      if (response.status === 403 && data?.upgrade_required === true) {
-        showPlanLock(data.error || 'Panel personelu jest dostępny w planie Pro.');
+      if (handleFeatureLockResponse(response, data)) {
         return null;
       }
 
@@ -1070,6 +1098,10 @@
 
       if (response.status === 401) {
         redirectToLogin();
+        return;
+      }
+
+      if (handleFeatureLockResponse(response, data)) {
         return;
       }
 
@@ -1215,6 +1247,10 @@
 
       if (response.status === 401) {
         redirectToLogin();
+        return;
+      }
+
+      if (handleFeatureLockResponse(response, data)) {
         return;
       }
 

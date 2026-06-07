@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -59,6 +60,17 @@ function staff_login_fail(): void
     ], 401);
 }
 
+function staff_login_feature_locked(): void
+{
+    staff_login_json([
+        'success' => false,
+        'code' => 'staff_panel_requires_pro',
+        'feature' => 'staff_module',
+        'upgrade_required' => true,
+        'error' => 'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.',
+    ], 403);
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     header('Allow: POST');
     staff_login_json([
@@ -85,6 +97,10 @@ if (!$tenantId) {
         'success' => false,
         'error' => 'Nie udało się ustalić firmy dla tej domeny.'
     ], 400);
+}
+
+if (!tenant_has_feature((string) $tenantId, 'staff_module')) {
+    staff_login_feature_locked();
 }
 
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);

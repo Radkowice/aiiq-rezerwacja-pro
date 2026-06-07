@@ -32,6 +32,7 @@ let FRONT_STAFF_ENABLED = false;
 let FRONT_STAFF = [];
 let FRONT_FILTERED_STAFF = [];
 let FRONT_STAFF_REQUIRED = false;
+let FRONT_STAFF_MODULE_AVAILABLE = false;
 let FRONT_SERVICE_OPTIONS = [];
 let FRONT_SELECTED_SERVICE_SIGNATURE = '';
 let FRONT_PUBLIC_SERVICES = [];
@@ -563,6 +564,10 @@ function getSelectedFrontServiceOption() {
 
 function getStaffForSelectedService() {
   if (FRONT_USING_PUBLIC_SERVICES) {
+    if (!FRONT_STAFF_MODULE_AVAILABLE) {
+      return [];
+    }
+
     const selectedOption = getSelectedFrontServiceOption();
     const staff = selectedOption?.service?.assigned_staff;
 
@@ -1048,47 +1053,81 @@ function getSelectedStaffId() {
   return staffEl ? staffEl.value.trim() : '';
 }
 
-async function loadFrontStaff() {
+function resetFrontStaffSelectionState() {
   const staffBox = getEl('frontStaffBox');
   const staffEl = getEl('staff');
+  const singleInfoEl = getEl('frontStaffSingleInfo');
 
+  FRONT_STAFF_MODULE_AVAILABLE = false;
   FRONT_STAFF_ENABLED = false;
   FRONT_STAFF = [];
   FRONT_FILTERED_STAFF = [];
   FRONT_STAFF_REQUIRED = false;
 
-  if (!staffBox || !staffEl) return;
-
-  staffBox.classList.add('hidden');
-  staffBox.style.display = 'none';
-  staffEl.innerHTML = '<option value="">Wybierz osobę</option>';
-  staffEl.disabled = true;
-
-  if (FRONT_USING_PUBLIC_SERVICES) {
-    const staffById = new Map();
-
-    FRONT_PUBLIC_SERVICES.forEach(service => {
-      (service.assigned_staff || []).forEach(staff => {
-        if (staff.id) {
-          staffById.set(staff.id, staff);
-        }
-      });
-    });
-
-    FRONT_STAFF = Array.from(staffById.values());
-    FRONT_STAFF_ENABLED = FRONT_STAFF.length > 0;
-    renderFrontServiceSelect();
-    return;
+  if (staffBox) {
+    staffBox.classList.remove('is-single', 'is-multiple');
+    staffBox.classList.add('hidden');
+    staffBox.style.display = 'none';
   }
+
+  if (staffEl) {
+    staffEl.innerHTML = '<option value="">Wybierz osobę</option>';
+    staffEl.value = '';
+    staffEl.disabled = true;
+  }
+
+  if (singleInfoEl) {
+    singleInfoEl.textContent = '';
+    singleInfoEl.classList.add('hidden');
+  }
+}
+
+function isFrontStaffLockedResponse(response) {
+  return response && response.status === 403;
+}
+
+async function loadFrontStaff() {
+  const staffBox = getEl('frontStaffBox');
+  const staffEl = getEl('staff');
+
+  resetFrontStaffSelectionState();
+  if (!staffBox || !staffEl) return;
 
   try {
     const res = await fetch('/api/staff/public-list.php', {
       cache: 'no-store'
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => null);
 
-    if (!res.ok || data.success !== true || data.staff_enabled !== true || !Array.isArray(data.staff) || data.staff.length === 0) {
+    if (
+      isFrontStaffLockedResponse(res) ||
+      !res.ok ||
+      data?.success !== true ||
+      data.staff_enabled !== true ||
+      !Array.isArray(data.staff) ||
+      data.staff.length === 0
+    ) {
+      renderFrontServiceSelect();
+      return;
+    }
+
+    FRONT_STAFF_MODULE_AVAILABLE = true;
+
+    if (FRONT_USING_PUBLIC_SERVICES) {
+      const staffById = new Map();
+
+      FRONT_PUBLIC_SERVICES.forEach(service => {
+        (service.assigned_staff || []).forEach(staff => {
+          if (staff.id) {
+            staffById.set(staff.id, staff);
+          }
+        });
+      });
+
+      FRONT_STAFF = Array.from(staffById.values());
+      FRONT_STAFF_ENABLED = FRONT_STAFF.length > 0;
+      renderFrontServiceSelect();
       return;
     }
 
@@ -1314,10 +1353,20 @@ async function renderTimeOptions() {
         cache: 'no-store'
       });
 
-      const staffData = await staffRes.json();
+      const staffData = await staffRes.json().catch(() => null);
 
-      if (!staffRes.ok || staffData.success !== true || !Array.isArray(staffData.availableTimes)) {
-        throw new Error(staffData.message || staffData.error || 'Nie udało się pobrać dostępności osoby');
+      if (isFrontStaffLockedResponse(staffRes)) {
+        resetFrontStaffSelectionState();
+        renderFrontServiceSelect();
+
+        const settings = await getSettings(selectedDate);
+        availableTimes = Array.isArray(settings?.availableTimes)
+          ? settings.availableTimes
+          : [];
+      } else {
+
+      if (!staffRes.ok || staffData?.success !== true || !Array.isArray(staffData?.availableTimes)) {
+        throw new Error(staffData?.message || staffData?.error || 'Nie udało się pobrać dostępności osoby');
       }
 
       const staffTimes = staffData.availableTimes;
@@ -1330,6 +1379,7 @@ async function renderTimeOptions() {
 
       if (Number.isFinite(staffBufferMinutes)) {
         bufferMinutesForToday = staffBufferMinutes;
+      }
       }
     } else {
       const settings = await getSettings(selectedDate);
@@ -1941,9 +1991,35 @@ if (FRONT_STAFF_REQUIRED) {
         cache: 'no-store'
       });
 
-      const staffData = await staffRes.json();
+      const staffData = await staffRes.json().catch(() => null);
 
-      if (!staffRes.ok || staffData.success !== true || !Array.isArray(staffData.availableTimes)) {
+      if (isFrontStaffLockedResponse(staffRes)) {
+        resetFrontStaffSelectionState();
+        renderFrontServiceSelect();
+        delete booking.staff_id;
+
+        const settings = await getSettings(booking.date);
+        const available = settings?.availableTimes || [];
+
+        finalAvailable = [...available];
+
+        const todayStr = formatLocalDate(new Date());
+
+        if (booking.date === todayStr) {
+          const now = new Date();
+          const nowMinutes = now.getHours() * 60 + now.getMinutes();
+          const bufferMinutes = parseInt(calendarSettings.booking_buffer || 0, 10);
+          const minAllowedMinutes = nowMinutes + bufferMinutes;
+
+          finalAvailable = available.filter(time => {
+            const [hours, minutes] = time.split(':').map(Number);
+            const slotMinutes = hours * 60 + minutes;
+            return slotMinutes >= minAllowedMinutes;
+          });
+        }
+      } else {
+
+      if (!staffRes.ok || staffData?.success !== true || !Array.isArray(staffData?.availableTimes)) {
         throw new Error('Nie udało się pobrać dostępności osoby');
       }
 
@@ -1964,6 +2040,7 @@ if (FRONT_STAFF_REQUIRED) {
           const slotMinutes = hours * 60 + minutes;
           return slotMinutes >= minAllowedMinutes;
         });
+      }
       }
     } else {
       const settings = await getSettings(booking.date);

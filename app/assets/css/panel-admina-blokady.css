@@ -287,6 +287,17 @@ section[data-section="blokady"] .block-refresh-btn {
   margin-bottom: 14px;
 }
 
+.admin-time-header-day-only {
+  align-items: flex-start;
+}
+
+.admin-time-mode-note {
+  margin: 6px 0 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .btn-block-day {
   height: 42px;
   padding: 0 16px;
@@ -454,6 +465,12 @@ section[data-section="blokady"] .block-refresh-btn {
   border-color: rgba(180, 83, 9, 0.32);
   background: rgba(254, 243, 199, 0.74);
   color: #92400e;
+}
+
+.admin-service-slot.is-booking_buffer {
+  border-color: rgba(14, 116, 144, 0.3);
+  background: rgba(207, 250, 254, 0.68);
+  color: #155e75;
 }
 
 .admin-service-slot.is-blocked_staff {

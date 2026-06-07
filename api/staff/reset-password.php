@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function staff_reset_password_json(array $payload, int $statusCode = 200): void
@@ -53,6 +54,17 @@ function staff_reset_password_request(
         'httpCode' => $httpCode,
         'data' => json_decode((string) $response, true),
     ];
+}
+
+function staff_reset_password_feature_locked(): void
+{
+    staff_reset_password_json([
+        'success' => false,
+        'code' => 'staff_panel_requires_pro',
+        'feature' => 'staff_module',
+        'upgrade_required' => true,
+        'error' => 'Panel pracownika jest dostępny w planie Pro. Twój abonament Pro wygasł albo konto działa w planie Free. Opłać abonament Pro, aby odzyskać dostęp do funkcji personelu.',
+    ], 403);
 }
 
 function staff_reset_password_validation_error(string $password): string
@@ -106,6 +118,10 @@ if (!$tenantId) {
         'success' => false,
         'error' => 'Nie udało się ustalić firmy dla tej domeny.'
     ], 400);
+}
+
+if (!tenant_has_feature((string) $tenantId, 'staff_module')) {
+    staff_reset_password_feature_locked();
 }
 
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);

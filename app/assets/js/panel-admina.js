@@ -138,6 +138,7 @@ function initMenu() {
     menuItems[menuIndex]?.classList.add('active');
     sections.forEach(section => section.classList.add('hidden'));
     targetEl.classList.remove('hidden');
+    applyPlanLocks();
 
     window.dispatchEvent(new CustomEvent('aiiq:section-shown', {
       detail: {
@@ -173,12 +174,43 @@ function aiIqHasFeature(featureKey) {
   const context = window.AIIQ_PLAN_CONTEXT || {};
   const features = context.features || {};
 
-  return Boolean(features[featureKey]);
+  return aiIqHasProAccess() && Boolean(features[featureKey]);
+}
+
+function aiIqHasPlanContext() {
+  return Boolean(window.AIIQ_PLAN_CONTEXT);
 }
 
 function aiIqIsFreePlan() {
   const context = window.AIIQ_PLAN_CONTEXT || {};
-  return (context.plan_code || 'free') === 'free';
+  return !aiIqHasProAccess() || (context.plan_code || 'free') === 'free';
+}
+
+function aiIqHasProAccess() {
+  const context = window.AIIQ_PLAN_CONTEXT || {};
+
+  if (Object.prototype.hasOwnProperty.call(context, 'has_pro_access')) {
+    return context.has_pro_access === true;
+  }
+
+  if (Object.prototype.hasOwnProperty.call(context, 'is_paid_plan_active')) {
+    return context.is_paid_plan_active === true;
+  }
+
+  return (context.plan_code || 'free') !== 'free';
+}
+
+function aiIqProAccessExpired() {
+  const context = window.AIIQ_PLAN_CONTEXT || {};
+  return context.pro_access_expired === true;
+}
+
+function resolvePlanLockDescription() {
+  if (aiIqProAccessExpired()) {
+    return 'Funkcja dostępna w planie Pro. Twój abonament Pro wygasł. Opłać abonament, aby odzyskać dostęp do konfiguracji Pro.';
+  }
+
+  return 'Funkcja dostępna w planie Pro.';
 }
 
 function disablePlanLockedControls(container) {
@@ -220,6 +252,12 @@ function addPlanLockOverlay(container, config, options = {}) {
   title.textContent = config.title;
 
   box.appendChild(title);
+
+  const description = document.createElement('p');
+  description.className = 'plan-lock-description';
+  description.textContent = resolvePlanLockDescription();
+  box.appendChild(description);
+
   overlay.appendChild(box);
   container.appendChild(overlay);
 }
@@ -241,6 +279,7 @@ function renderPlanUpgradeNotice() {
     return;
   }
 
+  notice.textContent = resolvePlanLockDescription();
   notice.hidden = false;
 }
 
@@ -542,6 +581,12 @@ async function loadAdminNotifications() {
     });
   }
 }
+
+window.loadAdminNotifications = loadAdminNotifications;
+
+window.addEventListener('aiiq:staff-blocks-changed', () => {
+  loadAdminNotifications();
+});
 
 async function markAdminNotificationsRead(button) {
   const defaultText = button?.textContent || 'Oznacz jako przeczytane';

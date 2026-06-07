@@ -98,10 +98,21 @@ function account_info_days_until(?DateTimeImmutable $date): ?int
         return null;
     }
 
-    $today = (new DateTimeImmutable('today'))->setTime(0, 0, 0);
+    $today = (new DateTimeImmutable('today', new DateTimeZone('Europe/Warsaw')))->setTime(0, 0, 0);
     $seconds = $date->getTimestamp() - $today->getTimestamp();
 
     return (int) floor($seconds / 86400);
+}
+
+function account_info_days_label(int $days): string
+{
+    $days = max(0, $days);
+
+    if ($days === 1) {
+        return '1 dzień';
+    }
+
+    return $days . ' dni';
 }
 
 function account_info_billing_period_label(?string $value): string
@@ -157,6 +168,12 @@ function account_info_subscription_notice(?array $subscription): array
             'amount_label' => '—',
             'billing_period_label' => '—',
             'status_label' => '—',
+            'days_left_label' => '—',
+            'grace_period_label' => '—',
+            'days_left_row_label' => 'Pozostało do końca abonamentu',
+            'grace_period_row_label' => 'Okres ochronny danych',
+            'display_plan_name' => '—',
+            'effective_plan_code' => 'free',
         ];
     }
 
@@ -166,18 +183,21 @@ function account_info_subscription_notice(?array $subscription): array
     $periodEnd = account_info_date_start($subscription['current_period_end'] ?? null);
     $nextPaymentDue = account_info_date_start($subscription['next_payment_due_at'] ?? null);
     $daysLeft = account_info_days_until($periodEnd);
-    $graceDays = is_numeric($subscription['grace_period_days'] ?? null)
-        ? max(0, (int) $subscription['grace_period_days'])
-        : null;
+    $configuredGraceDays = is_numeric($subscription['grace_period_days'] ?? null)
+        ? (int) $subscription['grace_period_days']
+        : 0;
+    $graceDays = $configuredGraceDays > 0 ? $configuredGraceDays : 30;
     $graceBase = $periodEnd ?: $nextPaymentDue;
     $graceDaysLeft = null;
 
     if ($graceBase && $graceDays !== null) {
         $graceEnd = $graceBase->modify('+' . $graceDays . ' days');
-        $graceDaysLeft = max(0, (int) account_info_days_until($graceEnd));
+        $graceDaysLeft = account_info_days_until($graceEnd);
     }
 
     $periodEndLabel = account_info_format_date_label($subscription['current_period_end'] ?? null);
+    $graceDaysLabel = account_info_days_label($graceDays);
+    $activeProText = 'Twój plan Pro jest aktywny do ' . $periodEndLabel . '. Po tym terminie, jeśli abonament nie zostanie opłacony, konto zostanie przełączone na plan Free, a funkcje Pro zostaną zablokowane. Dane i konfiguracje Pro będą przechowywane jeszcze przez ' . $graceDaysLabel . ' w okresie ochronnym. Po tym czasie mogą zostać usunięte.';
     $notice = [
         'variant' => 'neutral',
         'title' => 'Plan Free jest aktywny',
@@ -190,10 +210,21 @@ function account_info_subscription_notice(?array $subscription): array
         'amount_label' => account_info_money_label($subscription['amount'] ?? null, $subscription['currency'] ?? null),
         'billing_period_label' => $planCode === 'free' ? 'Nie dotyczy' : account_info_billing_period_label($subscription['billing_period'] ?? null),
         'status_label' => account_info_status_label($status),
+        'days_left_label' => $daysLeft !== null ? account_info_days_label($daysLeft) : '—',
+        'grace_period_label' => $graceDaysLabel,
+        'days_left_row_label' => 'Pozostało do końca abonamentu',
+        'grace_period_row_label' => 'Okres ochronny danych po terminie',
+        'display_plan_name' => trim((string) ($subscription['plan_name'] ?? '')) !== '' ? (string) $subscription['plan_name'] : strtoupper($planCode),
+        'effective_plan_code' => $planCode,
     ];
 
     if ($planCode === 'free') {
-        return $notice;
+        return array_merge($notice, [
+            'grace_period_label' => 'Nie dotyczy',
+            'grace_period_row_label' => 'Okres ochronny danych',
+            'display_plan_name' => 'Free',
+            'effective_plan_code' => 'free',
+        ]);
     }
 
     if ($status === 'cancelled') {
@@ -208,41 +239,60 @@ function account_info_subscription_notice(?array $subscription): array
         return array_merge($notice, [
             'variant' => 'danger',
             'title' => 'Plan Pro jest zablokowany',
-            'text' => 'Funkcje Pro są obecnie niedostępne. Opłać abonament albo skontaktuj się z supportem.',
+            'text' => 'Funkcje Pro są obecnie niedostępne, a konto działa w planie Free. Opłać abonament albo skontaktuj się z supportem.',
+            'days_left_label' => '—',
+        ]);
+    }
+
+    if ($periodEnd && $daysLeft !== null && $daysLeft < 0) {
+        if ($graceDaysLeft !== null && $graceDaysLeft >= 0) {
+            $safeGraceDaysLeft = max(0, $graceDaysLeft);
+
+            return array_merge($notice, [
+                'variant' => 'danger',
+                'title' => 'Plan Pro wygasł — konto działa w planie Free',
+                'text' => 'Twój abonament Pro zakończył się ' . $periodEndLabel . '. Funkcje Pro zostały zablokowane, a konto działa teraz w planie Free. Masz jeszcze ' . account_info_days_label($safeGraceDaysLeft) . ' okresu ochronnego na opłacenie abonamentu i odzyskanie konfiguracji Pro. Po zakończeniu okresu ochronnego dane Pro mogą zostać usunięte.',
+                'status_label' => 'Free po wygaśnięciu Pro',
+                'days_left_label' => '0 dni',
+                'grace_period_label' => account_info_days_label($safeGraceDaysLeft),
+                'grace_period_row_label' => 'Pozostało okresu ochronnego danych',
+                'display_plan_name' => 'Free',
+                'effective_plan_code' => 'free',
+            ]);
+        }
+
+        return array_merge($notice, [
+            'variant' => 'danger',
+            'title' => 'Okres ochronny zakończony',
+            'text' => 'Abonament Pro nie został opłacony w okresie ochronnym. Dane i konfiguracje Pro mogą zostać usunięte, a konto pozostaje w planie Free.',
+            'status_label' => 'Free po zakończeniu ochrony danych',
+            'days_left_label' => '0 dni',
+            'grace_period_label' => 'zakończony',
+            'grace_period_row_label' => 'Okres ochronny danych',
+            'display_plan_name' => 'Free',
+            'effective_plan_code' => 'free',
         ]);
     }
 
     if ($status === 'payment_due' || $status === 'overdue') {
-        $text = 'Masz zaległą płatność za abonament.';
-
-        if ($graceDaysLeft !== null) {
-            $text .= ' Pozostało ' . $graceDaysLeft . ' dni okresu ochronnego. Po tym czasie funkcje Pro zostaną wyłączone, a konto przejdzie na plan Free.';
-        } else {
-            $text .= ' Opłać abonament, aby zachować dostęp do funkcji Pro.';
-        }
-
         return array_merge($notice, [
-            'variant' => $status === 'payment_due' ? 'warning' : 'danger',
-            'title' => 'Płatność po terminie',
-            'text' => $text,
+            'variant' => 'warning',
+            'title' => 'Płatność abonamentu wymaga uwagi',
+            'text' => 'Plan Pro działa tylko do ' . $periodEndLabel . '. Po tym terminie, jeśli abonament nie zostanie opłacony, konto zostanie przełączone na plan Free, a funkcje Pro zostaną zablokowane. Dane i konfiguracje Pro będą przechowywane jeszcze przez ' . $graceDaysLabel . ' w okresie ochronnym.',
+            'grace_period_label' => $graceDaysLabel,
+            'grace_period_row_label' => 'Okres ochronny danych po terminie',
         ]);
     }
 
     if ($status === 'active' || $status === 'trial') {
         if ($periodEnd) {
-            if ($daysLeft !== null && $daysLeft <= 7 && $daysLeft >= 0) {
-                return array_merge($notice, [
-                    'variant' => 'warning',
-                    'title' => 'Abonament wkrótce wygaśnie',
-                    'text' => 'Twój plan Pro jest aktywny do ' . $periodEndLabel . '. Opłać abonament, aby zachować dostęp do funkcji Pro.',
-                ]);
-            }
-
-            if ($daysLeft !== null && $daysLeft > 7) {
+            if ($daysLeft !== null && $daysLeft >= 0) {
                 return array_merge($notice, [
                     'variant' => 'success',
                     'title' => 'Brak zaległości w płatnościach',
-                    'text' => 'Twój plan Pro jest aktywny do ' . $periodEndLabel . '.',
+                    'text' => $activeProText,
+                    'grace_period_label' => $graceDaysLabel,
+                    'grace_period_row_label' => 'Okres ochronny danych po terminie',
                 ]);
             }
         }

@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -88,6 +89,12 @@ if (!$hostTenantId || !hash_equals($sessionTenantId, (string) $hostTenantId)) {
         'error' => 'Sesja personelu nie pasuje do domeny.',
     ], 401);
 }
+
+require_tenant_feature(
+    $sessionTenantId,
+    'staff_module',
+    'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.'
+);
 
 $today = (new DateTimeImmutable('today'))->format('Y-m-d');
 $bookingsUrl = $supabaseUrl

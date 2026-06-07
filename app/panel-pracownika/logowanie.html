@@ -17,61 +17,71 @@
     </section>
 
     <section class="employee-auth-card" aria-labelledby="employee-login-title">
-      <h2 id="employee-login-title" class="employee-auth-title">Logowanie personelu</h2>
-      <p class="employee-auth-description">
-        Wpisz e-mail oraz hasło ustawione z zaproszenia.
-      </p>
+      <div id="employeeLoginContent" hidden>
+        <h2 id="employee-login-title" class="employee-auth-title">Logowanie personelu</h2>
+        <p class="employee-auth-description">
+          Wpisz e-mail oraz hasło ustawione z zaproszenia.
+        </p>
 
-      <form class="employee-auth-form" id="employeeLoginForm" novalidate>
-        <label class="employee-auth-field" for="employeeLoginEmail">
-          <span>E-mail</span>
-          <input
-            type="email"
-            id="employeeLoginEmail"
-            name="email"
-            autocomplete="username"
-            required
-          >
-        </label>
-
-        <label class="employee-auth-field" for="employeeLoginPassword">
-          <span>Hasło</span>
-          <span class="employee-auth-password-wrap">
+        <form class="employee-auth-form" id="employeeLoginForm" novalidate>
+          <label class="employee-auth-field" for="employeeLoginEmail">
+            <span>E-mail</span>
             <input
-              type="password"
-              id="employeeLoginPassword"
-              name="password"
-              autocomplete="current-password"
+              type="email"
+              id="employeeLoginEmail"
+              name="email"
+              autocomplete="username"
               required
             >
-            <button
-              type="button"
-              class="employee-auth-password-toggle"
-              data-password-toggle
-              data-target="employeeLoginPassword"
-              aria-label="Pokaż hasło"
-            >
-              <span class="employee-auth-password-eye employee-auth-password-eye-open">👁️</span>
-              <span class="employee-auth-password-eye employee-auth-password-eye-closed">🙈</span>
-            </button>
-          </span>
-        </label>
+          </label>
 
-        <button type="submit" class="employee-auth-submit" id="employeeLoginSubmit">
-          Zaloguj się
-        </button>
-      </form>
+          <label class="employee-auth-field" for="employeeLoginPassword">
+            <span>Hasło</span>
+            <span class="employee-auth-password-wrap">
+              <input
+                type="password"
+                id="employeeLoginPassword"
+                name="password"
+                autocomplete="current-password"
+                required
+              >
+              <button
+                type="button"
+                class="employee-auth-password-toggle"
+                data-password-toggle
+                data-target="employeeLoginPassword"
+                aria-label="Pokaż hasło"
+              >
+                <span class="employee-auth-password-eye employee-auth-password-eye-open">👁️</span>
+                <span class="employee-auth-password-eye employee-auth-password-eye-closed">🙈</span>
+              </button>
+            </span>
+          </label>
 
-      <p class="employee-auth-message" id="employeeLoginMessage" aria-live="polite"></p>
+          <button type="submit" class="employee-auth-submit" id="employeeLoginSubmit">
+            Zaloguj się
+          </button>
+        </form>
 
-      <div class="employee-auth-links">
-        <p class="employee-auth-link">
-          <a href="/panel-personelu/nie-pamietasz-hasla.html">Nie pamiętasz hasła?</a>
+        <p class="employee-auth-message" id="employeeLoginMessage" aria-live="polite"></p>
+
+        <div class="employee-auth-links">
+          <p class="employee-auth-link">
+            <a href="/panel-personelu/nie-pamietasz-hasla.html">Nie pamiętasz hasła?</a>
+          </p>
+
+          <p class="employee-auth-link">
+            Nie masz dostępu? Poproś administratora o zaproszenie.
+          </p>
+        </div>
+      </div>
+
+      <div class="employee-auth-lock" id="employeeLoginLocked" hidden>
+        <h2 class="employee-auth-title">Panel pracownika dostępny w planie Pro</h2>
+        <p class="employee-auth-description">
+          Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.
         </p>
-
-        <p class="employee-auth-link">
-          Nie masz dostępu? Poproś administratora o zaproszenie.
-        </p>
+        <a class="employee-auth-lock-link" href="/">Przejdź do strony rezerwacji</a>
       </div>
     </section>
 

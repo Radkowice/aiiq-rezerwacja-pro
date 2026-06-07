@@ -3,7 +3,10 @@
 
   const LOGIN_ENDPOINT = '/api/staff/login.php';
   const ME_ENDPOINT = '/api/staff/me.php';
+  const ACCESS_ENDPOINT = '/api/staff/panel-access.php';
   const PANEL_URL = '/panel-pracownika/panel.html?v=2';
+  const LOCKED_TITLE = 'Panel pracownika dostępny w planie Pro';
+  const LOCKED_MESSAGE = 'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.';
 
   function getElement(id) {
     return document.getElementById(id);
@@ -49,6 +52,47 @@
 
     submit.disabled = isLoading;
     submit.textContent = isLoading ? 'Logowanie…' : 'Zaloguj się';
+  }
+
+  function showLoginContent() {
+    const content = getElement('employeeLoginContent');
+    const locked = getElement('employeeLoginLocked');
+
+    if (content) {
+      content.hidden = false;
+    }
+
+    if (locked) {
+      locked.hidden = true;
+    }
+
+    setFormDisabled(false);
+  }
+
+  function showPlanLock(message) {
+    const content = getElement('employeeLoginContent');
+    const locked = getElement('employeeLoginLocked');
+
+    if (content) {
+      content.hidden = true;
+    }
+
+    if (locked) {
+      const title = locked.querySelector('h2');
+      const description = locked.querySelector('p');
+
+      if (title) {
+        title.textContent = LOCKED_TITLE;
+      }
+
+      if (description) {
+        description.textContent = message || LOCKED_MESSAGE;
+      }
+
+      locked.hidden = false;
+    }
+
+    setFormDisabled(true);
   }
 
   function bindPasswordToggles() {
@@ -97,6 +141,36 @@
     }
   }
 
+  async function checkPanelAccess() {
+    try {
+      const response = await fetch(ACCESS_ENDPOINT, {
+        method: 'GET',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json'
+        }
+      });
+
+      const data = await response.json().catch(() => null);
+
+      if (response.status === 403 && data?.upgrade_required === true) {
+        showPlanLock(data.error || LOCKED_MESSAGE);
+        return false;
+      }
+
+      if (!response.ok || !data || data.staff_panel_available !== true) {
+        showPlanLock('Nie udało się potwierdzić dostępu do panelu pracownika. Spróbuj ponownie za chwilę albo skontaktuj się z administratorem.');
+        return false;
+      }
+
+      showLoginContent();
+      return true;
+    } catch (error) {
+      showPlanLock('Nie udało się potwierdzić dostępu do panelu pracownika. Spróbuj ponownie za chwilę albo skontaktuj się z administratorem.');
+      return false;
+    }
+  }
+
   async function handleLogin(event) {
     event.preventDefault();
 
@@ -137,6 +211,11 @@
 
       const data = await response.json().catch(() => null);
 
+      if (response.status === 403 && data?.upgrade_required === true) {
+        showPlanLock(data.error || LOCKED_MESSAGE);
+        return;
+      }
+
       if (!response.ok || !data || data.success !== true) {
         const errorMessage = data && data.error
           ? data.error
@@ -160,10 +239,17 @@
     }
   }
 
-  document.addEventListener('DOMContentLoaded', () => {
+  document.addEventListener('DOMContentLoaded', async () => {
     const form = getElement('employeeLoginForm');
 
     bindPasswordToggles();
+
+    const hasPanelAccess = await checkPanelAccess();
+
+    if (!hasPanelAccess) {
+      return;
+    }
+
     checkExistingSession();
 
     if (!form) {

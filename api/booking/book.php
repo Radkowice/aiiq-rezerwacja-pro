@@ -414,13 +414,31 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
     return true;
 }
 
-function booking_subscription_allows_staff(?string $planCode, ?string $status): bool
+function booking_subscription_allows_staff(?string $planCode, ?string $status, ?string $currentPeriodEnd = null): bool
 {
     $planValue = strtolower(trim((string) $planCode));
+    $planValue = $planValue === 'biznes' ? 'business' : $planValue;
     $statusValue = strtolower(trim((string) $status));
 
-    return in_array($planValue, ['pro', 'vip', 'business'], true)
-        && in_array($statusValue, ['active', 'trial'], true);
+    if (!in_array($planValue, ['pro', 'vip', 'business'], true)
+        || !in_array($statusValue, ['active', 'trial'], true)) {
+        return false;
+    }
+
+    $periodEndValue = trim((string) $currentPeriodEnd);
+
+    if ($periodEndValue === '') {
+        return true;
+    }
+
+    try {
+        $periodEnd = (new DateTimeImmutable($periodEndValue, new DateTimeZone('Europe/Warsaw')))->setTime(0, 0, 0);
+        $today = (new DateTimeImmutable('today', new DateTimeZone('Europe/Warsaw')))->setTime(0, 0, 0);
+
+        return $periodEnd >= $today;
+    } catch (Throwable $e) {
+        return false;
+    }
 }
 
 function calculate_payment_expires_at(int $value, string $unit): string
@@ -1198,13 +1216,14 @@ if ($staffId !== '') {
         $SUPABASE_URL,
         $headers,
         'tenant_subscriptions',
-        'tenant_id=eq.' . rawurlencode($TENANT_ID) . '&select=plan_code,status'
+        'tenant_id=eq.' . rawurlencode($TENANT_ID) . '&select=plan_code,status,current_period_end'
     );
 
     $planCode = is_array($subscriptionRow) ? (string) ($subscriptionRow['plan_code'] ?? 'free') : 'free';
     $subscriptionStatus = is_array($subscriptionRow) ? (string) ($subscriptionRow['status'] ?? '') : '';
+    $currentPeriodEnd = is_array($subscriptionRow) ? (string) ($subscriptionRow['current_period_end'] ?? '') : '';
 
-    if (!booking_subscription_allows_staff($planCode, $subscriptionStatus)) {
+    if (!booking_subscription_allows_staff($planCode, $subscriptionStatus, $currentPeriodEnd)) {
         json_response([
             'success' => false,
             'error' => 'Personel jest niedostępny',

@@ -151,7 +151,7 @@ if (!$hostTenantId || !hash_equals($sessionTenantId, (string) $hostTenantId)) {
 require_tenant_feature(
     $sessionTenantId,
     'staff_module',
-    'Panel personelu jest dostępny w planie Pro.'
+    'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.'
 );
 
 $accountId = (string) ($staffSession['account_id'] ?? '');
