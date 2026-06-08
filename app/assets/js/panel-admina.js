@@ -1747,6 +1747,308 @@ function renderBookingDetails(item, detailsId) {
   `;
 }
 
+let bookingStaffOptionsCache = null;
+
+function clearBookingStaffOptionsCache() {
+  bookingStaffOptionsCache = null;
+}
+
+async function loadBookingStaffOptions() {
+  if (Array.isArray(bookingStaffOptionsCache)) {
+    return bookingStaffOptionsCache;
+  }
+
+  const data = await apiFetch('/api/staff/list.php', {
+    cache: 'no-store'
+  });
+
+  const staff = Array.isArray(data?.staff)
+    ? data.staff
+    : [];
+
+  bookingStaffOptionsCache = staff
+    .filter(person => person && person.is_active !== false)
+    .map(person => ({
+      id: String(person.id || '').trim(),
+      display_name: String(person.display_name || 'Pracownik bez nazwy').trim(),
+      email: String(person.email || '').trim()
+    }))
+    .filter(person => person.id !== '');
+
+  return bookingStaffOptionsCache;
+}
+
+function getBookingById(bookingId) {
+  const id = String(bookingId || '').trim();
+
+  if (!id || !Array.isArray(window._bookingsData)) {
+    return null;
+  }
+
+  return window._bookingsData.find(item => String(item?.id || '').trim() === id) || null;
+}
+
+function renderBookingStaffActions(item) {
+  if (!aiIqHasFeature('staff_module')) {
+    return '';
+  }
+
+  const bookingId = String(item?.id || '').trim();
+
+  if (!bookingId) {
+    return '';
+  }
+
+  const hasStaff = hasValue(item?.staff_id);
+
+  return `
+    <button
+      class="booking-details-btn"
+      type="button"
+      onclick="changeBookingStaff('${escapeJs(bookingId)}')"
+    >
+      Zmień personel
+    </button>
+    ${hasStaff ? `
+      <button
+        class="delete-btn"
+        type="button"
+        onclick="detachBookingStaff('${escapeJs(bookingId)}')"
+      >
+        Odłącz personel
+      </button>
+    ` : ''}
+  `;
+}
+
+function ensureBookingStaffModal() {
+  let modal = document.getElementById('bookingStaffModal');
+
+  if (modal) {
+    return modal;
+  }
+
+  modal = document.createElement('div');
+  modal.id = 'bookingStaffModal';
+  modal.className = 'admin-modal hidden';
+  modal.innerHTML = `
+    <div class="admin-modal-backdrop" data-booking-staff-close="true"></div>
+    <div class="admin-modal-box" role="dialog" aria-modal="true" aria-labelledby="bookingStaffModalTitle">
+      <div class="admin-modal-header">
+        <h3 id="bookingStaffModalTitle">Zmień personel rezerwacji</h3>
+        <button type="button" class="admin-modal-close" data-booking-staff-close="true">×</button>
+      </div>
+
+      <div class="admin-modal-body">
+        <p id="bookingStaffModalDescription" class="booking-muted"></p>
+
+        <label for="bookingStaffSelect">
+          Wybierz nowego pracownika
+        </label>
+        <select id="bookingStaffSelect">
+          <option value="">Wybierz pracownika</option>
+        </select>
+
+        <p id="bookingStaffModalMessage" class="booking-muted"></p>
+      </div>
+
+      <div class="admin-modal-actions">
+        <button type="button" class="booking-details-btn" data-booking-staff-close="true">
+          Anuluj
+        </button>
+        <button type="button" class="delete-btn" id="bookingStaffModalSave">
+          Zapisz zmianę
+        </button>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  modal.querySelectorAll('[data-booking-staff-close="true"]').forEach(button => {
+    button.addEventListener('click', () => {
+      modal.classList.add('hidden');
+    });
+  });
+
+  return modal;
+}
+
+function openBookingStaffModal(booking, staffOptions) {
+  return new Promise(resolve => {
+    const modal = ensureBookingStaffModal();
+    const select = document.getElementById('bookingStaffSelect');
+    const description = document.getElementById('bookingStaffModalDescription');
+    const message = document.getElementById('bookingStaffModalMessage');
+    const saveBtn = document.getElementById('bookingStaffModalSave');
+
+    if (!select || !description || !message || !saveBtn) {
+      resolve('');
+      return;
+    }
+
+    const currentStaffId = String(booking?.staff_id || '').trim();
+
+    select.innerHTML = '<option value="">Wybierz pracownika</option>'
+      + staffOptions
+        .filter(person => person.id !== currentStaffId)
+        .map(person => `
+          <option value="${escapeHtml(person.id)}">
+            ${escapeHtml(person.display_name)}
+          </option>
+        `)
+        .join('');
+
+    description.textContent = [
+      `Rezerwacja: ${getCurrentBookingTermLabel(booking) || 'brak terminu'}`,
+      `Klient: ${booking?.name || 'brak danych'}`,
+      `Obecnie: ${getBookingStaffName(booking)}`
+    ].join(' · ');
+
+    message.textContent = '';
+
+    modal.classList.remove('hidden');
+    select.focus();
+
+    const cleanup = () => {
+      saveBtn.onclick = null;
+    };
+
+    saveBtn.onclick = () => {
+      const selectedStaffId = select.value.trim();
+
+      if (!selectedStaffId) {
+        message.textContent = 'Wybierz pracownika.';
+        return;
+      }
+
+      cleanup();
+      modal.classList.add('hidden');
+      resolve(selectedStaffId);
+    };
+  });
+}
+
+async function refreshBookingsAfterStaffChange() {
+  clearBookingStaffOptionsCache();
+
+  await loadBookings(currentBookingsView);
+
+  if (typeof window.refreshAdminCalendarData === 'function') {
+    await window.refreshAdminCalendarData();
+  }
+
+  if (typeof window.loadAdminNotifications === 'function') {
+    await window.loadAdminNotifications();
+  }
+}
+
+async function changeBookingStaff(bookingId) {
+  const booking = getBookingById(bookingId);
+
+  if (!booking) {
+    alert('Nie znaleziono rezerwacji.');
+    return;
+  }
+
+  try {
+    const staffOptions = await loadBookingStaffOptions();
+
+    if (!staffOptions.length) {
+      alert('Brak aktywnych pracowników do przypisania.');
+      return;
+    }
+
+    const selectedStaffId = await openBookingStaffModal(booking, staffOptions);
+
+    if (!selectedStaffId) {
+      return;
+    }
+
+    const data = await apiFetch('/api/booking/update-staff.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'change_staff',
+        booking_id: bookingId,
+        staff_id: selectedStaffId
+      })
+    });
+
+    if (!data?.success) {
+      alert(data?.error || 'Nie udało się zmienić personelu.');
+      return;
+    }
+
+    alert(data.message || 'Zmieniono personel rezerwacji.');
+    await refreshBookingsAfterStaffChange();
+  } catch (error) {
+    console.error('changeBookingStaff error:', error);
+    alert(error.message || 'Błąd zmiany personelu.');
+  }
+}
+
+async function detachBookingStaff(bookingId) {
+  const booking = getBookingById(bookingId);
+
+  if (!booking) {
+    alert('Nie znaleziono rezerwacji.');
+    return;
+  }
+
+  const confirmed = await openAdminConfirm({
+    title: 'Odłączyć personel?',
+    html: `
+      <p>
+        Czy na pewno chcesz odłączyć personel od tej rezerwacji?
+      </p>
+      <p>
+        <strong>${escapeHtml(getCurrentBookingTermLabel(booking) || 'Brak terminu')}</strong><br>
+        Klient: <strong>${escapeHtml(booking.name || 'Brak danych')}</strong><br>
+        Obecny personel: <strong>${escapeHtml(getBookingStaffName(booking))}</strong>
+      </p>
+      <p>
+        Klient otrzyma wiadomość e-mail, że specjalista nie jest już przypisany.
+      </p>
+    `,
+    confirmText: 'Odłącz personel',
+    cancelText: 'Anuluj'
+  });
+
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const data = await apiFetch('/api/booking/update-staff.php', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'detach_staff',
+        booking_id: bookingId
+      })
+    });
+
+    if (!data?.success) {
+      alert(data?.error || 'Nie udało się odłączyć personelu.');
+      return;
+    }
+
+    alert(data.message || 'Odłączono personel od rezerwacji.');
+    await refreshBookingsAfterStaffChange();
+  } catch (error) {
+    console.error('detachBookingStaff error:', error);
+    alert(error.message || 'Błąd odłączania personelu.');
+  }
+}
+
+window.changeBookingStaff = changeBookingStaff;
+window.detachBookingStaff = detachBookingStaff;
+
 function renderBookingRow(item) {
   const bookingId = String(item.id ?? '');
   const bookingDate = item.booking_date || item.date || '';
@@ -1764,22 +2066,23 @@ function renderBookingRow(item) {
       <td class="col-payment">${payment}</td>
       <td class="col-actions">
         <div class="booking-actions">
-          <button
-            class="booking-details-btn"
-            type="button"
-            aria-expanded="false"
-            aria-controls="${escapeHtml(detailsId)}"
-            onclick="toggleBookingDetails('${escapeJs(detailsId)}', this)"
-          >
-            Więcej
-          </button>
-          <button
-            class="delete-btn"
-            type="button"
-            onclick="deleteBooking('${escapeJs(bookingId)}','${escapeJs(bookingDate)}','${escapeJs(bookingTime)}','${escapeJs(item.status || '')}','${escapeJs(item.payment_status || '')}')"
-          >
-            Usuń
-          </button>
+         <button
+  class="booking-details-btn"
+  type="button"
+  aria-expanded="false"
+  aria-controls="${escapeHtml(detailsId)}"
+  onclick="toggleBookingDetails('${escapeJs(detailsId)}', this)"
+>
+  Więcej
+</button>
+${renderBookingStaffActions(item)}
+<button
+  class="delete-btn"
+  type="button"
+  onclick="deleteBooking('${escapeJs(bookingId)}','${escapeJs(bookingDate)}','${escapeJs(bookingTime)}','${escapeJs(item.status || '')}','${escapeJs(item.payment_status || '')}')"
+>
+  Usuń
+</button>
         </div>
       </td>
     </tr>
