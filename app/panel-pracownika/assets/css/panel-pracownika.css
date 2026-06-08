@@ -585,6 +585,50 @@ body.employee-panel-body {
   border-bottom: 0;
 }
 
+.employee-booking-row--inactive td {
+  background: rgba(148, 163, 184, 0.22);
+  color: var(--employee-muted);
+}
+
+.employee-booking-row--inactive .employee-col-term strong,
+.employee-booking-row--inactive .employee-col-client,
+.employee-booking-row--inactive .employee-col-service {
+  color: var(--employee-muted);
+}
+
+.employee-booking-row--inactive {
+  opacity: 0.86;
+}
+
+.employee-booking-row--assigned td {
+  background: rgba(219, 234, 254, 0.34);
+}
+
+.employee-assignment-notice {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 7px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.employee-assignment-notice.is-assigned {
+  border: 1px solid #bfdbfe;
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.employee-assignment-notice.is-inactive {
+  border: 1px solid #cbd5e1;
+  background: #e2e8f0;
+  color: #475569;
+}
+
 .employee-col-term {
   width: 140px;
 }
@@ -1654,42 +1698,72 @@ body.modal-open {
   .employee-bookings-table tbody {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
   }
 
   .employee-bookings-table tr {
     display: grid;
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 12px;
+    width: 100%;
     padding: 14px;
     border: 1px solid var(--employee-border);
     border-radius: var(--employee-radius);
-    background: var(--employee-card);
-    box-shadow: var(--employee-shadow);
+    background:
+      linear-gradient(145deg, rgba(226, 233, 243, 0.96), rgba(202, 213, 228, 0.92));
+    box-shadow:
+      0 10px 24px rgba(15, 23, 42, 0.10),
+      inset 0 1px 0 rgba(255, 255, 255, 0.52);
   }
 
   .employee-bookings-table tbody tr:hover {
-    background: var(--employee-card);
+    background:
+      linear-gradient(145deg, rgba(226, 233, 243, 0.96), rgba(202, 213, 228, 0.92));
+  }
+
+  .employee-bookings-table tr.employee-booking-row--inactive {
+    background:
+      linear-gradient(145deg, rgba(203, 213, 225, 0.78), rgba(148, 163, 184, 0.32));
+  }
+
+  .employee-bookings-table tr.employee-booking-row--assigned {
+    background:
+      linear-gradient(145deg, rgba(219, 234, 254, 0.92), rgba(191, 219, 254, 0.42));
   }
 
   .employee-bookings-table td {
-    display: grid;
-    grid-template-columns: 90px minmax(0, 1fr);
-    gap: 10px;
-    align-items: start;
-    padding: 0;
-    border: 0;
-    background: transparent;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    padding: 12px 10px;
+    border: 1px solid rgba(100, 116, 139, 0.28);
+    border-radius: 14px;
+    background: rgba(248, 250, 252, 0.44);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.44);
     font-size: 13px;
-    text-align: left;
+    line-height: 1.45;
+    text-align: center;
+    overflow-wrap: break-word;
+  }
+
+  .employee-bookings-table tr.employee-booking-row--inactive td {
+    background: rgba(226, 232, 240, 0.54);
   }
 
   .employee-bookings-table td::before {
+    display: block;
+    width: 100%;
+    margin-bottom: 2px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid rgba(100, 116, 139, 0.24);
     color: var(--employee-muted);
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 0.02em;
+    font-weight: 800;
+    letter-spacing: 0.04em;
     line-height: 1.35;
+    text-align: center;
     text-transform: uppercase;
   }
 
@@ -1715,6 +1789,26 @@ body.modal-open {
 
   .employee-col-notes::before {
     content: "Notatka";
+  }
+
+  .employee-col-term strong,
+  .employee-col-term span,
+  .employee-col-client,
+  .employee-col-contact,
+  .employee-col-service,
+  .employee-col-notes,
+  .employee-muted {
+    text-align: center;
+  }
+
+  .employee-status-stack {
+    justify-content: center;
+  }
+
+  .employee-assignment-notice {
+    margin-left: auto;
+    margin-right: auto;
+    text-align: center;
   }
 
   .employee-bookings-empty {

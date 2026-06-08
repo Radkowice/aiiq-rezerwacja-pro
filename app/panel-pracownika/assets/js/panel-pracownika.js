@@ -609,6 +609,10 @@
       booking.message,
       booking.notes,
       booking.opis,
+      booking.employee_assignment_state,
+      booking.employee_assignment_message,
+      booking.employee_assignment_old_staff_name,
+      booking.employee_assignment_new_staff_name,
       mapBookingStatus(booking.status),
       mapPaymentStatus(booking.payment_status, booking.payment_required)
     ];
@@ -623,6 +627,45 @@
 
     return bookings.filter((booking) => getEmployeeBookingSearchFields(booking)
       .some((value) => normalizeEmployeeBookingSearchText(value).includes(query)));
+  }
+
+  function getEmployeeAssignmentState(booking) {
+    return String(booking?.employee_assignment_state || 'current').trim();
+  }
+
+  function isEmployeeBookingInactiveAssignment(booking) {
+    const state = getEmployeeAssignmentState(booking);
+
+    return state === 'changed_by_admin' || state === 'detached_by_admin';
+  }
+
+  function getEmployeeAssignmentRowClass(booking) {
+    const state = getEmployeeAssignmentState(booking);
+
+    if (state === 'assigned_by_admin') {
+      return ' employee-booking-row--assigned';
+    }
+
+    if (isEmployeeBookingInactiveAssignment(booking)) {
+      return ' employee-booking-row--inactive';
+    }
+
+    return '';
+  }
+
+  function renderEmployeeAssignmentNotice(booking) {
+    const message = String(booking?.employee_assignment_message || '').trim();
+    const state = getEmployeeAssignmentState(booking);
+
+    if (!message || state === 'current') {
+      return '';
+    }
+
+    const className = isEmployeeBookingInactiveAssignment(booking)
+      ? 'employee-assignment-notice is-inactive'
+      : 'employee-assignment-notice is-assigned';
+
+    return `<div class="${className}">${escapeHtml(message)}</div>`;
   }
 
   function renderBookings(bookings) {
@@ -653,9 +696,14 @@
         booking.email,
         booking.phone
       ].filter(hasValue);
+      const assignmentNotice = renderEmployeeAssignmentNotice(booking);
+      const rowClass = `employee-booking-row${getEmployeeAssignmentRowClass(booking)}`;
+      const notesHtml = hasValue(booking.notes)
+        ? escapeHtml(booking.notes)
+        : '<span class="employee-muted">Brak notatki</span>';
 
       return `
-        <tr>
+        <tr class="${rowClass}">
           <td class="employee-col-term">
             <strong>${escapeHtml(formatDate(booking.booking_date))}</strong>
             <span>${escapeHtml(formatTime(booking.booking_time))}</span>
@@ -668,13 +716,14 @@
             ${contactParts.length > 0 ? contactParts.map(escapeHtml).join('<br>') : '<span class="employee-muted">Brak kontaktu</span>'}
           </td>
           <td class="employee-col-service">
-            ${escapeHtml(serviceName)}
+            <span>${escapeHtml(serviceName)}</span>
+            ${assignmentNotice}
           </td>
           <td class="employee-col-status">
             ${renderStatusCell(booking)}
           </td>
           <td class="employee-col-notes">
-            ${hasValue(booking.notes) ? escapeHtml(booking.notes) : '<span class="employee-muted">Brak notatki</span>'}
+            ${notesHtml}
           </td>
         </tr>
       `;

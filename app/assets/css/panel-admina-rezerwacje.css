@@ -779,7 +779,9 @@ td.col-contact {
 }
 
 .admin-confirm-modal {
-  width: min(100%, 440px);
+  width: min(100%, 460px);
+  max-height: min(90vh, 720px);
+  overflow: auto;
   padding: 20px;
   border: 1px solid rgba(255, 255, 255, 0.58);
   border-radius: 18px;
@@ -789,7 +791,7 @@ td.col-contact {
       color-mix(in srgb, var(--reservations-card-color, #ffffff) 88%, rgba(255, 255, 255, 0.72) 12%),
       color-mix(in srgb, var(--reservations-card-color, #ffffff) 82%, #dbeafe 18%)
     );
-  color: var(--reservations-text-color);
+  color: var(--reservations-text-color, #0f172a);
   box-shadow:
     0 28px 80px rgba(15, 23, 42, 0.22),
     inset 0 1px 0 rgba(255, 255, 255, 0.82);
@@ -797,9 +799,38 @@ td.col-contact {
   animation: popup 0.2s ease;
 }
 
+.admin-confirm-icon {
+  margin-bottom: 8px;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.admin-confirm-title {
+  margin: 0 0 10px;
+  color: var(--reservations-text-color, #0f172a);
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.admin-confirm-message {
+  color: var(--reservations-text-color, #0f172a);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.admin-confirm-message p {
+  margin: 0 0 12px;
+}
+
+.admin-confirm-message p:last-child {
+  margin-bottom: 0;
+}
+
 .admin-confirm-modal strong {
-  display: block;
-  margin-top: 5px;
+  display: inline;
+  margin-top: 0;
+  font-weight: 800;
 }
 
 .admin-confirm-actions {
@@ -814,9 +845,20 @@ td.col-contact {
   min-height: 38px;
   padding: 10px;
   border-radius: 12px;
-  border: 1px solid var(--reservations-border-color);
+  border: 1px solid var(--reservations-border-color, #94a3b8);
   cursor: pointer;
   font-weight: 700;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease;
+}
+
+.admin-confirm-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
 }
 
 .admin-confirm-btn.cancel {
@@ -828,6 +870,57 @@ td.col-contact {
   background: #dc2626;
   border-color: #dc2626;
   color: #fff;
+}
+
+.admin-confirm-btn.ok.primary {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #fff;
+}
+
+.booking-staff-confirm-content {
+  text-align: center;
+}
+
+.booking-staff-confirm-label {
+  text-align: center;
+}
+
+.booking-staff-confirm-select {
+  text-align: center;
+  text-align-last: center;
+}
+
+.booking-staff-confirm-label {
+  display: block;
+  margin: 14px 0 7px;
+  color: var(--reservations-text-color, #0f172a) !important;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.booking-staff-confirm-select {
+  width: 100%;
+  min-height: 42px;
+  padding: 9px 12px;
+  border: 1px solid var(--reservations-border-color, #94a3b8);
+  border-radius: 10px;
+  background: var(--reservations-table-color, #eef2f7);
+  color: var(--reservations-text-color, #0f172a);
+  font-size: 14px;
+  outline: none;
+}
+
+.booking-staff-confirm-select:focus {
+  border-color: var(--reservations-header-color, #cbd5e1);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--reservations-header-color, #cbd5e1) 22%, transparent);
+}
+
+.booking-staff-confirm-error {
+  margin-top: 10px !important;
+  color: #b42318 !important;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 @keyframes popup {
@@ -842,172 +935,15 @@ td.col-contact {
   }
 }
 
-/* ===== MODAL PERSONELU ===== */
-
-.admin-modal {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 22px;
-  background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-.admin-modal.hidden {
-  display: none;
-}
-
-.admin-modal-backdrop {
-  position: absolute;
-  inset: 0;
-  background: transparent;
-}
-
-.admin-modal-box {
-  position: relative;
-  z-index: 1;
-  width: min(100%, 520px);
-  max-height: min(90vh, 720px);
-  overflow: auto;
-  border-radius: var(--reservations-radius, 16px);
-  border: 1px solid rgba(255, 255, 255, 0.58);
-  background:
-    linear-gradient(
-      145deg,
-      color-mix(in srgb, var(--reservations-card-color, #ffffff) 88%, rgba(255, 255, 255, 0.72) 12%),
-      color-mix(in srgb, var(--reservations-card-color, #ffffff) 82%, #dbeafe 18%)
-    );
-  color: var(--reservations-text-color, #0f172a);
-  box-shadow:
-    0 28px 80px rgba(15, 23, 42, 0.22),
-    inset 0 1px 0 rgba(255, 255, 255, 0.82);
-  animation: bookingStaffModalIn 0.18s ease;
-}
-
-.admin-modal-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 18px 20px 14px;
-  border-bottom: 1px solid color-mix(in srgb, var(--reservations-border-color) 72%, #ffffff 28%);
-}
-
-.admin-modal-header h3 {
-  margin: 0;
-  color: var(--reservations-text-color) !important;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-.admin-modal-close {
-  width: 34px;
-  height: 34px;
-  border: 1px solid var(--reservations-border-color);
-  border-radius: 10px;
-  background: var(--reservations-table-color);
-  color: var(--reservations-text-color);
-  cursor: pointer;
-  font-size: 22px;
-  line-height: 1;
-}
-
-.admin-modal-close:hover {
-  background: var(--reservations-header-color);
-  color: var(--reservations-header-text-color);
-}
-
-.admin-modal-body {
-  padding: 18px 20px;
-}
-
-.admin-modal-body label {
-  display: block;
-  margin: 14px 0 7px;
-  color: var(--reservations-text-color) !important;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.admin-modal-body select {
-  width: 100%;
-  min-height: 42px;
-  padding: 9px 12px;
-  border: 1px solid var(--reservations-border-color);
-  border-radius: 10px;
-  background: var(--reservations-table-color);
-  color: var(--reservations-text-color);
-  font-size: 14px;
-  outline: none;
-}
-
-.admin-modal-body select:focus {
-  border-color: var(--reservations-header-color);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--reservations-header-color) 22%, transparent);
-}
-
-#bookingStaffModalDescription {
-  margin: 0 0 12px;
-  padding: 12px;
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--reservations-table-color) 88%, #ffffff 12%);
-  border: 1px solid color-mix(in srgb, var(--reservations-border-color) 70%, #ffffff 30%);
-  color: var(--reservations-muted-color) !important;
-  font-size: 13px;
-  line-height: 1.45;
-}
-
-#bookingStaffModalMessage {
-  min-height: 18px;
-  margin: 10px 0 0;
-  color: #b42318 !important;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.admin-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding: 14px 20px 20px;
-  border-top: 1px solid color-mix(in srgb, var(--reservations-border-color) 72%, #ffffff 28%);
-}
-
-.admin-modal-actions .booking-details-btn,
-.admin-modal-actions .delete-btn {
-  min-width: 130px;
-  min-height: 38px;
-  border-radius: 12px;
-  padding: 0 16px;
-}
-
-@keyframes bookingStaffModalIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px) scale(0.98);
-  }
-
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
 /* ===== DARK THEME ===== */
 
-body.theme-dark .admin-confirm-overlay,
-body.theme-dark .admin-modal {
+body.theme-dark .admin-confirm-overlay {
   background: rgba(2, 6, 23, 0.42);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
 }
 
-body.theme-dark .admin-confirm-modal,
-body.theme-dark .admin-modal-box {
+body.theme-dark .admin-confirm-modal {
   box-shadow:
     0 24px 70px rgba(0, 0, 0, 0.45),
     inset 0 1px 0 rgba(255, 255, 255, 0.08);
@@ -1280,28 +1216,22 @@ body.theme-dark .admin-modal-box {
     max-width: 100%;
   }
 
-  .admin-modal,
   .admin-confirm-overlay {
-    align-items: flex-end;
-    padding: 12px;
-  }
+  align-items: flex-end;
+  padding: 12px;
+}
 
-  .admin-modal-box,
-  .admin-confirm-modal {
-    width: 100%;
-    max-height: 88vh;
-  }
+.admin-confirm-modal {
+  width: 100%;
+  max-height: 88vh;
+}
 
-  .admin-modal-actions,
-  .admin-confirm-actions {
-    flex-direction: column-reverse;
-  }
+.admin-confirm-actions {
+  flex-direction: column-reverse;
+}
 
-  .admin-modal-actions .booking-details-btn,
-  .admin-modal-actions .delete-btn,
-  .admin-confirm-btn {
-    width: 100%;
-  }
+.admin-confirm-btn {
+  width: 100%;
 }
 
 @media (max-width: 420px) {

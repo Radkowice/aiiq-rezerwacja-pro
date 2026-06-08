@@ -1821,125 +1821,106 @@ function renderBookingStaffActions(item) {
   `;
 }
 
-function ensureBookingStaffModal() {
-  let modal = document.getElementById('bookingStaffModal');
+function buildBookingStaffConfirmHtml(booking, staffOptions) {
+  const currentStaffId = String(booking?.staff_id || '').trim();
 
-  if (modal) {
-    return modal;
-  }
+  const optionsHtml = staffOptions
+    .filter(person => person.id !== currentStaffId)
+    .map(person => `
+      <option value="${escapeHtml(person.id)}">
+        ${escapeHtml(person.display_name)}
+      </option>
+    `)
+    .join('');
 
-  modal = document.createElement('div');
-  modal.id = 'bookingStaffModal';
-  modal.className = 'admin-modal hidden';
-  modal.innerHTML = `
-    <div class="admin-modal-backdrop" data-booking-staff-close="true"></div>
-    <div class="admin-modal-box" role="dialog" aria-modal="true" aria-labelledby="bookingStaffModalTitle">
-      <div class="admin-modal-header">
-        <h3 id="bookingStaffModalTitle">Zmień personel rezerwacji</h3>
-        <button type="button" class="admin-modal-close" data-booking-staff-close="true">×</button>
-      </div>
+  return `
+    <div class="booking-staff-confirm-content">
+      <p>
+        <strong>${escapeHtml(getCurrentBookingTermLabel(booking) || 'Brak terminu')}</strong><br>
+        Klient: <strong>${escapeHtml(booking?.name || 'Brak danych')}</strong><br>
+        Obecny personel: <strong>${escapeHtml(getBookingStaffName(booking))}</strong>
+      </p>
 
-      <div class="admin-modal-body">
-        <p id="bookingStaffModalDescription" class="booking-muted"></p>
+      <p>
+        Wybierz nowego pracownika dla tej rezerwacji.
+        Klient otrzyma wiadomość e-mail z informacją o zmianie specjalisty.
+      </p>
 
-        <label for="bookingStaffSelect">
-          Wybierz nowego pracownika
-        </label>
-        <select id="bookingStaffSelect">
-          <option value="">Wybierz pracownika</option>
-        </select>
+      <label class="booking-staff-confirm-label" for="bookingStaffConfirmSelect">
+        Nowy personel
+      </label>
 
-        <p id="bookingStaffModalMessage" class="booking-muted"></p>
-      </div>
-
-      <div class="admin-modal-actions">
-        <button type="button" class="booking-details-btn" data-booking-staff-close="true">
-          Anuluj
-        </button>
-        <button type="button" class="delete-btn" id="bookingStaffModalSave">
-          Zapisz zmianę
-        </button>
-      </div>
+      <select id="bookingStaffConfirmSelect" class="booking-staff-confirm-select">
+        <option value="">Wybierz pracownika</option>
+        ${optionsHtml}
+      </select>
     </div>
   `;
+}
 
-  document.body.appendChild(modal);
+async function openBookingStaffConfirmModal(booking, staffOptions) {
+  const currentStaffId = String(booking?.staff_id || '').trim();
+  const availableStaff = staffOptions.filter(person => person.id !== currentStaffId);
 
-  modal.querySelectorAll('[data-booking-staff-close="true"]').forEach(button => {
-    button.addEventListener('click', () => {
-      modal.classList.add('hidden');
+  if (!availableStaff.length) {
+    await openAdminConfirm({
+      title: 'Brak innego personelu',
+      html: `
+        <p>
+          Dla tej rezerwacji nie ma obecnie innego aktywnego pracownika,
+          którego można przypisać.
+        </p>
+        <p>
+          <strong>${escapeHtml(getCurrentBookingTermLabel(booking) || 'Brak terminu')}</strong><br>
+          Klient: <strong>${escapeHtml(booking?.name || 'Brak danych')}</strong><br>
+          Obecny personel: <strong>${escapeHtml(getBookingStaffName(booking))}</strong>
+        </p>
+        <p>
+          Możesz odłączyć obecny personel przyciskiem <strong>Odłącz personel</strong>
+          albo dodać / aktywować kolejnego pracownika w zakładce <strong>Personel</strong>.
+        </p>
+      `,
+      confirmText: 'Rozumiem',
+      cancelText: 'Anuluj',
+      variant: 'primary',
+      icon: 'ℹ️',
+      showCancel: false
     });
-  });
 
-  return modal;
-}
-
-function openBookingStaffModal(booking, staffOptions) {
-  return new Promise(resolve => {
-    const modal = ensureBookingStaffModal();
-    const select = document.getElementById('bookingStaffSelect');
-    const description = document.getElementById('bookingStaffModalDescription');
-    const message = document.getElementById('bookingStaffModalMessage');
-    const saveBtn = document.getElementById('bookingStaffModalSave');
-
-    if (!select || !description || !message || !saveBtn) {
-      resolve('');
-      return;
-    }
-
-    const currentStaffId = String(booking?.staff_id || '').trim();
-
-    select.innerHTML = '<option value="">Wybierz pracownika</option>'
-      + staffOptions
-        .filter(person => person.id !== currentStaffId)
-        .map(person => `
-          <option value="${escapeHtml(person.id)}">
-            ${escapeHtml(person.display_name)}
-          </option>
-        `)
-        .join('');
-
-    description.textContent = [
-      `Rezerwacja: ${getCurrentBookingTermLabel(booking) || 'brak terminu'}`,
-      `Klient: ${booking?.name || 'brak danych'}`,
-      `Obecnie: ${getBookingStaffName(booking)}`
-    ].join(' · ');
-
-    message.textContent = '';
-
-    modal.classList.remove('hidden');
-    select.focus();
-
-    const cleanup = () => {
-      saveBtn.onclick = null;
-    };
-
-    saveBtn.onclick = () => {
-      const selectedStaffId = select.value.trim();
-
-      if (!selectedStaffId) {
-        message.textContent = 'Wybierz pracownika.';
-        return;
-      }
-
-      cleanup();
-      modal.classList.add('hidden');
-      resolve(selectedStaffId);
-    };
-  });
-}
-
-async function refreshBookingsAfterStaffChange() {
-  clearBookingStaffOptionsCache();
-
-  await loadBookings(currentBookingsView);
-
-  if (typeof window.refreshAdminCalendarData === 'function') {
-    await window.refreshAdminCalendarData();
+    return '';
   }
 
-  if (typeof window.loadAdminNotifications === 'function') {
-    await window.loadAdminNotifications();
+  let validationMessage = '';
+
+  while (true) {
+    const confirmed = await openAdminConfirm({
+      title: 'Zmień personel rezerwacji',
+      html: `
+        ${buildBookingStaffConfirmHtml(booking, staffOptions)}
+        ${validationMessage ? `
+          <p class="booking-staff-confirm-error">
+            ${escapeHtml(validationMessage)}
+          </p>
+        ` : ''}
+      `,
+      confirmText: 'Zapisz zmianę',
+      cancelText: 'Anuluj',
+      variant: 'primary',
+      icon: '👤'
+    });
+
+    if (!confirmed) {
+      return '';
+    }
+
+    const select = document.getElementById('bookingStaffConfirmSelect');
+    const selectedStaffId = String(select?.value || '').trim();
+
+    if (selectedStaffId) {
+      return selectedStaffId;
+    }
+
+    validationMessage = 'Wybierz pracownika przed zapisaniem zmiany.';
   }
 }
 
@@ -1959,7 +1940,7 @@ async function changeBookingStaff(bookingId) {
       return;
     }
 
-    const selectedStaffId = await openBookingStaffModal(booking, staffOptions);
+    const selectedStaffId = await openBookingStaffConfirmModal(booking, staffOptions);
 
     if (!selectedStaffId) {
       return;
@@ -1982,11 +1963,33 @@ async function changeBookingStaff(bookingId) {
       return;
     }
 
-    alert(data.message || 'Zmieniono personel rezerwacji.');
-    await refreshBookingsAfterStaffChange();
+   await openAdminConfirm({
+  title: 'Personel zmieniony',
+  message: data.message || 'Zmieniono personel rezerwacji.',
+  confirmText: 'OK',
+  variant: 'primary',
+  icon: '✅',
+  showCancel: false
+});
+
+await refreshBookingsAfterStaffChange();
   } catch (error) {
     console.error('changeBookingStaff error:', error);
     alert(error.message || 'Błąd zmiany personelu.');
+  }
+}
+
+async function refreshBookingsAfterStaffChange() {
+  clearBookingStaffOptionsCache();
+
+  await loadBookings(currentBookingsView);
+
+  if (typeof window.refreshAdminCalendarData === 'function') {
+    await window.refreshAdminCalendarData();
+  }
+
+  if (typeof window.loadAdminNotifications === 'function') {
+    await window.loadAdminNotifications();
   }
 }
 
@@ -2038,8 +2041,16 @@ async function detachBookingStaff(bookingId) {
       return;
     }
 
-    alert(data.message || 'Odłączono personel od rezerwacji.');
-    await refreshBookingsAfterStaffChange();
+   await openAdminConfirm({
+  title: 'Personel odłączony',
+  message: data.message || 'Odłączono personel od rezerwacji.',
+  confirmText: 'OK',
+  variant: 'primary',
+  icon: '✅',
+  showCancel: false
+});
+
+await refreshBookingsAfterStaffChange();
   } catch (error) {
     console.error('detachBookingStaff error:', error);
     alert(error.message || 'Błąd odłączania personelu.');
