@@ -1,6 +1,7 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
+require_once __DIR__ . '/../helpers/aiiq_payu.php';
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
@@ -60,6 +61,23 @@ if ($method === 'GET') {
             'slug' => $subdomainSlug,
             'domain' => $availability['domain'],
             'message' => $availability['message'],
+        ]);
+    }
+
+    if ($action === 'plan_prices') {
+        $prices = register_fetch_public_pro_prices();
+
+        if (empty($prices['ok'])) {
+            json_response([
+                'success' => false,
+                'error' => $prices['error'] ?? 'Nie udało się pobrać cennika planu Pro.',
+                'prices' => [],
+            ], 503);
+        }
+
+        json_response([
+            'success' => true,
+            'prices' => $prices['prices'],
         ]);
     }
 
@@ -137,6 +155,8 @@ $privacyAccepted = ($data['privacy_accepted'] ?? null) === true;
 $clientName = trim((string)($data['client_name'] ?? ''));
 $subdomainSlug = normalize_subdomain_slug($data['subdomain_slug'] ?? '');
 $planCode = normalize_registration_plan_code($data['plan_code'] ?? 'free');
+$billingPeriod = normalize_registration_billing_period($data['billing_period'] ?? 'monthly');
+$selectedProPrice = null;
 
 $companyFullName = trim((string)($data['company_full_name'] ?? ''));
 $companyOwnerName = trim((string)($data['company_owner_name'] ?? ''));
@@ -158,6 +178,13 @@ if ($planCode === '') {
     json_response([
         'success' => false,
         'error' => 'Nieprawidłowy plan rejestracji.'
+    ], 400);
+}
+
+if ($planCode === 'pro' && $billingPeriod === '') {
+    json_response([
+        'success' => false,
+        'error' => 'Wybierz miesięczny albo roczny okres abonamentu Pro.'
     ], 400);
 }
 
@@ -220,6 +247,17 @@ if ($companyEmailRaw !== '' && !filter_var($companyEmailRaw, FILTER_VALIDATE_EMA
 
 if (!is_valid_polish_phone($companyPhone)) {
     json_response(['success' => false, 'error' => 'Podaj poprawny numer telefonu, np. 123456789 lub +48 123-456-789.'], 400);
+}
+
+if ($planCode === 'pro') {
+    $selectedProPrice = register_fetch_pro_price($billingPeriod);
+
+    if (!is_array($selectedProPrice)) {
+        json_response([
+            'success' => false,
+            'error' => 'Nie udało się pobrać aktualnej ceny planu Pro. Spróbuj ponownie później.'
+        ], 503);
+    }
 }
 
 if ($domain === '') {
@@ -312,6 +350,7 @@ $createdSubscription = false;
 $createdServiceSettings = false;
 $createdConsent = false;
 $createdActivationToken = false;
+$createdSubscriptionPayment = false;
 
 try {
     register_debug('GENERATE_IDS_BEFORE');
@@ -414,22 +453,38 @@ try {
 
     $createdDomain = true;
 
-    // 4. ABONAMENT FREE
-    $subscriptionPayload = [
-        'tenant_id' => $tenantId,
-        'plan_code' => 'free',
-        'plan_name' => 'Free',
-        'billing_period' => 'monthly',
-        'status' => 'active',
-        'amount' => 0.00,
-        'currency' => 'PLN',
-        'current_period_start' => date('Y-m-d'),
-        'current_period_end' => null,
-        'next_payment_due_at' => null,
-        'grace_period_days' => 0,
-        'reminder_count' => 0,
-        'notes' => 'Wpis abonamentu utworzony automatycznie przy rejestracji Free.',
-    ];
+    // 4. ABONAMENT
+    $subscriptionPayload = $planCode === 'pro'
+        ? [
+            'tenant_id' => $tenantId,
+            'plan_code' => 'pro',
+            'plan_name' => 'Pro',
+            'billing_period' => $billingPeriod,
+            'status' => 'payment_due',
+            'amount' => (float) ($selectedProPrice['amount'] ?? 0),
+            'currency' => (string) ($selectedProPrice['currency'] ?? 'PLN'),
+            'current_period_start' => date('Y-m-d'),
+            'current_period_end' => null,
+            'next_payment_due_at' => date('Y-m-d'),
+            'grace_period_days' => 0,
+            'reminder_count' => 0,
+            'notes' => 'Wpis abonamentu utworzony automatycznie przy bezpośredniej rejestracji Pro. Aktywacja po płatności PayU.',
+        ]
+        : [
+            'tenant_id' => $tenantId,
+            'plan_code' => 'free',
+            'plan_name' => 'Free',
+            'billing_period' => 'monthly',
+            'status' => 'active',
+            'amount' => 0.00,
+            'currency' => 'PLN',
+            'current_period_start' => date('Y-m-d'),
+            'current_period_end' => null,
+            'next_payment_due_at' => null,
+            'grace_period_days' => 0,
+            'reminder_count' => 0,
+            'notes' => 'Wpis abonamentu utworzony automatycznie przy rejestracji Free.',
+        ];
 
     register_debug('INSERT_TENANT_SUBSCRIPTION_BEFORE');
 
@@ -513,51 +568,75 @@ try {
 
     $createdConsent = true;
 
-    // 7. TOKEN I WIADOMOSC AKTYWACYJNA
-    $activationToken = bin2hex(random_bytes(32));
-    $activationTokenHash = hash('sha256', $activationToken);
-    $activationCreatedAt = gmdate('c');
-    $activationExpiresAt = gmdate('c', time() + (48 * 60 * 60));
+    // 7. AKTYWACJA / PŁATNOŚĆ
+    $paymentUrl = '';
+    $paymentId = '';
 
-    $activationTokenPayload = [
-        'tenant_id' => $tenantId,
-        'user_id' => $userId,
-        'email' => $email,
-        'token_hash' => $activationTokenHash,
-        'expires_at' => $activationExpiresAt,
-        'used_at' => null,
-        'revoked_at' => null,
-        'created_at' => $activationCreatedAt,
-        'ip_address' => get_registration_ip_address(),
-        'user_agent' => get_registration_user_agent(),
-    ];
+    if ($planCode === 'pro') {
+        $payment = register_create_initial_pro_payment(
+            $tenantId,
+            $billingPeriod,
+            $selectedProPrice,
+            [
+                'email' => $email,
+                'owner_name' => $companyOwnerName,
+                'company_name' => $companyFullName !== '' ? $companyFullName : $clientName,
+            ]
+        );
 
-    $activationTokenInsert = supabase_request(
-        'POST',
-        '/rest/v1/user_activation_tokens',
-        $activationTokenPayload
-    );
+        if (empty($payment['success']) || empty($payment['payment_url'])) {
+            throw new Exception($payment['error'] ?? 'Nie udało się przygotować płatności PayU.');
+        }
 
-    if (!$activationTokenInsert['ok']) {
-        throw new Exception('Nie udało się przygotować aktywacji konta.');
+        $createdSubscriptionPayment = true;
+        $paymentUrl = (string) $payment['payment_url'];
+        $paymentId = (string) ($payment['payment_id'] ?? '');
+    } else {
+        $activationToken = bin2hex(random_bytes(32));
+        $activationTokenHash = hash('sha256', $activationToken);
+        $activationCreatedAt = gmdate('c');
+        $activationExpiresAt = gmdate('c', time() + (48 * 60 * 60));
+
+        $activationTokenPayload = [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $email,
+            'token_hash' => $activationTokenHash,
+            'expires_at' => $activationExpiresAt,
+            'used_at' => null,
+            'revoked_at' => null,
+            'created_at' => $activationCreatedAt,
+            'ip_address' => get_registration_ip_address(),
+            'user_agent' => get_registration_user_agent(),
+        ];
+
+        $activationTokenInsert = supabase_request(
+            'POST',
+            '/rest/v1/user_activation_tokens',
+            $activationTokenPayload
+        );
+
+        if (!$activationTokenInsert['ok']) {
+            throw new Exception('Nie udało się przygotować aktywacji konta.');
+        }
+
+        $createdActivationToken = true;
+
+        $activationUrl = 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($activationToken);
+        $registrationMailHtml = buildRegistrationConfirmationMailHtml([
+            'company_name' => $companyFullName !== '' ? $companyFullName : $clientName,
+            'plan' => 'Free',
+            'panel_domain' => $domain,
+            'activation_url' => $activationUrl,
+            'activation_expires_label' => 'przez 48 godzin',
+        ]);
+
+        if (!sendSystemMail($email, 'Potwierdzenie rejestracji w AI-IQ Rezerwacja Pro', $registrationMailHtml)) {
+            throw new Exception('Nie udało się wysłać wiadomości aktywacyjnej.');
+        }
+
+        unset($activationToken, $activationUrl);
     }
-
-    $createdActivationToken = true;
-
-    $activationUrl = 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($activationToken);
-    $registrationMailHtml = buildRegistrationConfirmationMailHtml([
-        'company_name' => $companyFullName !== '' ? $companyFullName : $clientName,
-        'plan' => $planCode === 'pro' ? 'Pro' : 'Free',
-        'panel_domain' => $domain,
-        'activation_url' => $activationUrl,
-        'activation_expires_label' => 'przez 48 godzin',
-    ]);
-
-    if (!sendSystemMail($email, 'Potwierdzenie rejestracji w AI-IQ Rezerwacja Pro', $registrationMailHtml)) {
-        throw new Exception('Nie udało się wysłać wiadomości aktywacyjnej.');
-    }
-
-    unset($activationToken, $activationUrl);
 
     register_debug('SUCCESS', [
         'created' => true
@@ -570,7 +649,10 @@ try {
         'company_id'    => $companyId,
         'client_number' => $clientNumber,
         'domain'        => $domain,
-        'plan_code'     => $planCode
+        'plan_code'     => $planCode,
+        'billing_period'=> $planCode === 'pro' ? $billingPeriod : null,
+        'payment_id'    => $paymentId,
+        'payment_url'   => $paymentUrl
     ], 201);
 
 } catch (Throwable $e) {
@@ -580,8 +662,15 @@ try {
         'createdDomain' => $createdDomain,
         'createdSubscription' => $createdSubscription,
         'createdServiceSettings' => $createdServiceSettings,
-        'createdActivationToken' => $createdActivationToken
+        'createdActivationToken' => $createdActivationToken,
+        'createdSubscriptionPayment' => $createdSubscriptionPayment,
+        'exception_type' => get_class($e),
+        'exception_message' => mb_substr(preg_replace('/\s+/', ' ', $e->getMessage()), 0, 220)
     ]);
+
+    if (!empty($tenantId) && $createdSubscriptionPayment) {
+        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?tenant_id=eq.' . rawurlencode($tenantId));
+    }
 
     if (!empty($tenantId) && $createdActivationToken) {
         supabase_request('DELETE', '/rest/v1/user_activation_tokens?tenant_id=eq.' . rawurlencode($tenantId));
@@ -933,6 +1022,243 @@ function check_subdomain_availability(string $slug): array
         'available' => true,
         'domain' => $domain,
         'message' => 'Adres ' . $domain . ' jest dostępny.'
+    ];
+}
+
+
+function normalize_registration_billing_period($value): string
+{
+    $period = strtolower(trim((string) $value));
+    return in_array($period, ['monthly', 'yearly'], true) ? $period : '';
+}
+
+function register_format_price_row(array $row): ?array
+{
+    $period = strtolower(trim((string) ($row['billing_period'] ?? '')));
+    $planCode = strtolower(trim((string) ($row['plan_code'] ?? '')));
+    $amount = $row['amount'] ?? null;
+
+    if ($planCode !== 'pro' || !in_array($period, ['monthly', 'yearly'], true)) {
+        return null;
+    }
+
+    if (($row['is_active'] ?? false) !== true || $amount === null || $amount === '') {
+        return null;
+    }
+
+    return [
+        'plan_code' => 'pro',
+        'plan_name' => (string) ($row['plan_name'] ?? 'Pro'),
+        'billing_period' => $period,
+        'amount' => (float) $amount,
+        'currency' => strtoupper(trim((string) ($row['currency'] ?? 'PLN'))) ?: 'PLN',
+        'is_active' => true,
+    ];
+}
+
+function register_fetch_public_pro_prices(): array
+{
+    $result = supabase_request(
+        'GET',
+        '/rest/v1/subscription_plan_prices?select=plan_code,plan_name,billing_period,amount,currency,is_active&plan_code=eq.pro&is_active=eq.true&billing_period=in.(monthly,yearly)&order=sort_order.asc,billing_period.asc'
+    );
+
+    if (!$result['ok']) {
+        return [
+            'ok' => false,
+            'error' => 'Cennik planu Pro jest chwilowo niedostępny.',
+            'prices' => [],
+        ];
+    }
+
+    $prices = [];
+
+    foreach (($result['data'] ?? []) as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $price = register_format_price_row($row);
+
+        if ($price !== null) {
+            $prices[] = $price;
+        }
+    }
+
+    return [
+        'ok' => count($prices) > 0,
+        'error' => count($prices) > 0 ? '' : 'Brak aktywnej ceny planu Pro.',
+        'prices' => $prices,
+    ];
+}
+
+function register_fetch_pro_price(string $billingPeriod): ?array
+{
+    if (!in_array($billingPeriod, ['monthly', 'yearly'], true)) {
+        return null;
+    }
+
+    $result = supabase_request(
+        'GET',
+        '/rest/v1/subscription_plan_prices?select=plan_code,plan_name,billing_period,amount,currency,is_active&plan_code=eq.pro&billing_period=eq.' . rawurlencode($billingPeriod) . '&is_active=eq.true&limit=1'
+    );
+
+    if (!$result['ok'] || !is_array($result['data'][0] ?? null)) {
+        return null;
+    }
+
+    return register_format_price_row($result['data'][0]);
+}
+
+function register_public_base_url(): string
+{
+    $host = normalize_domain($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? '');
+
+    if ($host === '' || !is_valid_domain($host)) {
+        $host = 'rezerwacja-ai-iq.pl';
+    }
+
+    return 'https://' . $host;
+}
+
+function register_valid_email(string $email): string
+{
+    $email = trim($email);
+    return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
+}
+
+function register_create_initial_pro_payment(string $tenantId, string $billingPeriod, ?array $price, array $buyerContext): array
+{
+    if ($tenantId === '' || !in_array($billingPeriod, ['monthly', 'yearly'], true) || !is_array($price)) {
+        return ['success' => false, 'error' => 'Nieprawidłowe dane płatności Pro.'];
+    }
+
+    $amount = (float) ($price['amount'] ?? 0);
+    $currency = strtoupper(trim((string) ($price['currency'] ?? 'PLN')));
+
+    if ($amount <= 0 || !preg_match('/^[A-Z]{3}$/', $currency)) {
+        return ['success' => false, 'error' => 'Nieprawidłowa cena planu Pro.'];
+    }
+
+    $payuConfigResult = aiiq_payu_config();
+
+    if (empty($payuConfigResult['success'])) {
+        return ['success' => false, 'error' => 'Płatność PayU jest chwilowo niedostępna.'];
+    }
+
+    $payu = $payuConfigResult['config'];
+    $payuCurrency = strtoupper(trim((string) ($payu['currency'] ?? '')));
+
+    if ($currency !== $payuCurrency) {
+        aiiq_payu_debug('AI_IQ_REGISTER_PRO_CURRENCY_MISMATCH', [
+            'price_currency' => $currency,
+            'payu_currency' => $payuCurrency,
+        ]);
+
+        return ['success' => false, 'error' => 'Konfiguracja ceny planu Pro jest chwilowo niedostępna.'];
+    }
+
+    $now = gmdate('c');
+    $paymentInsert = supabase_request('POST', '/rest/v1/tenant_subscription_payments', [
+        'tenant_id' => $tenantId,
+        'payment_type' => 'subscription_initial_pro',
+        'plan_code' => 'pro',
+        'billing_period' => $billingPeriod,
+        'amount' => $amount,
+        'currency' => $currency,
+        'status' => 'pending',
+        'started_at' => $now,
+        'created_at' => $now,
+        'updated_at' => $now,
+    ]);
+
+    if (!$paymentInsert['ok']) {
+        return ['success' => false, 'error' => 'Nie udało się zapisać płatności Pro.'];
+    }
+
+    $paymentId = extract_inserted_id($paymentInsert['data'] ?? null);
+
+    if ($paymentId === '') {
+        return ['success' => false, 'error' => 'Nie udało się ustalić identyfikatora płatności Pro.'];
+    }
+
+    $timestamp = (string) time();
+    $extOrderId = 'subscription-' . $paymentId . '-' . $timestamp;
+    $amountInMinorUnits = (int) round($amount * 100);
+    $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
+    $description = 'AI-IQ Rezerwacja Pro - rejestracja plan Pro ' . $periodLabel;
+    $publicBaseUrl = register_public_base_url();
+    $buyerEmail = register_valid_email((string) ($buyerContext['email'] ?? ''));
+
+    if ($buyerEmail === '') {
+        return ['success' => false, 'error' => 'Nie udało się ustalić adresu e-mail kupującego.'];
+    }
+
+    $orderPayload = [
+        'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',
+        'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html?payment_id=' . rawurlencode($paymentId),
+        'customerIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
+        'merchantPosId' => $payu['pos_id'],
+        'description' => $description,
+        'currencyCode' => $currency,
+        'totalAmount' => (string) $amountInMinorUnits,
+        'extOrderId' => $extOrderId,
+        'buyer' => [
+            'email' => $buyerEmail,
+            'language' => 'pl',
+        ],
+        'products' => [[
+            'name' => $description,
+            'unitPrice' => (string) $amountInMinorUnits,
+            'quantity' => '1',
+        ]],
+    ];
+
+    $buyerName = trim((string) ($buyerContext['owner_name'] ?? ''));
+    if ($buyerName !== '') {
+        $orderPayload['buyer']['firstName'] = mb_substr($buyerName, 0, 80);
+    }
+
+    $created = aiiq_payu_create_order($payu, $orderPayload);
+
+    if (empty($created['success'])) {
+        supabase_request('PATCH', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId), [
+            'status' => 'failed',
+            'payu_ext_order_id' => $extOrderId,
+            'payu_status' => (string) ($created['payu_status'] ?? 'CREATE_ORDER_FAILED'),
+            'updated_at' => gmdate('c'),
+        ]);
+        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId));
+
+        return ['success' => false, 'error' => 'Nie udało się utworzyć płatności PayU za plan Pro.'];
+    }
+
+    $paymentUrl = (string) ($created['redirect_uri'] ?? '');
+    $payuOrderId = (string) ($created['order_id'] ?? '');
+    $payuStatus = (string) ($created['payu_status'] ?? '');
+
+    if ($paymentUrl === '') {
+        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId));
+        return ['success' => false, 'error' => 'PayU nie zwróciło linku do płatności.'];
+    }
+
+    $paymentUpdate = supabase_request('PATCH', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId), [
+        'payu_order_id' => $payuOrderId,
+        'payu_ext_order_id' => $extOrderId,
+        'payment_url' => $paymentUrl,
+        'payu_status' => $payuStatus,
+        'updated_at' => gmdate('c'),
+    ]);
+
+    if (!$paymentUpdate['ok']) {
+        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId));
+        return ['success' => false, 'error' => 'Zamówienie PayU utworzone, ale nie udało się zapisać danych płatności.'];
+    }
+
+    return [
+        'success' => true,
+        'payment_url' => $paymentUrl,
+        'payment_id' => $paymentId,
     ];
 }
 

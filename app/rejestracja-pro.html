@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <link rel="icon" type="image/png" href="/favicon.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rejestracja Pro</title>
+  <link rel="stylesheet" href="assets/css/login.css">
+  <link rel="stylesheet" href="assets/css/rejestracja.css?v=2">
+  <link rel="stylesheet" href="/assets/css/app-footer.css">
+</head>
+<body data-registration-entry="pro">
+  <div class="auth-page">
+    <div class="auth-intro">
+      <h2>AI-IQ Rezerwacja Pro</h2>
+      <p>
+        Utwórz konto administratora i rozpocznij rejestrację w planie Pro.
+        <br>
+        <strong>Twój plan: <span id="selectedPlanName">Pro</span></strong>
+        <br>
+        <span id="selectedPlanHint">Po wysłaniu formularza zostaniesz przeniesiony do płatności PayU.</span>
+      </p>
+    </div>
+
+    <div class="box register-box">
+      <h2>Utwórz konto administratora</h2>
+
+      <form id="registerForm">
+        <div class="register-section pro-registration-card" id="proRegistrationCard">
+          <h3>Plan Pro</h3>
+          <p class="pro-registration-lead">
+            Wybierz okres abonamentu. Konto zostanie aktywowane dopiero po poprawnym potwierdzeniu płatności PayU.
+          </p>
+
+          <div class="pro-registration-options" role="radiogroup" aria-label="Okres abonamentu Pro">
+            <label class="pro-registration-option">
+              <input type="radio" name="proBillingPeriod" id="proBillingMonthly" value="monthly" checked>
+              <span>
+                <strong>Abonament miesięczny</strong>
+                <em id="proRegistrationPriceMonthly">—</em>
+                <small>Okres: 1 miesiąc</small>
+              </span>
+            </label>
+
+            <label class="pro-registration-option">
+              <input type="radio" name="proBillingPeriod" id="proBillingYearly" value="yearly">
+              <span>
+                <strong>Abonament roczny</strong>
+                <em id="proRegistrationPriceYearly">—</em>
+                <small>Okres: 12 miesięcy</small>
+              </span>
+            </label>
+          </div>
+
+          <p class="pro-registration-summary" id="proRegistrationSummary" aria-live="polite">
+            Pobieram aktualną cenę planu Pro...
+          </p>
+
+          <p class="pro-registration-message" id="proRegistrationPriceMessage" aria-live="polite"></p>
+        </div>
+
+        <div class="register-section">
+          <h3>Dane firmy</h3>
+
+          <input type="text" id="registerClientName" placeholder="Nazwa publiczna / marka" autocomplete="organization" required>
+          <input type="text" id="companyFullName" placeholder="Pełna nazwa firmy" autocomplete="organization" required>
+          <input type="text" id="companyOwnerName" placeholder="Imię i nazwisko osoby kontaktowej" autocomplete="name" required>
+
+          <small class="field-hint">Wpisz imię i nazwisko</small>
+
+          <input type="text" id="companyTaxId" placeholder="NIP 1111111111 lub 111-111-11-11" inputmode="numeric" autocomplete="off" required>
+
+          <small class="field-hint">Wpisz NIP</small>
+
+          <textarea id="companyAddress" placeholder="Adres firmy: ulica i numer, miejscowość, kod pocztowy XX-XXX" rows="3" autocomplete="street-address" required></textarea>
+
+          <small class="field-hint">ulica nr, Miejscowość, xx-xxx</small>
+
+          <input type="email" id="companyEmail" placeholder="E-mail firmy — opcjonalnie" autocomplete="email">
+
+          <small class="field-hint">Jeśli zostawisz puste, użyjemy e-maila administratora</small>
+
+          <input type="tel" id="companyPhone" placeholder="Telefon firmy: 123456789 lub +48 123-456-789" inputmode="tel" autocomplete="tel" required>
+
+          <small class="field-hint">Dozwolone formaty: 123456789, +48123456789, 123-456-789 lub +48 123-456-789</small>
+        </div>
+
+        <div class="register-section">
+          <h3>Adres panelu</h3>
+
+          <label for="subdomainSlug">Adres panelu</label>
+
+          <div class="subdomain-address-field">
+            <input type="text" id="subdomainSlug" placeholder="salon-anna" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="subdomainAvailabilityMessage" required>
+            <span class="subdomain-address-suffix">.rezerwacja-ai-iq.pl</span>
+          </div>
+
+          <button type="button" class="login-submit-btn subdomain-check-btn" id="checkSubdomainAvailability">
+            Sprawdź dostępność
+          </button>
+
+          <small class="field-hint subdomain-availability-message" id="subdomainAvailabilityMessage" aria-live="polite"></small>
+        </div>
+
+        <div class="register-section">
+          <h3>Konto administratora</h3>
+
+          <input type="email" id="email" placeholder="E-mail administratora" autocomplete="email" required>
+
+          <div class="login-password-field">
+            <input type="password" id="password" placeholder="Hasło" autocomplete="new-password" required>
+            <button type="button" class="login-toggle-password" data-password-toggle="password" aria-label="Pokaż hasło">
+              <span class="password-eye password-eye-open">👁️</span>
+              <span class="password-eye password-eye-closed">🙈</span>
+            </button>
+          </div>
+
+          <div class="login-password-field">
+            <input type="password" id="passwordConfirm" placeholder="Powtórz hasło" autocomplete="new-password" required>
+            <button type="button" class="login-toggle-password" data-password-toggle="passwordConfirm" aria-label="Pokaż powtórzone hasło">
+              <span class="password-eye password-eye-open">👁️</span>
+              <span class="password-eye password-eye-closed">🙈</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="register-section">
+          <h3>Zgody i płatność</h3>
+
+          <label class="password-toggle-row">
+            <input type="checkbox" id="registrationConsent" required>
+            <span>
+              Akceptuję <a href="/legal/regulamin.html" target="_blank" rel="noopener noreferrer">Regulamin</a>
+              oraz <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener noreferrer">Politykę prywatności</a>.
+            </span>
+          </label>
+
+          <p class="pro-registration-submit-hint" id="proRegistrationSubmitHint">
+            Po kliknięciu przycisku zostaniesz przeniesiony do PayU. Link aktywacyjny do panelu wyślemy e-mailem po potwierdzeniu płatności.
+          </p>
+        </div>
+
+        <button type="submit">Zarejestruj i przejdź do PayU</button>
+
+        <p class="error" id="err"></p>
+      </form>
+    </div>
+
+    <div class="auth-footer app-footer" data-app-footer></div>
+  </div>
+
+  <script src="assets/js/register.js?v=8"></script>
+  <script src="/assets/js/app-footer.js" defer></script>
+</body>
+</html>

@@ -204,10 +204,23 @@ function plan_features_access_state(array $subscription): array
     $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
     $periodEnd = plan_features_date_start($subscription['current_period_end'] ?? null);
     $periodDaysLeft = plan_features_days_until($periodEnd);
-    $basePaidActive = plan_features_is_paid_plan_active($subscriptionPlanCode, $status);
-    $periodAllowsAccess = $periodDaysLeft === null || $periodDaysLeft >= 0;
-    $hasProAccess = $basePaidActive && $periodAllowsAccess;
-    $proAccessExpired = $basePaidActive && $periodDaysLeft !== null && $periodDaysLeft < 0;
+    $isPaidPlan = in_array($subscriptionPlanCode, ['pro', 'vip', 'business'], true);
+    $periodAllowsAccess = $periodEnd !== null && $periodDaysLeft !== null && $periodDaysLeft >= 0;
+
+    // Status payment_due/overdue oznacza problem z płatnością, ale jeśli istnieje
+    // opłacony okres kończący się dziś lub później, funkcje Pro zostają aktywne
+    // do końca okresu. Rejestracja Pro przed płatnością ma current_period_end=null,
+    // więc nie dostaje dostępu Pro przed potwierdzeniem PayU.
+    $basePaidActive = $isPaidPlan && in_array($status, ['active', 'trial'], true);
+    $paymentAttentionActive = $isPaidPlan
+        && in_array($status, ['payment_due', 'overdue'], true)
+        && $periodAllowsAccess;
+    $hasProAccess = $basePaidActive || $paymentAttentionActive;
+    $proAccessExpired = $isPaidPlan
+        && in_array($status, ['active', 'trial', 'payment_due', 'overdue'], true)
+        && $periodEnd !== null
+        && $periodDaysLeft !== null
+        && $periodDaysLeft < 0;
     $graceDays = plan_features_grace_days($subscription);
     $dataGraceDaysLeft = null;
     $isInDataGracePeriod = false;

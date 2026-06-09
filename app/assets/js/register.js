@@ -11,7 +11,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  initSelectedRegistrationPlan();
+  const selectedRegistrationPlan = initSelectedRegistrationPlan();
+  await initProRegistrationOptions(selectedRegistrationPlan);
 
   const subdomainAvailability = initSubdomainAvailabilityState();
 
@@ -43,6 +44,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const companyEmail = companyEmailInput || email;
     const passwordResult = evaluateRegisterPasswordStrength(password);
     const selectedPlan = getSelectedRegistrationPlan();
+    const selectedBillingPeriod = getSelectedProBillingPeriod();
 
     if (!clientName) {
       showRegisterError('Podaj nazwę publiczną / markę.');
@@ -133,13 +135,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    if (selectedPlan.code === 'pro' && !['monthly', 'yearly'].includes(selectedBillingPeriod)) {
+      showRegisterError('Wybierz miesięczny albo roczny okres abonamentu Pro.');
+      focusRegisterField('proBillingMonthly');
+      return;
+    }
+
     const submitBtn = form.querySelector('button[type="submit"]');
     const originalBtnText = submitBtn ? submitBtn.textContent : '';
 
     try {
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = 'Tworzenie konta...';
+        submitBtn.textContent = selectedPlan.code === 'pro' ? 'Przygotowuję płatność PayU...' : 'Tworzenie konta...';
       }
 
       const res = await fetch('/api/auth/register.php', {
@@ -151,6 +159,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           client_name: clientName,
           subdomain_slug: subdomainSlug,
           plan_code: selectedPlan.code,
+          billing_period: selectedPlan.code === 'pro' ? selectedBillingPeriod : null,
           email,
           password,
           password_confirm: passwordConfirm,
@@ -176,6 +185,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       if (!res.ok || !data?.success) {
         showRegisterError(data?.error || 'Nie udało się utworzyć konta.');
+        return;
+      }
+
+      if (selectedPlan.code === 'pro') {
+        if (data.payment_url) {
+          window.location.href = data.payment_url;
+          return;
+        }
+
+        showRegisterError('Konto zostało przygotowane, ale serwer nie zwrócił linku PayU. Skontaktuj się z obsługą.');
         return;
       }
 
@@ -478,6 +497,185 @@ function setSubdomainAvailabilityMessage(message, type = '') {
   }
 }
 
+
+function formatRegisterMoney(amount, currency) {
+  if (amount === null || amount === undefined || amount === '') {
+    return '—';
+  }
+
+  const numericAmount = Number(amount);
+  const displayCurrency = currency === 'PLN' ? 'zł' : (currency || '');
+
+  if (Number.isNaN(numericAmount)) {
+    return `${amount} ${displayCurrency}`.trim();
+  }
+
+  return `${numericAmount.toFixed(2).replace('.', ',')} ${displayCurrency}`.trim();
+}
+
+function getSelectedProBillingPeriod() {
+  const selected = document.querySelector('input[name="proBillingPeriod"]:checked');
+  return String(selected?.value || 'monthly').trim();
+}
+
+function getProPeriodLabel(period) {
+  return period === 'yearly' ? 'roczny' : 'miesięczny';
+}
+
+function getProPeriodDurationLabel(period) {
+  return period === 'yearly' ? '12 miesięcy' : '1 miesiąc';
+}
+
+async function fetchPublicProPrices() {
+  const res = await fetch('/api/auth/register.php?action=plan_prices', {
+    method: 'GET',
+    headers: {
+      'Accept': 'application/json'
+    },
+    cache: 'no-store'
+  });
+
+  let data = null;
+
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok || data?.success !== true) {
+    throw new Error(data?.error || 'Nie udało się pobrać aktualnej ceny planu Pro.');
+  }
+
+  return Array.isArray(data.prices) ? data.prices : [];
+}
+
+function normalizeProPrice(row) {
+  const period = String(row?.billing_period || '').trim().toLowerCase();
+  const amount = row?.amount;
+
+  if (!['monthly', 'yearly'].includes(period) || amount === null || amount === undefined || amount === '') {
+    return null;
+  }
+
+  return {
+    billing_period: period,
+    amount,
+    currency: row?.currency || 'PLN',
+    plan_name: row?.plan_name || 'Pro'
+  };
+}
+
+function pricesByBillingPeriod(prices) {
+  return prices
+    .map(normalizeProPrice)
+    .filter(Boolean)
+    .reduce((acc, price) => {
+      acc[price.billing_period] = price;
+      return acc;
+    }, {});
+}
+
+function updateProRegistrationSummary(pricesByPeriod) {
+  const summary = document.getElementById('proRegistrationSummary');
+  const submitHint = document.getElementById('proRegistrationSubmitHint');
+  const selectedPeriod = getSelectedProBillingPeriod();
+  const selectedPrice = pricesByPeriod[selectedPeriod];
+
+  if (summary) {
+    summary.textContent = selectedPrice
+      ? `Wybrany abonament: Pro ${getProPeriodLabel(selectedPeriod)}, kwota: ${formatRegisterMoney(selectedPrice.amount, selectedPrice.currency)}, okres: ${getProPeriodDurationLabel(selectedPeriod)}.`
+      : 'Wybierz okres abonamentu Pro.';
+  }
+
+  if (submitHint) {
+    submitHint.textContent = 'Po kliknięciu przycisku rejestracji zostaniesz przeniesiony do PayU. Link aktywacyjny do panelu wyślemy e-mailem dopiero po poprawnym potwierdzeniu płatności.';
+  }
+}
+
+async function initProRegistrationOptions(selectedPlan) {
+  const card = document.getElementById('proRegistrationCard');
+  const submitBtn = document.querySelector('#registerForm button[type="submit"]');
+
+  if (selectedPlan.code !== 'pro') {
+    if (card) {
+      card.hidden = true;
+    }
+    return;
+  }
+
+  if (card) {
+    card.hidden = false;
+  }
+
+  if (submitBtn) {
+    submitBtn.textContent = 'Zarejestruj i przejdź do PayU';
+  }
+
+  const monthlyPriceEl = document.getElementById('proRegistrationPriceMonthly');
+  const yearlyPriceEl = document.getElementById('proRegistrationPriceYearly');
+  const messageEl = document.getElementById('proRegistrationPriceMessage');
+  const periodInputs = document.querySelectorAll('input[name="proBillingPeriod"]');
+
+  periodInputs.forEach((input) => {
+    input.addEventListener('change', () => {
+      updateProRegistrationSummary(window.__AIIQ_REGISTER_PRO_PRICES_BY_PERIOD || {});
+    });
+  });
+
+  if (messageEl) {
+    messageEl.textContent = 'Pobieram aktualną cenę planu Pro...';
+    messageEl.classList.remove('is-error');
+  }
+
+  try {
+    const prices = await fetchPublicProPrices();
+    const byPeriod = pricesByBillingPeriod(prices);
+    window.__AIIQ_REGISTER_PRO_PRICES_BY_PERIOD = byPeriod;
+
+    if (!byPeriod.monthly || !byPeriod.yearly) {
+      throw new Error('Brakuje aktywnej ceny miesięcznej albo rocznej planu Pro.');
+    }
+
+    if (monthlyPriceEl) {
+      monthlyPriceEl.textContent = formatRegisterMoney(byPeriod.monthly.amount, byPeriod.monthly.currency);
+    }
+
+    if (yearlyPriceEl) {
+      yearlyPriceEl.textContent = formatRegisterMoney(byPeriod.yearly.amount, byPeriod.yearly.currency);
+    }
+
+    if (messageEl) {
+      messageEl.textContent = '';
+      messageEl.classList.remove('is-error');
+    }
+
+    periodInputs.forEach((input) => {
+      input.disabled = false;
+    });
+
+    updateProRegistrationSummary(byPeriod);
+  } catch (error) {
+    console.error('pro registration prices error:', error);
+
+    if (monthlyPriceEl) monthlyPriceEl.textContent = '—';
+    if (yearlyPriceEl) yearlyPriceEl.textContent = '—';
+
+    if (messageEl) {
+      messageEl.textContent = error.message || 'Nie udało się pobrać aktualnej ceny planu Pro.';
+      messageEl.classList.add('is-error');
+    }
+
+    periodInputs.forEach((input) => {
+      input.disabled = true;
+    });
+
+    if (submitBtn) {
+      submitBtn.disabled = true;
+    }
+  }
+}
+
 function initSelectedRegistrationPlan() {
   const selectedPlan = getSelectedRegistrationPlan();
   const planNameElement = document.getElementById('selectedPlanName');
@@ -498,13 +696,14 @@ function initSelectedRegistrationPlan() {
 
 function getSelectedRegistrationPlan() {
   const params = new URLSearchParams(window.location.search);
-  const rawPlan = String(params.get('plan') || params.get('pakiet') || 'free').trim().toLowerCase();
+  const entryPlan = document.body?.dataset?.registrationEntry === 'pro' ? 'pro' : '';
+  const rawPlan = String(params.get('plan') || params.get('pakiet') || entryPlan || 'free').trim().toLowerCase();
 
   if (rawPlan === 'pro') {
     return {
       code: 'pro',
       label: 'Pro',
-      hint: 'Po rejestracji konto zostanie przygotowane do aktywacji planu Pro.'
+      hint: 'Rejestracja bezpośrednio w planie Pro. Po wysłaniu formularza przejdziesz do płatności PayU.'
     };
   }
 

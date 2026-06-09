@@ -83,3 +83,107 @@
     border-radius: 0 0 12px 12px;
   }
 }
+
+/* Rejestracja Pro — wybór abonamentu i PayU */
+.pro-registration-card {
+  border: 1px solid #bfdbfe;
+  background: linear-gradient(145deg, #f8fbff, #eef6ff);
+}
+
+.pro-registration-lead,
+.pro-registration-summary,
+.pro-registration-message,
+.pro-registration-submit-hint {
+  margin: 8px 0 0;
+  color: #334155;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.pro-registration-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.pro-registration-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #cbd5e1;
+  border-radius: 14px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor: pointer;
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.06);
+}
+
+.pro-registration-option input {
+  width: 18px;
+  height: 18px;
+  margin: 2px 0 0;
+  accent-color: #2563eb;
+}
+
+.pro-registration-option span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pro-registration-option strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.pro-registration-option em {
+  color: #1d4ed8;
+  font-size: 18px;
+  font-style: normal;
+  font-weight: 600;
+}
+
+.pro-registration-option small {
+  color: #475569;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.pro-registration-option:has(input:checked) {
+  border-color: #2563eb;
+  background: #eff6ff;
+  box-shadow:
+    0 0 0 3px rgba(37, 99, 235, 0.14),
+    0 10px 22px rgba(37, 99, 235, 0.10);
+}
+
+.pro-registration-summary {
+  padding: 11px 13px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  background: #eff6ff;
+  color: #1e3a8a;
+  font-weight: 700;
+}
+
+.pro-registration-message.is-error {
+  color: #b91c1c;
+  font-weight: 700;
+}
+
+.pro-registration-submit-hint {
+  padding: 11px 13px;
+  border: 1px solid #fde68a;
+  border-radius: 12px;
+  background: #fffbeb;
+  color: #78350f;
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .pro-registration-options {
+    grid-template-columns: 1fr;
+  }
+}

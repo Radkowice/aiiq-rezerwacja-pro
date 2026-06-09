@@ -47,8 +47,9 @@ function aiiq_payu_default_base_url(string $env): string
 
 function aiiq_payu_config(): array
 {
-    $env = strtolower(aiiq_payu_env('AI_IQ_PAYU_ENV'));
-    $currency = strtoupper(aiiq_payu_env('AI_IQ_PAYU_CURRENCY'));
+    $env = strtolower(aiiq_payu_env('AI_IQ_PAYU_ENV', 'sandbox'));
+    $currency = strtoupper(aiiq_payu_env('AI_IQ_PAYU_CURRENCY', 'PLN'));
+    $baseUrl = aiiq_payu_default_base_url($env);
 
     $config = [
         'env' => $env,
@@ -57,8 +58,8 @@ function aiiq_payu_config(): array
         'client_secret' => aiiq_payu_env('AI_IQ_PAYU_CLIENT_SECRET'),
         'second_key' => aiiq_payu_env('AI_IQ_PAYU_SECOND_KEY'),
         'currency' => $currency,
-        'auth_url' => aiiq_payu_env('AI_IQ_PAYU_AUTH_URL'),
-        'order_url' => aiiq_payu_env('AI_IQ_PAYU_ORDER_URL'),
+        'auth_url' => aiiq_payu_env('AI_IQ_PAYU_AUTH_URL', $baseUrl . '/pl/standard/user/oauth/authorize'),
+        'order_url' => aiiq_payu_env('AI_IQ_PAYU_ORDER_URL', $baseUrl . '/api/v2_1/orders'),
     ];
 
     $missing = [];

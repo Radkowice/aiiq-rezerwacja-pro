@@ -421,6 +421,135 @@ function subscription_payu_notify_prepare_pro_email_log(
     ];
 }
 
+
+function subscription_payu_notify_fetch_admin_user(string $supabaseUrl, array $headers, string $tenantId): ?array
+{
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/users'
+        . '?select=id,email,is_active'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&role=in.(administrator,admin)'
+        . '&order=created_at.asc'
+        . '&limit=1';
+
+    $result = subscription_payu_notify_request('GET', $url, $headers);
+
+    if (!$result['ok'] || !is_array($result['data'][0] ?? null)) {
+        return null;
+    }
+
+    return $result['data'][0];
+}
+
+function subscription_payu_notify_create_activation_url(
+    string $supabaseUrl,
+    array $headers,
+    string $tenantId,
+    string $userId,
+    string $email
+): string {
+    if ($tenantId === '' || $userId === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        return '';
+    }
+
+    $now = gmdate('c');
+
+    subscription_payu_notify_request(
+        'PATCH',
+        rtrim($supabaseUrl, '/')
+            . '/rest/v1/user_activation_tokens'
+            . '?tenant_id=eq.' . rawurlencode($tenantId)
+            . '&user_id=eq.' . rawurlencode($userId)
+            . '&used_at=is.null'
+            . '&revoked_at=is.null',
+        $headers,
+        [
+            'revoked_at' => $now,
+        ]
+    );
+
+    try {
+        $token = bin2hex(random_bytes(32));
+    } catch (Throwable $e) {
+        return '';
+    }
+
+    $insertHeaders = $headers;
+    $insertHeaders[] = 'Prefer: return=representation';
+    $insert = subscription_payu_notify_request(
+        'POST',
+        rtrim($supabaseUrl, '/') . '/rest/v1/user_activation_tokens',
+        $insertHeaders,
+        [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $email,
+            'token_hash' => hash('sha256', $token),
+            'expires_at' => gmdate('c', time() + (48 * 60 * 60)),
+            'used_at' => null,
+            'revoked_at' => null,
+            'created_at' => $now,
+            'ip_address' => null,
+            'user_agent' => 'PayU notify - direct Pro registration',
+        ]
+    );
+
+    if (!$insert['ok']) {
+        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_INITIAL_PRO_ACTIVATION_TOKEN_ERROR', [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'http_code' => $insert['http_code'],
+        ]);
+
+        return '';
+    }
+
+    return 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($token);
+}
+
+function subscription_payu_notify_build_initial_pro_registration_mail(
+    string $supabaseUrl,
+    array $headers,
+    array $payment,
+    array $subscription,
+    array $context
+): array {
+    $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
+    $adminUser = $tenantId !== '' ? subscription_payu_notify_fetch_admin_user($supabaseUrl, $headers, $tenantId) : null;
+
+    if (!is_array($adminUser)) {
+        return [
+            'ok' => false,
+            'error' => 'admin_user_missing',
+        ];
+    }
+
+    $userId = trim((string) ($adminUser['id'] ?? ''));
+    $email = trim((string) ($adminUser['email'] ?? ''));
+    $activationUrl = subscription_payu_notify_create_activation_url($supabaseUrl, $headers, $tenantId, $userId, $email);
+
+    if ($activationUrl === '') {
+        return [
+            'ok' => false,
+            'error' => 'activation_url_missing',
+        ];
+    }
+
+    $html = buildRegistrationConfirmationMailHtml([
+        'company_name' => trim((string) ($context['company_name'] ?? '')),
+        'plan' => 'Pro',
+        'panel_domain' => trim((string) ($context['panel_domain'] ?? '')),
+        'activation_url' => $activationUrl,
+        'activation_expires_label' => 'przez 48 godzin',
+    ]);
+
+    return [
+        'ok' => true,
+        'subject' => 'Potwierdzenie rejestracji Pro w AI-IQ Rezerwacja Pro',
+        'html' => $html,
+    ];
+}
+
 function subscription_payu_notify_send_activation_email_if_needed(
     string $supabaseUrl,
     array $headers,
@@ -527,9 +656,37 @@ function subscription_payu_notify_send_activation_email_if_needed(
         ];
     }
 
-    $html = buildSubscriptionProActivatedMailHtml($payment, $subscription, $context);
+    $paymentType = strtolower(trim((string) ($payment['payment_type'] ?? '')));
 
-    if (!sendSystemMail($recipientEmail, 'Plan Pro aktywny w AI-IQ Rezerwacja Pro', $html)) {
+    if ($paymentType === 'subscription_initial_pro') {
+        $mail = subscription_payu_notify_build_initial_pro_registration_mail(
+            $supabaseUrl,
+            $headers,
+            $payment,
+            $subscription,
+            $context
+        );
+    } else {
+        $mail = [
+            'ok' => true,
+            'subject' => 'Plan Pro aktywny w AI-IQ Rezerwacja Pro',
+            'html' => buildSubscriptionProActivatedMailHtml($payment, $subscription, $context),
+        ];
+    }
+
+    if (empty($mail['ok']) || trim((string) ($mail['html'] ?? '')) === '') {
+        subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
+            'status' => 'failed',
+            'failed_at' => gmdate('c'),
+        ]);
+
+        return [
+            'ok' => false,
+            'error' => (string) ($mail['error'] ?? 'mail_build_failed'),
+        ];
+    }
+
+    if (!sendSystemMail($recipientEmail, (string) ($mail['subject'] ?? 'AI-IQ Rezerwacja Pro'), (string) $mail['html'])) {
         subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
             'status' => 'failed',
             'failed_at' => gmdate('c'),
