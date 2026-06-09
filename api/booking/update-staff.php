@@ -274,6 +274,394 @@ function booking_staff_send_client_mail(array $booking, string $action, string $
     return sendSystemMail($email, $subject, $html);
 }
 
+
+function booking_staff_nullable_int(array $row, string $key): ?int
+{
+    if (!array_key_exists($key, $row) || $row[$key] === null || $row[$key] === '') {
+        return null;
+    }
+
+    return (int) $row[$key];
+}
+
+function booking_staff_normalize_time(string $time): string
+{
+    $value = substr(trim($time), 0, 5);
+
+    return preg_match('/^\d{2}:\d{2}$/', $value) ? $value : '';
+}
+
+function booking_staff_time_to_minutes(string $time): int
+{
+    [$hours, $minutes] = array_map('intval', explode(':', $time));
+
+    return ($hours * 60) + $minutes;
+}
+
+function booking_staff_ranges_overlap(int $startA, int $endA, int $startB, int $endB): bool
+{
+    return $startA < $endB && $endA > $startB;
+}
+
+function booking_staff_interval_end(int $start, array $settings): int
+{
+    return $start
+        + max(1, (int) ($settings['consultation_duration'] ?? 60))
+        + max(0, (int) ($settings['consultation_break'] ?? 0));
+}
+
+function booking_staff_effective_settings(array $service, array $staff, array $calendar): array
+{
+    $serviceDuration = booking_staff_nullable_int($service, 'duration_minutes');
+    $serviceBreak = booking_staff_nullable_int($service, 'break_minutes');
+
+    $staffDuration = booking_staff_nullable_int($staff, 'service_duration_minutes');
+    $staffBreak = booking_staff_nullable_int($staff, 'service_break_minutes');
+
+    return [
+        'consultation_duration' => max(1, (int) ($serviceDuration ?? $staffDuration ?? (int) ($calendar['consultation_duration'] ?? 60))),
+        'consultation_break' => max(0, (int) ($serviceBreak ?? $staffBreak ?? (int) ($calendar['consultation_break'] ?? 0))),
+    ];
+}
+
+function booking_staff_slots_from_availability(array $availability, array $settings, string $date): array
+{
+    $duration = max(1, (int) ($settings['consultation_duration'] ?? 60));
+    $break = max(0, (int) ($settings['consultation_break'] ?? 0));
+    $timestamp = strtotime($date . ' 00:00:00');
+    $weekday = $timestamp !== false ? (int) date('N', $timestamp) : null;
+    $slots = [];
+
+    foreach ($availability as $entry) {
+        if (!is_array($entry) || empty($entry['is_active'])) {
+            continue;
+        }
+
+        if ($weekday !== null && (int) ($entry['weekday'] ?? 0) !== $weekday) {
+            continue;
+        }
+
+        $start = booking_staff_normalize_time((string) ($entry['start_time'] ?? ''));
+        $end = booking_staff_normalize_time((string) ($entry['end_time'] ?? ''));
+
+        if ($start === '' || $end === '') {
+            continue;
+        }
+
+        $current = booking_staff_time_to_minutes($start);
+        $endMinutes = booking_staff_time_to_minutes($end);
+
+        while ($current + $duration <= $endMinutes) {
+            $slots[] = sprintf('%02d:%02d', intdiv($current, 60), $current % 60);
+            $current += $duration + $break;
+        }
+    }
+
+    $slots = array_values(array_unique($slots));
+    sort($slots);
+
+    return $slots;
+}
+
+function booking_staff_service_relation_exists(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $tenantId,
+    string $serviceId,
+    string $staffId
+): bool {
+    $row = booking_staff_fetch_single($supabaseUrl, $key, $schema, 'tenant_service_staff', [
+        'select=staff_id',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'service_id=eq.' . rawurlencode($serviceId),
+        'staff_id=eq.' . rawurlencode($staffId),
+    ]);
+
+    return is_array($row);
+}
+
+function booking_staff_service_settings_map(
+    array $bookings,
+    string $tenantId,
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    array $staff,
+    array $calendar
+): array {
+    $serviceIds = [];
+
+    foreach ($bookings as $booking) {
+        if (!is_array($booking) || empty($booking['service_id'])) {
+            continue;
+        }
+
+        $serviceIds[(string) $booking['service_id']] = true;
+    }
+
+    if (empty($serviceIds)) {
+        return [];
+    }
+
+    $rows = booking_staff_fetch_rows($supabaseUrl, $key, $schema, 'tenant_services', [
+        'select=id,duration_minutes,break_minutes',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'id=in.(' . implode(',', array_map('rawurlencode', array_keys($serviceIds))) . ')',
+    ]);
+
+    $settingsByService = [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row) || empty($row['id'])) {
+            continue;
+        }
+
+        $settingsByService[(string) $row['id']] = booking_staff_effective_settings($row, $staff, $calendar);
+    }
+
+    return $settingsByService;
+}
+
+function booking_staff_occupied_intervals(array $bookings, array $settingsByService, array $fallbackSettings): array
+{
+    $intervals = [];
+
+    foreach ($bookings as $booking) {
+        if (!is_array($booking)) {
+            continue;
+        }
+
+        $time = booking_staff_normalize_time((string) ($booking['booking_time'] ?? ''));
+
+        if ($time === '') {
+            continue;
+        }
+
+        $serviceId = trim((string) ($booking['service_id'] ?? ''));
+        $settings = isset($settingsByService[$serviceId]) && is_array($settingsByService[$serviceId])
+            ? $settingsByService[$serviceId]
+            : $fallbackSettings;
+        $start = booking_staff_time_to_minutes($time);
+
+        $intervals[] = [
+            'start' => $start,
+            'end' => booking_staff_interval_end($start, $settings),
+        ];
+    }
+
+    return $intervals;
+}
+
+function booking_staff_slot_is_free(string $time, array $candidateSettings, array $occupiedIntervals): bool
+{
+    $candidateStart = booking_staff_time_to_minutes($time);
+    $candidateEnd = booking_staff_interval_end($candidateStart, $candidateSettings);
+
+    foreach ($occupiedIntervals as $interval) {
+        if (!is_array($interval)) {
+            continue;
+        }
+
+        if (booking_staff_ranges_overlap(
+            $candidateStart,
+            $candidateEnd,
+            (int) ($interval['start'] ?? 0),
+            (int) ($interval['end'] ?? 0)
+        )) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+function booking_staff_blocked_time_overlaps(string $time, array $candidateSettings, array $blockedTimes): bool
+{
+    $candidateStart = booking_staff_time_to_minutes($time);
+    $candidateEnd = booking_staff_interval_end($candidateStart, $candidateSettings);
+
+    foreach ($blockedTimes as $blockedTime) {
+        $blockTime = booking_staff_normalize_time((string) $blockedTime);
+
+        if ($blockTime === '') {
+            continue;
+        }
+
+        $blockStart = booking_staff_time_to_minutes($blockTime);
+        $blockEnd = $blockStart + 60;
+
+        if (booking_staff_ranges_overlap($candidateStart, $candidateEnd, $blockStart, $blockEnd)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function booking_staff_assert_staff_available_for_booking(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $tenantId,
+    array $booking,
+    array $staff,
+    string $staffId
+): void {
+    $date = trim((string) ($booking['booking_date'] ?? ''));
+    $time = booking_staff_normalize_time((string) ($booking['booking_time'] ?? ''));
+    $bookingId = trim((string) ($booking['id'] ?? ''));
+    $serviceId = trim((string) ($booking['service_id'] ?? ''));
+
+    if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) || $time === '') {
+        booking_staff_json([
+            'success' => false,
+            'error' => 'Rezerwacja ma nieprawidłowy termin. Nie można zweryfikować dostępności pracownika.'
+        ], 409);
+    }
+
+    $service = [];
+
+    if ($serviceId !== '' && booking_staff_is_uuid($serviceId)) {
+        $service = booking_staff_fetch_single($supabaseUrl, $key, $schema, 'tenant_services', [
+            'select=id,duration_minutes,break_minutes',
+            'tenant_id=eq.' . rawurlencode($tenantId),
+            'id=eq.' . rawurlencode($serviceId),
+        ]) ?? [];
+
+        if (!booking_staff_service_relation_exists($supabaseUrl, $key, $schema, $tenantId, $serviceId, $staffId)) {
+            booking_staff_json([
+                'success' => false,
+                'code' => 'staff_not_assigned_to_service',
+                'error' => 'Wybrany pracownik nie obsługuje tej usługi.'
+            ], 409);
+        }
+    }
+
+    $calendar = booking_staff_fetch_single($supabaseUrl, $key, $schema, 'calendar_settings', [
+        'select=consultation_duration,consultation_break',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+    ]) ?? [];
+
+    $settings = booking_staff_effective_settings(
+        is_array($service) ? $service : [],
+        $staff,
+        is_array($calendar) ? $calendar : []
+    );
+
+    $availability = booking_staff_fetch_rows($supabaseUrl, $key, $schema, 'staff_availability', [
+        'select=weekday,start_time,end_time,is_active',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'staff_id=eq.' . rawurlencode($staffId),
+        'is_active=eq.true',
+        'order=weekday.asc',
+        'order=start_time.asc',
+    ]);
+
+    $slots = booking_staff_slots_from_availability($availability, $settings, $date);
+
+    if (!in_array($time, $slots, true)) {
+        booking_staff_json([
+            'success' => false,
+            'code' => 'staff_outside_schedule',
+            'error' => 'Wybrany pracownik nie jest dostępny w tym dniu i o tej godzinie według swojego grafiku.'
+        ], 409);
+    }
+
+    $staffBlockFilter = '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
+
+    $blockedDate = booking_staff_fetch_single($supabaseUrl, $key, $schema, 'blocked_dates', [
+        'select=date',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'date=eq.' . rawurlencode($date) . $staffBlockFilter,
+    ]);
+
+    if (is_array($blockedDate)) {
+        booking_staff_json([
+            'success' => false,
+            'code' => 'staff_date_blocked',
+            'error' => 'Wybrany pracownik ma zablokowany ten dzień albo dzień jest zablokowany globalnie.'
+        ], 409);
+    }
+
+    $blockedTimes = booking_staff_fetch_rows($supabaseUrl, $key, $schema, 'blocked_times', [
+        'select=time,staff_id',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'date=eq.' . rawurlencode($date) . $staffBlockFilter,
+    ]);
+
+    $globalBlockedTimes = [];
+    $staffBlockedTimes = [];
+
+    foreach ($blockedTimes as $row) {
+        if (!is_array($row) || empty($row['time'])) {
+            continue;
+        }
+
+        $blockedTime = booking_staff_normalize_time((string) $row['time']);
+
+        if (trim((string) $row['time']) === 'all') {
+            booking_staff_json([
+                'success' => false,
+                'code' => 'staff_time_blocked',
+                'error' => 'Wybrany pracownik ma zablokowany cały dzień albo dzień jest zablokowany globalnie.'
+            ], 409);
+        }
+
+        if ($blockedTime === '') {
+            continue;
+        }
+
+        if (trim((string) ($row['staff_id'] ?? '')) === '') {
+            $globalBlockedTimes[] = $blockedTime;
+        } else {
+            $staffBlockedTimes[] = $blockedTime;
+        }
+    }
+
+    if (booking_staff_blocked_time_overlaps($time, $settings, $globalBlockedTimes)
+        || booking_staff_blocked_time_overlaps($time, $settings, $staffBlockedTimes)
+    ) {
+        booking_staff_json([
+            'success' => false,
+            'code' => 'staff_time_blocked',
+            'error' => 'Wybrany pracownik ma blokadę w tym terminie. Wybierz innego pracownika albo zmień termin rezerwacji.'
+        ], 409);
+    }
+
+    $bookingQuery = [
+        'select=id,booking_time,service_id',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'staff_id=eq.' . rawurlencode($staffId),
+        'booking_date=eq.' . rawurlencode($date),
+    ];
+
+    if ($bookingId !== '' && booking_staff_is_uuid($bookingId)) {
+        $bookingQuery[] = 'id=neq.' . rawurlencode($bookingId);
+    }
+
+    $bookings = booking_staff_fetch_rows($supabaseUrl, $key, $schema, 'bookings', $bookingQuery);
+    $settingsByService = booking_staff_service_settings_map(
+        $bookings,
+        $tenantId,
+        $supabaseUrl,
+        $key,
+        $schema,
+        $staff,
+        is_array($calendar) ? $calendar : []
+    );
+    $occupiedIntervals = booking_staff_occupied_intervals($bookings, $settingsByService, $settings);
+
+    if (!booking_staff_slot_is_free($time, $settings, $occupiedIntervals)) {
+        booking_staff_json([
+            'success' => false,
+            'code' => 'staff_booking_conflict',
+            'error' => 'Wybrany pracownik ma już rezerwację kolidującą z tym terminem.'
+        ], 409);
+    }
+}
+
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     header('Allow: POST');
     booking_staff_json([
@@ -408,6 +796,16 @@ if ($action === 'change_staff') {
     }
 
     $newStaffName = booking_staff_text((string) ($newStaff['display_name'] ?? ''), 'Nowy specjalista');
+
+    booking_staff_assert_staff_available_for_booking(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $booking,
+        $newStaff,
+        $newStaffId
+    );
 }
 
 if ($action === 'detach_staff' && $oldStaffId === '') {

@@ -1753,7 +1753,19 @@ function clearBookingStaffOptionsCache() {
   bookingStaffOptionsCache = null;
 }
 
-async function loadBookingStaffOptions() {
+function getBookingServiceId(item) {
+  return String(item?.service_id || item?.tenant_service_id || '').trim();
+}
+
+function getBookingDateValue(item) {
+  return String(item?.booking_date || item?.date || '').trim();
+}
+
+function getBookingTimeValue(item) {
+  return String(item?.booking_time || item?.time || '').slice(0, 5).trim();
+}
+
+async function loadBookingStaffBaseOptions() {
   if (Array.isArray(bookingStaffOptionsCache)) {
     return bookingStaffOptionsCache;
   }
@@ -1776,6 +1788,69 @@ async function loadBookingStaffOptions() {
     .filter(person => person.id !== '');
 
   return bookingStaffOptionsCache;
+}
+
+async function loadBookingStaffAvailabilityOption(person, booking) {
+  const date = getBookingDateValue(booking);
+  const time = getBookingTimeValue(booking);
+  const serviceId = getBookingServiceId(booking);
+
+  if (!person?.id || !date || !time) {
+    return {
+      ...person,
+      is_available: false,
+      unavailable_reason: 'Nie można sprawdzić dostępności dla tej rezerwacji.'
+    };
+  }
+
+  const params = new URLSearchParams({
+    staff_id: person.id,
+    date
+  });
+
+  if (serviceId) {
+    params.set('service_id', serviceId);
+  }
+
+  try {
+    const data = await apiFetch(`/api/staff/public-availability.php?${params.toString()}`, {
+      cache: 'no-store'
+    });
+
+    const availableTimes = Array.isArray(data?.availableTimes)
+      ? data.availableTimes.map(value => String(value).slice(0, 5))
+      : [];
+
+    const isAvailable = data?.success === true && availableTimes.includes(time);
+
+    return {
+      ...person,
+      is_available: isAvailable,
+      unavailable_reason: isAvailable
+        ? ''
+        : (data?.error || 'Niedostępny w tym terminie.')
+    };
+  } catch (error) {
+    console.error('booking staff availability check error:', error);
+
+    return {
+      ...person,
+      is_available: false,
+      unavailable_reason: 'Nie udało się sprawdzić dostępności.'
+    };
+  }
+}
+
+async function loadBookingStaffOptions(booking = null) {
+  const baseOptions = await loadBookingStaffBaseOptions();
+
+  if (!booking) {
+    return baseOptions;
+  }
+
+  return Promise.all(
+    baseOptions.map(person => loadBookingStaffAvailabilityOption(person, booking))
+  );
 }
 
 function getBookingById(bookingId) {
@@ -1826,11 +1901,21 @@ function buildBookingStaffConfirmHtml(booking, staffOptions) {
 
   const optionsHtml = staffOptions
     .filter(person => person.id !== currentStaffId)
-    .map(person => `
-      <option value="${escapeHtml(person.id)}">
-        ${escapeHtml(person.display_name)}
-      </option>
-    `)
+    .map(person => {
+      const isAvailable = person.is_available !== false;
+      const suffix = isAvailable ? '' : ' — niedostępny w tym terminie';
+      const reason = String(person.unavailable_reason || '').trim();
+
+      return `
+        <option
+          value="${escapeHtml(person.id)}"
+          ${isAvailable ? '' : 'disabled'}
+          ${reason ? `title="${escapeHtml(reason)}"` : ''}
+        >
+          ${escapeHtml(person.display_name + suffix)}
+        </option>
+      `;
+    })
     .join('');
 
   return `
@@ -1843,7 +1928,7 @@ function buildBookingStaffConfirmHtml(booking, staffOptions) {
 
       <p>
         Wybierz nowego pracownika dla tej rezerwacji.
-        Klient otrzyma wiadomość e-mail z informacją o zmianie specjalisty.
+        Niedostępni pracownicy są zablokowani na liście.
       </p>
 
       <label class="booking-staff-confirm-label" for="bookingStaffConfirmSelect">
@@ -1860,9 +1945,10 @@ function buildBookingStaffConfirmHtml(booking, staffOptions) {
 
 async function openBookingStaffConfirmModal(booking, staffOptions) {
   const currentStaffId = String(booking?.staff_id || '').trim();
-  const availableStaff = staffOptions.filter(person => person.id !== currentStaffId);
+  const candidateStaff = staffOptions.filter(person => person.id !== currentStaffId);
+  const availableStaff = candidateStaff.filter(person => person.is_available !== false);
 
-  if (!availableStaff.length) {
+  if (!candidateStaff.length) {
     await openAdminConfirm({
       title: 'Brak innego personelu',
       html: `
@@ -1878,6 +1964,38 @@ async function openBookingStaffConfirmModal(booking, staffOptions) {
         <p>
           Możesz odłączyć obecny personel przyciskiem <strong>Odłącz personel</strong>
           albo dodać / aktywować kolejnego pracownika w zakładce <strong>Personel</strong>.
+        </p>
+      `,
+      confirmText: 'Rozumiem',
+      cancelText: 'Anuluj',
+      variant: 'primary',
+      icon: 'ℹ️',
+      showCancel: false
+    });
+
+    return '';
+  }
+
+  if (!availableStaff.length) {
+    const unavailableList = candidateStaff
+      .map(person => `<li><strong>${escapeHtml(person.display_name)}</strong> — ${escapeHtml(person.unavailable_reason || 'niedostępny w tym terminie')}</li>`)
+      .join('');
+
+    await openAdminConfirm({
+      title: 'Brak dostępnego personelu',
+      html: `
+        <p>
+          Żaden inny aktywny pracownik nie jest dostępny w terminie tej rezerwacji.
+        </p>
+        <p>
+          <strong>${escapeHtml(getCurrentBookingTermLabel(booking) || 'Brak terminu')}</strong><br>
+          Klient: <strong>${escapeHtml(booking?.name || 'Brak danych')}</strong>
+        </p>
+        <ul style="margin: 12px 0 0; padding-left: 18px; text-align: left;">
+          ${unavailableList}
+        </ul>
+        <p>
+          Zmień termin rezerwacji albo wybierz inny dzień/godzinę po stronie obsługi.
         </p>
       `,
       confirmText: 'Rozumiem',
@@ -1920,7 +2038,7 @@ async function openBookingStaffConfirmModal(booking, staffOptions) {
       return selectedStaffId;
     }
 
-    validationMessage = 'Wybierz pracownika przed zapisaniem zmiany.';
+    validationMessage = 'Wybierz dostępnego pracownika przed zapisaniem zmiany.';
   }
 }
 
@@ -1933,7 +2051,7 @@ async function changeBookingStaff(bookingId) {
   }
 
   try {
-    const staffOptions = await loadBookingStaffOptions();
+    const staffOptions = await loadBookingStaffOptions(booking);
 
     if (!staffOptions.length) {
       alert('Brak aktywnych pracowników do przypisania.');

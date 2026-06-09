@@ -41,14 +41,14 @@ function buildSystemMailLayout(string $title, string $intro, string $messageHtml
             <td align="center">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #e5e7eb;">
                     <tr>
-                        <td style="background:linear-gradient(135deg,#111827 0%,#1f2937 100%);padding:28px 32px;">
-                            <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;font-weight:bold;">
+                        <td align="center" style="background:linear-gradient(135deg,#111827 0%,#1f2937 100%);padding:28px 32px;text-align:center;">
+                            <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;font-weight:bold;text-align:center;">
                                 ' . $appName . '
                             </div>
-                            <div style="margin-top:10px;font-size:28px;line-height:1.25;font-weight:700;color:#ffffff;">
+                            <div style="margin:10px auto 0;font-size:28px;line-height:1.25;font-weight:700;color:#ffffff;text-align:center;">
                                 ' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '
                             </div>
-                            <div style="margin-top:10px;font-size:15px;line-height:1.7;color:#e5e7eb;">
+                            <div style="margin:10px auto 0;font-size:15px;line-height:1.7;color:#e5e7eb;text-align:center;">
                                 ' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '
                             </div>
                         </td>
