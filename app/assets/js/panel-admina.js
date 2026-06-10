@@ -492,6 +492,10 @@ function aiIqHasPlanContext() {
 }
 
 function aiIqIsFreePlan() {
+  if (!aiIqHasPlanContext()) {
+    return false;
+  }
+
   const context = window.AIIQ_PLAN_CONTEXT || {};
   return !aiIqHasProAccess() || (context.plan_code || 'free') === 'free';
 }
@@ -525,8 +529,52 @@ function resolvePlanLockDescription() {
 
 function disablePlanLockedControls(container) {
   container.querySelectorAll('input, select, textarea, button').forEach(control => {
+    if (!Object.prototype.hasOwnProperty.call(control.dataset, 'planLockOriginalDisabled')) {
+      control.dataset.planLockOriginalDisabled = control.disabled ? 'true' : 'false';
+    }
+
     control.disabled = true;
   });
+}
+
+function restorePlanLockedControls(container) {
+  container.querySelectorAll('input, select, textarea, button').forEach(control => {
+    if (!Object.prototype.hasOwnProperty.call(control.dataset, 'planLockOriginalDisabled')) {
+      return;
+    }
+
+    control.disabled = control.dataset.planLockOriginalDisabled === 'true';
+    delete control.dataset.planLockOriginalDisabled;
+  });
+}
+
+function clearPlanLocks() {
+  document.querySelectorAll('[data-plan-lock-overlay="true"]').forEach(overlay => {
+    overlay.remove();
+  });
+
+  document.querySelectorAll('.plan-locked').forEach(container => {
+    restorePlanLockedControls(container);
+    container.classList.remove('plan-locked', 'feature-locked');
+  });
+
+  document.querySelectorAll('.plan-disabled-menu-item').forEach(menuButton => {
+    menuButton.classList.remove('feature-locked', 'plan-disabled-menu-item');
+    menuButton.removeAttribute('title');
+  });
+
+  const notice = document.getElementById('planUpgradeNotice');
+
+  if (notice) {
+    notice.textContent = '';
+    notice.hidden = true;
+  }
+
+  const notificationsRoot = document.getElementById('adminNotifications');
+
+  if (notificationsRoot) {
+    notificationsRoot.classList.remove('feature-locked', 'plan-disabled-notification');
+  }
 }
 
 function addPlanLockOverlay(container, config, options = {}) {
@@ -594,6 +642,15 @@ function renderPlanUpgradeNotice() {
 }
 
 function applyPlanLocks() {
+  clearPlanLocks();
+
+  if (!aiIqHasPlanContext()) {
+    document.body.classList.remove('plan-free');
+    return;
+  }
+
+  document.body.classList.toggle('plan-free', aiIqIsFreePlan());
+
   if (!aiIqIsFreePlan()) {
     return;
   }

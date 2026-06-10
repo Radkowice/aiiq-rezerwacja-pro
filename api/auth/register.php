@@ -1161,7 +1161,7 @@ function register_create_initial_pro_payment(string $tenantId, string $billingPe
     $now = gmdate('c');
     $paymentInsert = supabase_request('POST', '/rest/v1/tenant_subscription_payments', [
         'tenant_id' => $tenantId,
-        'payment_type' => 'subscription_initial_pro',
+        'payment_type' => 'subscription_initial',
         'plan_code' => 'pro',
         'billing_period' => $billingPeriod,
         'amount' => $amount,
