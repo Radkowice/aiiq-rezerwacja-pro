@@ -743,7 +743,10 @@ async function loadFrontMonthAvailability(monthKey, expectedCacheKey = '') {
 
 async function refreshFrontCalendarForCurrentSelection() {
   try {
-    availabilityData = await getSettings();
+    if (!availabilityData) {
+      availabilityData = await getSettings();
+    }
+
     renderCalendarUI();
     await renderTimeOptions();
   } catch (error) {
@@ -1748,42 +1751,24 @@ const isFullBlocked =
 
   if (prevBtn) {
     prevBtn.disabled = isSameMonth(viewDate, minMonthDate);
-    prevBtn.onclick = async () => {
-      showLoader();
+    prevBtn.onclick = () => {
+      const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1);
 
-      try {
-        availabilityData = await getSettings();
-        const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth() - 1, 1);
-
-        if (newDate >= minMonthDate) {
-          viewDate = newDate;
-          renderCalendarUI();
-        }
-      } catch (e) {
-        console.error(e);
-      } finally {
-        hideLoader();
+      if (newDate >= minMonthDate) {
+        viewDate = newDate;
+        renderCalendarUI();
       }
     };
   }
 
   if (nextBtn) {
     nextBtn.disabled = isSameMonth(viewDate, maxMonthDate);
-    nextBtn.onclick = async () => {
-      showLoader();
+    nextBtn.onclick = () => {
+      const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
 
-      try {
-        availabilityData = await getSettings();
-        const newDate = new Date(viewDate.getFullYear(), viewDate.getMonth() + 1, 1);
-
-       if (newDate <= maxMonthDate) {
-  viewDate = newDate;
-  renderCalendarUI();
-}
-      } catch (e) {
-        console.error(e);
-      } finally {
-        hideLoader();
+      if (newDate <= maxMonthDate) {
+        viewDate = newDate;
+        renderCalendarUI();
       }
     };
   }
@@ -2149,39 +2134,322 @@ if (FRONT_STAFF_REQUIRED) {
   }
 }
 
+
+function applyFrontBrandingData(branding = {}, planContext = null) {
+  window.AIIQ_PUBLIC_PLAN_CONTEXT = planContext || null;
+
+  const clientName = String(branding.client_name || '').trim();
+  const logoUrl = String(branding.logo_url_front || '').trim();
+  const faviconUrl = String(branding.favicon_url_front || '').trim();
+  const calendarFrontStyle = branding.calendar_front_style || {};
+  const calendarFormFields = branding.calendar_form_fields || {};
+
+  applyCalendarFrontStyle(calendarFrontStyle);
+  applyCalendarFormFields(calendarFormFields);
+
+  const titleText = clientName || 'Rezerwacja konsultacji';
+  const titleEl = getEl('serviceTitleFront');
+
+  if (titleEl) {
+    titleEl.textContent = titleText;
+  }
+
+  const logoEl = getEl('frontLogo');
+
+  if (logoEl && logoUrl && publicPlanHasFeature('branding_logo')) {
+    logoEl.src = logoUrl;
+    logoEl.alt = titleText || 'Logo';
+    logoEl.hidden = false;
+  } else if (logoEl) {
+    logoEl.removeAttribute('src');
+    logoEl.alt = '';
+    logoEl.hidden = true;
+  }
+
+  if (faviconUrl && publicPlanHasFeature('branding_favicon')) {
+    let faviconEl = document.querySelector('link[rel="icon"]');
+
+    if (!faviconEl) {
+      faviconEl = document.createElement('link');
+      faviconEl.rel = 'icon';
+      document.head.appendChild(faviconEl);
+    }
+
+    faviconEl.href = faviconUrl;
+  }
+}
+
+function applyFrontServiceSettingsData(service = null) {
+  if (!service || typeof service !== 'object') {
+    SETTINGS = null;
+    FRONT_CALENDAR_ENABLED = false;
+    return;
+  }
+
+  SETTINGS = {
+    success: true,
+    settings: service
+  };
+
+  TENANT_ID = null;
+  FRONT_CALENDAR_ENABLED = service.calendar_enabled === true;
+
+  calendarSettings = {
+    work_start: service.work_start || '00:00',
+    work_end: service.work_end || '23:59',
+    consultation_duration: parseInt(service.consultation_duration || 60, 10),
+    consultation_break: parseInt(service.consultation_break || 0, 10),
+    booking_buffer: parseInt(service.booking_buffer || 0, 10),
+    booking_start_month_offset: parseInt(service.booking_start_month_offset || 0, 10),
+    booking_month_range: parseInt(service.booking_month_range || 1, 10)
+  };
+
+  FRONT_SERVICE_GLOBAL = {
+    service_name: String(service.service_name || '').trim(),
+    service_description: String(service.service_description || '').trim(),
+    price_amount: service.price_amount ?? null,
+    price_currency: service.price_currency || 'PLN',
+    payment_required: service.payment_required === true,
+    payment_message: String(service.payment_message || '').trim()
+  };
+
+  ALL_TIMES = generateTimeSlots();
+}
+
+function applyFrontPublicServicesData(servicesPayload = {}) {
+  const services = Array.isArray(servicesPayload.services)
+    ? servicesPayload.services
+    : [];
+
+  FRONT_PUBLIC_SERVICES = services
+    .map(normalizeFrontPublicService)
+    .filter(service => service.id !== '' && service.service_name !== '');
+
+  FRONT_USING_PUBLIC_SERVICES = FRONT_PUBLIC_SERVICES.length > 0;
+
+  if (FRONT_USING_PUBLIC_SERVICES) {
+    FRONT_SELECTED_SERVICE_SIGNATURE = FRONT_PUBLIC_SERVICES[0]
+      ? `service:${FRONT_PUBLIC_SERVICES[0].id}`
+      : '';
+    return;
+  }
+
+  selectedServiceId = '';
+  selectedService = null;
+}
+
+function applyFrontStaffData(staffPayload = {}) {
+  resetFrontStaffSelectionState();
+
+  const bootstrapStaff = Array.isArray(staffPayload.staff)
+    ? staffPayload.staff
+    : [];
+
+  const hasAssignedStaffInServices = Array.isArray(FRONT_PUBLIC_SERVICES)
+    && FRONT_PUBLIC_SERVICES.some(service => Array.isArray(service.assigned_staff) && service.assigned_staff.length > 0);
+
+  FRONT_STAFF_MODULE_AVAILABLE = staffPayload.success === true || hasAssignedStaffInServices;
+
+  if (FRONT_USING_PUBLIC_SERVICES) {
+    const staffById = new Map();
+
+    FRONT_PUBLIC_SERVICES.forEach(service => {
+      (service.assigned_staff || []).forEach(staff => {
+        if (staff.id) {
+          staffById.set(staff.id, staff);
+        }
+      });
+    });
+
+    FRONT_STAFF = Array.from(staffById.values());
+    FRONT_STAFF_ENABLED = FRONT_STAFF.length > 0;
+    return;
+  }
+
+  FRONT_STAFF = bootstrapStaff;
+  FRONT_STAFF_ENABLED = staffPayload.staff_enabled === true && FRONT_STAFF.length > 0;
+}
+
+function applyFrontLegalDocumentsData(legalPayload = {}) {
+  const termsLink = getEl('frontTermsLink');
+  const privacyLink = getEl('frontPrivacyLink');
+  const providerNameEl = getEl('frontProviderCompanyName');
+  const termsConsentInput = getEl('termsConsent');
+
+  if (!termsLink || !privacyLink) return;
+
+  frontLegalDocumentsEnabled = false;
+  frontLegalProviderCompanyName = '';
+
+  if (isPublicFreePlan() || !publicPlanHasFeature('legal_documents')) {
+    setFrontLegalConsentVisible(false);
+    return;
+  }
+
+  setFrontLegalConsentVisible(true);
+
+  const providerName = String(legalPayload?.provider?.company_full_name || '').trim();
+  frontLegalProviderCompanyName = providerName;
+
+  if (providerNameEl) {
+    providerNameEl.textContent = providerName;
+  }
+
+  const setLinksDisabled = () => {
+    termsLink.href = '#';
+    privacyLink.href = '#';
+    termsLink.dataset.disabled = 'true';
+    privacyLink.dataset.disabled = 'true';
+
+    if (termsConsentInput) {
+      termsConsentInput.checked = false;
+      termsConsentInput.disabled = true;
+      termsConsentInput.removeAttribute('required');
+    }
+  };
+
+  const handleDisabledClick = event => {
+    const link = event.currentTarget;
+
+    if (!link || link.dataset.disabled !== 'true') {
+      return;
+    }
+
+    event.preventDefault();
+
+    const message = frontLegalProviderCompanyName
+      ? `Usługodawca nie przygotował regulaminu oraz polityki prywatności. Skontaktuj się z: ${frontLegalProviderCompanyName}.`
+      : 'Usługodawca nie przygotował regulaminu oraz polityki prywatności.';
+
+    showError(message);
+  };
+
+  termsLink.onclick = handleDisabledClick;
+  privacyLink.onclick = handleDisabledClick;
+  setLinksDisabled();
+
+  if (legalPayload.success !== true || legalPayload.enabled !== true || !legalPayload.documents) {
+    return;
+  }
+
+  frontLegalDocumentsEnabled = true;
+  termsLink.href = legalPayload.documents?.links?.terms || '/dokumenty/regulamin.html';
+  privacyLink.href = legalPayload.documents?.links?.privacy || '/dokumenty/polityka-prywatnosci.html';
+  termsLink.dataset.disabled = 'false';
+  privacyLink.dataset.disabled = 'false';
+
+  if (termsConsentInput) {
+    termsConsentInput.disabled = false;
+    termsConsentInput.required = true;
+  }
+
+  termsLink.textContent = legalPayload.documents.terms_title || 'regulamin';
+  privacyLink.textContent = legalPayload.documents.privacy_title || 'politykę prywatności';
+}
+
+function applyFrontBlockedData(blockedPayload = {}) {
+  availabilityData = blockedPayload && blockedPayload.success === true
+    ? blockedPayload
+    : null;
+}
+
+async function loadFrontBootstrap() {
+  let res;
+  let data;
+
+  try {
+    res = await fetch('/api/front/bootstrap.php', {
+      cache: 'no-store'
+    });
+
+    data = await res.json().catch(() => null);
+  } catch (error) {
+    console.error('loadFrontBootstrap error:', error);
+    return false;
+  }
+
+  if (res.status === 404 && data?.error === 'tenant_not_found') {
+    showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.');
+    return 'tenant_not_found';
+  }
+
+  if (!res.ok || data?.success !== true) {
+    console.warn('Bootstrap frontu niedostępny, używam starego ładowania.', data?.error || res.status);
+    return false;
+  }
+
+  applyFrontBrandingData(data.branding || {}, data.plan_context || null);
+  applyFrontServiceSettingsData(data.service || null);
+  applyFrontPublicServicesData(data.services || {});
+  applyFrontStaffData(data.staff || {});
+  applyFrontLegalDocumentsData(data.legal || {});
+  applyFrontBlockedData(data.blocked || {});
+  renderFrontServiceSelect();
+
+  return true;
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
 
- const formStartedAtInput = getEl('formStartedAt');
-if (formStartedAtInput) {
-  formStartedAtInput.value = String(Date.now());
-}
+  const formStartedAtInput = getEl('formStartedAt');
+  if (formStartedAtInput) {
+    formStartedAtInput.value = String(Date.now());
+  }
+
   try {
-    const tenantAvailable = await loadFrontBranding();
+    const bootstrapResult = await loadFrontBootstrap();
 
-    if (!tenantAvailable) {
+    if (bootstrapResult === 'tenant_not_found') {
       return;
     }
 
-    await loadFrontServiceSettings();
-       await loadSettings();
-    applyFrontCalendarEnabledState();
+    if (bootstrapResult !== true) {
+      const tenantAvailable = await loadFrontBranding();
 
-    if (!FRONT_CALENDAR_ENABLED) {
-      if (window.AppLoader) {
-        window.AppLoader.hide();
+      if (!tenantAvailable) {
+        return;
       }
-      return;
+
+      const legalDocumentsPromise = loadFrontLegalDocumentsLinks().catch(error => {
+        console.error('loadFrontLegalDocumentsLinks background error:', error);
+      });
+
+      await Promise.all([
+        loadFrontServiceSettings(),
+        loadSettings()
+      ]);
+
+      applyFrontCalendarEnabledState();
+
+      if (!FRONT_CALENDAR_ENABLED) {
+        if (window.AppLoader) {
+          window.AppLoader.hide();
+        }
+        return;
+      }
+
+      await loadFrontStaff();
+
+      const { minMonthDate } = getMonthRangeLimits();
+      viewDate = new Date(minMonthDate.getFullYear(), minMonthDate.getMonth(), 1);
+
+      availabilityData = await getSettings();
+      ALL_TIMES = generateTimeSlots();
+      legalDocumentsPromise.catch(() => null);
+    } else {
+      applyFrontCalendarEnabledState();
+
+      if (!FRONT_CALENDAR_ENABLED) {
+        if (window.AppLoader) {
+          window.AppLoader.hide();
+        }
+        return;
+      }
+
+      const { minMonthDate } = getMonthRangeLimits();
+      viewDate = new Date(minMonthDate.getFullYear(), minMonthDate.getMonth(), 1);
+      ALL_TIMES = generateTimeSlots();
     }
-
-    await loadCalendarSettings();
-    await loadFrontStaff();
-    await loadFrontLegalDocumentsLinks();
-
-    const { minMonthDate } = getMonthRangeLimits();
-    viewDate = new Date(minMonthDate.getFullYear(), minMonthDate.getMonth(), 1);
-
-    availabilityData = await getSettings();
-    ALL_TIMES = generateTimeSlots();
   } catch (e) {
     console.error(e);
 
@@ -2239,15 +2507,15 @@ if (formStartedAtInput) {
     });
   }
 
-const phoneEl = getEl('phone');
-if (phoneEl) {
-  phoneEl.addEventListener('input', () => {
-    phoneEl.value = phoneEl.value
-      .replace(/[^\d+\-\s]/g, '')
-      .replace(/(?!^)\+/g, '')
-      .slice(0, 20);
-  });
-}
+  const phoneEl = getEl('phone');
+  if (phoneEl) {
+    phoneEl.addEventListener('input', () => {
+      phoneEl.value = phoneEl.value
+        .replace(/[^\d+\-\s]/g, '')
+        .replace(/(?!^)\+/g, '')
+        .slice(0, 20);
+    });
+  }
 
   await renderTimeOptions();
 
