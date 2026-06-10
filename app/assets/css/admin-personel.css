@@ -233,8 +233,112 @@ section[data-section="personel"] .personel-form-grid {
 }
 
 section[data-section="personel"] #personel-color {
-  width: 54px;
-  min-width: 54px;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  min-width: 1px;
+  padding: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+section[data-section="personel"] .personel-color-picker {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+}
+
+section[data-section="personel"] .personel-color-trigger {
+  width: 52px;
+  min-width: 52px;
+  height: 42px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px;
+  color: var(--color-text);
+  background: color-mix(in srgb, var(--color-card) 92%, #ffffff);
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: 12px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+section[data-section="personel"] .personel-color-trigger:hover,
+section[data-section="personel"] .personel-color-trigger[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--color-card) 84%, var(--color-muted));
+  border-color: var(--color-primary, var(--personel-border-color));
+}
+
+section[data-section="personel"] .personel-color-trigger-swatch {
+  width: 28px;
+  height: 18px;
+  display: block;
+  border-radius: 4px;
+  border: 1px solid rgba(15, 23, 42, 0.24);
+}
+
+section[data-section="personel"] .personel-color-menu {
+  position: absolute;
+  z-index: 80;
+  top: calc(100% + 8px);
+  left: 0;
+  width: max-content;
+  max-width: min(260px, calc(100vw - 48px));
+  display: grid;
+  grid-template-columns: repeat(6, 30px);
+  gap: 8px;
+  padding: 10px;
+  background: var(--color-card);
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: 14px;
+  box-shadow: 0 16px 38px rgba(15, 23, 42, 0.18);
+}
+
+section[data-section="personel"] .personel-color-menu[hidden] {
+  display: none;
+}
+
+section[data-section="personel"] .personel-color-preset {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  background: transparent;
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: 10px;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+section[data-section="personel"] .personel-color-preset:hover,
+section[data-section="personel"] .personel-color-preset.is-active {
+  border-color: var(--color-primary, var(--personel-border-color));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary, #2563eb) 18%, transparent);
+}
+
+section[data-section="personel"] .personel-color-preset-swatch {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 7px;
+}
+
+section[data-section="personel"] .personel-color-picker .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 section[data-section="personel"] #personel-sort-order {
@@ -268,6 +372,58 @@ section[data-section="personel"] .personel-invite-box p {
 section[data-section="personel"] .personel-invite-check {
   width: fit-content;
   max-width: 100%;
+}
+
+section[data-section="personel"] .personel-invite-status {
+  width: fit-content;
+  max-width: 100%;
+  margin: 2px 0 0;
+  padding: 0;
+  color: var(--color-muted);
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+section[data-section="personel"] .personel-invite-status[data-type="success"] {
+  color: var(--color-text);
+}
+
+section[data-section="personel"] .personel-invite-status[data-type="error"] {
+  color: var(--color-text);
+}
+
+section[data-section="personel"] .personel-resend-invite-btn {
+  width: fit-content;
+  min-width: 0;
+  min-height: 0;
+  justify-self: start;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin: 2px 0 0;
+  padding: 6px 10px;
+  color: var(--color-text);
+  background: transparent;
+  border: 1px solid var(--personel-border-color, var(--color-border));
+  border-radius: 999px;
+  box-shadow: none;
+  font-size: 12px;
+  font-weight: var(--admin-label-weight, 500);
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+section[data-section="personel"] .personel-resend-invite-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-card) 84%, var(--color-muted));
+  border-color: var(--color-primary, var(--personel-border-color));
+}
+
+section[data-section="personel"] .personel-resend-invite-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
 }
 
 section[data-section="personel"] .personel-check,
@@ -426,6 +582,12 @@ section[data-section="personel"] .personel-day-times input {
   section[data-section="personel"] .personel-day-row {
     grid-template-columns: minmax(0, 1fr);
     gap: 10px;
+  }
+}
+
+@media (max-width: 540px) {
+  section[data-section="personel"] .personel-color-menu {
+    grid-template-columns: repeat(4, 30px);
   }
 }
 

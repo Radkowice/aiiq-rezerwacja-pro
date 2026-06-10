@@ -11,6 +11,21 @@
     { value: 7, label: 'Niedziela' },
   ];
 
+  const STAFF_COLOR_PALETTE = [
+    { value: '#2563eb', label: 'Niebieski' },
+    { value: '#1e3a8a', label: 'Granatowy' },
+    { value: '#0891b2', label: 'Turkusowy' },
+    { value: '#16a34a', label: 'Zielony' },
+    { value: '#65a30d', label: 'Oliwkowy' },
+    { value: '#ca8a04', label: 'Żółty' },
+    { value: '#ea580c', label: 'Pomarańczowy' },
+    { value: '#dc2626', label: 'Czerwony' },
+    { value: '#c026d3', label: 'Fioletowy' },
+    { value: '#db2777', label: 'Różowy' },
+    { value: '#7c3aed', label: 'Indygo' },
+    { value: '#475569', label: 'Grafitowy' },
+  ];
+
   const state = {
     staff: [],
     selectedId: null,
@@ -38,9 +53,18 @@
     els.phone = section.querySelector('#personel-phone');
     els.description = section.querySelector('#personel-description');
     els.color = section.querySelector('#personel-color');
+    els.colorPicker = section.querySelector('#personel-color-picker');
+    els.colorTrigger = section.querySelector('#personel-color-trigger');
+    els.colorTriggerSwatch = section.querySelector('#personel-color-trigger-swatch');
+    els.colorPalette = section.querySelector('#personel-color-palette');
     els.sortOrder = section.querySelector('#personel-sort-order');
     els.isActive = section.querySelector('#personel-is-active');
     els.sendInvite = section.querySelector('#personel-send-invite');
+    els.inviteStatus = section.querySelector('#personel-invite-status');
+    els.resendInviteButton = section.querySelector('#personel-resend-invite-btn');
+
+    ensureStaffColorPaletteControls();
+    ensureInviteStatusControls();
   }
 
   function setMessage(element, text, type) {
@@ -70,6 +94,336 @@
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;')
       .replace(/'/g, '&#039;');
+  }
+
+  function normalizeStaffColorValue(value) {
+    const color = String(value || '').trim().toLowerCase();
+
+    if (/^#[0-9a-f]{6}$/i.test(color)) {
+      return color;
+    }
+
+    return STAFF_COLOR_PALETTE[0].value;
+  }
+
+  function closeStaffColorPalette() {
+    if (!els.colorPalette || !els.colorTrigger) return;
+
+    els.colorPalette.hidden = true;
+    els.colorTrigger.setAttribute('aria-expanded', 'false');
+  }
+
+  function openStaffColorPalette() {
+    if (!els.colorPalette || !els.colorTrigger) return;
+
+    els.colorPalette.hidden = false;
+    els.colorTrigger.setAttribute('aria-expanded', 'true');
+  }
+
+  function toggleStaffColorPalette() {
+    if (!els.colorPalette || !els.colorTrigger) return;
+
+    if (els.colorPalette.hidden) {
+      openStaffColorPalette();
+      return;
+    }
+
+    closeStaffColorPalette();
+  }
+
+  function renderStaffColorPalette(selectedColor) {
+    const selected = normalizeStaffColorValue(selectedColor);
+
+    if (els.colorTriggerSwatch) {
+      els.colorTriggerSwatch.style.backgroundColor = selected;
+    }
+
+    if (!els.colorPalette) return;
+
+    els.colorPalette.querySelectorAll('[data-staff-color]').forEach((button) => {
+      const buttonColor = normalizeStaffColorValue(button.dataset.staffColor);
+      const isActive = buttonColor === selected;
+
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-selected', isActive ? 'true' : 'false');
+    });
+  }
+
+  function setStaffColor(colorValue, options = {}) {
+    const color = normalizeStaffColorValue(colorValue);
+
+    if (els.color) {
+      els.color.value = color;
+    }
+
+    renderStaffColorPalette(color);
+
+    if (options.close !== false) {
+      closeStaffColorPalette();
+    }
+  }
+
+  function ensureStaffColorPaletteControls() {
+    if (!els.color) return;
+
+    const colorInput = els.color;
+    const host = colorInput.closest('label')?.parentElement || colorInput.parentElement;
+
+    colorInput.type = 'hidden';
+    colorInput.value = normalizeStaffColorValue(colorInput.value);
+
+    if (!host) return;
+
+    if (!els.colorPicker) {
+      const picker = document.createElement('div');
+      picker.id = 'personel-color-picker';
+      picker.className = 'personel-color-picker';
+
+      const trigger = document.createElement('button');
+      trigger.id = 'personel-color-trigger';
+      trigger.type = 'button';
+      trigger.className = 'personel-color-trigger';
+      trigger.setAttribute('aria-haspopup', 'listbox');
+      trigger.setAttribute('aria-expanded', 'false');
+      trigger.setAttribute('aria-controls', 'personel-color-palette');
+
+      const triggerSwatch = document.createElement('span');
+      triggerSwatch.id = 'personel-color-trigger-swatch';
+      triggerSwatch.className = 'personel-color-trigger-swatch';
+      triggerSwatch.setAttribute('aria-hidden', 'true');
+
+      const triggerText = document.createElement('span');
+      triggerText.className = 'sr-only';
+      triggerText.textContent = 'Wybierz kolor osoby z personelu';
+
+      const palette = document.createElement('div');
+      palette.id = 'personel-color-palette';
+      palette.className = 'personel-color-menu';
+      palette.setAttribute('role', 'listbox');
+      palette.setAttribute('aria-label', 'Kolor osoby z personelu');
+      palette.hidden = true;
+
+      STAFF_COLOR_PALETTE.forEach((item) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'personel-color-preset';
+        button.dataset.staffColor = item.value;
+        button.setAttribute('role', 'option');
+        button.setAttribute('aria-label', item.label);
+        button.setAttribute('aria-selected', 'false');
+
+        const swatch = document.createElement('span');
+        swatch.className = 'personel-color-preset-swatch';
+        swatch.style.backgroundColor = item.value;
+        swatch.setAttribute('aria-hidden', 'true');
+
+        button.appendChild(swatch);
+        palette.appendChild(button);
+      });
+
+      trigger.append(triggerSwatch, triggerText);
+      picker.append(trigger, palette);
+      colorInput.insertAdjacentElement('afterend', picker);
+
+      els.colorPicker = picker;
+      els.colorTrigger = trigger;
+      els.colorTriggerSwatch = triggerSwatch;
+      els.colorPalette = palette;
+    } else {
+      els.colorTrigger = els.colorPicker.querySelector('#personel-color-trigger');
+      els.colorTriggerSwatch = els.colorPicker.querySelector('#personel-color-trigger-swatch');
+      els.colorPalette = els.colorPicker.querySelector('#personel-color-palette');
+    }
+
+    if (els.colorPicker && !els.colorPicker.dataset.bound) {
+      els.colorTrigger?.addEventListener('click', (event) => {
+        event.preventDefault();
+        toggleStaffColorPalette();
+      });
+
+      els.colorPalette?.addEventListener('click', (event) => {
+        const button = event.target.closest('[data-staff-color]');
+
+        if (!button) return;
+
+        event.preventDefault();
+        setStaffColor(button.dataset.staffColor);
+      });
+
+      document.addEventListener('click', (event) => {
+        if (!els.colorPicker || els.colorPicker.contains(event.target)) return;
+        closeStaffColorPalette();
+      });
+
+      document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape') return;
+        closeStaffColorPalette();
+      });
+
+      els.colorPicker.dataset.bound = 'true';
+    }
+
+    renderStaffColorPalette(colorInput.value);
+  }
+
+  function ensureInviteStatusControls() {
+    if (!els.sendInvite) return;
+
+    const host = els.sendInvite.closest('.personel-invite-box')
+      || els.sendInvite.closest('label')?.parentElement
+      || els.sendInvite.parentElement;
+
+    if (!host) return;
+
+    if (!els.inviteStatus) {
+      const status = document.createElement('div');
+      status.id = 'personel-invite-status';
+      status.className = 'personel-invite-status';
+      status.hidden = true;
+      host.appendChild(status);
+      els.inviteStatus = status;
+    }
+
+    if (!els.resendInviteButton) {
+      const button = document.createElement('button');
+      button.id = 'personel-resend-invite-btn';
+      button.type = 'button';
+      button.className = 'personel-resend-invite-btn';
+      button.textContent = 'Zresetuj token i wyślij ponownie zaproszenie';
+      button.hidden = true;
+      host.appendChild(button);
+      els.resendInviteButton = button;
+    }
+  }
+
+  function formatStaffDateTime(value) {
+    const date = value ? new Date(value) : null;
+
+    if (!date || Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = date.getFullYear();
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+
+    return `${day}.${month}.${year} ${hours}:${minutes}`;
+  }
+
+  function resolveInviteStatus(person) {
+    const status = String(person?.invite_status || 'none').trim();
+    const expiresLabel = String(person?.invite_expires_at_label || '').trim()
+      || formatStaffDateTime(person?.invite_expires_at);
+    const backendLabel = String(person?.invite_status_label || '').trim();
+
+    if (!person) {
+      return {
+        status: 'none',
+        label: '',
+        type: '',
+        canSend: false,
+        buttonText: 'Wyślij zaproszenie'
+      };
+    }
+
+    if (status === 'activated') {
+      return {
+        status,
+        label: 'Aktywowano konto.',
+        type: 'success',
+        canSend: false,
+        buttonText: ''
+      };
+    }
+
+    if (status === 'sent') {
+      return {
+        status,
+        label: backendLabel || (expiresLabel ? `Wysłano zaproszenie. Link ważny do ${expiresLabel}.` : 'Wysłano zaproszenie.'),
+        type: 'success',
+        canSend: true,
+        buttonText: 'Zresetuj token i wyślij ponownie zaproszenie'
+      };
+    }
+
+    if (status === 'expired') {
+      return {
+        status,
+        label: 'Link aktywacyjny wygasł.',
+        type: 'error',
+        canSend: true,
+        buttonText: 'Zresetuj token i wyślij ponownie zaproszenie'
+      };
+    }
+
+    if (status === 'unknown') {
+      return {
+        status,
+        label: 'Nie udało się odczytać statusu zaproszenia.',
+        type: 'muted',
+        canSend: true,
+        buttonText: 'Wyślij ponownie zaproszenie'
+      };
+    }
+
+    return {
+      status: 'none',
+      label: 'Zaproszenie nie zostało jeszcze wysłane.',
+      type: 'muted',
+      canSend: true,
+      buttonText: 'Wyślij zaproszenie'
+    };
+  }
+
+  function renderInviteStatus(person) {
+    ensureInviteStatusControls();
+
+    if (!els.inviteStatus) return;
+
+    if (!person) {
+      els.inviteStatus.textContent = '';
+      els.inviteStatus.dataset.type = '';
+      els.inviteStatus.hidden = true;
+
+      if (els.resendInviteButton) {
+        els.resendInviteButton.hidden = true;
+        els.resendInviteButton.disabled = true;
+      }
+
+      if (els.sendInvite) {
+        els.sendInvite.disabled = false;
+      }
+
+      return;
+    }
+
+    const invite = resolveInviteStatus(person);
+
+    els.inviteStatus.textContent = invite.label;
+    els.inviteStatus.dataset.type = invite.type;
+    els.inviteStatus.hidden = invite.label === '';
+
+    if (els.sendInvite) {
+      els.sendInvite.disabled = invite.status === 'activated';
+    }
+
+    if (els.resendInviteButton) {
+      const hasEmail = String(person.email || '').trim() !== '';
+      els.resendInviteButton.textContent = invite.buttonText || 'Wyślij zaproszenie';
+      els.resendInviteButton.hidden = !invite.canSend || !hasEmail;
+      els.resendInviteButton.disabled = !invite.canSend || !hasEmail;
+    }
+  }
+
+  function getInviteBadgeText(person) {
+    const status = String(person?.invite_status || 'none').trim();
+
+    if (status === 'activated') return 'Konto aktywowane';
+    if (status === 'sent') return 'Zaproszenie wysłane';
+    if (status === 'expired') return 'Link wygasł';
+    return '';
   }
 
   function createRequestError(data, fallback) {
@@ -227,6 +581,12 @@
       color,
       sort_order: Number.isFinite(Number(row && row.sort_order)) ? Number(row.sort_order) : 0,
       is_active: row && row.is_active === true,
+      invite_status: row && row.invite_status ? String(row.invite_status) : 'none',
+      invite_status_label: row && row.invite_status_label ? String(row.invite_status_label) : '',
+      invite_expires_at: row && row.invite_expires_at ? row.invite_expires_at : null,
+      invite_expires_at_label: row && row.invite_expires_at_label ? String(row.invite_expires_at_label) : '',
+      staff_account_active: row && row.staff_account_active === true,
+      staff_account_has_password: row && row.staff_account_has_password === true,
       created_at: row && row.created_at ? row.created_at : null,
       updated_at: row && row.updated_at ? row.updated_at : null,
     };
@@ -236,12 +596,27 @@
     return state.staff.find((person) => person.id === state.selectedId) || null;
   }
 
+  function getStaffListDescription(person) {
+    const description = String(person?.description || '').trim();
+
+    if (!description) {
+      return 'Brak opisu osoby';
+    }
+
+    return description.length > 90
+      ? `${description.slice(0, 87).trim()}...`
+      : description;
+  }
+
   function getStaffSearchText(person) {
     return [
       person.display_name,
+      person.description,
       person.email,
       person.phone,
       person.is_active ? 'aktywny' : 'nieaktywny',
+      person.invite_status_label,
+      getInviteBadgeText(person),
     ].join(' ').toLowerCase();
   }
 
@@ -299,7 +674,8 @@
 
       const meta = document.createElement('span');
       meta.className = 'personel-list-meta';
-      meta.textContent = person.email || person.phone || 'Brak danych kontaktowych';
+      meta.textContent = getStaffListDescription(person);
+      meta.title = String(person.description || '').trim() || 'Brak opisu osoby';
 
       const badges = document.createElement('span');
       badges.className = 'personel-badges';
@@ -308,6 +684,16 @@
       activeBadge.className = person.is_active ? 'personel-badge is-active' : 'personel-badge is-inactive';
       activeBadge.textContent = person.is_active ? 'Aktywny' : 'Nieaktywny';
       badges.append(activeBadge);
+
+      const inviteBadgeText = getInviteBadgeText(person);
+
+      if (inviteBadgeText) {
+        const inviteBadge = document.createElement('span');
+        inviteBadge.className = `personel-badge invite-status-${String(person.invite_status || 'none').replace(/[^a-z0-9_-]/gi, '')}`;
+        inviteBadge.textContent = inviteBadgeText;
+        badges.append(inviteBadge);
+      }
+
       body.append(name, meta, badges);
       item.append(color, body);
       fragment.append(item);
@@ -382,13 +768,16 @@
     els.email.value = selected ? selected.email : '';
     els.phone.value = selected ? selected.phone : '';
     els.description.value = selected ? selected.description : '';
-    els.color.value = selected && selected.color ? selected.color : '#2563eb';
+    setStaffColor(selected && selected.color ? selected.color : STAFF_COLOR_PALETTE[0].value);
     els.sortOrder.value = selected && Number.isFinite(selected.sort_order) ? String(selected.sort_order) : '';
     els.isActive.checked = selected ? selected.is_active : true;
 
     if (els.sendInvite) {
       els.sendInvite.checked = false;
+      els.sendInvite.disabled = selected ? resolveInviteStatus(selected).status === 'activated' : false;
     }
+
+    renderInviteStatus(selected);
 
     if (els.deleteButton) {
       els.deleteButton.hidden = !selected || selected.is_active;
@@ -486,7 +875,7 @@
       email: els.email.value.trim(),
       phone: els.phone.value.trim(),
       description: els.description.value.trim(),
-      color: els.color.value || '#2563eb',
+      color: normalizeStaffColorValue(els.color.value),
       sort_order: els.sortOrder.value.trim() === '' ? 0 : Number.parseInt(els.sortOrder.value, 10),
       is_active: els.isActive.checked
     };
@@ -501,6 +890,70 @@
     }
 
     return payload;
+  }
+
+  async function sendStaffInvite(staffId) {
+    const cleanStaffId = String(staffId || '').trim();
+
+    if (!cleanStaffId) {
+      throw new Error('Brak identyfikatora osoby z personelu.');
+    }
+
+    return requestJson('/api/staff/invite.php', {
+      method: 'POST',
+      body: JSON.stringify({ staff_id: cleanStaffId }),
+    });
+  }
+
+  async function resendSelectedInvite() {
+    const selected = findSelectedStaff();
+
+    if (!selected) {
+      setMessage(els.formMessage, 'Wybierz osobę, aby wysłać zaproszenie.', 'error');
+      return;
+    }
+
+    if (!selected.email) {
+      setMessage(els.formMessage, 'Aby wysłać zaproszenie, wpisz adres e-mail osoby z personelu.', 'error');
+      return;
+    }
+
+    const invite = resolveInviteStatus(selected);
+
+    if (invite.status === 'activated') {
+      setMessage(els.formMessage, 'Konto pracownika jest już aktywne.', 'success');
+      return;
+    }
+
+    const defaultText = els.resendInviteButton?.textContent || 'Wyślij zaproszenie';
+
+    try {
+      if (els.resendInviteButton) {
+        els.resendInviteButton.disabled = true;
+        els.resendInviteButton.textContent = 'Wysyłanie zaproszenia...';
+      }
+
+      await sendStaffInvite(selected.id);
+
+      setMessage(
+        els.formMessage,
+        invite.status === 'none'
+          ? 'Wysłano zaproszenie.'
+          : 'Zresetowano token i wysłano ponownie zaproszenie. Poprzednie linki są już nieważne.',
+        'success'
+      );
+
+      await loadStaffList();
+      populateForm(findSelectedStaff());
+    } catch (error) {
+      setMessage(els.formMessage, error.message || 'Nie udało się wysłać zaproszenia.', 'error');
+    } finally {
+      if (els.resendInviteButton) {
+        els.resendInviteButton.textContent = defaultText;
+      }
+
+      renderInviteStatus(findSelectedStaff());
+    }
   }
 
   async function saveProfile(event) {
@@ -537,10 +990,7 @@
           setMessage(els.formMessage, 'Osoba została zapisana, ale nie udało się wysłać zaproszenia: brak identyfikatora osoby.', 'error');
         } else {
           try {
-            await requestJson('/api/staff/invite.php', {
-              method: 'POST',
-              body: JSON.stringify({ staff_id: saved.id }),
-            });
+            await sendStaffInvite(saved.id);
 
             setMessage(els.formMessage, 'Zapisano osobę i wysłano zaproszenie do panelu personelu.', 'success');
 
@@ -688,6 +1138,7 @@
     els.profileForm.addEventListener('submit', saveProfile);
     els.availabilityForm.addEventListener('submit', saveAvailability);
     els.deleteButton?.addEventListener('click', deleteSelected);
+    els.resendInviteButton?.addEventListener('click', resendSelectedInvite);
 
     els.searchInput.addEventListener('input', () => {
       state.searchQuery = els.searchInput.value;
