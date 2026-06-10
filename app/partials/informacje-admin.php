@@ -15,7 +15,7 @@
           </div>
 
           <div class="admin-info-row">
-            <span>Okres rozliczeniowy</span>
+            <span>Płatność rozliczeniowa</span>
             <strong id="info-billing-period">—</strong>
           </div>
 
@@ -35,7 +35,7 @@
           </div>
 
           <div class="admin-info-row">
-            <span>Okres abonamentu</span>
+            <span>Abonament ważny do</span>
             <strong id="info-current-period">—</strong>
           </div>
 
@@ -45,7 +45,7 @@
           </div>
 
           <div class="admin-info-row">
-            <span id="info-grace-period-label">Okres ochronny danych</span>
+            <span id="info-grace-period-label">Termin ochronny danych</span>
             <strong id="info-grace-period">—</strong>
           </div>
         </div>
@@ -73,7 +73,7 @@
           <li>automatyczne przypomnienia i większa kontrola nad rezerwacjami.</li>
         </ul>
 
-        <div class="pro-upgrade-options" id="pro-upgrade-options" role="radiogroup" aria-label="Okres rozliczeniowy planu Pro">
+        <div class="pro-upgrade-options" id="pro-upgrade-options" role="radiogroup" aria-label="Płatność rozliczeniowa planu Pro">
           <label class="pro-upgrade-option">
             <input type="radio" name="pro-upgrade-period" value="monthly">
             <span>

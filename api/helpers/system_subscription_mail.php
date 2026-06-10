@@ -217,8 +217,8 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
     $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Funkcje Pro są już aktywne w Twoim panelu.</p>'
         . system_subscription_mail_info_card('✅', 'Status', 'Opłacono')
         . system_subscription_mail_info_card('🧾', 'Plan', 'Pro', $paymentType)
-        . system_subscription_mail_info_card('💳', 'Płatność', $amountText, $billingPeriod !== '' ? 'Okres rozliczeniowy: ' . $billingPeriod : '')
-        . system_subscription_mail_info_card('📅', 'Okres abonamentu', $periodText, system_subscription_mail_format_date($periodEnd) !== '' ? 'Aktywny do: ' . system_subscription_mail_format_date($periodEnd) : '')
+        . system_subscription_mail_info_card('💳', 'Płatność', $amountText, $billingPeriod !== '' ? 'Płatność rozliczeniowa: ' . $billingPeriod : '')
+        . system_subscription_mail_info_card('📅', 'Abonament ważny do', $periodText, system_subscription_mail_format_date($periodEnd) !== '' ? 'Aktywny do: ' . system_subscription_mail_format_date($periodEnd) : '')
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
         . system_subscription_mail_info_card('🔗', 'Panel', $panelUrl)
         . system_subscription_mail_button($panelUrl, 'Przejdź do panelu');
@@ -247,7 +247,7 @@ function buildSubscriptionReminderMailHtml(array $subscription, array $context, 
 
     $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">To przypomnienie o kończącym się abonamencie w AI-IQ Rezerwacja Pro.</p>'
         . system_subscription_mail_info_card('⏰', 'Przypomnienie', $title)
-        . system_subscription_mail_info_card('🧾', 'Plan', $planName, $billingPeriod !== '' ? 'Okres rozliczeniowy: ' . $billingPeriod : '')
+        . system_subscription_mail_info_card('🧾', 'Plan', $planName, $billingPeriod !== '' ? 'Płatność rozliczeniowa: ' . $billingPeriod : '')
         . system_subscription_mail_info_card('📅', 'Termin końca abonamentu', $periodEndLabel)
         . system_subscription_mail_info_card('✅', 'Status', 'Aktywny')
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)

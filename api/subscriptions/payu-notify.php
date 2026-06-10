@@ -658,7 +658,7 @@ function subscription_payu_notify_send_activation_email_if_needed(
 
     $paymentType = strtolower(trim((string) ($payment['payment_type'] ?? '')));
 
-    if ($paymentType === 'subscription_initial_pro') {
+    if ($paymentType === 'subscription_initial') {
         $mail = subscription_payu_notify_build_initial_pro_registration_mail(
             $supabaseUrl,
             $headers,

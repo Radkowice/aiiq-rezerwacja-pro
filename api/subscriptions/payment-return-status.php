@@ -1,11 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
-require_once __DIR__ . '/../system/tenant.php';
-
-start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -53,13 +49,95 @@ function subscription_return_period_label(string $period): string
     };
 }
 
+function subscription_return_validity_fallback_label(string $period): string
+{
+    return match ($period) {
+        'monthly' => '1 miesiąc od potwierdzenia płatności',
+        'yearly' => '12 miesięcy od potwierdzenia płatności',
+        default => 'po potwierdzeniu płatności',
+    };
+}
+
 function subscription_return_payment_type_label(string $paymentType): string
 {
     return match ($paymentType) {
         'subscription_renewal' => 'Przedłużenie Pro',
-        'subscription_upgrade' => 'Przejście na Pro',
+        'subscription_upgrade', 'subscription_initial' => 'Przejście na Pro',
         default => 'Płatność Pro',
     };
+}
+
+function subscription_return_format_date(?string $value): string
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    try {
+        $date = new DateTimeImmutable($value);
+        return $date->format('d.m.Y');
+    } catch (Throwable $e) {
+        return '';
+    }
+}
+
+function subscription_return_normalize_domain(?string $rawDomain): string
+{
+    $domain = strtolower(trim((string) $rawDomain));
+
+    if ($domain === '' || preg_match('/[\x00-\x1F\x7F]/', $domain)) {
+        return '';
+    }
+
+    $domain = preg_replace('#^https?://#i', '', $domain);
+
+    if (!is_string($domain) || $domain === '') {
+        return '';
+    }
+
+    $domain = preg_replace('/:\d+$/', '', $domain);
+
+    if (!is_string($domain)) {
+        return '';
+    }
+
+    $domain = rtrim($domain, '.');
+
+    if (
+        $domain === ''
+        || strlen($domain) > 253
+        || preg_match('/[\/\\:?#\s]/', $domain)
+        || !preg_match('/^[a-z0-9.-]+$/', $domain)
+    ) {
+        return '';
+    }
+
+    foreach (explode('.', $domain) as $label) {
+        if (
+            $label === ''
+            || strlen($label) > 63
+            || str_starts_with($label, '-')
+            || str_ends_with($label, '-')
+        ) {
+            return '';
+        }
+    }
+
+    return $domain;
+}
+
+function subscription_return_build_url(string $domain, string $path): string
+{
+    $domain = subscription_return_normalize_domain($domain);
+
+    if ($domain === '') {
+        return '';
+    }
+
+    $path = '/' . ltrim($path, '/');
+    return 'https://' . $domain . $path;
 }
 
 try {
@@ -68,13 +146,6 @@ try {
         subscription_return_json(405, [
             'success' => false,
             'error' => 'Metoda niedozwolona.',
-        ]);
-    }
-
-    if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
-        subscription_return_json(401, [
-            'success' => false,
-            'error' => 'Brak autoryzacji.',
         ]);
     }
 
@@ -87,7 +158,6 @@ try {
         ]);
     }
 
-    $tenantId = (string) $_SESSION['user']['tenant_id'];
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
     $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
@@ -99,20 +169,12 @@ try {
         ]);
     }
 
-    if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
-        subscription_return_json(401, [
-            'success' => false,
-            'error' => 'Sesja nie pasuje do domeny.',
-        ]);
-    }
-
     $headers = supabaseHeaders($supabaseKey, $schema);
 
     $paymentUrl = $supabaseUrl
         . '/rest/v1/tenant_subscription_payments'
-        . '?select=id,tenant_id,status,plan_code,billing_period,payment_type'
+        . '?select=id,tenant_id,status,plan_code,billing_period,payment_type,subscription_period_start,subscription_period_end,paid_at'
         . '&id=eq.' . rawurlencode($paymentId)
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1';
 
     $paymentResult = subscription_return_request($paymentUrl, $headers);
@@ -130,6 +192,15 @@ try {
         subscription_return_json(404, [
             'success' => false,
             'error' => 'Nie znaleziono płatności abonamentu.',
+        ]);
+    }
+
+    $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
+
+    if ($tenantId === '' || strlen($tenantId) > 128) {
+        subscription_return_json(404, [
+            'success' => false,
+            'error' => 'Nie znaleziono danych klienta dla tej płatności.',
         ]);
     }
 
@@ -151,13 +222,47 @@ try {
     $companyResult = subscription_return_request($companyUrl, $headers);
     $company = $companyResult['ok'] ? ($companyResult['data'][0] ?? []) : [];
 
-    $billingPeriod = (string) ($payment['billing_period'] ?? '');
+    $domainUrl = $supabaseUrl
+        . '/rest/v1/tenant_domains'
+        . '?select=domain,is_active,is_primary'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&order=is_primary.desc'
+        . '&limit=1';
+
+    $domainResult = subscription_return_request($domainUrl, $headers);
+    $domainRow = $domainResult['ok'] ? ($domainResult['data'][0] ?? []) : [];
+    $tenantDomain = is_array($domainRow)
+        ? subscription_return_normalize_domain((string) ($domainRow['domain'] ?? ''))
+        : '';
+
+    $subscriptionUrl = $supabaseUrl
+        . '/rest/v1/tenant_subscriptions'
+        . '?select=status,plan_code,billing_period,current_period_start,current_period_end'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&limit=1';
+
+    $subscriptionResult = subscription_return_request($subscriptionUrl, $headers);
+    $subscription = $subscriptionResult['ok'] ? ($subscriptionResult['data'][0] ?? []) : [];
+
+    $billingPeriod = (string) ($payment['billing_period'] ?? ($subscription['billing_period'] ?? ''));
     $status = (string) ($payment['status'] ?? '');
     $paymentType = (string) ($payment['payment_type'] ?? '');
     $clientName = is_array($branding) ? trim((string) ($branding['client_name'] ?? '')) : '';
     $companyFullName = is_array($company) ? trim((string) ($company['company_full_name'] ?? '')) : '';
     $companyOwnerName = is_array($company) ? trim((string) ($company['company_owner_name'] ?? '')) : '';
     $displayCompanyName = $companyFullName !== '' ? $companyFullName : $clientName;
+
+    $paymentPeriodEnd = subscription_return_format_date((string) ($payment['subscription_period_end'] ?? ''));
+    $subscriptionPeriodEnd = is_array($subscription)
+        ? subscription_return_format_date((string) ($subscription['current_period_end'] ?? ''))
+        : '';
+    $validUntilLabel = $paymentPeriodEnd !== ''
+        ? $paymentPeriodEnd
+        : ($subscriptionPeriodEnd !== '' ? $subscriptionPeriodEnd : subscription_return_validity_fallback_label($billingPeriod));
+
+    $loginUrl = subscription_return_build_url($tenantDomain, '/logowanie.html');
+    $panelUrl = subscription_return_build_url($tenantDomain, '/panel-admina.php');
 
     subscription_return_json(200, [
         'success' => true,
@@ -166,6 +271,8 @@ try {
             'plan_code' => (string) ($payment['plan_code'] ?? ''),
             'billing_period' => $billingPeriod,
             'billing_period_label' => subscription_return_period_label($billingPeriod),
+            'subscription_valid_until' => (string) ($payment['subscription_period_end'] ?? ($subscription['current_period_end'] ?? '')),
+            'subscription_valid_until_label' => $validUntilLabel,
             'payment_type' => $paymentType,
             'payment_type_label' => subscription_return_payment_type_label($paymentType),
             'awaiting_payu_confirmation' => in_array($status, ['', 'pending'], true),
@@ -177,6 +284,12 @@ try {
             'company_owner_name' => $companyOwnerName,
             'logo_url_front' => is_array($branding) ? (string) ($branding['logo_url_front'] ?? '') : '',
             'favicon_url_front' => is_array($branding) ? (string) ($branding['favicon_url_front'] ?? '') : '',
+        ],
+        'urls' => [
+            'tenant_domain' => $tenantDomain,
+            'login_url' => $loginUrl,
+            'panel_url' => $panelUrl,
+            'primary_url' => $loginUrl !== '' ? $loginUrl : $panelUrl,
         ],
     ]);
 } catch (Throwable $e) {
