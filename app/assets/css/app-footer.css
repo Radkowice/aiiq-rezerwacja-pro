@@ -18,7 +18,7 @@
 
 .app-footer a {
   color: var(--color-primary, #2563eb);
-  font-weight: 600;
+  font-weight: inherit;
   text-decoration: none;
 }
 
@@ -28,6 +28,19 @@
 
 .app-footer nav {
   margin-top: 8px;
+}
+
+.app-footer .front-legal-links {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.app-footer .front-legal-links a {
+  color: inherit;
+  font-weight: inherit;
 }
 
 .app-footer,

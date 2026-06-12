@@ -161,16 +161,18 @@ function activation_build_fallback_pro_mail_html(array $payment, array $subscrip
 {
     $companyName = trim((string) ($context['company_name'] ?? ''));
     $panelDomain = trim((string) ($context['panel_domain'] ?? ''));
-    $panelUrl = $panelDomain !== '' ? 'https://' . $panelDomain . '/logowanie.html' : 'https://rezerwacja-ai-iq.pl/logowanie.html';
+    $panelUrl = function_exists('system_subscription_mail_admin_login_url')
+        ? system_subscription_mail_admin_login_url($panelDomain)
+        : ($panelDomain !== '' ? 'https://' . $panelDomain . '/logowanie.html' : 'https://rezerwacja-ai-iq.pl/logowanie.html');
 
     $periodEnd = activation_format_date_pl((string) ($subscription['current_period_end'] ?? ($payment['subscription_period_end'] ?? '')));
     $billingPeriod = strtolower(trim((string) ($subscription['billing_period'] ?? ($payment['billing_period'] ?? ''))));
-    $billingLabel = $billingPeriod === 'yearly' ? 'roczny' : ($billingPeriod === 'monthly' ? 'miesiêczny' : 'aktywny');
+    $billingLabel = $billingPeriod === 'yearly' ? 'roczny' : ($billingPeriod === 'monthly' ? 'miesiÄ™czny' : 'aktywny');
 
     $safeCompany = activation_escape($companyName !== '' ? $companyName : 'Twoja firma');
     $safePanelUrl = activation_escape($panelUrl);
     $safeBilling = activation_escape($billingLabel);
-    $safePeriodEnd = activation_escape($periodEnd !== '' ? $periodEnd : 'zgodnie z op³acon¹ subskrypcj¹');
+    $safePeriodEnd = activation_escape($periodEnd !== '' ? $periodEnd : 'zgodnie z opÅ‚aconÄ… subskrypcjÄ…');
 
     return '<!doctype html><html lang="pl"><head><meta charset="utf-8"></head>'
         . '<body style="margin:0;padding:0;background:#f3f6fb;font-family:Arial,sans-serif;color:#0f172a;">'
@@ -179,17 +181,17 @@ function activation_build_fallback_pro_mail_html(array $payment, array $subscrip
         . '<div style="text-align:center;margin-bottom:22px;">'
         . '<div style="display:inline-block;background:#0f172a;color:#fff;border-radius:999px;padding:10px 18px;font-weight:700;">AI-IQ</div>'
         . '<h1 style="margin:22px 0 8px;font-size:26px;line-height:1.25;">Plan Pro jest aktywny</h1>'
-        . '<p style="margin:0;color:#475569;line-height:1.5;">Konto administratora zosta³o aktywowane. Mo¿esz zalogowaæ siê do panelu i korzystaæ z funkcji planu Pro.</p>'
+        . '<p style="margin:0;color:#475569;line-height:1.5;">Konto administratora zostaÅ‚o aktywowane. MoÅ¼esz zalogowaÄ‡ siÄ™ do panelu i korzystaÄ‡ z funkcji planu Pro.</p>'
         . '</div>'
         . '<div style="border:1px solid #dbe5f3;border-radius:14px;overflow:hidden;margin:22px 0;">'
         . '<div style="padding:14px 16px;border-bottom:1px solid #dbe5f3;"><span style="color:#64748b;">Firma</span><br><strong>' . $safeCompany . '</strong></div>'
-        . '<div style="padding:14px 16px;border-bottom:1px solid #dbe5f3;"><span style="color:#64748b;">Plan</span><br><strong>Pro — ' . $safeBilling . '</strong></div>'
-        . '<div style="padding:14px 16px;"><span style="color:#64748b;">Abonament wa¿ny do</span><br><strong>' . $safePeriodEnd . '</strong></div>'
+        . '<div style="padding:14px 16px;border-bottom:1px solid #dbe5f3;"><span style="color:#64748b;">Plan</span><br><strong>Pro â€” ' . $safeBilling . '</strong></div>'
+        . '<div style="padding:14px 16px;"><span style="color:#64748b;">Abonament waÅ¼ny do</span><br><strong>' . $safePeriodEnd . '</strong></div>'
         . '</div>'
         . '<p style="text-align:center;margin:28px 0;">'
-        . '<a href="' . $safePanelUrl . '" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:999px;padding:14px 24px;font-weight:700;">PrzejdŸ do panelu</a>'
+        . '<a href="' . $safePanelUrl . '" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:999px;padding:14px 24px;font-weight:700;">PrzejdÅº do panelu</a>'
         . '</p>'
-        . '<p style="margin:20px 0 0;color:#64748b;font-size:13px;line-height:1.5;text-align:center;">To wiadomoœæ systemowa AI-IQ Rezerwacja Pro. Prosimy nie odpowiadaæ na tê wiadomoœæ.</p>'
+        . '<p style="margin:20px 0 0;color:#64748b;font-size:13px;line-height:1.5;text-align:center;">To wiadomoÅ›Ä‡ systemowa AI-IQ Rezerwacja Pro. Prosimy nie odpowiadaÄ‡ na tÄ™ wiadomoÅ›Ä‡.</p>'
         . '</div></div></body></html>';
 }
 
@@ -241,6 +243,49 @@ function activation_send_pro_activated_mail(string $tenantId, string $adminEmail
     }
 }
 
+function activation_send_account_activated_mail(string $tenantId, string $adminEmail, string $domain): void
+{
+    if (!function_exists('sendSystemMail')) {
+        error_log('AI-IQ activation: sendSystemMail unavailable.');
+        return;
+    }
+
+    $subscription = activation_fetch_subscription($tenantId);
+    $planCode = strtolower(trim((string) ($subscription['plan_code'] ?? 'free')));
+    $status = strtolower(trim((string) ($subscription['status'] ?? '')));
+
+    if ($planCode === 'pro' && $status === 'active') {
+        activation_send_pro_activated_mail($tenantId, $adminEmail, $domain);
+        return;
+    }
+
+    $context = activation_fetch_mail_context($tenantId, $adminEmail, $domain);
+    $recipient = trim((string) ($context['recipient_email'] ?? ''));
+
+    if (!filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
+        error_log('AI-IQ activation: missing recipient for account activation mail.');
+        return;
+    }
+
+    $context['plan'] = $planCode === 'pro' ? 'Pro' : 'Free';
+
+    if (!function_exists('buildAccountActivatedMailHtml')) {
+        error_log('AI-IQ activation: account activation mail builder unavailable.');
+        return;
+    }
+
+    $html = (string) buildAccountActivatedMailHtml($context);
+
+    if (trim($html) === '') {
+        error_log('AI-IQ activation: empty account activation mail body.');
+        return;
+    }
+
+    if (!sendSystemMail($recipient, 'Konto administratora aktywne w AI-IQ Rezerwacja Pro', $html)) {
+        error_log('AI-IQ activation: account activation mail send failed.');
+    }
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET' || $SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     activation_redirect_error();
 }
@@ -281,7 +326,7 @@ if (
 
 $userResult = activation_request(
     'GET',
-    '/rest/v1/users?select=id,tenant_id,email,role&id=eq.' . rawurlencode($userId)
+    '/rest/v1/users?select=id,tenant_id,email,role,is_active&id=eq.' . rawurlencode($userId)
     . '&tenant_id=eq.' . rawurlencode($tenantId) . '&limit=1'
 );
 if (!$userResult['ok'] || empty($userResult['data'][0])) {
@@ -290,6 +335,7 @@ if (!$userResult['ok'] || empty($userResult['data'][0])) {
 
 $user = $userResult['data'][0];
 $adminEmail = trim((string) ($user['email'] ?? ''));
+$wasActive = filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
 $activateUserResult = activation_request(
     'PATCH',
@@ -334,6 +380,8 @@ if (!$domainResult['ok'] || !activation_is_valid_domain($domain)) {
     activation_redirect_error('domain_unavailable');
 }
 
-activation_send_pro_activated_mail($tenantId, $adminEmail, $domain);
+if (!$wasActive) {
+    activation_send_account_activated_mail($tenantId, $adminEmail, $domain);
+}
 
 activation_redirect('https://' . $domain . '/logowanie.html?activated=1');

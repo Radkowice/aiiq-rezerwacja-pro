@@ -73,6 +73,21 @@ function system_subscription_mail_panel_url(?array $context): string
     return system_subscription_mail_url($context['panel_domain'] ?? '');
 }
 
+function system_subscription_mail_admin_login_url(?string $domain): string
+{
+    $panelUrl = system_subscription_mail_url($domain);
+
+    if ($panelUrl === '') {
+        return '';
+    }
+
+    if (preg_match('#/logowanie\.html$#i', $panelUrl) === 1) {
+        return $panelUrl;
+    }
+
+    return $panelUrl . '/logowanie.html';
+}
+
 function system_subscription_mail_button(string $url, string $label): string
 {
     $url = trim($url);
@@ -174,7 +189,7 @@ function buildRegistrationConfirmationMailHtml(array $data): string
 {
     $companyName = trim((string) ($data['company_name'] ?? ''));
     $plan = strtolower(trim((string) ($data['plan'] ?? 'free')));
-    $panelUrl = system_subscription_mail_url($data['panel_domain'] ?? '');
+    $panelUrl = system_subscription_mail_admin_login_url($data['panel_domain'] ?? '');
     $activationUrl = trim((string) ($data['activation_url'] ?? ''));
     $activationExpiresLabel = trim((string) ($data['activation_expires_label'] ?? ''));
     $isPro = $plan === 'pro';
@@ -188,7 +203,7 @@ function buildRegistrationConfirmationMailHtml(array $data): string
         . system_subscription_mail_info_card('🧾', 'Plan', $planLabel, $isPro ? 'Plan Pro nie jest jeszcze aktywny. Funkcje Pro zostaną włączone dopiero po poprawnym potwierdzeniu płatności PayU.' : '')
         . system_subscription_mail_info_card('✅', 'Status', $statusLabel)
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
-        . system_subscription_mail_info_card('🔗', 'Panel', $panelUrl)
+        . system_subscription_mail_info_card('🔗', 'Panel administratora', $panelUrl)
         . ($activationUrl !== ''
             ? system_subscription_mail_info_card('✅', 'Aktywacja konta', 'Wymagana aktywacja konta administratora', $activationExpiresLabel !== '' ? 'Link aktywacyjny jest ważny ' . $activationExpiresLabel . '.' : '')
                 . system_subscription_mail_button($activationUrl, 'Aktywuj konto')
@@ -203,9 +218,31 @@ function buildRegistrationConfirmationMailHtml(array $data): string
     );
 }
 
+function buildAccountActivatedMailHtml(array $context): string
+{
+    $panelUrl = system_subscription_mail_admin_login_url($context['panel_domain'] ?? '');
+    $companyName = trim((string) ($context['company_name'] ?? ''));
+    $plan = trim((string) ($context['plan'] ?? 'Free'));
+
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Konto administratora zostało aktywowane. Możesz zalogować się do panelu i rozpocząć korzystanie z AI-IQ Rezerwacja Pro.</p>'
+        . system_subscription_mail_info_card('✅', 'Status', 'Konto aktywne')
+        . system_subscription_mail_info_card('🧾', 'Plan', $plan)
+        . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
+        . system_subscription_mail_info_card('🔗', 'Panel administratora', $panelUrl)
+        . system_subscription_mail_button($panelUrl, 'Przejdź do panelu');
+
+    return system_subscription_mail_layout(
+        'Konto administratora aktywne',
+        'Potwierdzenie aktywacji konta w AI-IQ Rezerwacja Pro.',
+        '✅',
+        $body,
+        'Jeśli nie aktywowałeś tego konta, skontaktuj się z obsługą AI-IQ.'
+    );
+}
+
 function buildSubscriptionProActivatedMailHtml(array $payment, array $subscription, array $context): string
 {
-    $panelUrl = system_subscription_mail_panel_url($context);
+    $panelUrl = system_subscription_mail_admin_login_url($context['panel_domain'] ?? '');
     $companyName = trim((string) ($context['company_name'] ?? ''));
     $periodStart = (string) ($subscription['current_period_start'] ?? $payment['subscription_period_start'] ?? '');
     $periodEnd = (string) ($subscription['current_period_end'] ?? $payment['subscription_period_end'] ?? '');
@@ -220,7 +257,7 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
         . system_subscription_mail_info_card('💳', 'Płatność', $amountText, $billingPeriod !== '' ? 'Płatność rozliczeniowa: ' . $billingPeriod : '')
         . system_subscription_mail_info_card('📅', 'Abonament ważny do', $periodText, system_subscription_mail_format_date($periodEnd) !== '' ? 'Aktywny do: ' . system_subscription_mail_format_date($periodEnd) : '')
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
-        . system_subscription_mail_info_card('🔗', 'Panel', $panelUrl)
+        . system_subscription_mail_info_card('🔗', 'Panel administratora', $panelUrl)
         . system_subscription_mail_button($panelUrl, 'Przejdź do panelu');
 
     return system_subscription_mail_layout(
