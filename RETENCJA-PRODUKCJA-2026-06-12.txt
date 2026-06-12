@@ -1,0 +1,40 @@
+AI-IQ Rezerwacja Pro — retencja produkcji
+Data: 2026-06-12
+Schema: rezerwacja_pro
+
+Stan po audycie:
+- bookings: 4 rekordy
+- bookings starsze niż 3 miesiące: 0
+- bookings anulowane/usunięte/przeterminowane: 0
+- tenant_subscription_payments: 5 rekordów
+- tenant_subscription_payments starsze niż 6 miesięcy: 0
+- subscription_email_logs: 5 rekordów
+- subscription_email_logs starsze niż 6 miesięcy: 0
+- user_activation_tokens: 3 rekordy
+- user_activation_tokens wygasłe: 0
+- password_change_codes: 0 rekordów
+- admin_notifications: tabela nie istnieje w schema rezerwacja_pro
+
+Aktualnie podpięte crony produkcyjne:
+- check-pending-payments.php — co 15 minut
+- cleanup-storage.php — codziennie 03:40
+- send-booking-reminders.php — co 15 minut w godzinach 7-20
+- send-subscription-reminders.php — codziennie 08:10
+
+Decyzja:
+Na dzień 2026-06-12 nie uruchamiać jeszcze crona kasującego dane z tabel Supabase.
+Baza produkcyjna jest mała i nie ma rekordów spełniających warunki retencji.
+
+Docelowa retencja do wdrożenia później:
+- zakończone/stare rezerwacje: po 3 miesiącach
+- anulowane/usunięte/przeterminowane rezerwacje: po 90 dniach
+- subscription_email_logs: po 6 miesiącach
+- stare płatności abonamentowe pending/failed/canceled/expired: po 6 miesiącach
+- opłacone płatności abonamentowe: zostawić dłużej, minimum 24 miesiące
+- zużyte/wygasłe tokeny aktywacyjne: po 7-30 dniach
+- kody zmiany hasła: po 7-30 dniach
+- logi techniczne na dysku: już obsługuje cleanup-storage.php, 30 dni / rotacja 5 MB
+
+Uwaga:
+Przed wdrożeniem crona kasującego tabele Supabase zrobić snapshot VPS i backup SQL.
+Nie kasować danych rozliczeniowych bez świadomej decyzji.

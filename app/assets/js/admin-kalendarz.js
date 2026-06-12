@@ -1616,8 +1616,8 @@
       available: 'Wolny',
       reserved: 'Rezerwacja',
       staff_busy: 'Zajęty',
-      blocked_staff: 'Pracownik',
-      blocked_global: 'Firma'
+      blocked_staff: 'blokady pracownika',
+      blocked_global: 'blokady globalne'
     };
 
     return labels[status] || 'Niedostępny';
@@ -2121,9 +2121,9 @@
   }
 
   function getScopeLabel(scope) {
-    if (scope === 'staff_manual') return 'Pracownik';
-    if (scope === 'settings' || scope === 'global_manual') return 'Firma';
-    if (scope === 'both') return 'Pracownik';
+    if (scope === 'staff_manual') return 'blokady pracownika';
+    if (scope === 'settings' || scope === 'global_manual') return 'blokady globalne';
+    if (scope === 'both') return 'blokady pracownika';
     return '';
   }
 

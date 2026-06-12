@@ -1,0 +1,376 @@
+<?php
+declare(strict_types=1);
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+const RETENTION_BOOKINGS_MONTHS = 3;
+const RETENTION_SUBSCRIPTION_EMAIL_LOGS_MONTHS = 6;
+const RETENTION_SUBSCRIPTION_FAILED_PAYMENTS_MONTHS = 6;
+const RETENTION_SUBSCRIPTION_PAID_PAYMENTS_MONTHS = 24;
+const RETENTION_TOKENS_DAYS = 30;
+
+function retention_json(array $payload, int $statusCode = 200): void
+{
+    http_response_code($statusCode);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function retention_env(string $key, string $default = ''): string
+{
+    $value = getenv($key);
+
+    if ($value === false) {
+        return $default;
+    }
+
+    $value = trim((string) $value);
+
+    return $value !== '' ? $value : $default;
+}
+
+function retention_request_token(): string
+{
+    $authorization = trim((string) ($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
+
+    if ($authorization === '' && function_exists('apache_request_headers')) {
+        $headers = apache_request_headers();
+        $authorization = trim((string) ($headers['Authorization'] ?? $headers['authorization'] ?? ''));
+    }
+
+    if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
+        return trim((string) $matches[1]);
+    }
+
+    return trim((string) ($_GET['token'] ?? ''));
+}
+
+function retention_is_dry_run(): bool
+{
+    $value = strtolower(trim((string) ($_GET['dry_run'] ?? '')));
+
+    return !in_array($value, ['0', 'false', 'no'], true);
+}
+
+function retention_headers(string $key, string $schema, bool $count = false, bool $minimal = false): array
+{
+    $headers = [
+        'apikey: ' . $key,
+        'Authorization: Bearer ' . $key,
+        'Accept: application/json',
+        'Content-Type: application/json',
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
+    ];
+
+    if ($count) {
+        $headers[] = 'Prefer: count=exact';
+    } elseif ($minimal) {
+        $headers[] = 'Prefer: return=minimal';
+    } else {
+        $headers[] = 'Prefer: return=representation';
+    }
+
+    return $headers;
+}
+
+function retention_count(string $supabaseUrl, string $key, string $schema, string $table, string $filters): array
+{
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/' . rawurlencode($table)
+        . '?select=id'
+        . ($filters !== '' ? '&' . $filters : '');
+
+    $ch = curl_init($url);
+
+    curl_setopt_array($ch, [
+        CURLOPT_NOBODY => true,
+        CURLOPT_HEADER => true,
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 25,
+        CURLOPT_HTTPHEADER => retention_headers($key, $schema, true),
+    ]);
+
+    $raw = curl_exec($ch);
+    $error = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $count = null;
+
+    if (is_string($raw) && preg_match('/content-range:\s*[^\/]+\/(\d+|\*)/i', $raw, $matches)) {
+        $count = $matches[1] === '*' ? null : (int) $matches[1];
+    }
+
+    return [
+        'ok' => $raw !== false && $error === '' && $httpCode >= 200 && $httpCode < 300,
+        'http_code' => $httpCode,
+        'error' => $error,
+        'count' => $count,
+    ];
+}
+
+function retention_delete(string $supabaseUrl, string $key, string $schema, string $table, string $filters): array
+{
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/' . rawurlencode($table)
+        . '?select=id'
+        . ($filters !== '' ? '&' . $filters : '');
+
+    $ch = curl_init($url);
+
+    curl_setopt_array($ch, [
+        CURLOPT_CUSTOMREQUEST => 'DELETE',
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_TIMEOUT => 30,
+        CURLOPT_HTTPHEADER => retention_headers($key, $schema, false, false),
+    ]);
+
+    $raw = curl_exec($ch);
+    $error = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    $decoded = json_decode((string) $raw, true);
+    $deleted = is_array($decoded) ? count($decoded) : null;
+
+    return [
+        'ok' => $raw !== false && $error === '' && $httpCode >= 200 && $httpCode < 300,
+        'http_code' => $httpCode,
+        'error' => $error,
+        'deleted' => $deleted,
+    ];
+}
+
+function retention_log_run(array $payload): void
+{
+    $logFile = '/var/log/aiiq-cron-supabase-retention.log';
+    $line = date('Y-m-d H:i:s')
+        . ' dry_run=' . (!empty($payload['dry_run']) ? 'true' : 'false')
+        . ' success=' . (!empty($payload['success']) ? 'true' : 'false')
+        . ' candidates=' . (int) ($payload['total_candidates'] ?? 0)
+        . ' deleted=' . (int) ($payload['total_deleted'] ?? 0)
+        . ' errors=' . count($payload['errors'] ?? [])
+        . PHP_EOL;
+
+    @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
+}
+
+function retention_iso(DateTimeImmutable $date): string
+{
+    return $date->setTimezone(new DateTimeZone('UTC'))->format(DateTimeInterface::ATOM);
+}
+
+try {
+    if (!in_array(($_SERVER['REQUEST_METHOD'] ?? ''), ['GET', 'POST'], true)) {
+        retention_json([
+            'success' => false,
+            'error' => 'Metoda niedozwolona.',
+        ], 405);
+    }
+
+    $expectedToken = retention_env('CLEANUP_CRON_TOKEN');
+
+    if ($expectedToken === '') {
+        retention_json([
+            'success' => false,
+            'error' => 'Brak konfiguracji CLEANUP_CRON_TOKEN.',
+        ], 500);
+    }
+
+    $providedToken = retention_request_token();
+
+    if ($providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
+        retention_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy token.',
+        ], 403);
+    }
+
+    $supabaseUrl = rtrim(retention_env('SUPABASE_URL'), '/');
+    $supabaseKey = retention_env('SUPABASE_SERVICE_ROLE_KEY');
+    $schema = retention_env('SUPABASE_DB_SCHEMA', 'rezerwacja_pro');
+
+    if ($supabaseUrl === '' || $supabaseKey === '') {
+        retention_json([
+            'success' => false,
+            'error' => 'Brak konfiguracji SUPABASE_URL lub SUPABASE_SERVICE_ROLE_KEY.',
+        ], 500);
+    }
+
+    $dryRun = retention_is_dry_run();
+    $tz = new DateTimeZone('Europe/Warsaw');
+    $today = new DateTimeImmutable('today', $tz);
+    $nowUtc = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+    $bookingsCutoff = $today->modify('-' . RETENTION_BOOKINGS_MONTHS . ' months')->format('Y-m-d');
+    $subscriptionLogsCutoff = retention_iso($nowUtc->modify('-' . RETENTION_SUBSCRIPTION_EMAIL_LOGS_MONTHS . ' months'));
+    $failedPaymentsCutoff = retention_iso($nowUtc->modify('-' . RETENTION_SUBSCRIPTION_FAILED_PAYMENTS_MONTHS . ' months'));
+    $paidPaymentsCutoff = retention_iso($nowUtc->modify('-' . RETENTION_SUBSCRIPTION_PAID_PAYMENTS_MONTHS . ' months'));
+    $tokensCutoff = retention_iso($nowUtc->modify('-' . RETENTION_TOKENS_DAYS . ' days'));
+    $nowIso = retention_iso($nowUtc);
+
+    $rules = [
+        [
+            'key' => 'bookings_old',
+            'table' => 'bookings',
+            'description' => 'Rezerwacje starsze niż 3 miesiące według booking_date.',
+            'filters' => 'booking_date=lt.' . rawurlencode($bookingsCutoff),
+            'retention' => '3 miesiące',
+        ],
+        [
+            'key' => 'subscription_email_logs_old',
+            'table' => 'subscription_email_logs',
+            'description' => 'Logi maili abonamentowych starsze niż 6 miesięcy.',
+            'filters' => 'created_at=lt.' . rawurlencode($subscriptionLogsCutoff),
+            'retention' => '6 miesięcy',
+        ],
+        [
+            'key' => 'subscription_failed_payments_old',
+            'table' => 'tenant_subscription_payments',
+            'description' => 'Nieudane/anulowane/wygasłe płatności abonamentowe starsze niż 6 miesięcy.',
+            'filters' => 'created_at=lt.' . rawurlencode($failedPaymentsCutoff)
+                . '&status=in.(pending,failed,canceled,cancelled,expired)',
+            'retention' => '6 miesięcy',
+        ],
+        [
+            'key' => 'subscription_paid_payments_old',
+            'table' => 'tenant_subscription_payments',
+            'description' => 'Opłacone płatności abonamentowe starsze niż 24 miesiące.',
+            'filters' => 'created_at=lt.' . rawurlencode($paidPaymentsCutoff)
+                . '&status=eq.paid',
+            'retention' => '24 miesiące',
+        ],
+        [
+            'key' => 'activation_tokens_used_old',
+            'table' => 'user_activation_tokens',
+            'description' => 'Zużyte tokeny aktywacyjne starsze niż 30 dni.',
+            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
+                . '&used_at=not.is.null',
+            'retention' => '30 dni',
+        ],
+        [
+            'key' => 'activation_tokens_expired_old',
+            'table' => 'user_activation_tokens',
+            'description' => 'Wygasłe, nieużyte tokeny aktywacyjne starsze niż 30 dni.',
+            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
+                . '&used_at=is.null'
+                . '&expires_at=lt.' . rawurlencode($nowIso),
+            'retention' => '30 dni',
+        ],
+        [
+            'key' => 'password_change_codes_used_old',
+            'table' => 'password_change_codes',
+            'description' => 'Zużyte kody zmiany hasła starsze niż 30 dni.',
+            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
+                . '&used_at=not.is.null',
+            'retention' => '30 dni',
+        ],
+        [
+            'key' => 'password_change_codes_expired_old',
+            'table' => 'password_change_codes',
+            'description' => 'Wygasłe, nieużyte kody zmiany hasła starsze niż 30 dni.',
+            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
+                . '&used_at=is.null'
+                . '&expires_at=lt.' . rawurlencode($nowIso),
+            'retention' => '30 dni',
+        ],
+    ];
+
+    $result = [
+        'success' => true,
+        'dry_run' => $dryRun,
+        'schema' => $schema,
+        'now' => $nowIso,
+        'cutoffs' => [
+            'bookings_before' => $bookingsCutoff,
+            'subscription_email_logs_before' => $subscriptionLogsCutoff,
+            'failed_subscription_payments_before' => $failedPaymentsCutoff,
+            'paid_subscription_payments_before' => $paidPaymentsCutoff,
+            'tokens_before' => $tokensCutoff,
+        ],
+        'total_candidates' => 0,
+        'total_deleted' => 0,
+        'rules' => [],
+        'errors' => [],
+    ];
+
+    foreach ($rules as $rule) {
+        $count = retention_count(
+            $supabaseUrl,
+            $supabaseKey,
+            $schema,
+            $rule['table'],
+            $rule['filters']
+        );
+
+        $ruleResult = [
+            'key' => $rule['key'],
+            'table' => $rule['table'],
+            'description' => $rule['description'],
+            'retention' => $rule['retention'],
+            'candidates' => $count['count'],
+            'deleted' => 0,
+            'success' => $count['ok'],
+            'http_code' => $count['http_code'],
+        ];
+
+        if (!$count['ok']) {
+            $ruleResult['error'] = $count['error'] ?: 'count_failed';
+            $result['errors'][] = [
+                'rule' => $rule['key'],
+                'table' => $rule['table'],
+                'error' => $ruleResult['error'],
+                'http_code' => $count['http_code'],
+            ];
+            $result['success'] = false;
+            $result['rules'][] = $ruleResult;
+            continue;
+        }
+
+        $candidates = is_int($count['count']) ? $count['count'] : 0;
+        $result['total_candidates'] += $candidates;
+
+        if (!$dryRun && $candidates > 0) {
+            $delete = retention_delete(
+                $supabaseUrl,
+                $supabaseKey,
+                $schema,
+                $rule['table'],
+                $rule['filters']
+            );
+
+            $ruleResult['success'] = $delete['ok'];
+            $ruleResult['http_code'] = $delete['http_code'];
+            $ruleResult['deleted'] = is_int($delete['deleted']) ? $delete['deleted'] : 0;
+
+            if (!$delete['ok']) {
+                $ruleResult['error'] = $delete['error'] ?: 'delete_failed';
+                $result['errors'][] = [
+                    'rule' => $rule['key'],
+                    'table' => $rule['table'],
+                    'error' => $ruleResult['error'],
+                    'http_code' => $delete['http_code'],
+                ];
+                $result['success'] = false;
+            } else {
+                $result['total_deleted'] += $ruleResult['deleted'];
+            }
+        }
+
+        $result['rules'][] = $ruleResult;
+    }
+
+    retention_log_run($result);
+    retention_json($result, $result['success'] ? 200 : 500);
+} catch (Throwable $e) {
+    $payload = [
+        'success' => false,
+        'error' => 'Błąd retencji Supabase.',
+        'details' => $e->getMessage(),
+    ];
+
+    retention_log_run($payload);
+    retention_json($payload, 500);
+}

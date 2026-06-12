@@ -347,7 +347,6 @@ function scheduleAdminBackgroundTasks() {
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
-  initMenu();
   initSidebar();
   initTopbarActions();
   initAdminNotifications();
@@ -373,6 +372,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       return data;
     });
+
+    initMenu();
 
     await window.AdminLoadQueue.enqueue('rezerwacje', () => loadBookings(currentBookingsView));
 
@@ -1031,7 +1032,7 @@ function initBookingFilters() {
       target="_blank"
       rel="noopener"
     >
-      Pobierz historię CSV
+      Pobierz rezerwacje i historię CSV
     </a>
   </div>
 
@@ -1051,9 +1052,9 @@ function initBookingFilters() {
   </div>
 
   <p class="booking-retention-info">
-    Historia rezerwacji jest przechowywana przez 3 miesiące.
+    Eksport CSV obejmuje rezerwacje dostępne w systemie.
     Starsze rezerwacje zostaną automatycznie usunięte.
-    Przed usunięciem pobierz historię do pliku CSV.
+    Przed usunięciem pobierz rezerwacje i historię do pliku CSV.
   </p>
 `;
 

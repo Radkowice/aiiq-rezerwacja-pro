@@ -96,7 +96,7 @@ body {
   color: var(--muted);
 }
 
-/* ===== MOJE KONTO — branding klienta ===== */
+/* ===== MOJE KONTO â€” branding klienta ===== */
 
 .branding-logo-preview-wrap,
 .branding-favicon-preview-wrap {
@@ -218,7 +218,7 @@ body {
   display: none;
 }
 
-/* P³atnoœci OFF */
+/* PÅ‚atnoÅ›ci OFF */
 .payments-disabled .col-payment {
   display: none;
 }
@@ -376,6 +376,19 @@ html, body {
   margin-top: 10px;
   font-size: 13px;
   color: #666;
+}
+
+.admin-legend-reservations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.admin-legend-blocks {
+  display: grid;
+  gap: 4px;
+  margin-top: 8px;
 }
 
 .legend-item {

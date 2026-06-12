@@ -50,10 +50,22 @@
       <div id="adminCalendar"></div>
       <div id="adminTimeSlots" class="admin-time-slots"></div>
       <div class="admin-legend" id="adminReservationLegend">
-  <span class="legend-item">
-    <span class="badge-r">R</span> – rezerwacja
-  </span>
-</div>
+        <div class="admin-legend-reservations">
+          <span class="legend-item">
+            <span class="badge-r">R</span> - rezerwacja
+          </span>
+          <span class="legend-item">
+            <span class="badge-r">R↻</span> - zmiana rezerwacji
+          </span>
+          <span class="legend-item">
+            <span class="badge-r">Rx</span> - suma rezerwacji
+          </span>
+        </div>
+        <div class="admin-legend-blocks">
+          <div><strong>blokady globalne</strong> - blokady nałożone przez administratora</div>
+          <div><strong>blokady pracownika</strong> - blokady nałożone przez pracownika</div>
+        </div>
+      </div>
     </div>
 
     <div id="block-settings" class="block-settings">

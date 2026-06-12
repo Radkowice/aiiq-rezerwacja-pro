@@ -1313,6 +1313,18 @@ body.employee-panel-body {
   font-weight: 400;
 }
 
+.employee-legend-reservations,
+.employee-legend-blocks {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
+.employee-legend-blocks {
+  margin-top: 8px;
+}
+
 .employee-legend-item {
   display: inline-flex;
   gap: 6px;

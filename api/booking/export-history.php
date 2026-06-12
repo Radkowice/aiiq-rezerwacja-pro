@@ -137,6 +137,15 @@ function csvPaymentRequired($value): string
     return $value === true || $value === 'true' || $value === 1 || $value === '1' ? 'tak' : 'nie';
 }
 
+function csvYesNo(bool $value): string
+{
+    return $value ? 'Tak' : 'Nie';
+}
+
+function export_history_is_uuid(string $value): bool
+{
+    return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value) === 1;
+}
 
 function csvRescheduleCount($value): int
 {
@@ -145,7 +154,14 @@ function csvRescheduleCount($value): int
 
 function csvRescheduledLabel(array $item): string
 {
-    return csvRescheduleCount($item['reschedule_count'] ?? 0) > 0 || csvText($item['rescheduled_at'] ?? '') !== '' ? 'tak' : 'nie';
+    return csvYesNo(csvRescheduleCount($item['reschedule_count'] ?? 0) > 0 || csvText($item['rescheduled_at'] ?? '') !== '');
+}
+
+function csvStaffChangedLabel(array $item, array $staffChangesByBooking): string
+{
+    $bookingId = csvText($item['id'] ?? '');
+
+    return csvYesNo($bookingId !== '' && !empty($staffChangesByBooking[$bookingId]));
 }
 
 function csvCurrentTerm(array $item): string
@@ -253,7 +269,7 @@ function csvStaffName(array $item, array $staffDisplayNames): string
         return $staffDisplayNames[$staffId];
     }
 
-    return $staffId !== '' ? 'przypisany, brak nazwy' : 'Bez przypisanego pracownika';
+    return $staffId !== '' ? 'Przypisany pracownik bez nazwy' : 'Bez przypisanego pracownika';
 }
 
 start_secure_session();
@@ -294,23 +310,59 @@ if ($TENANT_ID === '') {
 
 $timezone = new DateTimeZone('Europe/Warsaw');
 $now = new DateTimeImmutable('now', $timezone);
-$historyFrom = $now->modify('-3 months')->format('Y-m-d');
+$requestedStaffId = csvText($_GET['staff_id'] ?? '');
+$selectedStaff = null;
 
-$today = $now->format('Y-m-d');
-$currentTime = $now->format('H:i');
+if ($requestedStaffId !== '') {
+    if (!export_history_is_uuid($requestedStaffId)) {
+        export_history_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator pracownika'
+        ], 400);
+    }
+
+    $staffCheckResult = export_history_supabase_rows(
+        $SUPABASE_URL,
+        $SUPABASE_KEY,
+        $SUPABASE_DB_SCHEMA,
+        'staff_profiles',
+        [
+            'select=id,display_name',
+            'tenant_id=eq.' . rawurlencode($TENANT_ID),
+            'id=eq.' . rawurlencode($requestedStaffId),
+            'limit=1',
+        ],
+        20
+    );
+
+    if (!$staffCheckResult['success']) {
+        export_history_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić pracownika',
+            'response' => $staffCheckResult['response'],
+        ], (int) $staffCheckResult['status']);
+    }
+
+    $selectedStaff = is_array($staffCheckResult['rows'][0] ?? null) ? $staffCheckResult['rows'][0] : null;
+
+    if (!$selectedStaff) {
+        export_history_json([
+            'success' => false,
+            'error' => 'Nie znaleziono pracownika w aktualnym koncie'
+        ], 404);
+    }
+}
 
 $bookingQuery = [
     'select=*',
     'tenant_id=eq.' . rawurlencode($TENANT_ID),
-    'booking_date=gte.' . rawurlencode($historyFrom),
-    'or=('
-        . 'booking_date.lt.' . rawurlencode($today)
-        . ',and(booking_date.eq.' . rawurlencode($today)
-        . ',booking_time.lt.' . rawurlencode($currentTime) . ')'
-        . ')',
     'order=booking_date.desc',
     'order=booking_time.desc',
 ];
+
+if ($requestedStaffId !== '') {
+    $bookingQuery[] = 'staff_id=eq.' . rawurlencode($requestedStaffId);
+}
 
 $bookingResult = export_history_supabase_rows(
     $SUPABASE_URL,
@@ -323,20 +375,26 @@ $bookingResult = export_history_supabase_rows(
 if (!$bookingResult['success']) {
     export_history_json([
         'success' => false,
-        'error' => 'Nie udało się pobrać historii rezerwacji',
+        'error' => 'Nie udało się pobrać rezerwacji',
         'response' => $bookingResult['response'],
     ], (int) $bookingResult['status']);
 }
 
 $data = $bookingResult['rows'];
 $staffIds = [];
+$bookingIds = [];
 
 foreach ($data as $booking) {
     if (!is_array($booking)) {
         continue;
     }
 
+    $bookingId = csvText($booking['id'] ?? '');
     $staffId = csvText($booking['staff_id'] ?? '');
+
+    if ($bookingId !== '') {
+        $bookingIds[$bookingId] = true;
+    }
 
     if ($staffId !== '') {
         $staffIds[$staffId] = true;
@@ -344,6 +402,7 @@ foreach ($data as $booking) {
 }
 
 $staffDisplayNames = [];
+$staffChangesByBooking = [];
 
 if (!empty($staffIds)) {
     $staffQuery = [
@@ -377,10 +436,43 @@ if (!empty($staffIds)) {
     }
 }
 
+if (!empty($bookingIds)) {
+    $staffChangesQuery = [
+        'select=booking_id',
+        'tenant_id=eq.' . rawurlencode($TENANT_ID),
+        'order=created_at.desc',
+        'limit=10000',
+    ];
+
+    $staffChangesResult = export_history_supabase_rows(
+        $SUPABASE_URL,
+        $SUPABASE_KEY,
+        $SUPABASE_DB_SCHEMA,
+        'booking_staff_changes',
+        $staffChangesQuery,
+        20
+    );
+
+    if ($staffChangesResult['success']) {
+        foreach ($staffChangesResult['rows'] as $changeRow) {
+            if (!is_array($changeRow)) {
+                continue;
+            }
+
+            $bookingId = csvText($changeRow['booking_id'] ?? '');
+
+            if ($bookingId !== '' && isset($bookingIds[$bookingId])) {
+                $staffChangesByBooking[$bookingId] = true;
+            }
+        }
+    }
+}
+
 $fileDate = $now->format('Y-m-d_H-i');
+$filePrefix = $requestedStaffId !== '' ? 'rezerwacje-pracownika' : 'rezerwacje-i-historia';
 
 header('Content-Type: text/csv; charset=UTF-8');
-header('Content-Disposition: attachment; filename="historia-rezerwacji-' . $fileDate . '.csv"');
+header('Content-Disposition: attachment; filename="' . $filePrefix . '-' . $fileDate . '.csv"');
 header('Pragma: no-cache');
 header('Expires: 0');
 
@@ -393,7 +485,6 @@ if ($output === false) {
 echo "\xEF\xBB\xBF";
 
 csvWriteRow($output, [
-    'ID',
     'Data rezerwacji',
     'Godzina',
     'Klient',
@@ -407,6 +498,8 @@ csvWriteRow($output, [
     'Status płatności',
     'Kwota płatności',
     'Waluta',
+    'zmiana personelu',
+    'zmiana rezerwacji',
     'Rezerwacja przeniesiona',
     'Liczba zmian terminu',
     'Ostatnia zmiana terminu',
@@ -420,7 +513,6 @@ foreach ($data as $item) {
     }
 
     csvWriteRow($output, [
-        csvText($item['id'] ?? ''),
         formatCsvDate($item['booking_date'] ?? $item['date'] ?? ''),
         formatCsvTime($item['booking_time'] ?? $item['time'] ?? ''),
         csvText($item['name'] ?? ''),
@@ -434,6 +526,8 @@ foreach ($data as $item) {
         formatPaymentStatusForCsv($item['payment_status'] ?? null),
         csvText($item['payment_amount'] ?? ''),
         csvText($item['payment_currency'] ?? ''),
+        csvStaffChangedLabel($item, $staffChangesByBooking),
+        csvRescheduledLabel($item),
         csvRescheduledLabel($item),
         (string) csvRescheduleCount($item['reschedule_count'] ?? 0),
         formatCsvDateTime($item['rescheduled_at'] ?? ''),

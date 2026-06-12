@@ -303,23 +303,43 @@ function setCalendarFormFieldsInputs(fields = {}) {
   if (toggleNotes) toggleNotes.checked = fields.show_notes !== false;
 }
 
+async function fetchAdminBootstrapData() {
+  try {
+    const data = await apiFetch('/api/admin/bootstrap.php');
+
+    if (data && data.success === true) {
+      window.AIIQ_ADMIN_BOOTSTRAP = data;
+      return data;
+    }
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 403) {
+      throw error;
+    }
+
+    console.warn('Admin bootstrap unavailable, falling back to /api/auth/me.php', error);
+  }
+
+  const fallbackData = await apiFetch('/api/auth/me.php');
+
+  if (fallbackData && fallbackData.success === true) {
+    window.AIIQ_ADMIN_BOOTSTRAP = {
+      ...fallbackData,
+      fallback: true
+    };
+  }
+
+  return fallbackData;
+}
+
 async function loadAccountData() {
   try {
-    const data = await apiFetch('/api/auth/me.php');
+    const data = await fetchAdminBootstrapData();
     
     if (!data || !data.success) return data;
 
-    window.AIIQ_PLAN_CONTEXT = data.plan_context || {
-      plan_code: 'free',
-      plan_name: 'Free',
-      status: 'active',
-      is_paid_plan_active: false,
-      features: {},
-      limits: {
-        services_count: 1,
-        staff_count: 1
-      }
-    };
+    if (data.plan_context) {
+      window.AIIQ_PLAN_CONTEXT = data.plan_context;
+    }
 
     const user = data.user || {};
     const branding = data.branding || {};

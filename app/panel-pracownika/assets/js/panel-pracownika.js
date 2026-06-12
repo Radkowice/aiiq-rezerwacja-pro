@@ -1,6 +1,7 @@
 (function () {
   'use strict';
 
+  const BOOTSTRAP_ENDPOINT = '/api/staff/bootstrap.php';
   const ME_ENDPOINT = '/api/staff/me.php';
   const BOOKINGS_ENDPOINT = '/api/staff/bookings.php';
   const SERVICE_SETTINGS_ENDPOINT = '/api/staff/service-settings.php';
@@ -1077,7 +1078,7 @@
 
   async function loadStaffSession() {
     try {
-      const response = await fetch(ME_ENDPOINT, {
+      let response = await fetch(BOOTSTRAP_ENDPOINT, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -1085,7 +1086,21 @@
         }
       });
 
-      const data = await response.json().catch(() => null);
+      let data = await response.json().catch(() => null);
+
+      if (!response.ok || !data || data.success !== true || !data.staff) {
+        response = await fetch(ME_ENDPOINT, {
+          method: 'GET',
+          credentials: 'include',
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+
+        data = await response.json().catch(() => null);
+      } else {
+        window.AIIQ_STAFF_BOOTSTRAP = data;
+      }
 
       if (handleFeatureLockResponse(response, data)) {
         return null;
@@ -1094,6 +1109,13 @@
       if (!response.ok || !data || data.success !== true || !data.staff) {
         redirectToLogin();
         return null;
+      }
+
+      if (!window.AIIQ_STAFF_BOOTSTRAP) {
+        window.AIIQ_STAFF_BOOTSTRAP = {
+          ...data,
+          fallback: true
+        };
       }
 
       const staff = data.staff;

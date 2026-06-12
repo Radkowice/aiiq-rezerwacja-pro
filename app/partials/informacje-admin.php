@@ -35,7 +35,7 @@
           </div>
 
           <div class="admin-info-row">
-            <span>Abonament ważny do</span>
+            <span>Ważność abonamentu</span>
             <strong id="info-current-period">—</strong>
           </div>
 
