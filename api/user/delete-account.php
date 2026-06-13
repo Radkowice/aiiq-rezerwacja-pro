@@ -28,14 +28,65 @@ if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id']) || e
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
+if (!is_array($input)) {
+    $input = [];
+}
 
+$action = trim((string) ($input['action'] ?? ''));
 $password = trim((string)($input['password'] ?? ''));
+$code = trim((string) ($input['code'] ?? ''));
+$dataLossConfirmed = ($input['data_loss_confirmed'] ?? false) === true;
+$finalConfirmation = ($input['final_confirmation'] ?? false) === true;
+
+if (!in_array($action, ['request_code', 'confirm_delete'], true)) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nieprawidłowe żądanie usunięcia konta'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 if ($password === '') {
     http_response_code(422);
     echo json_encode([
         'success' => false,
         'error' => 'Podaj hasło, aby usunąć konto'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!$dataLossConfirmed) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Potwierdź świadomość utraty danych'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($action === 'confirm_delete' && $code === '') {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Podaj kod potwierdzenia'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($action === 'confirm_delete' && !preg_match('/^\d{6}$/', $code)) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Kod potwierdzenia musi mieć 6 cyfr'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+if ($action === 'confirm_delete' && !$finalConfirmation) {
+    http_response_code(422);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Wymagane jest ostateczne potwierdzenie usunięcia konta'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -100,6 +151,277 @@ function deleteTenantFiles(string $tenantId): void
     foreach ($tenantDirs as $dir) {
         deleteDirectoryRecursive($dir);
     }
+}
+
+function accountDeleteClientIpAddress(): string
+{
+    $candidates = [
+        $_SERVER['HTTP_CF_CONNECTING_IP'] ?? null,
+        $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null,
+        $_SERVER['REMOTE_ADDR'] ?? null,
+    ];
+
+    foreach ($candidates as $value) {
+        if (!$value) {
+            continue;
+        }
+
+        $ip = trim(explode(',', $value)[0]);
+        if ($ip !== '') {
+            return $ip;
+        }
+    }
+
+    return 'unknown';
+}
+
+function accountDeleteRequest(
+    string $method,
+    string $url,
+    string $serviceRoleKey,
+    string $schema,
+    ?array $payload = null,
+    string $prefer = 'return=minimal'
+): array {
+    $ch = curl_init($url);
+    $headers = [
+        'Content-Type: application/json',
+        'Accept: application/json',
+        'apikey: ' . $serviceRoleKey,
+        'Authorization: Bearer ' . $serviceRoleKey,
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
+    ];
+
+    if ($prefer !== '') {
+        $headers[] = 'Prefer: ' . $prefer;
+    }
+
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPHEADER     => $headers,
+        CURLOPT_TIMEOUT        => 20,
+    ];
+
+    if ($method === 'POST') {
+        $options[CURLOPT_POST] = true;
+    } elseif ($method !== 'GET') {
+        $options[CURLOPT_CUSTOMREQUEST] = $method;
+    }
+
+    if ($payload !== null) {
+        $encoded = json_encode($payload, JSON_UNESCAPED_UNICODE);
+        if ($encoded === false) {
+            return ['ok' => false, 'status' => 0, 'data' => null, 'error' => 'encode_failed'];
+        }
+        $options[CURLOPT_POSTFIELDS] = $encoded;
+    }
+
+    curl_setopt_array($ch, $options);
+    $response = curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    $data = null;
+    if (is_string($response) && $response !== '') {
+        $decoded = json_decode($response, true);
+        $data = is_array($decoded) ? $decoded : null;
+    }
+
+    return [
+        'ok' => $curlError === '' && $status >= 200 && $status < 300,
+        'status' => $status,
+        'data' => $data,
+        'error' => $curlError,
+    ];
+}
+
+function buildAccountDeleteCodeHtml(string $code): string
+{
+    $message = ''
+        . '<p style="margin:0 0 14px;"><strong>⚠️ Otrzymaliśmy żądanie usunięcia konta.</strong></p>'
+        . '<p style="margin:0 0 10px;">Aby kontynuować usuwanie konta i danych, wpisz poniższy kod w panelu administratora:</p>'
+        . '<div style="margin:22px 0;padding:18px 20px;background:#111827;color:#ffffff;'
+        . 'font-size:32px;font-weight:700;letter-spacing:0.25em;text-align:center;border-radius:14px;">'
+        . htmlspecialchars($code, ENT_QUOTES, 'UTF-8')
+        . '</div>'
+        . '<p style="margin:0 0 10px;">Kod jest ważny przez <strong>10 minut</strong>.</p>'
+        . '<p style="margin:10px 0 0;">Jeśli to nie Ty inicjowałeś usunięcie konta, zignoruj tę wiadomość i jak najszybciej zabezpiecz konto.</p>';
+
+    return buildSystemMailLayout(
+        'Kod potwierdzenia usunięcia konta',
+        'To wiadomość systemowa dotycząca bezpieczeństwa Twojego konta.',
+        $message,
+        'Nie odpowiadaj na tę wiadomość. Skrzynka nie jest monitorowana.'
+    );
+}
+
+function sendAccountDeleteCode(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    string $userId,
+    string $email
+): bool {
+    $now = gmdate('Y-m-d\TH:i:s\Z');
+
+    accountDeleteRequest(
+        'PATCH',
+        $supabaseUrl
+            . '/rest/v1/account_deletion_codes'
+            . '?tenant_id=eq.' . rawurlencode($tenantId)
+            . '&user_id=eq.' . rawurlencode($userId)
+            . '&used_at=is.null',
+        $serviceRoleKey,
+        $schema,
+        ['used_at' => $now]
+    );
+
+    $plainCode = (string) random_int(100000, 999999);
+    $insert = accountDeleteRequest(
+        'POST',
+        $supabaseUrl . '/rest/v1/account_deletion_codes',
+        $serviceRoleKey,
+        $schema,
+        [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $email,
+            'code_hash' => password_hash($plainCode, PASSWORD_DEFAULT),
+            'expires_at' => gmdate('Y-m-d\TH:i:s\Z', time() + 600),
+            'attempts' => 0,
+            'ip_address' => accountDeleteClientIpAddress(),
+        ],
+        ''
+    );
+
+    if (!$insert['ok']) {
+        return false;
+    }
+
+    return sendSystemMail(
+        $email,
+        'Kod potwierdzenia usunięcia konta',
+        buildAccountDeleteCodeHtml($plainCode)
+    );
+}
+
+function verifyAccountDeleteCode(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    string $userId,
+    string $code
+): bool {
+    $result = accountDeleteRequest(
+        'GET',
+        $supabaseUrl
+            . '/rest/v1/account_deletion_codes'
+            . '?select=id,code_hash,expires_at,used_at,attempts'
+            . '&tenant_id=eq.' . rawurlencode($tenantId)
+            . '&user_id=eq.' . rawurlencode($userId)
+            . '&used_at=is.null'
+            . '&order=created_at.desc'
+            . '&limit=1',
+        $serviceRoleKey,
+        $schema,
+        null,
+        ''
+    );
+
+    if (!$result['ok']) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nie udało się zweryfikować kodu potwierdzenia'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $rows = is_array($result['data']) ? $result['data'] : [];
+    $row = isset($rows[0]) && is_array($rows[0]) ? $rows[0] : null;
+
+    if (!$row) {
+        http_response_code(404);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Brak aktywnego kodu potwierdzenia'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $codeId = (string) ($row['id'] ?? '');
+    $codeHash = (string) ($row['code_hash'] ?? '');
+    $expiresAt = (string) ($row['expires_at'] ?? '');
+    $attempts = (int) ($row['attempts'] ?? 0);
+
+    if ($expiresAt === '' || strtotime($expiresAt) < time()) {
+        http_response_code(410);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Kod wygasł. Wygeneruj nowy kod.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($attempts >= 5) {
+        http_response_code(429);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Przekroczono limit prób wpisania kodu. Wygeneruj nowy kod.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    if ($codeHash === '' || !password_verify($code, $codeHash)) {
+        accountDeleteRequest(
+            'PATCH',
+            $supabaseUrl
+                . '/rest/v1/account_deletion_codes'
+                . '?id=eq.' . rawurlencode($codeId)
+                . '&tenant_id=eq.' . rawurlencode($tenantId)
+                . '&user_id=eq.' . rawurlencode($userId),
+            $serviceRoleKey,
+            $schema,
+            ['attempts' => $attempts + 1]
+        );
+
+        http_response_code(422);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nieprawidłowy kod potwierdzenia'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    $markUsed = accountDeleteRequest(
+        'PATCH',
+        $supabaseUrl
+            . '/rest/v1/account_deletion_codes'
+            . '?id=eq.' . rawurlencode($codeId)
+            . '&tenant_id=eq.' . rawurlencode($tenantId)
+            . '&user_id=eq.' . rawurlencode($userId),
+        $serviceRoleKey,
+        $schema,
+        [
+            'used_at' => gmdate('Y-m-d\TH:i:s\Z'),
+            'attempts' => $attempts + 1,
+        ]
+    );
+
+    if (($markUsed['ok'] ?? false) !== true) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nie udało się potwierdzić użycia kodu'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    return true;
 }
 
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
@@ -168,6 +490,25 @@ if ($passwordHash === '' || !password_verify($password, $passwordHash)) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+if ($action === 'request_code') {
+    if (!sendAccountDeleteCode($supabaseUrl, $serviceRoleKey, $supabaseSchema, $tenantId, $userId, $userEmail)) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nie udało się wysłać kodu potwierdzającego'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    echo json_encode([
+        'success' => true,
+        'message' => 'Wysłaliśmy kod potwierdzający na adres e-mail administratora'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+verifyAccountDeleteCode($supabaseUrl, $serviceRoleKey, $supabaseSchema, $tenantId, $userId, $code);
 
 $countUsersUrl = $supabaseUrl
     . '/rest/v1/users?tenant_id=eq.' . rawurlencode($tenantId)
@@ -319,12 +660,6 @@ function buildAccountDeletedHtml(string $email, bool $isLastUser): string
 sendSystemMail(
     $userEmail,
     'Potwierdzenie usunięcia konta',
-    buildAccountDeletedHtml($userEmail, $isLastUser)
-);
-
-sendSystemMail(
-    $userEmail,
-    $isLastUser ? 'Potwierdzenie usunięcia konta i danych' : 'Potwierdzenie usunięcia konta',
     buildAccountDeletedHtml($userEmail, $isLastUser)
 );
 

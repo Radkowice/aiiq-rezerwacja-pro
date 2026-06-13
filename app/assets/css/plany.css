@@ -41,8 +41,8 @@
 }
 
 .plan-lock-box {
-  width: min(100%, 260px);
-  padding: 11px 14px;
+  width: min(100%, 320px);
+  padding: 16px 20px;
   border: 1px solid rgba(148, 163, 184, 0.38);
   border-radius: 10px;
   background: rgba(255, 255, 255, 0.92);
@@ -54,16 +54,13 @@
   display: block;
   margin: 0;
   color: #172033;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.3;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
 }
 
 .plan-lock-description {
-  margin: 6px 0 0;
-  color: #64748b;
-  font-size: 12px;
-  line-height: 1.45;
+  display: none;
 }
 
 .plan-lock-small {
@@ -135,16 +132,16 @@
 .block-scope-option.plan-locked .plan-lock-box {
   width: auto;
   max-width: calc(100% - 18px);
-  padding: 8px 10px;
+  padding: 12px 14px;
 }
 
 .block-scope-option.plan-locked .plan-lock-title {
-  font-size: 12px;
+  font-size: 15px;
 }
 
 .plan-payments-pro-group.plan-locked .plan-lock-box,
 .email-settings-card.plan-locked .plan-lock-box {
-  width: min(100%, 240px);
+  width: min(100%, 300px);
 }
 
 @media (max-width: 640px) {
@@ -154,12 +151,12 @@
   }
 
   .plan-lock-box {
-    width: min(100%, 220px);
-    padding: 9px 11px;
+    width: min(100%, 280px);
+    padding: 14px 16px;
   }
 
   .plan-lock-title {
-    font-size: 12px;
+    font-size: 18px;
   }
 
   .plan-upgrade-bar {

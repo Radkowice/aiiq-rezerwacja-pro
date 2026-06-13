@@ -524,7 +524,7 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
     if (!data) return;
 
     if (data.success === true) {
-         await window.openAdminConfirm({
+      await window.openAdminConfirm({
         title: 'Sukces',
         message: data.message || 'Email został zmieniony, powiadomienie wysłaliśmy na email',
         confirmText: 'OK',
@@ -547,7 +547,7 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
         message: data.error,
         confirmText: 'OK',
         cancelText: 'Zamknij',
-        icon: '❌',
+        icon: '✖',
         variant: 'danger'
       });
       return;
@@ -558,7 +558,7 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
       message: 'Nieprawidłowa odpowiedź serwera',
       confirmText: 'OK',
       cancelText: 'Zamknij',
-      icon: '❌',
+      icon: '✖',
       variant: 'danger'
     });
 
@@ -570,7 +570,7 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
       message: 'Nie udało się połączyć z serwerem',
       confirmText: 'OK',
       cancelText: 'Zamknij',
-      icon: '❌',
+      icon: '✖',
       variant: 'danger'
     });
   } finally {
@@ -639,12 +639,12 @@ document.getElementById('change-password-btn')?.addEventListener('click', async 
     if (!data) return;
 
     if (data.success === true) {
-          await window.openAdminConfirm({
+      await window.openAdminConfirm({
         title: 'Kod wysłany',
         message: 'Wysłaliśmy kod na Twój email. Wpisz go poniżej, aby zmienić hasło.',
         confirmText: 'OK',
         cancelText: 'Zamknij',
-        icon: '📩',
+        icon: '✉️',
         variant: 'primary'
       });
 
@@ -667,7 +667,7 @@ document.getElementById('change-password-btn')?.addEventListener('click', async 
         message: data.error,
         confirmText: 'OK',
         cancelText: 'Zamknij',
-        icon: '❌',
+        icon: '✖',
         variant: 'danger'
       });
       return;
@@ -681,7 +681,7 @@ document.getElementById('change-password-btn')?.addEventListener('click', async 
       message: 'Wystąpił problem z odpowiedzią serwera. Jeśli kod został wysłany, sprawdź email i wpisz go poniżej.',
       confirmText: 'OK',
       cancelText: 'Zamknij',
-      icon: '❌',
+      icon: '✖',
       variant: 'danger'
     });
   } finally {
@@ -734,7 +734,6 @@ document.getElementById('confirm-password-code-btn')?.addEventListener('click', 
         variant: 'primary'
       });
 
-      // reset UI
       document.getElementById('password-code-section')?.classList.add('hidden');
       document.getElementById('password-code').value = '';
 
@@ -747,7 +746,7 @@ document.getElementById('confirm-password-code-btn')?.addEventListener('click', 
         message: data.error,
         confirmText: 'OK',
         cancelText: 'Zamknij',
-        icon: '❌',
+        icon: '✖',
         variant: 'danger'
       });
       return;
@@ -761,7 +760,7 @@ document.getElementById('confirm-password-code-btn')?.addEventListener('click', 
       message: 'Nie udało się połączyć z serwerem',
       confirmText: 'OK',
       cancelText: 'Zamknij',
-      icon: '❌',
+      icon: '✖',
       variant: 'danger'
     });
   } finally {
@@ -772,19 +771,18 @@ document.getElementById('confirm-password-code-btn')?.addEventListener('click', 
 
 // === PODGLĄD HASŁA (OCZKO) ===
 document.querySelectorAll('.toggle-password').forEach(btn => {
-    btn.addEventListener('click', () => {
-        const input = document.getElementById(btn.dataset.target);
-        if (!input) return;
+  btn.addEventListener('click', () => {
+    const input = document.getElementById(btn.dataset.target);
+    if (!input) return;
 
-        const isHidden = input.type === 'password';
+    const isHidden = input.type === 'password';
 
-        input.type = isHidden ? 'text' : 'password';
-        btn.textContent = isHidden ? '🙈' : '👁';
-        btn.setAttribute('aria-label', isHidden ? 'Ukryj hasło' : 'Pokaż hasło');
-        btn.setAttribute('aria-pressed', isHidden ? 'true' : 'false');
-    });
+    input.type = isHidden ? 'text' : 'password';
+    btn.textContent = isHidden ? '🙈' : '👁';
+    btn.setAttribute('aria-label', isHidden ? 'Ukryj hasło' : 'Pokaż hasło');
+    btn.setAttribute('aria-pressed', isHidden ? 'true' : 'false');
+  });
 });
-
 
 // === WALIDACJA I SIŁA HASŁA ===
 const passwordInput = document.getElementById('new-password');
@@ -799,40 +797,40 @@ const rules = {
 };
 
 function evaluatePasswordStrength(value) {
- const password = String(value || '');
-const lower = password.toLowerCase();
+  const password = String(value || '');
+  const lower = password.toLowerCase();
 
-const hasLower = /[a-z]/.test(password);
-const hasUpper = /[A-Z]/.test(password);
-const hasNumber = /[0-9]/.test(password);
-const hasSpecial = /[^A-Za-z0-9]/.test(password);
+  const hasLower = /[a-z]/.test(password);
+  const hasUpper = /[A-Z]/.test(password);
+  const hasNumber = /[0-9]/.test(password);
+  const hasSpecial = /[^A-Za-z0-9]/.test(password);
 
-const meetsMinimum =
-  password.length >= 8 &&
-  hasLower &&
-  hasUpper &&
-  hasNumber &&
-  hasSpecial;
+  const meetsMinimum =
+    password.length >= 8 &&
+    hasLower &&
+    hasUpper &&
+    hasNumber &&
+    hasSpecial;
 
-const normalized = lower
-  .normalize('NFD')
-  .replace(/[\u0300-\u036f]/g, '');
+  const normalized = lower
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
 
-const hasWeakPattern =
-  /haslo|password|admin|qwerty|abc123|1234|12345|123456|qwer|asdf|zxcv/i.test(normalized);
+  const hasWeakPattern =
+    /haslo|password|admin|qwerty|abc123|1234|12345|123456|qwer|asdf|zxcv/i.test(normalized);
 
-const hasRepeat = /(.)\1{3,}/.test(password);
+  const hasRepeat = /(.)\1{3,}/.test(password);
 
-if (!meetsMinimum) {
-  return { label: 'Słabe hasło', className: 'weak' };
+  if (!meetsMinimum) {
+    return { label: 'Słabe hasło', className: 'weak' };
+  }
+
+  if (password.length >= 15 && !hasWeakPattern && !hasRepeat) {
+    return { label: 'Mocne hasło', className: 'strong' };
+  }
+
+  return { label: 'Średnie hasło', className: 'medium' };
 }
-
-if (password.length >= 15 && !hasWeakPattern && !hasRepeat) {
-  return { label: 'Mocne hasło', className: 'strong' };
-}
-
-return { label: 'Średnie hasło', className: 'medium' };
- }
 
 if (passwordInput) {
   passwordInput.addEventListener('input', () => {
@@ -870,7 +868,7 @@ if (passwordInput) {
 let passwordTimerInterval = null;
 let passwordTimeLeft = 0;
 
-function startPasswordTimer(duration = 600) { // 600 = 10 min
+function startPasswordTimer(duration = 600) {
   passwordTimeLeft = duration;
 
   const timerEl = document.getElementById('password-code-timer');
@@ -897,6 +895,7 @@ function startPasswordTimer(duration = 600) { // 600 = 10 min
 }
 
 let isDeletingAccount = false;
+let deleteAccountDataLossConfirmed = false;
 
 document.getElementById('delete-account-btn')?.addEventListener('click', async (e) => {
   e.preventDefault();
@@ -908,7 +907,25 @@ document.getElementById('delete-account-btn')?.addEventListener('click', async (
   if (btn) btn.disabled = true;
 
   try {
-    const password = document.getElementById('delete-password')?.value || '';
+    const firstConfirm = await window.openAdminConfirm({
+      title: 'Usuń konto',
+      html: `
+        <p>Usunięte zostaną: konto administratora, konto firmy, rezerwacje, ustawienia usług, personel, blokady, ustawienia e-mail, integracje, dokumenty, branding oraz pozostałe dane powiązane z firmą.</p>
+      `,
+      checkboxText: 'Posiadam historię rezerwacji przed usunięciem lub świadomie jej nie posiadam. Wiem, że zostaną utracone wszystkie dane oraz konto moje i pracowników.',
+      requireCheckbox: true,
+      confirmText: 'Rozumiem, przejdź dalej',
+      cancelText: 'Anuluj',
+      icon: '⚠️',
+      variant: 'danger'
+    });
+
+    if (!firstConfirm) return;
+
+    deleteAccountDataLossConfirmed = true;
+
+    const passwordInput = document.getElementById('delete-password');
+    const password = passwordInput?.value || '';
 
     if (!password.trim()) {
       await window.openAdminConfirm({
@@ -919,35 +936,134 @@ document.getElementById('delete-account-btn')?.addEventListener('click', async (
         icon: '⚠️',
         variant: 'danger'
       });
+      passwordInput?.focus();
       return;
     }
 
-    const firstConfirm = await window.openAdminConfirm({
-      title: 'Usuń konto',
-      message: 'Czy na pewno chcesz usunąć konto? Ta operacja usuwa Twoje dane logowania.',
-      confirmText: 'Tak, usuń',
-      cancelText: 'Anuluj',
-      icon: '⚠️',
-      variant: 'danger'
+    const data = await apiFetch('/api/user/delete-account.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'request_code',
+        password,
+        data_loss_confirmed: true
+      })
     });
 
-    if (!firstConfirm) return;
+    if (!data) return;
 
-    const secondConfirm = await window.openAdminConfirm({
-      title: 'Ostateczne potwierdzenie',
-      message: 'Potwierdź ponownie: konto zostanie usunięte, a po operacji zostaniesz wylogowany.',
-      confirmText: 'Tak, potwierdzam',
+    if (data.success === true) {
+      document.getElementById('delete-code-section')?.classList.remove('hidden');
+      document.getElementById('delete-code')?.focus();
+
+      await window.openAdminConfirm({
+        title: 'Kod wysłany',
+        message: data.message || 'Wysłaliśmy kod potwierdzający na adres e-mail administratora.',
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        icon: '✉️',
+        variant: 'primary'
+      });
+      return;
+    }
+
+    await window.openAdminConfirm({
+      title: 'Błąd',
+      message: data.error || 'Nieprawidłowa odpowiedź serwera',
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✖',
+      variant: 'danger'
+    });
+  } catch (e) {
+    console.error(e);
+
+    await window.openAdminConfirm({
+      title: 'Błąd połączenia',
+      message: e.message || 'Nie udało się wysłać kodu potwierdzającego',
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✖',
+      variant: 'danger'
+    });
+  } finally {
+    isDeletingAccount = false;
+    if (btn) btn.disabled = false;
+  }
+});
+
+document.getElementById('confirm-delete-account-btn')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+
+  if (isDeletingAccount) return;
+  isDeletingAccount = true;
+
+  const btn = document.getElementById('confirm-delete-account-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const password = document.getElementById('delete-password')?.value || '';
+    const code = document.getElementById('delete-code')?.value.trim() || '';
+
+    if (!password.trim() || !deleteAccountDataLossConfirmed) {
+      await window.openAdminConfirm({
+        title: 'Brak potwierdzenia',
+        message: 'Najpierw potwierdź utratę danych i zweryfikuj hasło.',
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        icon: '⚠️',
+        variant: 'danger'
+      });
+      return;
+    }
+
+    if (!code) {
+      await window.openAdminConfirm({
+        title: 'Brak kodu',
+        message: 'Wpisz kod potwierdzający z wiadomości e-mail.',
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        icon: '⚠️',
+        variant: 'danger'
+      });
+      document.getElementById('delete-code')?.focus();
+      return;
+    }
+
+    if (!/^\d{6}$/.test(code)) {
+      await window.openAdminConfirm({
+        title: 'Nieprawidłowy kod',
+        message: 'Kod potwierdzenia musi mieć 6 cyfr.',
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        icon: '⚠️',
+        variant: 'danger'
+      });
+      document.getElementById('delete-code')?.focus();
+      return;
+    }
+
+    const finalConfirm = await window.openAdminConfirm({
+      title: 'Ostatnie potwierdzenie',
+      message: 'To ostatnie potwierdzenie. Po usunięciu konta dane zostaną trwale usunięte i nie będzie możliwości ich odzyskania.',
+      confirmText: 'Tak, usuń konto',
       cancelText: 'Anuluj',
       icon: '🗑️',
       variant: 'danger'
     });
 
-    if (!secondConfirm) return;
+    if (!finalConfirm) return;
 
     const data = await apiFetch('/api/user/delete-account.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ password })
+      body: JSON.stringify({
+        action: 'confirm_delete',
+        password,
+        code,
+        data_loss_confirmed: true,
+        final_confirmation: true
+      })
     });
 
     if (!data) return;
@@ -966,24 +1082,12 @@ document.getElementById('delete-account-btn')?.addEventListener('click', async (
       return;
     }
 
-    if (data.error) {
-      await window.openAdminConfirm({
-        title: 'Błąd',
-        message: data.error,
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '❌',
-        variant: 'danger'
-      });
-      return;
-    }
-
     await window.openAdminConfirm({
       title: 'Błąd',
-      message: 'Nieprawidłowa odpowiedź serwera',
+      message: data.error || 'Nieprawidłowa odpowiedź serwera',
       confirmText: 'OK',
       cancelText: 'Zamknij',
-      icon: '❌',
+      icon: '✖',
       variant: 'danger'
     });
   } catch (e) {
@@ -991,10 +1095,10 @@ document.getElementById('delete-account-btn')?.addEventListener('click', async (
 
     await window.openAdminConfirm({
       title: 'Błąd połączenia',
-      message: 'Nie udało się usunąć konta',
+      message: e.message || 'Nie udało się usunąć konta',
       confirmText: 'OK',
       cancelText: 'Zamknij',
-      icon: '❌',
+      icon: '✖',
       variant: 'danger'
     });
   } finally {

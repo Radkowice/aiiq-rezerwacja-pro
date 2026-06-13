@@ -827,6 +827,30 @@ td.col-contact {
   margin-bottom: 0;
 }
 
+.admin-confirm-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--reservations-border-color, #94a3b8);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.58);
+  color: var(--reservations-text-color, #0f172a);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+  text-align: left;
+}
+
+.admin-confirm-check input {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-top: 1px;
+  accent-color: #dc2626;
+}
+
 .admin-confirm-modal strong {
   display: inline;
   margin-top: 0;
@@ -859,6 +883,13 @@ td.col-contact {
 .admin-confirm-btn:hover {
   transform: translateY(-1px);
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.admin-confirm-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.56;
+  transform: none;
+  box-shadow: none;
 }
 
 .admin-confirm-btn.cancel {

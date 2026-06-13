@@ -10,7 +10,7 @@
     <div class="settings-card email-settings-card" data-email-card="smtp">
       <h3>Serwer SMTP</h3>
       <p class="settings-desc">
-        Tutaj ustawiasz skrzynkę e-mail, z której system będzie wysyłał wiadomości do klientów. Możesz użyć poczty firmowej albo Gmaila/Google Workspace. Po zmianie danych SMTP zapisz ustawienia i sprawdź połączenie.
+        Tutaj ustawiasz skrzynkę e-mail, z której system będzie wysyłał wiadomości do klientów. Dla bezpieczeństwa zaleca się utworzyć adres e-mail wyłącznie dla rezerwacji. Możesz użyć poczty firmowej albo Gmaila/Google Workspace. Po zmianie danych SMTP zapisz ustawienia i sprawdź połączenie.
         <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
       </p>
 

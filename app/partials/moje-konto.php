@@ -1,5 +1,5 @@
 <section class="panel-card hidden" data-section="moje_konto">
- 
+
   <h2>Moje konto</h2>
   <p class="message" id="settings-message"></p>
 
@@ -7,7 +7,7 @@
 
     <div class="admin-card">
       <h3>Dane konta</h3>
-      
+
       <div class="form-group">
         <label>Numer klienta</label>
         <input type="text" id="account-client-number" readonly placeholder="Generowany automatycznie">
@@ -88,34 +88,34 @@
         </div>
       </div>
 
-    <button class="btn" type="button" id="change-password-btn">
-  Zmień hasło
-</button>
+      <button class="btn" type="button" id="change-password-btn">
+        Zmień hasło
+      </button>
 
-    <div id="password-code-section" class="hidden">
-  <div class="form-group">
-    <label for="password-code">Kod z e-maila</label>
-    <input type="text" id="password-code" maxlength="6" placeholder="Wpisz 6-cyfrowy kod">
-  </div>
+      <div id="password-code-section" class="hidden">
+        <div class="form-group">
+          <label for="password-code">Kod z e-maila</label>
+          <input type="text" id="password-code" maxlength="6" placeholder="Wpisz 6-cyfrowy kod">
+        </div>
 
-  <div id="password-code-timer" class="password-code-timer"></div>
+        <div id="password-code-timer" class="password-code-timer"></div>
 
-  <div class="form-group">
-    <button class="btn" type="button" id="confirm-password-code-btn">
-      Potwierdź kod
-    </button>
-    <button class="btn" type="button" id="resend-password-code-btn">
-      Wyślij ponownie
-    </button>
-  </div>
-</div>
-</div>
+        <div class="form-group">
+          <button class="btn" type="button" id="confirm-password-code-btn">
+            Potwierdź kod
+          </button>
+          <button class="btn" type="button" id="resend-password-code-btn">
+            Wyślij ponownie
+          </button>
+        </div>
+      </div>
+    </div>
 
-<div class="admin-card">
-  <h3>Usuń konto</h3>
+    <div class="admin-card">
+      <h3>Usuń konto</h3>
 
       <p style="font-size:14px; opacity:.8; margin-bottom:15px;">
-        Usunięcie konta jest nieodwracalne. Wszystkie dane zostaną trwale usunięte jeśli jest tylko 1 użytkownik danej firmy.
+        Usunięcie konta jest nieodwracalne. Wszystkie dane zostaną trwale usunięte wraz z panelem personelu.
       </p>
 
       <div class="form-group">
@@ -124,46 +124,57 @@
       </div>
 
       <button class="btn" type="button" id="delete-account-btn" style="background:#dc2626; color:#fff;">
-        Usuń konto
+        Wyślij kod potwierdzający
       </button>
+
+      <div id="delete-code-section" class="hidden">
+        <div class="form-group">
+          <label for="delete-code">Kod z e-maila</label>
+          <input type="text" id="delete-code" maxlength="6" inputmode="numeric" placeholder="Wpisz 6-cyfrowy kod">
+        </div>
+
+        <button class="btn" type="button" id="confirm-delete-account-btn" style="background:#dc2626; color:#fff;">
+          Usuń konto
+        </button>
+      </div>
     </div>
 
     <div class="admin-card">
       <h3>Branding klienta</h3>
 
-     <div class="form-group">
-  <label for="account-logo">Logo</label>
-  <input type="file" id="account-logo" accept="image/*">
-  <small>Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 2 MB.</small>
+      <div class="form-group">
+        <label for="account-logo">Logo</label>
+        <input type="file" id="account-logo" accept="image/*">
+        <small>Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 2 MB.</small>
 
-  <div class="branding-logo-preview-wrap">
-    <div class="branding-logo-preview-label">Aktualne logo</div>
-    <img id="account-logo-preview" class="branding-logo-preview" src="" alt="Aktualne logo" style="display:none;">
-    <div id="account-logo-empty" class="branding-logo-empty">Brak wgranego logo</div>
+        <div class="branding-logo-preview-wrap">
+          <div class="branding-logo-preview-label">Aktualne logo</div>
+          <img id="account-logo-preview" class="branding-logo-preview" src="" alt="Aktualne logo" style="display:none;">
+          <div id="account-logo-empty" class="branding-logo-empty">Brak wgranego logo</div>
 
-    <button class="btn branding-remove-btn" type="button" id="delete-logo-front-btn" style="display:none;">
-      Usuń logo
-    </button>
-  </div>
-</div>
+          <button class="btn branding-remove-btn" type="button" id="delete-logo-front-btn" style="display:none;">
+            Usuń logo
+          </button>
+        </div>
+      </div>
 
-<div class="form-group">
-  <label for="account-favicon">Favicon frontu kalendarza</label>
-  <input type="file" id="account-favicon" accept="image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon">
-  <small>Dozwolone formaty: PNG, JPG, WEBP, ICO. Maksymalnie 512 KB.</small>
+      <div class="form-group">
+        <label for="account-favicon">Favicon frontu kalendarza</label>
+        <input type="file" id="account-favicon" accept="image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon">
+        <small>Dozwolone formaty: PNG, JPG, WEBP, ICO. Maksymalnie 512 KB.</small>
 
-  <div class="branding-favicon-preview-wrap">
-    <div class="branding-logo-preview-label">Aktualna favicon</div>
-    <img id="account-favicon-preview" class="branding-favicon-preview" src="" alt="Aktualna favicon" style="display:none;">
-    <div id="account-favicon-empty" class="branding-logo-empty">Brak wgranej favicony</div>
+        <div class="branding-favicon-preview-wrap">
+          <div class="branding-logo-preview-label">Aktualna favicon</div>
+          <img id="account-favicon-preview" class="branding-favicon-preview" src="" alt="Aktualna favicon" style="display:none;">
+          <div id="account-favicon-empty" class="branding-logo-empty">Brak wgranej favicony</div>
 
-    <button class="btn branding-remove-btn" type="button" id="delete-favicon-front-btn" style="display:none;">
-      Usuń faviconę
-    </button>
-  </div>
-</div>
-      
-     <div class="form-group">
+          <button class="btn branding-remove-btn" type="button" id="delete-favicon-front-btn" style="display:none;">
+            Usuń faviconę
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
         <label for="account-theme">Motyw panelu</label>
         <select id="account-theme">
           <option value="light">Jasny</option>
@@ -276,7 +287,7 @@
         <input type="text" id="label-notes" value="Wiadomość">
       </div>
 
-          <div class="form-group">
+      <div class="form-group">
         <label><input type="checkbox" id="toggle-phone-field" checked> Pokaż pole telefon</label>
       </div>
 

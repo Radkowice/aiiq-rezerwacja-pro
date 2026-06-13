@@ -29,7 +29,9 @@
     cancelText = 'Anuluj',
     variant = 'primary',
     icon = '⚠️',
-    showCancel = true
+    showCancel = true,
+    checkboxText = '',
+    requireCheckbox = false
   } = {}) {
     return new Promise((resolve) => {
       const overlay = ensureAdminModal();
@@ -40,6 +42,12 @@
       const okBtn = document.getElementById('adminConfirmOk');
 
       if (!overlay || !titleEl || !messageEl || !cancelBtn || !okBtn) {
+        if (requireCheckbox === true) {
+          alert('Nie można wyświetlić bezpiecznego potwierdzenia. Operacja została przerwana.');
+          resolve(false);
+          return;
+        }
+
         const fallbackText =
           message ||
           String(html || '')
@@ -62,10 +70,21 @@
         messageEl.innerHTML = String(message || '').replace(/\n/g, '<br>');
       }
 
+      let checkbox = null;
+      if (checkboxText) {
+        const checkboxLabel = document.createElement('label');
+        checkboxLabel.className = 'admin-confirm-check';
+        checkboxLabel.innerHTML = '<input type="checkbox" id="adminConfirmCheck"><span></span>';
+        checkboxLabel.querySelector('span').textContent = checkboxText;
+        messageEl.appendChild(checkboxLabel);
+        checkbox = checkboxLabel.querySelector('input');
+      }
+
       cancelBtn.textContent = cancelText || 'Anuluj';
       cancelBtn.hidden = showCancel === false;
       okBtn.textContent = confirmText || 'OK';
       okBtn.className = `admin-confirm-btn ok ${variant || 'primary'}`;
+      okBtn.disabled = Boolean(requireCheckbox && checkbox);
 
       overlay.classList.add('show');
       document.body.classList.add('modal-open');
@@ -86,6 +105,11 @@
 
       cancelBtn.onclick = () => close(false);
       okBtn.onclick = () => close(true);
+      if (checkbox) {
+        checkbox.onchange = () => {
+          okBtn.disabled = Boolean(requireCheckbox && !checkbox.checked);
+        };
+      }
       overlay.onclick = (event) => {
         if (event.target === overlay) close(false);
       };

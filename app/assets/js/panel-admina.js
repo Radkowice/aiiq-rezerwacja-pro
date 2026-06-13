@@ -526,7 +526,7 @@ function resolvePlanLockDescription() {
     return 'Funkcja dostępna w planie Pro. Twój abonament Pro wygasł. Opłać abonament, aby odzyskać dostęp do konfiguracji Pro.';
   }
 
-  return 'Funkcja dostępna w planie Pro.';
+  return 'Dostępne w wersji Pro';
 }
 
 function disablePlanLockedControls(container) {
@@ -612,11 +612,6 @@ function addPlanLockOverlay(container, config, options = {}) {
   title.textContent = config.title;
 
   box.appendChild(title);
-
-  const description = document.createElement('p');
-  description.className = 'plan-lock-description';
-  description.textContent = resolvePlanLockDescription();
-  box.appendChild(description);
 
   overlay.appendChild(box);
   container.appendChild(overlay);
