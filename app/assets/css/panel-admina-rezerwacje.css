@@ -1122,6 +1122,25 @@ body.theme-dark .admin-confirm-modal {
     line-height: 1.35;
   }
 
+  #bookingList td.empty {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  #bookingList td.empty {
+    padding: 14px 12px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: normal;
+    text-align: center;
+  }
+
+  #bookingList td.empty::before {
+    content: none;
+  }
+
   #bookingList td.col-name::before {
     content: "Klient";
   }

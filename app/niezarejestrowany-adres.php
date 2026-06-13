@@ -8,6 +8,7 @@ require_once __DIR__ . '/helpers/footer.php';
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Adres niezarejestrowany</title>
   <link rel="stylesheet" href="/assets/css/app-footer.css">
   <link rel="stylesheet" href="/assets/css/niezarejestrowany-adres.css">

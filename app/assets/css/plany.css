@@ -6,10 +6,15 @@
   cursor: default;
 }
 
+.plan-locked.feature-locked > :not(.plan-lock-overlay) {
+  pointer-events: none;
+  user-select: none;
+}
+
 .plan-lock-overlay {
   position: absolute;
   inset: 0;
-  z-index: 20;
+  z-index: 120;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -20,6 +25,7 @@
   backdrop-filter: blur(1.5px);
   text-align: center;
   pointer-events: auto;
+  cursor: default;
 }
 
 .plan-payments-pro-group {

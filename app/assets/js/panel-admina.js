@@ -109,6 +109,7 @@ function enqueueAdminIntegrationsModule() {
 
 function enqueueAdminStaffModule() {
   if (adminStaffModuleQueued) return;
+  if (!aiIqHasFeature('staff_module')) return;
 
   adminStaffModuleQueued = true;
 
@@ -686,7 +687,9 @@ function applyPlanLocks() {
 
     const section = document.querySelector(`[data-section="${sectionName}"]`);
 
-    addPlanLockOverlay(section, config);
+    addPlanLockOverlay(section, config, {
+      disableControls: true
+    });
   });
 
   PLAN_LOCKED_ELEMENTS.forEach(config => {
@@ -1053,8 +1056,8 @@ function initBookingFilters() {
 
   <p class="booking-retention-info">
     Eksport CSV obejmuje rezerwacje dostępne w systemie.
-    Starsze rezerwacje zostaną automatycznie usunięte.
-    Przed usunięciem pobierz rezerwacje i historię do pliku CSV.
+    Starsze rezerwacje zostaną automatycznie usunięte po 3 miesiącach.
+    Przed usunięciem pobierz historie rezerwacji, przechowuj zgodnie z obowiązującym RODO.
   </p>
 `;
 

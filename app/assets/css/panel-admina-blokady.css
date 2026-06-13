@@ -170,11 +170,15 @@ section[data-section="blokady"] .block-refresh-btn {
 
 #block-message {
   display: block;
+  box-sizing: border-box;
+  max-width: 100%;
   margin: 12px 0 16px;
   padding: 12px 14px;
   border-radius: 12px;
   font-size: 14px;
   font-weight: 700;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 #block-message.success {

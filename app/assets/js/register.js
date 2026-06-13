@@ -703,7 +703,7 @@ function getSelectedRegistrationPlan() {
     return {
       code: 'pro',
       label: 'Pro',
-      hint: 'Rejestracja bezpośrednio w planie Pro. Po wysłaniu formularza przejdziesz do płatności PayU.'
+      hint: 'Po wysłaniu formularza przejdziesz do płatności PayU.'
     };
   }
 

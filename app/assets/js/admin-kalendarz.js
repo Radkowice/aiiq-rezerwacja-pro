@@ -435,6 +435,11 @@
     const select = document.getElementById('block-staff-select');
     if (!select) return;
 
+    if (!canUseStaffBlocks()) {
+      disableStaffBlocksForCurrentPlan(select);
+      return;
+    }
+
     try {
       const res = await fetch('/api/staff/list.php', {
         cache: 'no-store',
@@ -466,6 +471,42 @@
       console.error('loadBlockStaffOptions error:', error);
       showMessage(error.message || 'Nie udało się wczytać pracowników', 'error');
     }
+  }
+
+  function canUseStaffBlocks() {
+    if (typeof window.aiIqHasFeature === 'function') {
+      return window.aiIqHasFeature('staff_blocks');
+    }
+
+    if (typeof aiIqHasFeature === 'function') {
+      return aiIqHasFeature('staff_blocks');
+    }
+
+    return true;
+  }
+
+  function disableStaffBlocksForCurrentPlan(select) {
+    const wrap = document.getElementById('block-staff-select-wrap');
+    const globalScope = document.querySelector('input[name="block-scope"][value="global"]');
+    const staffScope = document.querySelector('input[name="block-scope"][value="staff"]');
+
+    blockScope = 'global';
+    selectedBlockStaffId = '';
+    blockStaff = [];
+    staffWorkingHours = [];
+    staffWorkingHoursDate = '';
+    staffAvailability = [];
+    staffAvailabilityLoadedFor = '';
+
+    select.innerHTML = '<option value="">Wybierz pracownika</option>';
+    select.value = '';
+
+    if (wrap) wrap.hidden = true;
+    if (globalScope) globalScope.checked = true;
+    if (staffScope) staffScope.checked = false;
+
+    syncBlockSettingsVisibility();
+    syncReservationLegendVisibility();
   }
   
   function renderCalendarNotConfiguredState() {
