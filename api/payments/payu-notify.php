@@ -345,15 +345,23 @@ function payu_notify_send_paid_email(string $tenantId, array $booking): bool
         $tenantQuery
     );
 
+    $serviceSettings = payu_notify_fetch_single_record(
+        'tenant_service_settings',
+        $tenantQuery
+    );
+
+    $tenantMailData = array_merge(
+        is_array($tenantData) ? $tenantData : [],
+        is_array($serviceSettings) ? $serviceSettings : []
+    );
+
     if (!$emailSettings || !$emailTemplate || !$tenantData) {
-        payu_debug('PAYU_NOTIFY_OFFICIAL_EMAIL_CONFIG_MISSING', [
+        payu_debug('PAYU_NOTIFY_EMAIL_FALLBACK_NEEDED', [
             'tenant_id' => $tenantId,
             'email_settings' => (bool)$emailSettings,
             'email_template' => (bool)$emailTemplate,
             'tenant_data' => (bool)$tenantData,
         ]);
-
-        return false;
     }
 
     $staffEmailProfile = payu_notify_fetch_staff_email_profile(
@@ -369,17 +377,21 @@ function payu_notify_send_paid_email(string $tenantId, array $booking): bool
         $booking['staff_display_name'] = $staffDisplayName;
     }
 
+    $baseEmailTemplate = is_array($emailTemplate)
+        ? $emailTemplate
+        : booking_mail_default_client_template();
+
     $effectiveEmailTemplate = payu_notify_effective_email_template(
-        $emailTemplate,
+        $baseEmailTemplate,
         $staffEmailProfile
     );
 
     $rescheduleUrl = payu_notify_reschedule_url($tenantId, $booking);
    
-    return booking_mail_send_client_confirmation(
+    return booking_mail_send_client_confirmation_with_fallback(
         $emailSettings,
         $effectiveEmailTemplate,
-        $tenantData,
+        $tenantMailData,
         $booking,
         [
             'status_label' => 'Opłacono',

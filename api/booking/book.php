@@ -11,6 +11,7 @@ require __DIR__ . '/../PHPMailer/src/Exception.php';
 require __DIR__ . '/../PHPMailer/src/PHPMailer.php';
 require __DIR__ . '/../PHPMailer/src/SMTP.php';
 require_once __DIR__ . '/../helpers/google_calendar.php';
+require_once __DIR__ . '/../helpers/booking_mail.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -1689,15 +1690,19 @@ try {
         $tenantQuery
     );
 
-    if (!$emailSettings || !$emailTemplate || !$tenantData) {
-        throw new Exception('Brak konfiguracji email lub template klienta dla tenant.');
-    }
+    $tenantData = is_array($tenantData) ? $tenantData : [];
+    $tenantMailData = array_merge(
+        $tenantData,
+        is_array($serviceSettings) ? $serviceSettings : []
+    );
+    $emailSettings = is_array($emailSettings) ? $emailSettings : null;
+    $emailTemplate = is_array($emailTemplate) ? $emailTemplate : null;
 
-    $companyName = (string) ($tenantData['client_name'] ?? '');
+    $companyName = (string) ($tenantMailData['client_name'] ?? $tenantMailData['company_full_name'] ?? '');
     $plan = 'basic';
-    $footerMode = (string) ($tenantData['email_footer_mode'] ?? 'system');
-    $footerCustom = (string) ($tenantData['email_footer_custom'] ?? '');
-    $effectiveEmailTemplate = $emailTemplate;
+    $footerMode = (string) ($tenantMailData['email_footer_mode'] ?? 'system');
+    $footerCustom = (string) ($tenantMailData['email_footer_custom'] ?? '');
+    $effectiveEmailTemplate = $emailTemplate ?? booking_mail_default_client_template();
 
     if ($staffEmailSubject !== '') {
         $effectiveEmailTemplate['subject'] = $staffEmailSubject;
@@ -1744,47 +1749,28 @@ try {
         $rescheduleUrl = bookingBuildRescheduleUrl($manageToken, $manageTokenExpiresAt);
     }
 
-    if (!$paymentRequired && !empty($emailSettings['send_client_confirmation'])) {
-        $clientHtml = buildClientEmailHtml(
-            $introHtml,
-            $companyName,
-            $emailHeading,
-            $footerHtml,
-            $name,
-            $email,
-            $date,
-            $time,
-            $note,
-            $bookedServiceName,
-            $staffDisplayName,
-            $rescheduleUrl
+    if (!$paymentRequired) {
+        $mailSentClient = booking_mail_send_client_confirmation_with_fallback(
+            $emailSettings,
+            $effectiveEmailTemplate,
+            $tenantMailData,
+            [
+                'id' => $bookingId,
+                'name' => $name,
+                'email' => $email,
+                'phone' => $phone,
+                'booking_date' => $date,
+                'booking_time' => $time,
+                'notes' => $note,
+                'service_name_snapshot' => $bookedServiceName,
+                'staff_display_name' => $staffDisplayName,
+                'payment_required' => false,
+                'payment_status' => 'not_required',
+            ],
+            [
+                'reschedule_url' => $rescheduleUrl,
+            ]
         );
-
-        $clientAltBody =
-            "Rezerwacja potwierdzona\n\n" .
-            "{$emailHeading} | {$companyName}\n\n" .
-            "Imię: {$name}\n" .
-            "E-mail: {$email}\n" .
-            ($bookedServiceName !== '' ? "Usługa: {$bookedServiceName}\n" : '') .
-            "Data: {$date}\n" .
-            ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '') .
-            "Godzina: {$time}\n" .
-            ($note !== '' ? "Wiadomość: {$note}\n" : '') .
-            ($rescheduleUrl !== ''
-                ? "\nChcesz zmienić termin?\nJeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.\nPrzełóż rezerwację: {$rescheduleUrl}\nLink jest ważny do momentu rozpoczęcia rezerwacji.\n"
-                : '') .
-            "\n";
-
-        $mail = new PHPMailer(true);
-        configureMailer($mail, $emailSettings);
-        $mail->addAddress($email, $name);
-        $mail->isHTML(true);
-        $mail->Subject = $finalSubject !== '' ? $finalSubject : ('Potwierdzenie rezerwacji – ' . $date . ' ' . $time);
-        $mail->Body = $clientHtml;
-        $mail->AltBody = $clientAltBody;
-        $mail->send();
-
-        $mailSentClient = true;
     }
 
     if ($paymentRequired) {
@@ -1795,7 +1781,7 @@ try {
         ]);
     }
 
-    if (!empty($emailSettings['send_admin_notification'])) {
+    if ($emailSettings && !empty($emailSettings['send_admin_notification'])) {
         $adminNotifyEmail = trim((string) ($emailSettings['admin_notify_email'] ?? ''));
 
         if ($adminNotifyEmail !== '') {

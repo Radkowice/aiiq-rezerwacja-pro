@@ -6,11 +6,21 @@
     </div>
   </div>
 
+  <div class="settings-card email-settings-card email-fallback-notice">
+    <h3>Awaryjna wysyłka systemowa</h3>
+    <p class="settings-desc">
+      Jeśli nie skonfigurujesz własnego połączenia e-mail lub nie ustawisz szablonów wiadomości, system wyśle podstawowe powiadomienia z adresu systemowego AI-IQ Rezerwacja Pro.
+    </p>
+    <p class="settings-desc">
+      W takim przypadku klient otrzyma potwierdzenie rezerwacji, ale odpowiedzi na wiadomość mogą nie trafić bezpośrednio do Twojej firmy. Dla lepszego kontaktu z klientem zalecamy skonfigurowanie własnej skrzynki e-mail i szablonów wiadomości.
+    </p>
+  </div>
+
   <div class="settings-grid email-settings-grid">
     <div class="settings-card email-settings-card" data-email-card="smtp">
       <h3>Serwer SMTP</h3>
       <p class="settings-desc">
-        Tutaj ustawiasz skrzynkę e-mail, z której system będzie wysyłał wiadomości do klientów. Dla bezpieczeństwa zaleca się utworzyć adres e-mail wyłącznie dla rezerwacji. Możesz użyć poczty firmowej albo Gmaila/Google Workspace. Po zmianie danych SMTP zapisz ustawienia i sprawdź połączenie.
+        Tutaj ustawiasz skrzynkę e-mail, z której system będzie wysyłał wiadomości do klientów. Możesz użyć poczty firmowej albo Gmaila/Google Workspace. Po zmianie danych SMTP zapisz ustawienia i sprawdź połączenie.
         <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
       </p>
 

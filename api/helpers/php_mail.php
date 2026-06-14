@@ -134,7 +134,7 @@ function buildEmailChangeNewAddressHtml(string $oldEmail, string $newEmail): str
     );
 }
 
-function sendSystemMail(string $to, string $subject, string $html): bool
+function sendSystemMail(string $to, string $subject, string $html, ?string $replyToOverride = null, string $replyNameOverride = ''): bool
 {
     try {
         $host       = systemMailEnv('SMTP_SYSTEM_HOST');
@@ -144,8 +144,8 @@ function sendSystemMail(string $to, string $subject, string $html): bool
         $fromEmail  = systemMailEnv('SMTP_SYSTEM_FROM');
         $fromName   = systemMailEnv('SMTP_SYSTEM_NAME', 'AI-IQ');
         $encryption = strtolower(systemMailEnv('SMTP_SYSTEM_ENCRYPTION', 'tls'));
-        $replyTo    = systemMailEnv('SMTP_SYSTEM_REPLY_TO', $fromEmail);
-        $replyName  = systemMailEnv('SMTP_SYSTEM_REPLY_TO_NAME', 'No Reply');
+        $replyTo    = $replyToOverride !== null ? trim($replyToOverride) : systemMailEnv('SMTP_SYSTEM_REPLY_TO', $fromEmail);
+        $replyName  = $replyToOverride !== null ? trim($replyNameOverride) : systemMailEnv('SMTP_SYSTEM_REPLY_TO_NAME', 'No Reply');
 
         if ($host === '' || $username === '' || $password === '' || $fromEmail === '') {
             throw new Exception('Brak pełnej konfiguracji SMTP_SYSTEM_* w ENV');
@@ -170,7 +170,7 @@ function sendSystemMail(string $to, string $subject, string $html): bool
         $mail->setFrom($fromEmail, $fromName);
         $mail->addAddress($to);
 
-        if ($replyTo !== '') {
+        if ($replyTo !== '' && filter_var($replyTo, FILTER_VALIDATE_EMAIL)) {
             $mail->addReplyTo($replyTo, $replyName);
         }
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../PHPMailer/src/Exception.php';
 require_once __DIR__ . '/../PHPMailer/src/PHPMailer.php';
 require_once __DIR__ . '/../PHPMailer/src/SMTP.php';
+require_once __DIR__ . '/php_mail.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -67,6 +68,193 @@ if (!function_exists('booking_mail_format_amount')) {
 
     return number_format((float)$amount, 2, ',', ' ') . ' ' . $displayCurrency;
 }
+}
+
+if (!function_exists('booking_mail_has_usable_smtp')) {
+    function booking_mail_has_usable_smtp(?array $emailSettings): bool
+    {
+        if (!$emailSettings) {
+            return false;
+        }
+
+        $smtpHost = trim((string)($emailSettings['smtp_host'] ?? ''));
+        $fromEmail = trim((string)($emailSettings['smtp_email'] ?? $emailSettings['from_email'] ?? ''));
+
+        return $smtpHost !== '' && $fromEmail !== '' && filter_var($fromEmail, FILTER_VALIDATE_EMAIL);
+    }
+}
+
+if (!function_exists('booking_mail_default_client_template')) {
+    function booking_mail_default_client_template(): array
+    {
+        return [
+            'subject' => 'Potwierdzenie rezerwacji - {date} {time}',
+            'service_name' => 'Dziękujemy za rezerwację',
+            'body_html' => '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Twoja rezerwacja została przyjęta. Szczegóły znajdziesz poniżej.</p>',
+        ];
+    }
+}
+
+if (!function_exists('booking_mail_company_contact_email')) {
+    function booking_mail_company_contact_email(array $tenantData, ?array $emailSettings = null): string
+    {
+        $candidates = [
+            $tenantData['company_email'] ?? '',
+            $tenantData['admin_email'] ?? '',
+            $tenantData['contact_email'] ?? '',
+            $tenantData['email'] ?? '',
+            $emailSettings['reply_to_email'] ?? '',
+            $emailSettings['admin_notify_email'] ?? '',
+            $emailSettings['smtp_email'] ?? '',
+            $emailSettings['from_email'] ?? '',
+        ];
+
+        foreach ($candidates as $candidate) {
+            $email = trim((string)$candidate);
+
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return $email;
+            }
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('booking_mail_payment_status_label')) {
+    function booking_mail_payment_status_label(string $status): string
+    {
+        return match (strtolower(trim($status))) {
+            'paid', 'completed', 'success' => 'Opłacono',
+            'pending', 'pending_payment' => 'Oczekuje na płatność',
+            'cancelled', 'canceled' => 'Anulowano',
+            'failed' => 'Płatność nieudana',
+            'expired' => 'Płatność wygasła',
+            'not_required' => 'Nie wymaga płatności',
+            default => '',
+        };
+    }
+}
+
+if (!function_exists('booking_mail_system_confirmation_html')) {
+    function booking_mail_system_confirmation_html(array $tenantData, array $booking, array $payment = [], string $companyEmail = ''): string
+    {
+        $companyName = trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''));
+        $serviceName = trim((string)($booking['service_name_snapshot'] ?? $booking['service_name'] ?? ''));
+        $name = trim((string)($booking['name'] ?? ''));
+        $email = trim((string)($booking['email'] ?? ''));
+        $phone = trim((string)($booking['phone'] ?? ''));
+        $date = trim((string)($booking['booking_date'] ?? $booking['date'] ?? ''));
+        $time = trim((string)($booking['booking_time'] ?? $booking['time'] ?? ''));
+        $staffDisplayName = trim((string)($booking['staff_display_name'] ?? ''));
+        $paymentStatus = trim((string)($payment['status_label'] ?? ''));
+
+        if ($paymentStatus === '') {
+            $paymentStatus = booking_mail_payment_status_label((string)($booking['payment_status'] ?? ''));
+        }
+
+        $amountText = booking_mail_format_amount(
+            $payment['amount'] ?? $booking['payment_amount'] ?? null,
+            (string)($payment['currency'] ?? $booking['payment_currency'] ?? 'PLN')
+        );
+
+        $row = static function (string $label, string $value): string {
+            if (trim($value) === '') {
+                return '';
+            }
+
+            return '<tr>'
+                . '<td style="padding:8px 0;color:#6b7280;">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ':</td>'
+                . '<td style="padding:8px 0;text-align:right;"><strong>' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '</strong></td>'
+                . '</tr>';
+        };
+
+        $message = ''
+            . '<p style="margin:0 0 14px;"><strong>Twoja rezerwacja została potwierdzona.</strong></p>'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px;border-collapse:collapse;">'
+            . $row('Firma', $companyName)
+            . $row('Usługa', $serviceName)
+            . $row('Data', $date)
+            . $row('Godzina', $time)
+            . $row('Osoba obsługująca', $staffDisplayName)
+            . $row('Status płatności', $paymentStatus)
+            . $row('Kwota', $amountText)
+            . $row('Klient', $name)
+            . $row('E-mail klienta', $email)
+            . $row('Telefon klienta', $phone)
+            . $row('Kontakt do firmy', $companyEmail)
+            . '</table>'
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">To jest automatyczna wiadomość wysłana przez system AI-IQ Rezerwacja Pro.</p>'
+            . '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">Odpowiedzi na ten adres mogą nie być obsługiwane.</p>'
+            . '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">W sprawie rezerwacji skontaktuj się z firmą: <strong>' . htmlspecialchars($companyEmail !== '' ? $companyEmail : 'brak adresu kontaktowego', ENT_QUOTES, 'UTF-8') . '</strong>.</p>';
+
+        return buildSystemMailLayout(
+            'Potwierdzenie rezerwacji',
+            'Podstawowe potwierdzenie rezerwacji wysłane przez AI-IQ Rezerwacja Pro.',
+            $message,
+            'Wiadomość została wysłana awaryjnie, ponieważ firma nie skonfigurowała własnej wysyłki e-mail lub szablonu wiadomości.'
+        );
+    }
+}
+
+if (!function_exists('booking_mail_send_system_confirmation')) {
+    function booking_mail_send_system_confirmation(array $tenantData, array $booking, array $payment = [], ?array $emailSettings = null): bool
+    {
+        $email = trim((string)($booking['email'] ?? ''));
+
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return false;
+        }
+
+        $companyEmail = booking_mail_company_contact_email($tenantData, $emailSettings);
+        $html = booking_mail_system_confirmation_html($tenantData, $booking, $payment, $companyEmail);
+        $date = trim((string)($booking['booking_date'] ?? $booking['date'] ?? ''));
+        $time = trim((string)($booking['booking_time'] ?? $booking['time'] ?? ''));
+        $subject = trim('Potwierdzenie rezerwacji ' . $date . ' ' . $time);
+
+        return sendSystemMail(
+            $email,
+            $subject !== 'Potwierdzenie rezerwacji' ? $subject : 'Potwierdzenie rezerwacji',
+            $html,
+            $companyEmail !== '' ? $companyEmail : null,
+            trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''))
+        );
+    }
+}
+
+if (!function_exists('booking_mail_send_client_confirmation_with_fallback')) {
+    function booking_mail_send_client_confirmation_with_fallback(
+        ?array $emailSettings,
+        ?array $emailTemplate,
+        array $tenantData,
+        array $booking,
+        array $payment = []
+    ): bool {
+        $hasSmtp = booking_mail_has_usable_smtp($emailSettings);
+        $hasTemplate = is_array($emailTemplate) && trim((string)($emailTemplate['body_html'] ?? '')) !== '';
+
+        if ($hasSmtp) {
+            $settingsForSend = $emailSettings;
+            $settingsForSend['send_client_confirmation'] = true;
+            $templateForSend = $hasTemplate ? $emailTemplate : booking_mail_default_client_template();
+
+            try {
+                if (booking_mail_send_client_confirmation(
+                    $settingsForSend,
+                    $templateForSend,
+                    $tenantData,
+                    $booking,
+                    $payment
+                )) {
+                    return true;
+                }
+            } catch (Throwable $e) {
+                error_log('BOOKING_MAIL_FALLBACK_SMTP_FAILED: ' . get_class($e));
+            }
+        }
+
+        return booking_mail_send_system_confirmation($tenantData, $booking, $payment, $emailSettings);
+    }
 }
 
 if (!function_exists('booking_mail_configure_mailer')) {

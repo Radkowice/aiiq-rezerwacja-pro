@@ -143,6 +143,24 @@ function getEl(id) {
   return document.getElementById(id);
 }
 
+function bindBookingButton() {
+  const bookBtn = document.getElementById('bookBtn');
+
+  if (!bookBtn || bookBtn.dataset.bookingBound === '1') {
+    return;
+  }
+
+  bookBtn.dataset.bookingBound = '1';
+
+  bookBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+
+    if (typeof saveBooking === 'function') {
+      saveBooking();
+    }
+  });
+}
+
 function showTenantNotFoundView(message = '') {
   const bookingApp = getEl('bookingApp');
   const tenantNotFoundView = getEl('tenantNotFoundView');
@@ -2391,10 +2409,7 @@ async function loadFrontBootstrap() {
 
 document.addEventListener('DOMContentLoaded', async () => {
 
-  const bookBtn = getEl('bookBtn');
-  if (bookBtn) {
-    bookBtn.addEventListener('click', saveBooking);
-  }
+  bindBookingButton();
 
   const formStartedAtInput = getEl('formStartedAt');
   if (formStartedAtInput) {

@@ -389,42 +389,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
-document.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-booking-action]');
-  if (!button) return;
+if (!window.__AIIQ_BOOKING_ACTIONS_BOUND) {
+  window.__AIIQ_BOOKING_ACTIONS_BOUND = true;
 
-  const action = button.dataset.bookingAction;
+  document.addEventListener('click', (event) => {
+    const eventTarget = event.target instanceof Element ? event.target : event.target?.parentElement;
+    const button = eventTarget?.closest('[data-booking-action]');
+    if (!button) return;
 
-  if (action === 'toggle-technical-details') {
-    toggleBookingTechnicalDetails(button.dataset.targetId, button);
-    return;
-  }
+    const action = button.dataset.bookingAction;
 
-  if (action === 'change-staff') {
-    changeBookingStaff(button.dataset.bookingId);
-    return;
-  }
+    if (action === 'toggle-technical-details') {
+      toggleBookingTechnicalDetails(button.dataset.targetId, button);
+      return;
+    }
 
-  if (action === 'detach-staff') {
-    detachBookingStaff(button.dataset.bookingId);
-    return;
-  }
+    if (action === 'change-staff') {
+      changeBookingStaff(button.dataset.bookingId);
+      return;
+    }
 
-  if (action === 'toggle-details') {
-    toggleBookingDetails(button.dataset.targetId, button);
-    return;
-  }
+    if (action === 'detach-staff') {
+      detachBookingStaff(button.dataset.bookingId);
+      return;
+    }
 
-  if (action === 'delete-booking') {
-    deleteBooking(
-      button.dataset.bookingId,
-      button.dataset.bookingDate,
-      button.dataset.bookingTime,
-      button.dataset.bookingStatus || '',
-      button.dataset.paymentStatus || ''
-    );
-  }
-});
+    if (action === 'toggle-details') {
+      toggleBookingDetails(button.dataset.targetId, button);
+      return;
+    }
+
+    if (action === 'delete-booking') {
+      deleteBooking(
+        button.dataset.bookingId,
+        button.dataset.bookingDate,
+        button.dataset.bookingTime,
+        button.dataset.bookingStatus || '',
+        button.dataset.paymentStatus || ''
+      );
+    }
+  });
+}
 
 function initMenu() {
   const menuItems = document.querySelectorAll('.menu-item');
