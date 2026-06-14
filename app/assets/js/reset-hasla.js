@@ -58,18 +58,10 @@ async function sendReset() {
       return;
     }
 
-   if (res.ok && data?.success) {
-  setResetMessage(
-    data.message || 'Jeśli konto istnieje, wysłaliśmy wiadomość z instrukcją resetu hasła.',
-    'success'
-  );
-  return;
-}
-
-setResetMessage(
-  data?.error || 'Nie udało się wysłać wiadomości resetującej hasło. Spróbuj ponownie za chwilę.',
-  'error'
-);
+    setResetMessage(
+      data?.error || 'Nie udało się wysłać wiadomości resetującej hasło. Spróbuj ponownie za chwilę.',
+      'error'
+    );
   } catch (e) {
     console.error('reset password error:', e);
     setResetMessage('Nie udało się połączyć z serwerem. Spróbuj ponownie za chwilę.', 'error');
@@ -78,4 +70,13 @@ setResetMessage(
 
 document.addEventListener('DOMContentLoaded', () => {
   setResetMessage('');
+
+  const form = document.querySelector('form');
+
+  if (form) {
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      sendReset();
+    });
+  }
 });

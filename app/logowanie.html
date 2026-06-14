@@ -21,7 +21,7 @@
   <div class="box login-box">
     <h2>Logowanie</h2>
 
-    <form onsubmit="event.preventDefault(); login();">
+    <form>
       <input type="email" id="email" placeholder="Email" autocomplete="email">
 
       <div class="login-password-field">
@@ -30,7 +30,6 @@
         <button
           type="button"
           class="login-toggle-password"
-          onclick="togglePassword()"
           aria-label="Pokaż lub ukryj hasło"
         >
           <span class="password-eye password-eye-open">👁️</span>

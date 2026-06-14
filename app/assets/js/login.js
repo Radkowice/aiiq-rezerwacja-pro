@@ -106,6 +106,21 @@ function togglePassword() {
 
 document.addEventListener('DOMContentLoaded', async () => {
   clearLoginError();
+
+  const form = document.querySelector('form');
+  const togglePasswordButton = document.querySelector('.login-toggle-password');
+
+  if (form) {
+    form.addEventListener('submit', function (event) {
+      event.preventDefault();
+      login();
+    });
+  }
+
+  if (togglePasswordButton) {
+    togglePasswordButton.addEventListener('click', togglePassword);
+  }
+
   await checkSetupBeforeLogin();
   showActivationMessage();
 });

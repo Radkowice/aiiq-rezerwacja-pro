@@ -200,6 +200,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const passwordInput = document.getElementById('password');
   const form = document.getElementById('newPasswordForm') || document.querySelector('form');
+  const togglePasswordButton = document.querySelector('.login-toggle-password');
 
   if (passwordInput) {
     passwordInput.addEventListener('input', function () {
@@ -214,5 +215,9 @@ document.addEventListener('DOMContentLoaded', () => {
       e.preventDefault();
       resetPassword();
     });
+  }
+
+  if (togglePasswordButton) {
+    togglePasswordButton.addEventListener('click', togglePassword);
   }
 });

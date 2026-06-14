@@ -60,17 +60,23 @@
         <h3>Przejdź na plan Pro</h3>
 
         <p class="admin-info-desc">
-          Odblokuj pełne możliwości systemu rezerwacji i rozwijaj obsługę klientów bez ręcznego pilnowania wszystkiego.
+          Odblokuj pełne możliwości systemu rezerwacji i zautomatyzuj obsługę klientów bez ręcznego pilnowania wszystkiego.
+        </p>
+
+        <p class="admin-info-desc pro-upgrade-benefits-intro">
+          W planie Pro otrzymujesz:
         </p>
 
         <ul class="pro-upgrade-benefits">
-          <li>obsługa personelu,</li>
-          <li>wiele usług,</li>
-          <li>płatności online,</li>
-          <li>integracja z Google Calendar,</li>
-          <li>własne logo i wygląd kalendarza,</li>
-          <li>zaawansowane ustawienia rezerwacji,</li>
-          <li>automatyczne przypomnienia i większa kontrola nad rezerwacjami.</li>
+          <li>obsługę personelu i indywidualnych grafików,</li>
+          <li>wiele usług z osobnymi ustawieniami czasu, przerw i płatności,</li>
+          <li>płatności online przez PayU,</li>
+          <li>integrację z Google Calendar,</li>
+          <li>własne logo, faviconę i wygląd kalendarza,</li>
+          <li>dodasz swój regulamin i politykę prywatności,</li>
+          <li>zmianę terminu rezerwacji przez klienta,</li>
+          <li>automatyczne przypomnienia e-mail,</li>
+          <li>większą kontrolę nad rezerwacjami, blokadami i dostępnością.</li>
         </ul>
 
         <div class="pro-upgrade-options" id="pro-upgrade-options" role="radiogroup" aria-label="Płatność rozliczeniowa planu Pro">
@@ -94,8 +100,8 @@
         <label class="pro-upgrade-consent">
           <input type="checkbox" id="pro-upgrade-consent">
           <span>
-            Akceptuję <a href="/legal/regulamin.html" target="_blank" rel="noopener noreferrer">Regulamin</a>
-            oraz <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener noreferrer">Politykę prywatności</a>
+            Akceptuję <a href="https://rezerwacja-ai-iq.pl/legal/regulamin.html" target="_blank" rel="noopener noreferrer">Regulamin</a>
+            oraz <a href="https://rezerwacja-ai-iq.pl/legal/polityka-prywatnosci.html" target="_blank" rel="noopener noreferrer">Politykę prywatności</a>
             usługi AI-IQ Rezerwacja Pro.
           </span>
         </label>
