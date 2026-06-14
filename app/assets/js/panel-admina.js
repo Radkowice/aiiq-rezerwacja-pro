@@ -389,6 +389,43 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 });
 
+document.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-booking-action]');
+  if (!button) return;
+
+  const action = button.dataset.bookingAction;
+
+  if (action === 'toggle-technical-details') {
+    toggleBookingTechnicalDetails(button.dataset.targetId, button);
+    return;
+  }
+
+  if (action === 'change-staff') {
+    changeBookingStaff(button.dataset.bookingId);
+    return;
+  }
+
+  if (action === 'detach-staff') {
+    detachBookingStaff(button.dataset.bookingId);
+    return;
+  }
+
+  if (action === 'toggle-details') {
+    toggleBookingDetails(button.dataset.targetId, button);
+    return;
+  }
+
+  if (action === 'delete-booking') {
+    deleteBooking(
+      button.dataset.bookingId,
+      button.dataset.bookingDate,
+      button.dataset.bookingTime,
+      button.dataset.bookingStatus || '',
+      button.dataset.paymentStatus || ''
+    );
+  }
+});
+
 function initMenu() {
   const menuItems = document.querySelectorAll('.menu-item');
   const sections = document.querySelectorAll('[data-section]');
@@ -526,7 +563,7 @@ function resolvePlanLockDescription() {
     return 'Funkcja dostępna w planie Pro. Twój abonament Pro wygasł. Opłać abonament, aby odzyskać dostęp do konfiguracji Pro.';
   }
 
-  return 'Dostępne w wersji Pro';
+  return 'Funkcja dostępna w planie Pro.';
 }
 
 function disablePlanLockedControls(container) {
@@ -1466,16 +1503,6 @@ function escapeHtml(value) {
     .replaceAll("'", '&#039;');
 }
 
-function escapeJs(value) {
-  return String(value)
-    .replaceAll('\\', '\\\\')
-    .replaceAll("'", "\\'")
-    .replaceAll('"', '\\"')
-    .replaceAll('\n', '\\n')
-    .replaceAll('\r', '\\r')
-    .replaceAll('</', '<\\/');
-}
-
 function hasValue(value) {
   return value !== null && value !== undefined && String(value).trim() !== '';
 }
@@ -1791,7 +1818,8 @@ function renderBookingDetails(item, detailsId) {
           type="button"
           aria-expanded="false"
           aria-controls="${escapeHtml(technicalId)}"
-          onclick="toggleBookingTechnicalDetails('${escapeJs(technicalId)}', this)"
+          data-booking-action="toggle-technical-details"
+          data-target-id="${escapeHtml(technicalId)}"
         >
           Pokaż dane techniczne
         </button>
@@ -1936,7 +1964,8 @@ function renderBookingStaffActions(item) {
     <button
       class="booking-details-btn"
       type="button"
-      onclick="changeBookingStaff('${escapeJs(bookingId)}')"
+      data-booking-action="change-staff"
+      data-booking-id="${escapeHtml(bookingId)}"
     >
       Zmień personel
     </button>
@@ -1944,7 +1973,8 @@ function renderBookingStaffActions(item) {
       <button
         class="delete-btn"
         type="button"
-        onclick="detachBookingStaff('${escapeJs(bookingId)}')"
+        data-booking-action="detach-staff"
+        data-booking-id="${escapeHtml(bookingId)}"
       >
         Odłącz personel
       </button>
@@ -2256,7 +2286,8 @@ function renderBookingRow(item) {
   type="button"
   aria-expanded="false"
   aria-controls="${escapeHtml(detailsId)}"
-  onclick="toggleBookingDetails('${escapeJs(detailsId)}', this)"
+  data-booking-action="toggle-details"
+  data-target-id="${escapeHtml(detailsId)}"
 >
   Więcej
 </button>
@@ -2264,7 +2295,12 @@ ${renderBookingStaffActions(item)}
 <button
   class="delete-btn"
   type="button"
-  onclick="deleteBooking('${escapeJs(bookingId)}','${escapeJs(bookingDate)}','${escapeJs(bookingTime)}','${escapeJs(item.status || '')}','${escapeJs(item.payment_status || '')}')"
+  data-booking-action="delete-booking"
+  data-booking-id="${escapeHtml(bookingId)}"
+  data-booking-date="${escapeHtml(bookingDate)}"
+  data-booking-time="${escapeHtml(bookingTime)}"
+  data-booking-status="${escapeHtml(item.status || '')}"
+  data-payment-status="${escapeHtml(item.payment_status || '')}"
 >
   Usuń
 </button>

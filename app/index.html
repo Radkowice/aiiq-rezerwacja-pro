@@ -118,7 +118,7 @@
   Po kliknięciu „Zarezerwuj” zostaniesz przekierowany do płatności online.
 </div>
 
-<button id="bookBtn" type="button" onclick="saveBooking()">Zarezerwuj</button>
+<button id="bookBtn" type="button">Zarezerwuj</button>
   
   <div id="successBox" class="success">Rezerwacja została zapisana, potwierdzenie wyślemy na email.</div>
   <div id="errorBox" class="error-box"></div>
@@ -137,12 +137,7 @@
 </div>
 
 <script src="assets/js/app-loader.js"></script>
-<script>
-  if (window.AppLoader) {
-    window.AppLoader.show();
-    window.AppLoader.initFallback(10000);
-  }
-</script>
+<script src="assets/js/app-loader-init.js"></script>
 <script src="assets/js/app.js?v=9"></script>
 <footer class="front-footer app-footer" data-app-footer>
 

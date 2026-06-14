@@ -2391,6 +2391,11 @@ async function loadFrontBootstrap() {
 
 document.addEventListener('DOMContentLoaded', async () => {
 
+  const bookBtn = getEl('bookBtn');
+  if (bookBtn) {
+    bookBtn.addEventListener('click', saveBooking);
+  }
+
   const formStartedAtInput = getEl('formStartedAt');
   if (formStartedAtInput) {
     formStartedAtInput.value = String(Date.now());
