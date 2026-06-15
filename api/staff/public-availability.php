@@ -336,6 +336,8 @@ if (!tenant_has_feature($tenantId, 'staff_module')) {
 $staffId = trim((string) ($_GET['staff_id'] ?? ''));
 $date = trim((string) ($_GET['date'] ?? ''));
 $serviceId = trim((string) ($_GET['service_id'] ?? ''));
+$excludeBookingId = trim((string) ($_GET['exclude_booking_id'] ?? $_GET['reservation_id'] ?? ''));
+$ignoreBookingBuffer = in_array(strtolower(trim((string) ($_GET['ignore_booking_buffer'] ?? ''))), ['1', 'true', 'yes'], true);
 
 if ($staffId === '') {
     staff_public_availability_json([
@@ -355,6 +357,13 @@ if ($serviceId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}
     staff_public_availability_json([
         'success' => false,
         'error' => 'Nieprawidłowa usługa'
+    ], 400);
+}
+
+if ($excludeBookingId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $excludeBookingId)) {
+    staff_public_availability_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa rezerwacja do wykluczenia'
     ], 400);
 }
 
@@ -555,17 +564,14 @@ if ($date !== '') {
             $availableTimes = array_values(array_filter(
                 $availableTimes,
                 static function (string $time) use ($effectiveSettings, $globalBlockedTimes, $staffBlockedTimes): bool {
-                    if (in_array($time, $staffBlockedTimes, true)) {
-                        return false;
-                    }
-
-                    return !staff_public_availability_blocked_time_overlaps($time, $effectiveSettings, $globalBlockedTimes);
+                    return !staff_public_availability_blocked_time_overlaps($time, $effectiveSettings, $globalBlockedTimes)
+                        && !staff_public_availability_blocked_time_overlaps($time, $effectiveSettings, $staffBlockedTimes);
                 }
             ));
         }
     }
 
-    if ((int) ($effectiveSettings['booking_buffer'] ?? 0) > 0) {
+    if (!$ignoreBookingBuffer && (int) ($effectiveSettings['booking_buffer'] ?? 0) > 0) {
         $minNoticeMinutes = (int) $effectiveSettings['booking_buffer'];
 
         $availableTimes = array_values(array_filter($availableTimes, static function (string $time) use ($date, $minNoticeMinutes): bool {
@@ -575,10 +581,14 @@ if ($date !== '') {
 
     $bookingUrl = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=booking_time,service_id'
+        . '?select=id,booking_time,service_id'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&staff_id=eq.' . rawurlencode($staffId)
         . '&booking_date=eq.' . rawurlencode($date);
+
+    if ($excludeBookingId !== '') {
+        $bookingUrl .= '&id=neq.' . rawurlencode($excludeBookingId);
+    }
 
     $bookingResult = staff_public_availability_request($bookingUrl, $supabaseKey, $schema);
 

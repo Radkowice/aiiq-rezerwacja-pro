@@ -565,10 +565,10 @@ function aiIqProAccessExpired() {
 
 function resolvePlanLockDescription() {
   if (aiIqProAccessExpired()) {
-    return 'Funkcja dostępna w planie Pro. Twój abonament Pro wygasł. Opłać abonament, aby odzyskać dostęp do konfiguracji Pro.';
+    return 'Dostępne w wersji Pro. Twój abonament Pro wygasł. Opłać abonament, aby odzyskać dostęp do konfiguracji Pro.';
   }
 
-  return 'Funkcja dostępna w planie Pro.';
+  return 'Dostępne w wersji Pro';
 }
 
 function disablePlanLockedControls(container) {
@@ -1883,6 +1883,7 @@ async function loadBookingStaffAvailabilityOption(person, booking) {
   const date = getBookingDateValue(booking);
   const time = getBookingTimeValue(booking);
   const serviceId = getBookingServiceId(booking);
+  const bookingId = String(booking?.id || '').trim();
 
   if (!person?.id || !date || !time) {
     return {
@@ -1894,11 +1895,16 @@ async function loadBookingStaffAvailabilityOption(person, booking) {
 
   const params = new URLSearchParams({
     staff_id: person.id,
-    date
+    date,
+    ignore_booking_buffer: '1'
   });
 
   if (serviceId) {
     params.set('service_id', serviceId);
+  }
+
+  if (bookingId) {
+    params.set('exclude_booking_id', bookingId);
   }
 
   try {
@@ -1911,13 +1917,15 @@ async function loadBookingStaffAvailabilityOption(person, booking) {
       : [];
 
     const isAvailable = data?.success === true && availableTimes.includes(time);
+    const reason = isAvailable
+      ? ''
+      : (data?.reason_message || data?.error || 'Niedostępny w tym terminie.');
 
     return {
       ...person,
       is_available: isAvailable,
-      unavailable_reason: isAvailable
-        ? ''
-        : (data?.error || 'Niedostępny w tym terminie.')
+      unavailable_reason: reason,
+      reason_code: isAvailable ? '' : (data?.reason_code || 'time_not_available')
     };
   } catch (error) {
     console.error('booking staff availability check error:', error);
@@ -1925,7 +1933,8 @@ async function loadBookingStaffAvailabilityOption(person, booking) {
     return {
       ...person,
       is_available: false,
-      unavailable_reason: 'Nie udało się sprawdzić dostępności.'
+      unavailable_reason: error.message || 'Nie udało się sprawdzić dostępności.',
+      reason_code: error.data?.code || error.data?.reason_code || 'unknown'
     };
   }
 }
@@ -1937,9 +1946,25 @@ async function loadBookingStaffOptions(booking = null) {
     return baseOptions;
   }
 
-  return Promise.all(
+  const options = await Promise.all(
     baseOptions.map(person => loadBookingStaffAvailabilityOption(person, booking))
   );
+
+  console.debug('[change-staff] candidates', {
+    booking_id: booking?.id || '',
+    service_id: getBookingServiceId(booking),
+    date: getBookingDateValue(booking),
+    time: getBookingTimeValue(booking),
+    candidates: options.map(person => ({
+      staff_id: person.id,
+      name: person.display_name,
+      available: person.is_available !== false,
+      reason_code: person.reason_code || '',
+      reason_message: person.unavailable_reason || ''
+    }))
+  });
+
+  return options;
 }
 
 function getBookingById(bookingId) {

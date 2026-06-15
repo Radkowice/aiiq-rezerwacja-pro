@@ -297,6 +297,16 @@ function booking_time_to_minutes(string $time): int
     return ($hours * 60) + $minutes;
 }
 
+function booking_ranges_overlap(int $startA, int $endA, int $startB, int $endB): bool
+{
+    return $startA < $endB && $endA > $startB;
+}
+
+function booking_interval_end(int $start, int $duration, int $break): int
+{
+    return $start + max(1, $duration) + max(0, $break);
+}
+
 function booking_effective_min_notice_minutes(?int $serviceBufferMinutes, int $globalBookingBuffer): int
 {
     if ($serviceBufferMinutes !== null && $serviceBufferMinutes > 0) {
@@ -387,15 +397,97 @@ function staff_slot_matches_schedule(
     return false;
 }
 
-function staff_slot_is_free(string $baseUrl, array $headers, string $tenantId, string $staffId, string $date, string $time): bool
+function staff_slot_is_free(
+    string $baseUrl,
+    array $headers,
+    string $tenantId,
+    string $staffId,
+    string $date,
+    string $time,
+    int $candidateDuration,
+    int $candidateBreak
+): bool
 {
     $query = 'tenant_id=eq.' . rawurlencode($tenantId)
         . '&staff_id=eq.' . rawurlencode($staffId)
         . '&booking_date=eq.' . rawurlencode($date)
-        . '&booking_time=eq.' . rawurlencode($time)
-        . '&select=id';
+        . '&select=id,booking_time,service_id';
 
-    return fetch_single_record($baseUrl, $headers, 'bookings', $query) === null;
+    $bookingsUrl = rtrim($baseUrl, '/') . '/rest/v1/bookings?' . $query;
+    $bookingsResult = supabase_select($bookingsUrl, $headers);
+
+    if (($bookingsResult['httpCode'] ?? 0) !== 200 || !is_array($bookingsResult['data'])) {
+        return false;
+    }
+
+    $bookings = $bookingsResult['data'];
+    $serviceIds = [];
+
+    foreach ($bookings as $booking) {
+        if (!is_array($booking) || empty($booking['service_id'])) {
+            continue;
+        }
+
+        $serviceIds[(string) $booking['service_id']] = true;
+    }
+
+    $settingsByServiceId = [];
+
+    if (!empty($serviceIds)) {
+        $serviceUrl = rtrim($baseUrl, '/') . '/rest/v1/tenant_services'
+            . '?select=id,duration_minutes,break_minutes'
+            . '&tenant_id=eq.' . rawurlencode($tenantId)
+            . '&id=in.(' . implode(',', array_map('rawurlencode', array_keys($serviceIds))) . ')';
+
+        $serviceResult = supabase_select($serviceUrl, $headers);
+
+        if (($serviceResult['httpCode'] ?? 0) === 200 && is_array($serviceResult['data'])) {
+            foreach ($serviceResult['data'] as $serviceRow) {
+                if (!is_array($serviceRow) || empty($serviceRow['id'])) {
+                    continue;
+                }
+
+                $settingsByServiceId[(string) $serviceRow['id']] = [
+                    'duration' => max(1, (int) ($serviceRow['duration_minutes'] ?? $candidateDuration)),
+                    'break' => max(0, (int) ($serviceRow['break_minutes'] ?? $candidateBreak)),
+                ];
+            }
+        }
+    }
+
+    $candidateStart = booking_time_to_minutes($time);
+    $candidateEnd = booking_interval_end($candidateStart, $candidateDuration, $candidateBreak);
+
+    foreach ($bookings as $booking) {
+        if (!is_array($booking)) {
+            continue;
+        }
+
+        $existingTime = substr((string) ($booking['booking_time'] ?? ''), 0, 5);
+
+        if (!preg_match('/^\d{2}:\d{2}$/', $existingTime)) {
+            continue;
+        }
+
+        $serviceId = trim((string) ($booking['service_id'] ?? ''));
+        $existingSettings = $settingsByServiceId[$serviceId] ?? [
+            'duration' => $candidateDuration,
+            'break' => $candidateBreak,
+        ];
+
+        $existingStart = booking_time_to_minutes($existingTime);
+        $existingEnd = booking_interval_end(
+            $existingStart,
+            (int) ($existingSettings['duration'] ?? $candidateDuration),
+            (int) ($existingSettings['break'] ?? $candidateBreak)
+        );
+
+        if (booking_ranges_overlap($candidateStart, $candidateEnd, $existingStart, $existingEnd)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function booking_global_slot_is_available(string $baseUrl, array $headers, string $tenantId, string $date, string $time, string $staffId = ''): bool
@@ -1316,7 +1408,16 @@ if ($staffId !== '') {
         ], 409);
     }
 
-    if (!staff_slot_is_free($SUPABASE_URL, $headers, $TENANT_ID, $staffId, $date, $time)) {
+    if (!staff_slot_is_free(
+        $SUPABASE_URL,
+        $headers,
+        $TENANT_ID,
+        $staffId,
+        $date,
+        $time,
+        $effectiveDuration,
+        $effectiveBreak
+    )) {
         json_response([
             'success' => false,
             'error' => 'Wybrana godzina jest już zajęta',

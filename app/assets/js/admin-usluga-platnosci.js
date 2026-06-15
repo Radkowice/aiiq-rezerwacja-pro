@@ -10,6 +10,7 @@
     saving: false,
     savingGlobal: false,
     deactivatingId: null,
+    loadSequence: 0,
   };
 
   const els = {};
@@ -22,13 +23,20 @@
 
     initialized = true;
     cacheElements(section);
+    normalizeRefreshButtonLayout();
     bindEvents();
+    bindSmartNumberInputs(section);
     await loadServiceCompanyNamePreview();
     await loadServicePaymentsData();
   };
 
+  window.refreshAdminServicePaymentsData = function refreshAdminServicePaymentsData() {
+    return loadServicePaymentsData({ forceRefresh: true });
+  };
+
   function cacheElements(section) {
     els.section = section;
+    els.refreshButton = section.querySelector('#service-payments-refresh-btn');
     els.newButton = section.querySelector('#service-new-btn');
     els.list = section.querySelector('#service-list');
     els.listMessage = section.querySelector('#service-list-message');
@@ -64,6 +72,22 @@
     els.globalSaveButton = section.querySelector('#global-service-save-btn');
   }
 
+  function normalizeRefreshButtonLayout() {
+    if (!els.refreshButton) return;
+
+    els.refreshButton.type = 'button';
+    els.refreshButton.classList.add('btn', 'btn-secondary', 'service-payments-refresh-btn');
+    els.refreshButton.style.width = 'auto';
+    els.refreshButton.style.minWidth = '112px';
+    els.refreshButton.style.maxWidth = '180px';
+    els.refreshButton.style.flex = '0 0 auto';
+    els.refreshButton.style.marginLeft = 'auto';
+    els.refreshButton.style.display = 'inline-flex';
+    els.refreshButton.style.alignItems = 'center';
+    els.refreshButton.style.justifyContent = 'center';
+    els.refreshButton.style.whiteSpace = 'nowrap';
+  }
+
   function bindEvents() {
     els.newButton?.addEventListener('click', () => {
       populateForm(null);
@@ -73,28 +97,36 @@
 
     els.form?.addEventListener('submit', saveService);
     els.saveButton?.addEventListener('click', saveService);
+    els.refreshButton?.addEventListener('click', refreshServicePaymentsFromButton);
     els.globalSaveButton?.addEventListener('click', saveGlobalServiceSettings);
 
     window.addEventListener('aiiq:staff-updated', refreshStaffAfterUpdate);
     window.addEventListener('aiiq:section-shown', (event) => {
       if (event?.detail?.section === 'usluga-platnosci') {
-        loadServicePaymentsData();
+        loadServicePaymentsData({ forceRefresh: true });
       }
     });
   }
 
-  async function loadServicePaymentsData() {
-    if (state.loading) return;
+  async function loadServicePaymentsData(options = {}) {
+    if (state.loading && !options.forceRefresh) return;
+
+    const loadId = state.loadSequence + 1;
+    state.loadSequence = loadId;
 
     state.loading = true;
     setMessage(els.listMessage, 'Ładowanie usług...', 'muted');
 
     try {
       const [servicesData, staffData] = await Promise.all([
-        requestJson('/api/services/list.php', { method: 'GET' }),
-        requestJson('/api/staff/list.php', { method: 'GET' }),
-        loadGlobalServiceSettings(),
+        requestJson(cacheBustUrl('/api/services/list.php'), { method: 'GET', cache: 'no-store' }),
+        requestJson(cacheBustUrl('/api/staff/list.php'), { method: 'GET', cache: 'no-store' }),
+        loadGlobalServiceSettings({ forceRefresh: Boolean(options.forceRefresh) }),
       ]);
+
+      if (loadId !== state.loadSequence) {
+        return;
+      }
 
       state.services = Array.isArray(servicesData.services) ? servicesData.services.map(normalizeService) : [];
       state.staff = Array.isArray(staffData.staff) ? staffData.staff.map(normalizeStaff) : [];
@@ -110,12 +142,18 @@
         setMessage(els.listMessage, '', '');
       }
     } catch (error) {
+      if (loadId !== state.loadSequence) {
+        return;
+      }
+
       setMessage(els.listMessage, error.message || 'Nie udało się załadować usług.', 'error');
       setMessage(els.staffMessage, 'Nie udało się załadować pracowników do przypisania.', 'error');
       renderServiceList();
       renderStaffCheckboxes([]);
     } finally {
-      state.loading = false;
+      if (loadId === state.loadSequence) {
+        state.loading = false;
+      }
     }
   }
 
@@ -135,13 +173,123 @@
     }
   }
 
-  async function loadGlobalServiceSettings() {
+  async function refreshServicePaymentsFromButton() {
+    if (!els.refreshButton) return;
+
+    const originalText = els.refreshButton.textContent;
+    setButtonState(els.refreshButton, 'Odświeżanie...', true);
+
     try {
-      const data = await requestJson('/api/system/service-settings.php', { method: 'GET' });
+      await loadServicePaymentsData({ forceRefresh: true });
+      setButtonState(els.refreshButton, 'Odświeżono', true);
+    } catch (error) {
+      setMessage(els.listMessage, error.message || 'Nie udało się odświeżyć danych usług.', 'error');
+      setButtonState(els.refreshButton, 'Błąd', true);
+    } finally {
+      window.setTimeout(() => {
+        if (!els.refreshButton) return;
+        els.refreshButton.textContent = originalText || 'Odśwież';
+        els.refreshButton.disabled = false;
+      }, 900);
+    }
+  }
+
+  async function loadGlobalServiceSettings(options = {}) {
+    try {
+      const url = options.forceRefresh ? cacheBustUrl('/api/system/service-settings.php') : '/api/system/service-settings.php';
+      const data = await requestJson(url, {
+        method: 'GET',
+        cache: options.forceRefresh ? 'no-store' : 'default',
+      });
       fillGlobalSettings(data.settings || {});
     } catch (error) {
       fillGlobalSettings({});
     }
+  }
+
+  function cacheBustUrl(url) {
+    const separator = url.includes('?') ? '&' : '?';
+    return `${url}${separator}_=${Date.now()}`;
+  }
+
+  function bindSmartNumberInputs(root = document) {
+    root.querySelectorAll('input[type="number"]').forEach((input) => {
+      if (input.dataset.smartNumberBound === '1') {
+        return;
+      }
+
+      input.dataset.smartNumberBound = '1';
+
+      input.addEventListener('focus', () => {
+        if (input.value === '0') {
+          input.select();
+        }
+      });
+
+      input.addEventListener('input', () => {
+        const normalized = normalizeSmartNumberInputValue(input.value, isDecimalNumberInput(input));
+
+        if (normalized !== input.value) {
+          input.value = normalized;
+        }
+      });
+
+      input.addEventListener('blur', () => {
+        if (input.value.trim() !== '' || !input.required) {
+          return;
+        }
+
+        const min = input.getAttribute('min');
+        input.value = min !== null && min !== '' ? min : '0';
+      });
+    });
+  }
+
+  function isDecimalNumberInput(input) {
+    const step = String(input.getAttribute('step') || '');
+    return step === 'any' || step.includes('.') || step.includes(',');
+  }
+
+  function normalizeSmartNumberInputValue(value, allowDecimal) {
+    let text = String(value || '');
+
+    if (text === '' || text === '-') {
+      return text;
+    }
+
+    const sign = text.startsWith('-') ? '-' : '';
+
+    if (sign) {
+      text = text.slice(1);
+    }
+
+    if (allowDecimal) {
+      const separatorMatch = text.match(/[.,]/);
+
+      if (separatorMatch) {
+        const separator = separatorMatch[0];
+        const separatorIndex = text.indexOf(separator);
+        const integerPart = text.slice(0, separatorIndex);
+        const decimalPart = text.slice(separatorIndex + 1);
+        const normalizedInteger = normalizeIntegerLeadingZeros(integerPart);
+
+        return `${sign}${normalizedInteger}${separator}${decimalPart}`;
+      }
+    }
+
+    return `${sign}${normalizeIntegerLeadingZeros(text)}`;
+  }
+
+  function normalizeIntegerLeadingZeros(value) {
+    const digits = String(value || '');
+
+    if (!/^\d+$/.test(digits)) {
+      return digits;
+    }
+
+    const normalized = digits.replace(/^0+(?=\d)/, '');
+
+    return normalized === '' ? '0' : normalized;
   }
 
   function fillGlobalSettings(settings) {
@@ -161,7 +309,7 @@
     const priceCurrency = (els.globalCurrency.value.trim() || 'PLN').toUpperCase();
     const priceAmount = readMoneyValue(els.globalPrice, 'Globalna cena');
     const paymentRequired = Boolean(els.globalPaymentRequired.checked);
-    const paymentTimeLimitValue = readInteger(els.globalPaymentTimeLimitValue, 'Termin płatności', 1, 10080);
+    const paymentTimeLimitValue = readInteger(els.globalPaymentTimeLimitValue, 'Termin płatności', 1);
     const paymentTimeLimitUnit = els.globalPaymentTimeLimitUnit.value;
 
     if (!/^[A-Z]{3}$/.test(priceCurrency)) {
@@ -265,7 +413,7 @@
 
   function normalizeService(row) {
     return {
-      id: row?.id ? String(row.id) : '',
+      id: row?.id ? String(row.id) : (row?.service_id ? String(row.service_id) : ''),
       tenant_id: row?.tenant_id ? String(row.tenant_id) : '',
       name: row?.name ? String(row.name) : '',
       description: row?.description ? String(row.description) : '',
@@ -290,9 +438,22 @@
       display_name: row?.display_name ? String(row.display_name) : '',
       email: row?.email ? String(row.email) : '',
       phone: row?.phone ? String(row.phone) : '',
+      description: row?.description ? String(row.description) : '',
       is_active: row?.is_active === true,
       visible_on_front: row?.visible_on_front === true,
     };
+  }
+
+  function getStaffDescriptionLabel(person) {
+    const description = String(person?.description || '').trim();
+
+    if (!description) {
+      return 'Brak opisu osoby';
+    }
+
+    return description.length > 90
+      ? `${description.slice(0, 87).trim()}...`
+      : description;
   }
 
   function normalizeInteger(value, defaultValue) {
@@ -311,6 +472,80 @@
 
   function findSelectedService() {
     return state.services.find((service) => service.id === state.selectedId) || null;
+  }
+
+  function applySavedServiceResponse(data) {
+    const freshStaffIds = Array.isArray(data?.staff_ids)
+      ? data.staff_ids.map(String)
+      : (Array.isArray(data?.service?.staff_ids) ? data.service.staff_ids.map(String) : null);
+    const responseService = data?.service && typeof data.service === 'object' ? data.service : null;
+    const savedServiceId = String(
+      data?.service_id ||
+      responseService?.id ||
+      responseService?.service_id ||
+      state.selectedId ||
+      ''
+    ).trim();
+
+    if (!savedServiceId || (!responseService && freshStaffIds === null)) {
+      return null;
+    }
+
+    const existingIndex = state.services.findIndex((service) => service.id === savedServiceId);
+    const existingService = existingIndex >= 0 ? state.services[existingIndex] : null;
+    const mergedRaw = {
+      ...(existingService || {}),
+      ...(responseService || {}),
+      id: savedServiceId,
+    };
+
+    if (freshStaffIds !== null) {
+      mergedRaw.staff_ids = freshStaffIds;
+
+      if (!Array.isArray(responseService?.staff)) {
+        const freshStaffSet = new Set(freshStaffIds);
+        mergedRaw.staff = Array.isArray(existingService?.staff)
+          ? existingService.staff.filter((person) => freshStaffSet.has(person.id))
+          : [];
+      }
+    }
+
+    const updatedService = normalizeService(mergedRaw);
+
+    if (existingIndex >= 0) {
+      state.services[existingIndex] = updatedService;
+    } else {
+      state.services.unshift(updatedService);
+    }
+
+    state.selectedId = updatedService.id;
+    mergeAssignedStaffFromServices();
+    renderServiceList();
+
+    console.debug('[services] active service before render', {
+      service_id: updatedService.id,
+      staff_ids: updatedService.staff_ids,
+    });
+
+    populateForm(updatedService);
+
+    return updatedService;
+  }
+
+  function dispatchServicesUpdatedEvent(service, data) {
+    if (typeof window.dispatchEvent !== 'function') {
+      return;
+    }
+
+    const detail = {
+      service_id: service?.id || data?.service_id || '',
+      staff_ids: Array.isArray(service?.staff_ids)
+        ? service.staff_ids
+        : (Array.isArray(data?.staff_ids) ? data.staff_ids.map(String) : []),
+    };
+
+    console.debug('[services] services-updated event', detail);
+    window.dispatchEvent(new CustomEvent('aiiq:services-updated', { detail }));
   }
 
   function renderServiceList() {
@@ -443,7 +678,8 @@
   function renderStaffCheckboxes(selectedStaffIds) {
     if (!els.staffList) return;
 
-    const selectedSet = new Set(selectedStaffIds.map(String));
+    const selectedSet = new Set((Array.isArray(selectedStaffIds) ? selectedStaffIds : []).map(String));
+    console.debug('[services] rendered staff_ids', Array.from(selectedSet));
     const availableStaff = state.staff.filter((person) => person.is_active || selectedSet.has(person.id));
 
     if (availableStaff.length === 0) {
@@ -460,14 +696,14 @@
       const disabled = isInactive ? 'disabled' : '';
       const checked = isSelected ? 'checked' : '';
       const status = person.is_active ? 'aktywny' : 'nieaktywny, zostanie pominięty przy zapisie';
-      const email = person.email ? `<small>${escapeHtml(person.email)}</small>` : '';
+      const description = getStaffDescriptionLabel(person);
 
       return `
         <label class="service-staff-item ${isInactive ? 'is-inactive' : ''}">
           <input type="checkbox" value="${escapeHtmlAttr(person.id)}" ${checked} ${disabled}>
           <span>
             <strong>${escapeHtml(person.display_name || 'Bez nazwy')}</strong>
-            ${email}
+            <small>${escapeHtml(description)}</small>
             <em>${status}</em>
           </span>
         </label>
@@ -476,14 +712,10 @@
   }
 
   function getCurrentSelectedStaffIds() {
-    const checkedIds = els.staffList
-      ? Array.from(els.staffList.querySelectorAll('input[type="checkbox"]:checked'))
+    if (els.staffList) {
+      return Array.from(els.staffList.querySelectorAll('input[type="checkbox"]:checked'))
         .map((input) => input.value)
-        .filter(Boolean)
-      : [];
-
-    if (checkedIds.length > 0) {
-      return checkedIds;
+        .filter(Boolean);
     }
 
     const selectedService = findSelectedService();
@@ -493,7 +725,7 @@
   function readServicePayload() {
     const name = els.name.value.trim();
     const description = els.description.value.trim();
-    const durationMinutes = readInteger(els.durationMinutes, 'Czas trwania', 1, 1440);
+    const durationMinutes = readInteger(els.durationMinutes, 'Czas trwania', 1);
     const breakMinutes = readInteger(els.breakMinutes, 'Przerwa po usłudze', 0, 1440);
     const bookingBufferMinutes = readMinNoticeMinutes();
     const sortOrder = readInteger(els.sortOrder, 'Kolejność', -1000000, 1000000);
@@ -543,11 +775,16 @@
     };
   }
 
-  function readInteger(input, label, min, max) {
+  function readInteger(input, label, min, max = null) {
     const value = Number.parseInt(String(input.value || ''), 10);
+    const hasMax = max !== null && max !== undefined;
 
-    if (!Number.isFinite(value) || value < min || value > max) {
-      throw new Error(`${label} musi mieć wartość od ${min} do ${max}.`);
+    if (!Number.isFinite(value) || value < min || (hasMax && value > max)) {
+      if (hasMax) {
+        throw new Error(`${label} musi mieć wartość od ${min} do ${max}.`);
+      }
+
+      throw new Error(`${label} musi mieć wartość od ${min}.`);
     }
 
     return value;
@@ -600,10 +837,11 @@
       });
 
       state.selectedId = data.service_id || state.selectedId;
+      console.debug('[services] save response staff_ids', data.staff_ids || data.service?.staff_ids || []);
+      const updatedService = applySavedServiceResponse(data);
+      dispatchServicesUpdatedEvent(updatedService, data);
       setMessage(els.formMessage, 'Usługa została zapisana.', 'success');
       setButtonState(els.saveButton, 'Zapisano', true);
-      await loadServicePaymentsData();
-      selectService(state.selectedId);
     } catch (error) {
       setMessage(els.formMessage, error.message || 'Nie udało się zapisać usługi.', 'error');
       setButtonState(els.saveButton, 'Błąd', true);
@@ -651,7 +889,7 @@
       });
 
       setMessage(els.listMessage, 'Usługa została wyłączona.', 'success');
-      await loadServicePaymentsData();
+      await loadServicePaymentsData({ forceRefresh: true });
     } catch (error) {
       setMessage(els.listMessage, error.message || 'Nie udało się wyłączyć usługi.', 'error');
 

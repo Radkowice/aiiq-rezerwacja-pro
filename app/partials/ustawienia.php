@@ -1,13 +1,18 @@
 <section class="panel-card hidden" data-section="ustawienia">
   <div class="panel-header">
-    <h2>Ustawienia</h2>
+    <h2>Ustawienia globalne</h2>
+    <p class="settings-desc">
+      Te ustawienia są domyślne dla kalendarza bez aktywnego personelu. Gdy korzystasz z pracowników,
+      dostępność terminów wynika głównie z usług, przypisań personelu, grafików i blokad.
+    </p>
   </div>
 
   <div class="settings-grid">
     <div class="settings-card">
-      <h3>Godziny pracy</h3>
+      <h3>Globalne godziny pracy</h3>
       <p class="settings-desc">
-        Ustaw przedział godzin, w których klient może wybrać termin rezerwacji.
+        Używane jako domyślne godziny dostępności, gdy nie ma aktywnych pracowników.
+        Przy aktywnym personelu pierwszeństwo mają grafiki i blokady pracowników.
       </p>
 
       <div class="settings-row">
@@ -24,9 +29,10 @@
     </div>
 
     <div class="settings-card">
-      <h3>Czas rezerwacji</h3>
+      <h3>Globalny czas rezerwacji</h3>
       <p class="settings-desc">
-        Ustaw długość usługi, przerwę między terminami oraz minimalne wyprzedzenie rezerwacji.
+        Używany głównie jako ustawienie domyślne, gdy rezerwacje nie są obsługiwane przez aktywny personel.
+        Przy usługach i pracownikach pierwszeństwo mają ustawienia z zakładki „Usługa i płatności”.
       </p>
 
       <div class="settings-row">
@@ -45,7 +51,9 @@
         <div class="form-group">
           <label for="consultation-break">Przerwa między konsultacjami</label>
           <input type="number" id="consultation-break" min="0" step="5" value="0">
-          <div class="settings-help">Ile minut przerwy ma być między jedną konsultacją a następną.</div>
+          <div class="settings-help">
+            Globalna przerwa między rezerwacjami bez aktywnego personelu. Przy personelu używaj ustawień usług i grafików.
+          </div>
         </div>
 
         <div class="form-group">
@@ -59,39 +67,42 @@
             </select>
           </div>
           <div class="settings-help">
-            Określa, z jakim wyprzedzeniem klient może najwcześniej zarezerwować termin.
+            Globalne minimalne wyprzedzenie rezerwacji. To nie jest przerwa między wizytami.
             Przykład: ustaw 2 godziny, jeśli klient ma móc zarezerwować wizytę najwcześniej za 2 godziny.
-            Ustaw 1 dzień, jeśli rezerwacje mają być możliwe dopiero od następnego dnia.
           </div>
         </div>
       </div>
     </div>
 
     <div class="settings-card">
-      <h3>Zakres kalendarza</h3>
+      <h3>Zakres widoczności kalendarza</h3>
       <p class="settings-desc">
-        Określ od którego miesiąca i na ile miesięcy do przodu klient widzi dostępne terminy.
+        To ustawienie działa zawsze na froncie, niezależnie od personelu. Określa, od którego miesiąca
+        i na ile miesięcy do przodu klient widzi kalendarz.
       </p>
 
       <div class="settings-row">
         <div class="form-group">
           <label for="booking-start-month-offset">Start od miesiąca</label>
           <input type="number" id="booking-start-month-offset" min="0" max="11" step="1" value="0">
-          <div class="settings-help">0 = bieżący miesiąc, 1 = następny, 2 = za dwa miesiące itd.</div>
+          <div class="settings-help">
+            0 = bieżący miesiąc, 1 = następny, 2 = za dwa miesiące itd. Działa niezależnie od personelu.
+          </div>
         </div>
 
         <div class="form-group">
           <label for="booking-month-range">Zakres miesięcy</label>
           <input type="number" id="booking-month-range" min="1" max="12" step="1" value="1">
-          <div class="settings-help">Ile kolejnych miesięcy ma być dostępnych dla klienta.</div>
+          <div class="settings-help">Ile kolejnych miesięcy ma być dostępnych dla klienta na froncie.</div>
         </div>
       </div>
     </div>
 
     <div class="settings-card settings-actions-card">
-      <h3>Zapis ustawień</h3>
+      <h3>Zapis ustawień globalnych</h3>
       <p class="settings-desc">
-        Te ustawienia sterują widocznością terminów w kalendarzu klienta.
+        Zakres widoczności kalendarza działa zawsze. Pozostałe ustawienia są domyślne dla trybu bez aktywnego personelu
+        albo jako baza, jeśli dana konfiguracja nie ma własnych ustawień.
       </p>
 
       <div class="settings-actions">

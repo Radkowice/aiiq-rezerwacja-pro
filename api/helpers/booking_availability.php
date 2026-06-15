@@ -264,11 +264,8 @@ function booking_availability_times_for_day(
 
     if (!empty($globalBlockedTimes) || !empty($staffBlockedTimes)) {
         $slots = array_values(array_filter($slots, static function (string $time) use ($settings, $globalBlockedTimes, $staffBlockedTimes): bool {
-            if (in_array($time, $staffBlockedTimes, true)) {
-                return false;
-            }
-
-            return !booking_availability_blocked_time_overlaps($time, $settings, $globalBlockedTimes);
+            return !booking_availability_blocked_time_overlaps($time, $settings, $globalBlockedTimes)
+                && !booking_availability_blocked_time_overlaps($time, $settings, $staffBlockedTimes);
         }));
     }
 

@@ -393,6 +393,7 @@ function staff_service_settings_slot_status(
     $candidateStart = staff_service_settings_time_to_minutes($time);
     $candidateEnd = staff_service_settings_interval_end($candidateStart, $serviceSettings);
     $hasGlobalTimeBlock = staff_service_settings_time_block_overlaps($globalBlockedTimes, $candidateStart, $candidateEnd);
+    $hasStaffTimeBlock = staff_service_settings_time_block_overlaps($staffBlockedTimes, $candidateStart, $candidateEnd);
 
     if ($hasGlobalDateBlock || $hasGlobalTimeBlock) {
         return [
@@ -410,7 +411,7 @@ function staff_service_settings_slot_status(
         ];
     }
 
-    if ($hasStaffDateBlock || isset($staffBlockedTimes[$time])) {
+    if ($hasStaffDateBlock || $hasStaffTimeBlock) {
         return [
             'time' => $time,
             'status' => 'blocked_staff',

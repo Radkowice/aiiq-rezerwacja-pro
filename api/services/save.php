@@ -229,6 +229,245 @@ function services_save_fetch_staff(
     return $staffById;
 }
 
+function services_save_fetch_current_staff_ids(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $serviceId
+): array {
+    if ($serviceId === '') {
+        return [];
+    }
+
+    $relationsUrl = $supabaseUrl
+        . '/rest/v1/tenant_service_staff'
+        . '?select=staff_id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&service_id=eq.' . rawurlencode($serviceId);
+
+    $relationsResult = services_request('GET', $relationsUrl, $supabaseKey, $schema);
+
+    if ($relationsResult['response'] === false || $relationsResult['error'] !== '') {
+        services_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($relationsResult['httpCode'] < 200 || $relationsResult['httpCode'] >= 300) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie udało się pobrać aktualnych przypisań pracowników'
+        ], $relationsResult['httpCode'] > 0 ? $relationsResult['httpCode'] : 500);
+    }
+
+    $staffIds = [];
+
+    foreach ((is_array($relationsResult['data'] ?? null) ? $relationsResult['data'] : []) as $row) {
+        if (!is_array($row) || empty($row['staff_id'])) {
+            continue;
+        }
+
+        $staffId = (string) $row['staff_id'];
+
+        if (services_is_uuid($staffId)) {
+            $staffIds[$staffId] = true;
+        }
+    }
+
+    return array_keys($staffIds);
+}
+
+function services_save_fetch_staff_for_response(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    array $staffIds
+): array {
+    if (empty($staffIds)) {
+        return [];
+    }
+
+    $staffIdList = implode(',', array_map('rawurlencode', $staffIds));
+
+    $staffUrl = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id,display_name,email,phone,is_active,visible_on_front'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=in.(' . $staffIdList . ')';
+
+    $staffResult = services_request('GET', $staffUrl, $supabaseKey, $schema);
+
+    if ($staffResult['response'] === false || $staffResult['error'] !== '') {
+        services_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($staffResult['httpCode'] < 200 || $staffResult['httpCode'] >= 300) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie udało się pobrać aktualnych danych przypisanych pracowników'
+        ], $staffResult['httpCode'] > 0 ? $staffResult['httpCode'] : 500);
+    }
+
+    $staffById = [];
+
+    foreach ((is_array($staffResult['data'] ?? null) ? $staffResult['data'] : []) as $staffRow) {
+        if (!is_array($staffRow) || empty($staffRow['id'])) {
+            continue;
+        }
+
+        $staffById[(string) $staffRow['id']] = [
+            'id' => (string) ($staffRow['id'] ?? ''),
+            'display_name' => (string) ($staffRow['display_name'] ?? ''),
+            'email' => (string) ($staffRow['email'] ?? ''),
+            'phone' => (string) ($staffRow['phone'] ?? ''),
+            'is_active' => (bool) ($staffRow['is_active'] ?? false),
+            'visible_on_front' => (bool) ($staffRow['visible_on_front'] ?? false),
+        ];
+    }
+
+    $staff = [];
+
+    foreach ($staffIds as $staffId) {
+        if (isset($staffById[$staffId])) {
+            $staff[] = $staffById[$staffId];
+        }
+    }
+
+    return $staff;
+}
+
+function services_save_fetch_saved_service(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $serviceId,
+    array $staffIds
+): array {
+    $serviceUrl = $supabaseUrl
+        . '/rest/v1/tenant_services'
+        . '?select=' . rawurlencode(services_select_fields())
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=eq.' . rawurlencode($serviceId)
+        . '&limit=1';
+
+    $serviceResult = services_request('GET', $serviceUrl, $supabaseKey, $schema);
+
+    if ($serviceResult['response'] === false || $serviceResult['error'] !== '') {
+        services_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($serviceResult['httpCode'] < 200 || $serviceResult['httpCode'] >= 300) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie udało się pobrać aktualnych danych zapisanej usługi'
+        ], $serviceResult['httpCode'] > 0 ? $serviceResult['httpCode'] : 500);
+    }
+
+    $serviceRows = is_array($serviceResult['data'] ?? null) ? $serviceResult['data'] : [];
+
+    if (empty($serviceRows[0]) || !is_array($serviceRows[0])) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie znaleziono zapisanej usługi'
+        ], 404);
+    }
+
+    $staff = services_save_fetch_staff_for_response(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $staffIds
+    );
+
+    return services_normalize_record($serviceRows[0], $staffIds, $staff);
+}
+
+function services_save_sync_staff_assignments(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $serviceId,
+    array $staffIds
+): void {
+    $currentStaffIds = services_save_fetch_current_staff_ids(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $serviceId
+    );
+    $targetStaffIds = array_values(array_unique(array_map('strval', $staffIds)));
+    $staffIdsToDelete = array_values(array_diff($currentStaffIds, $targetStaffIds));
+    $staffIdsToInsert = array_values(array_diff($targetStaffIds, $currentStaffIds));
+
+    if (!empty($staffIdsToDelete)) {
+        $deleteUrl = $supabaseUrl
+            . '/rest/v1/tenant_service_staff'
+            . '?tenant_id=eq.' . rawurlencode($tenantId)
+            . '&service_id=eq.' . rawurlencode($serviceId)
+            . '&staff_id=in.(' . implode(',', array_map('rawurlencode', $staffIdsToDelete)) . ')';
+
+        $deleteResult = services_request('DELETE', $deleteUrl, $supabaseKey, $schema);
+
+        if ($deleteResult['response'] === false || $deleteResult['error'] !== '') {
+            services_json([
+                'success' => false,
+                'error' => 'Błąd połączenia z bazą danych'
+            ], 500);
+        }
+
+        if ($deleteResult['httpCode'] < 200 || $deleteResult['httpCode'] >= 300) {
+            services_json([
+                'success' => false,
+                'error' => 'Nie udało się usunąć odznaczonych przypisań pracowników'
+            ], $deleteResult['httpCode'] > 0 ? $deleteResult['httpCode'] : 500);
+        }
+    }
+
+    if (empty($staffIdsToInsert)) {
+        return;
+    }
+
+    $rows = [];
+
+    foreach ($staffIdsToInsert as $staffId) {
+        $rows[] = [
+            'tenant_id' => $tenantId,
+            'service_id' => $serviceId,
+            'staff_id' => (string) $staffId,
+        ];
+    }
+
+    $insertUrl = $supabaseUrl . '/rest/v1/tenant_service_staff';
+    $insertResult = services_request('POST', $insertUrl, $supabaseKey, $schema, $rows);
+
+    if ($insertResult['response'] === false || $insertResult['error'] !== '') {
+        services_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($insertResult['httpCode'] < 200 || $insertResult['httpCode'] >= 300) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie udało się zapisać przypisań pracowników'
+        ], $insertResult['httpCode'] > 0 ? $insertResult['httpCode'] : 500);
+    }
+}
+
 function services_save_decode_rpc_result($data)
 {
     if (is_array($data) && isset($data[0]) && is_array($data[0])) {
@@ -376,8 +615,12 @@ $paymentMessage = services_save_text($input['payment_message'] ?? null, 'payment
 $isActive = services_save_boolean($input['is_active'] ?? true, 'is_active');
 $visibleOnFront = services_save_boolean($input['visible_on_front'] ?? true, 'visible_on_front');
 $sortOrder = services_save_integer($input['sort_order'] ?? 0, 'sort_order', -1000000, 1000000);
-$staffIds = services_save_staff_ids($input['staff_ids'] ?? []);
-$staffById = services_save_fetch_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffIds);
+$hasStaffIdsPayload = array_key_exists('staff_ids', $input);
+$staffIds = $hasStaffIdsPayload ? services_save_staff_ids($input['staff_ids']) : null;
+
+if ($hasStaffIdsPayload) {
+    services_save_fetch_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffIds ?? []);
+}
 
 $existingIsActive = false;
 
@@ -421,6 +664,14 @@ if ($isActive && (!$isUpdate || !$existingIsActive)) {
     services_save_enforce_services_limit($supabaseUrl, $supabaseKey, $schema, $tenantId);
 }
 
+$rpcStaffIds = $staffIds;
+
+if (!$hasStaffIdsPayload) {
+    $rpcStaffIds = $isUpdate
+        ? services_save_fetch_current_staff_ids($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceId)
+        : [];
+}
+
 $rpcPayload = [
     'p_tenant_id' => $tenantId,
     'p_service_id' => $isUpdate ? $serviceId : null,
@@ -436,7 +687,7 @@ $rpcPayload = [
     'p_is_active' => $isActive,
     'p_visible_on_front' => $visibleOnFront,
     'p_sort_order' => $sortOrder,
-    'p_staff_ids' => $staffIds,
+    'p_staff_ids' => $rpcStaffIds,
 ];
 
 $rpcUrl = $supabaseUrl . '/rest/v1/rpc/save_tenant_service_with_staff';
@@ -478,7 +729,36 @@ if (!is_array($rpcDecoded) || ($rpcDecoded['success'] ?? null) !== true || !serv
     ], 500);
 }
 
+if ($hasStaffIdsPayload) {
+    services_save_sync_staff_assignments(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $serviceIdFromRpc,
+        $staffIds ?? []
+    );
+}
+
+$freshStaffIds = services_save_fetch_current_staff_ids(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    $tenantId,
+    $serviceIdFromRpc
+);
+$freshService = services_save_fetch_saved_service(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    $tenantId,
+    $serviceIdFromRpc,
+    $freshStaffIds
+);
+
 services_json([
     'success' => true,
-    'service_id' => $serviceIdFromRpc
+    'service_id' => $serviceIdFromRpc,
+    'service' => $freshService,
+    'staff_ids' => $freshStaffIds
 ]);

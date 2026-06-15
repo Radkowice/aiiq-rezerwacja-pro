@@ -4,8 +4,12 @@
   window.initAdminSettingsModule = async function initAdminSettingsModule() {
     if (adminSettingsInitialized) return;
 
+    const section = document.querySelector('section[data-section="ustawienia"]') || document;
+
     adminSettingsInitialized = true;
+    bindSmartNumberInputs(section);
     await loadSettingsForm();
+    bindSmartNumberInputs(section);
   };
 
   function splitBookingBufferMinutes(totalMinutes) {
@@ -29,6 +33,87 @@
       value: minutes,
       unit: 'minutes'
     };
+  }
+
+
+  function bindSmartNumberInputs(root = document) {
+    root.querySelectorAll('input[type="number"]').forEach((input) => {
+      if (input.dataset.smartNumberBound === '1') {
+        return;
+      }
+
+      input.dataset.smartNumberBound = '1';
+
+      input.addEventListener('focus', () => {
+        if (input.value === '0') {
+          input.select();
+        }
+      });
+
+      input.addEventListener('input', () => {
+        const normalized = normalizeSmartNumberInputValue(input.value, isDecimalNumberInput(input));
+
+        if (normalized !== input.value) {
+          input.value = normalized;
+        }
+      });
+
+      input.addEventListener('blur', () => {
+        if (input.value.trim() !== '' || !input.required) {
+          return;
+        }
+
+        const min = input.getAttribute('min');
+        input.value = min !== null && min !== '' ? min : '0';
+      });
+    });
+  }
+
+  function isDecimalNumberInput(input) {
+    const step = String(input.getAttribute('step') || '');
+    return step === 'any' || step.includes('.') || step.includes(',');
+  }
+
+  function normalizeSmartNumberInputValue(value, allowDecimal) {
+    let text = String(value || '');
+
+    if (text === '' || text === '-') {
+      return text;
+    }
+
+    const sign = text.startsWith('-') ? '-' : '';
+
+    if (sign) {
+      text = text.slice(1);
+    }
+
+    if (allowDecimal) {
+      const separatorMatch = text.match(/[.,]/);
+
+      if (separatorMatch) {
+        const separator = separatorMatch[0];
+        const separatorIndex = text.indexOf(separator);
+        const integerPart = text.slice(0, separatorIndex);
+        const decimalPart = text.slice(separatorIndex + 1);
+        const normalizedInteger = normalizeIntegerLeadingZeros(integerPart);
+
+        return `${sign}${normalizedInteger}${separator}${decimalPart}`;
+      }
+    }
+
+    return `${sign}${normalizeIntegerLeadingZeros(text)}`;
+  }
+
+  function normalizeIntegerLeadingZeros(value) {
+    const digits = String(value || '');
+
+    if (!/^\d+$/.test(digits)) {
+      return digits;
+    }
+
+    const normalized = digits.replace(/^0+(?=\d)/, '');
+
+    return normalized === '' ? '0' : normalized;
   }
   
   async function loadSettingsForm() {

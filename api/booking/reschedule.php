@@ -756,11 +756,8 @@ function reschedule_availability(
         }
 
         $slots = array_values(array_filter($slots, static function (string $time) use ($settings, $globalBlockedTimes, $staffBlockedTimes): bool {
-            if (in_array($time, $staffBlockedTimes, true)) {
-                return false;
-            }
-
-            return !reschedule_blocked_time_overlaps($time, $settings, $globalBlockedTimes);
+            return !reschedule_blocked_time_overlaps($time, $settings, $globalBlockedTimes)
+                && !reschedule_blocked_time_overlaps($time, $settings, $staffBlockedTimes);
         }));
     }
 

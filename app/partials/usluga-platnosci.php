@@ -4,6 +4,7 @@
       <h2>Usługi i płatności</h2>
       <p>Zarządzaj usługami, płatnościami i przypisaniem pracowników.</p>
     </div>
+    <button type="button" class="btn btn-secondary" id="service-payments-refresh-btn">Odśwież</button>
   </div>
 
   <div class="service-payments-grid">

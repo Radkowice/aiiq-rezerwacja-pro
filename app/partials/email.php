@@ -9,7 +9,7 @@
   <div class="settings-card email-settings-card email-fallback-notice">
     <h3>Awaryjna wysyłka systemowa</h3>
     <p class="settings-desc">
-      Jeśli nie skonfigurujesz własnego połączenia e-mail lub nie ustawisz szablonów wiadomości, system wyśle podstawowe powiadomienia z adresu systemowego AI-IQ Rezerwacja Pro.
+      Jeśli nie skonfigurujesz własnego połączenia e-mail oraz nie ustawisz szablonów wiadomości, system wyśle podstawowe powiadomienia z adresu systemowego AI-IQ Rezerwacja Pro.
     </p>
     <p class="settings-desc">
       W takim przypadku klient otrzyma potwierdzenie rezerwacji, ale odpowiedzi na wiadomość mogą nie trafić bezpośrednio do Twojej firmy. Dla lepszego kontaktu z klientem zalecamy skonfigurowanie własnej skrzynki e-mail i szablonów wiadomości.

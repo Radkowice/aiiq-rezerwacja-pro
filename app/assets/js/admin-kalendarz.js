@@ -25,6 +25,8 @@
   let staffWorkingHoursDate = '';
   let adminServices = [];
   let adminServicesLoaded = false;
+  let adminServicesLoadSeq = 0;
+  let staffServiceRenderSeq = 0;
   let adminCalendarBookings = [];
   let adminCalendarBookingsLoaded = false;
   let staffAvailability = [];
@@ -57,6 +59,7 @@
 
     adminBlocksInitialized = true;
     initCalendarControls();
+    bindServiceUpdateEvents();
     setRangeMinDates();
 
     try {
@@ -254,6 +257,7 @@
 
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
+        console.debug('[blocks] refresh clicked');
         await refreshAdminBlocksView(refreshBtn);
       });
     }
@@ -375,6 +379,7 @@
 
       adminCalendarBookingsLoaded = false;
       adminCalendarBookings = [];
+      invalidateAdminServicesCache();
       staffWorkingHoursDate = '';
       staffWorkingHours = [];
       staffAvailabilityLoadedFor = '';
@@ -420,6 +425,7 @@
   async function refreshAdminBlocksAfterMutation() {
     adminCalendarBookingsLoaded = false;
     adminCalendarBookings = [];
+    invalidateAdminServicesCache();
     staffWorkingHoursDate = '';
     staffWorkingHours = [];
     staffAvailabilityLoadedFor = '';
@@ -649,12 +655,49 @@
     }
   }
 
-  async function loadAdminServices() {
-    if (adminServicesLoaded) {
+  function invalidateAdminServicesCache() {
+    adminServicesLoaded = false;
+    adminServices = [];
+    adminServicesLoadSeq += 1;
+  }
+
+  function isBlocksSectionActive() {
+    const section = document.querySelector('section[data-section="blokady"]');
+    return !!section && !section.classList.contains('hidden');
+  }
+
+  function bindServiceUpdateEvents() {
+    window.addEventListener('aiiq:services-updated', async (event) => {
+      console.debug('[blocks/staff-services] services-updated event', event.detail || {});
+      invalidateAdminServicesCache();
+      staffAvailabilityLoadedFor = '';
+      staffAvailability = [];
+
+      if (!isBlocksSectionActive()) {
+        return;
+      }
+
+      try {
+        await loadAdminServicesForBlockMode({ forceRefresh: true });
+        await renderAdminCalendar();
+        await renderAdminTimeSlots();
+      } catch (error) {
+        console.error('services-updated blocks refresh error:', error);
+      }
+    });
+  }
+
+  async function loadAdminServices(options = {}) {
+    if (adminServicesLoaded && !options.forceRefresh) {
       return;
     }
 
-    const res = await fetch('/api/services/list.php', {
+    const seq = ++adminServicesLoadSeq;
+    const url = options.forceRefresh
+      ? `/api/services/list.php?_=${Date.now()}`
+      : '/api/services/list.php';
+
+    const res = await fetch(url, {
       cache: 'no-store',
       credentials: 'include'
     });
@@ -665,13 +708,17 @@
       throw new Error(data?.error || 'Nie udało się pobrać usług');
     }
 
+    if (seq !== adminServicesLoadSeq) {
+      return;
+    }
+
     adminServices = Array.isArray(data.services) ? data.services : [];
     adminServicesLoaded = true;
   }
 
-  async function loadAdminServicesForBlockMode() {
+  async function loadAdminServicesForBlockMode(options = {}) {
     try {
-      await loadAdminServices();
+      await loadAdminServices(options);
     } catch (error) {
       console.error('loadAdminServicesForBlockMode error:', error);
       adminServices = [];
@@ -1506,6 +1553,9 @@
   }
 
   async function renderAdminStaffServiceSlots(container) {
+    const seq = ++staffServiceRenderSeq;
+    const selectedStaffIdForRender = selectedBlockStaffId;
+    const selectedDateForRender = selectedAdminDate;
     const dayButtonLabel = getDayToggleLabel(selectedAdminDate);
 
     container.innerHTML = `
@@ -1531,6 +1581,26 @@
 
     try {
       const services = await getAdminStaffServiceCards(selectedAdminDate);
+      const serviceIds = services.map(service => service.id).filter(Boolean);
+
+      if (
+        seq !== staffServiceRenderSeq ||
+        selectedStaffIdForRender !== selectedBlockStaffId ||
+        selectedDateForRender !== selectedAdminDate
+      ) {
+        console.debug('[blocks/staff-services] stale render skipped', {
+          selectedStaffId: selectedStaffIdForRender,
+          serviceIds,
+          seq
+        });
+        return;
+      }
+
+      console.debug('[blocks/staff-services] render source:', 'services-list', {
+        selectedStaffId: selectedStaffIdForRender,
+        serviceIds,
+        seq
+      });
 
       if (!servicesWrap) {
         return;
