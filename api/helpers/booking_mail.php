@@ -785,13 +785,15 @@ if (!function_exists('booking_mail_send_system_booking_reminder')) {
 
         $termText = trim($date . ($time !== '' ? ' o ' . $time : ''));
         $detailsRows = ''
-            . $row('Usługa', $serviceName)
-            . $row('Osoba obsługująca', $staffDisplayName)
-            . ($type === 'day_before' ? $row('Termin', $termText) : $row('Godzina', $time));
+            . $row('📋 Usługa', $serviceName)
+            . $row('👥 Osoba obsługująca', $staffDisplayName)
+            . ($type === 'day_before' ? $row('📅 Termin', $termText) : $row('🕒 Godzina', $time));
         $contactText = $companyEmail !== '' ? $companyEmail : 'brak adresu kontaktowego';
+        $reminderIcon = $type === 'day_before' ? '📅' : '⏰';
 
         $message = ''
-            . '<p style="margin:0 0 14px;"><strong>📅 Przypomnienie o rezerwacji.</strong></p>'
+            . '<div style="font-size:36px;line-height:1;margin:0 0 12px;text-align:center;">' . $reminderIcon . '</div>'
+            . '<p style="margin:0 0 14px;"><strong>' . $reminderIcon . ' Przypomnienie o rezerwacji.</strong></p>'
             . '<p style="margin:0 0 14px;">Dzień dobry ' . htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') . ', ' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '</p>'
             . ($detailsRows !== ''
                 ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px;border-collapse:collapse;">' . $detailsRows . '</table>'
@@ -873,17 +875,17 @@ if (!function_exists('booking_mail_send_booking_reminder')) {
         $detailsRows = '';
 
         if ($serviceName !== '') {
-            $detailsRows .= $row('Usługa', $serviceName);
+            $detailsRows .= $row('📋 Usługa', $serviceName);
         }
 
         if ($staffDisplayName !== '') {
-            $detailsRows .= $row('Osoba obsługująca', $staffDisplayName);
+            $detailsRows .= $row('👥 Osoba obsługująca', $staffDisplayName);
         }
 
         if ($type === 'day_before') {
-            $detailsRows .= $row('Termin', $termText);
+            $detailsRows .= $row('📅 Termin', $termText);
         } else {
-            $detailsRows .= $row('Godzina', $time);
+            $detailsRows .= $row('🕒 Godzina', $time);
         }
 
         $closing = $type === 'day_before'
