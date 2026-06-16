@@ -185,14 +185,80 @@ function showTenantNotFoundView(message = '') {
 
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
+function normalizeFrontHexColor(value, fallback = '#ffffff') {
+  const color = String(value || fallback).trim();
+  const match = color.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+
+  if (!match) {
+    return normalizeFrontHexColor(fallback, '#ffffff');
+  }
+
+  const hex = match[1].length === 3
+    ? match[1].split('').map(char => char + char).join('')
+    : match[1];
+
+  return `#${hex.toLowerCase()}`;
+}
+
+function getFrontRgbFromHex(value) {
+  const hex = normalizeFrontHexColor(value).slice(1);
+
+  return {
+    r: parseInt(hex.slice(0, 2), 16),
+    g: parseInt(hex.slice(2, 4), 16),
+    b: parseInt(hex.slice(4, 6), 16)
+  };
+}
+
+function getFrontRelativeLuminance(value) {
+  const rgb = getFrontRgbFromHex(value);
+  const channels = [rgb.r, rgb.g, rgb.b].map(channel => {
+    const normalized = channel / 255;
+    return normalized <= 0.03928
+      ? normalized / 12.92
+      : Math.pow((normalized + 0.055) / 1.055, 2.4);
+  });
+
+  return (0.2126 * channels[0]) + (0.7152 * channels[1]) + (0.0722 * channels[2]);
+}
+
+function getFrontContrastRatio(colorA, colorB) {
+  const luminanceA = getFrontRelativeLuminance(colorA);
+  const luminanceB = getFrontRelativeLuminance(colorB);
+  const lighter = Math.max(luminanceA, luminanceB);
+  const darker = Math.min(luminanceA, luminanceB);
+
+  return (lighter + 0.05) / (darker + 0.05);
+}
+
+function getReadableFrontTextColor(backgroundColor, darkColor = '#111827', lightColor = '#ffffff') {
+  const background = normalizeFrontHexColor(backgroundColor);
+  const dark = normalizeFrontHexColor(darkColor, '#111827');
+  const light = normalizeFrontHexColor(lightColor, '#ffffff');
+
+  return getFrontContrastRatio(background, dark) >= getFrontContrastRatio(background, light)
+    ? dark
+    : light;
+}
+
 function applyCalendarFrontStyle(style = {}) {
   const root = document.documentElement;
+  const bgColor = String(style.bg_color || '#ffffff').trim() || '#ffffff';
+  const cardColor = String(style.card_color || '#ffffff').trim() || '#ffffff';
+  const cellColor = String(style.cell_color || '#ffffff').trim() || '#ffffff';
+  const activeColor = String(style.active_color || '#2563eb').trim() || '#2563eb';
+  const blockedColor = String(style.blocked_color || '#e5e7eb').trim() || '#e5e7eb';
 
-  root.style.setProperty('--front-bg-color', style.bg_color || '#ffffff');
-  root.style.setProperty('--front-card-color', style.card_color || '#ffffff');
-  root.style.setProperty('--front-cell-color', style.cell_color || '#ffffff');
-  root.style.setProperty('--front-active-color', style.active_color || '#2563eb');
-  root.style.setProperty('--front-blocked-color', style.blocked_color || '#e5e7eb');
+  root.style.setProperty('--front-bg-color', bgColor);
+  root.style.setProperty('--front-card-color', cardColor);
+  root.style.setProperty('--front-cell-color', cellColor);
+  root.style.setProperty('--front-active-color', activeColor);
+  root.style.setProperty('--front-blocked-color', blockedColor);
+  root.style.setProperty('--front-text-color', getReadableFrontTextColor(cardColor));
+  root.style.setProperty('--front-muted-text-color', getReadableFrontTextColor(bgColor, '#475569', '#f8fafc'));
+  root.style.setProperty('--front-calendar-text-color', getReadableFrontTextColor(cellColor));
+  root.style.setProperty('--front-calendar-disabled-text-color', getReadableFrontTextColor(blockedColor, '#374151', '#ffffff'));
+  root.style.setProperty('--front-button-text-color', getReadableFrontTextColor(activeColor));
 
   const radius = String(style.radius || '16').replace(/[^\d]/g, '');
   const width = String(style.width || '520').replace(/[^\d]/g, '');
@@ -246,6 +312,54 @@ function applyCalendarFormFields(fields = {}) {
   setFieldVisibility('note', FRONT_FORM_FIELDS.show_notes);
 }
 
+function hideFrontLogo(logoEl) {
+  if (!logoEl) return;
+
+  logoEl.hidden = true;
+  logoEl.alt = '';
+  logoEl.onload = null;
+  logoEl.onerror = null;
+  logoEl.removeAttribute('src');
+  logoEl.closest('.front-branding')?.classList.remove('has-front-logo');
+}
+
+function setFrontLogo(logoEl, logoUrl, titleText) {
+  if (!logoEl) return;
+
+  hideFrontLogo(logoEl);
+
+  if (!logoUrl || !publicPlanHasFeature('branding_logo')) {
+    return;
+  }
+
+  let resolvedLogoUrl = '';
+
+  try {
+    const parsedLogoUrl = new URL(logoUrl, window.location.origin);
+
+    if (!['http:', 'https:'].includes(parsedLogoUrl.protocol)) {
+      return;
+    }
+
+    resolvedLogoUrl = parsedLogoUrl.href;
+  } catch (error) {
+    return;
+  }
+
+  logoEl.closest('.front-branding')?.classList.add('has-front-logo');
+
+  logoEl.onload = () => {
+    logoEl.alt = titleText || 'Logo';
+    logoEl.hidden = false;
+  };
+
+  logoEl.onerror = () => {
+    hideFrontLogo(logoEl);
+  };
+
+  logoEl.src = resolvedLogoUrl;
+}
+
 async function loadFrontBranding() {
   const res = await fetch('/api/system/branding-public.php', {
     cache: 'no-store'
@@ -281,15 +395,7 @@ if (titleEl) {
   titleEl.textContent = titleText;
 }
     const logoEl = getEl('frontLogo');
-    if (logoEl && logoUrl && publicPlanHasFeature('branding_logo')) {
-      logoEl.src = logoUrl;
-      logoEl.alt = titleText || 'Logo';
-      logoEl.hidden = false;
-    } else if (logoEl) {
-      logoEl.removeAttribute('src');
-      logoEl.alt = '';
-      logoEl.hidden = true;
-    }
+    setFrontLogo(logoEl, logoUrl, titleText);
     
     if (faviconUrl && publicPlanHasFeature('branding_favicon')) {
   let faviconEl = document.querySelector('link[rel="icon"]');
@@ -1346,17 +1452,6 @@ function isDateAllowed(dateStr) {
   return selected >= minAllowedDate && selected <= maxAllowedDate;
 }
 
-function setDateLimits() {
-  const dateInput = getEl('date');
-  if (!dateInput) return;
-
-  const today = new Date();
-  const { minMonthDate } = getMonthRangeLimits();
-
-  dateInput.min = formatLocalDate(minMonthDate);
-  dateInput.max = formatLocalDate(getMaxAllowedDate(today));
-}
-
 function getMonthRangeLimits() {
   const today = new Date();
 
@@ -2174,15 +2269,7 @@ function applyFrontBrandingData(branding = {}, planContext = null) {
 
   const logoEl = getEl('frontLogo');
 
-  if (logoEl && logoUrl && publicPlanHasFeature('branding_logo')) {
-    logoEl.src = logoUrl;
-    logoEl.alt = titleText || 'Logo';
-    logoEl.hidden = false;
-  } else if (logoEl) {
-    logoEl.removeAttribute('src');
-    logoEl.alt = '';
-    logoEl.hidden = true;
-  }
+  setFrontLogo(logoEl, logoUrl, titleText);
 
   if (faviconUrl && publicPlanHasFeature('branding_favicon')) {
     let faviconEl = document.querySelector('link[rel="icon"]');
@@ -2480,7 +2567,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  setDateLimits();
   renderCalendarUI();
 
   const dateEl = getEl('date');
@@ -2489,14 +2575,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const serviceSelect = getEl('serviceSelect');
 
   if (dateEl) {
-    dateEl.addEventListener('keydown', e => e.preventDefault());
-    dateEl.addEventListener('paste', e => e.preventDefault());
-    dateEl.addEventListener('drop', e => e.preventDefault());
-    dateEl.addEventListener('click', () => {
-      if (typeof dateEl.showPicker === 'function') {
-        dateEl.showPicker();
-      }
-    });
     dateEl.addEventListener('change', () => {
       renderCalendarUI();
       renderTimeOptions();

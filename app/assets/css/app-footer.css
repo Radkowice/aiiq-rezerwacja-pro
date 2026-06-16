@@ -2,7 +2,7 @@
   width: 100%;
   margin-top: auto;
   padding: 16px;
-  color: var(--color-muted, #667085);
+  color: var(--front-muted-text-color, var(--color-muted, #475569));
   font-size: 13px;
   line-height: 1.45;
   text-align: center;
@@ -46,5 +46,5 @@
 .app-footer,
 body.theme-dark .app-footer,
 body.theme-gray .app-footer {
-  color: var(--color-muted, #667085) !important;
+  color: var(--front-muted-text-color, var(--color-muted, #475569)) !important;
 }

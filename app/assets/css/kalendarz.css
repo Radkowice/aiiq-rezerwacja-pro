@@ -34,7 +34,7 @@
   margin-bottom: 6px;
   text-align: center;
   font-size: 12px;
-  color: #9ca3af;
+  color: var(--front-muted-text-color, #475569);
 }
 
 .calendar-grid {
@@ -62,7 +62,7 @@
 
 .day.disabled {
   background: #e5e7eb;
-  color: #9ca3af;
+  color: #374151;
 }
 
 .day.holiday {
@@ -107,18 +107,32 @@
 }
 
 .front-branding {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  min-height: 56px;
   text-align: center;
   margin-bottom: 22px;
 }
 
+.front-branding.has-front-logo {
+  min-height: 156px;
+}
+
 .front-logo {
+  width: 180px;
+  height: 90px;
   max-width: 180px;
   max-height: 90px;
-  width: auto;
-  height: auto;
   object-fit: contain;
   display: block;
   margin: 0 auto 14px;
+}
+
+.front-logo[hidden],
+#frontLogo[hidden] {
+  display: none !important;
 }
 
 #serviceTitleFront {
@@ -126,6 +140,10 @@
   font-size: 28px;
   line-height: 1.2;
   font-weight: 700;
+}
+
+#calendar {
+  min-height: 304px;
 }
 
 /* === FRONT KALENDARZA — BRANDING KLIENTA === */
@@ -142,6 +160,7 @@ body {
 
 .calendar-header button {
   background: var(--front-blocked-color, #e5e7eb);
+  color: var(--front-calendar-disabled-text-color, #374151);
   border-radius: calc(var(--front-radius, 16px) / 2);
 }
 
@@ -155,6 +174,7 @@ body {
 
 .day {
   background: var(--front-cell-color, #243042);
+  color: var(--front-calendar-text-color, #ffffff);
   border-radius: calc(var(--front-radius, 16px) / 2);
 }
 
@@ -168,10 +188,12 @@ body {
 
 .day.disabled {
   background: var(--front-blocked-color, #e5e7eb);
+  color: var(--front-calendar-disabled-text-color, #374151);
 }
 
 .day.selected {
   background: var(--front-active-color, #2563eb) !important;
+  color: var(--front-button-text-color, #ffffff) !important;
   border-color: color-mix(in srgb, var(--front-active-color, #2563eb) 45%, white) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--front-active-color, #2563eb) 22%, transparent) !important;
 }
@@ -185,6 +207,7 @@ textarea:focus {
 
 button:not(#prevMonth):not(#nextMonth) {
   background: var(--front-active-color, var(--accent)) !important;
+  color: var(--front-button-text-color, var(--primary)) !important;
 }
 
 .front-service-select-box {
@@ -210,6 +233,7 @@ button:not(#prevMonth):not(#nextMonth) {
 }
 
 .front-service-box {
+  min-height: 76px;
   margin: 4px 0 18px;
   padding: 14px 16px;
   border-radius: var(--front-radius, 16px);
@@ -286,6 +310,10 @@ button:not(#prevMonth):not(#nextMonth) {
 
 .front-staff-single-info.hidden {
   display: none !important;
+}
+
+#time {
+  min-height: 47px;
 }
 
 @media (max-width: 520px) {

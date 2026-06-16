@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /
+
+Disallow: /api/
+Disallow: /panel-admina.php
+Disallow: /panel-pracownika/
+Disallow: /panel-personelu/
+Disallow: /helpers/
+Disallow: /partials/
+Disallow: /data/
+Disallow: /logowanie.html
+Disallow: /reset-hasla.html
+Disallow: /nowe-haslo.html

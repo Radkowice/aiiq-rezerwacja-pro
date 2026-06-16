@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Zarezerwuj termin online w systemie AI-IQ Rezerwacja Pro. Wybierz usługę, datę i godzinę oraz potwierdź rezerwację przez formularz.">
   <link rel="icon" type="image/png" href="/favicon.png"> 
   <title>AI-IQ Rezerwacja Pro</title>
   <link rel="stylesheet" href="assets/css/style.css">
@@ -20,9 +21,10 @@
     <button type="button" class="app-loader__refresh" data-loader-refresh>Odśwież stronę</button>
   </div>
 </div>
+<main>
 <div class="box" id="bookingApp">
   <div class="front-branding">
-    <img id="frontLogo" class="front-logo" src="" alt="" hidden>
+    <img id="frontLogo" class="front-logo" alt="" width="180" height="90" hidden>
     <h1 id="serviceTitleFront">Rezerwacja konsultacji</h1>
   </div>
 
@@ -85,6 +87,7 @@
   <div id="calendar"></div>
 <input type="hidden" id="date">
   <div id="calendarLoader" style="display:none;">Ładowanie terminów...</div>
+  <label for="time">Wybierz godzinę *</label>
   <select id="time">
     <option value="">Wybierz godzinę *</option>
   </select>
@@ -135,6 +138,7 @@
     <a href="/rejestracja-pro.html">Utwórz konto Pro</a>
   </div>
 </div>
+</main>
 
 <script src="assets/js/app-loader.js"></script>
 <script src="assets/js/app-loader-init.js"></script>
@@ -142,15 +146,15 @@
 <footer class="front-footer app-footer" data-app-footer>
 
  <nav class="front-legal-links" data-app-footer-extra aria-label="Dokumenty prawne i informacje o aplikacji">
-  <a href="/legal/regulamin.html" target="_blank" rel="noopener">
+  <a href="https://rezerwacja-ai-iq.pl/legal/regulamin.html" target="_blank" rel="noopener">
     Regulamin platformy
   </a>
   <span aria-hidden="true">•</span>
-  <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener">
+  <a href="https://rezerwacja-ai-iq.pl/legal/polityka-prywatnosci.html" target="_blank" rel="noopener">
     Polityka prywatności platformy
   </a>
   <span aria-hidden="true">•</span>
-  <a href="/o-aplikacji.html" target="_blank" rel="noopener">
+  <a href="https://rezerwacja-ai-iq.pl/o-aplikacji.html" target="_blank" rel="noopener">
     Informacje o aplikacji
   </a>
 </nav>
