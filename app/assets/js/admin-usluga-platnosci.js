@@ -10,6 +10,7 @@
     saving: false,
     savingGlobal: false,
     deactivatingId: null,
+    deletingId: null,
     loadSequence: 0,
   };
 
@@ -568,6 +569,7 @@
       const statusAction = service.is_active
         ? `<button type="button" class="btn btn-secondary service-deactivate-btn" data-action="deactivate" data-service-id="${escapeHtmlAttr(service.id)}">Wyłącz</button>`
         : '<button type="button" class="btn btn-secondary service-disabled-btn" disabled>Wyłączona</button>';
+      const deleteAction = `<button type="button" class="btn btn-danger service-delete-btn" data-action="delete" data-service-id="${escapeHtmlAttr(service.id)}">Usuń usługę</button>`;
 
       return `
         <div class="service-list-item${selected}${inactive}" data-service-id="${escapeHtmlAttr(service.id)}">
@@ -584,6 +586,7 @@
           <div class="service-list-actions">
             <button type="button" class="btn btn-secondary service-edit-btn" data-action="edit" data-service-id="${escapeHtmlAttr(service.id)}">Edytuj</button>
             ${statusAction}
+            ${deleteAction}
           </div>
         </div>
       `;
@@ -595,6 +598,10 @@
 
     els.list.querySelectorAll('[data-action="deactivate"]').forEach((button) => {
       button.addEventListener('click', () => deactivateService(button.dataset.serviceId || '', button));
+    });
+
+    els.list.querySelectorAll('[data-action="delete"]').forEach((button) => {
+      button.addEventListener('click', () => deleteService(button.dataset.serviceId || '', button));
     });
   }
 
@@ -902,6 +909,129 @@
     }
   }
 
+  function serviceDeleteBlockMessage() {
+    return 'Nie można usunąć tej usługi.\n'
+      + 'Usługę możesz usunąć dopiero wtedy, gdy nie będzie miała przypisanych rezerwacji ani pracowników.\n'
+      + 'Na ten moment dezaktywuj usługę, aby klienci nie mogli tworzyć nowych rezerwacji dla tej usługi.\n'
+      + 'Przed usunięciem:\n\n'
+      + '1. odłącz pracowników od tej usługi,\n'
+      + '2. upewnij się, że nie ma aktywnych/przyszłych rezerwacji przypisanych do tej usługi.';
+  }
+
+  async function showServiceDeleteBlockInfo() {
+    const message = serviceDeleteBlockMessage();
+
+    if (typeof window.openAdminConfirm === 'function') {
+      await window.openAdminConfirm({
+        title: 'Nie można usunąć usługi',
+        message,
+        confirmText: 'Zamknij',
+        cancelText: 'Zamknij',
+        variant: 'danger',
+        icon: '!',
+        showCancel: false,
+      });
+      return;
+    }
+
+    setMessage(els.listMessage, message, 'error');
+  }
+
+  async function showServiceDeleteConfirm() {
+    if (typeof window.openAdminConfirm !== 'function') {
+      setMessage(els.listMessage, 'Nie można pokazać okna potwierdzenia.', 'error');
+      return false;
+    }
+
+    return window.openAdminConfirm({
+      title: 'Usuń usługę',
+      message: 'Czy na pewno chcesz usunąć usługę?\nTa operacja jest nieodwracalna.',
+      confirmText: 'Usuń usługę',
+      cancelText: 'Anuluj',
+      variant: 'danger',
+      icon: '!',
+    });
+  }
+
+  function isServiceDeleteBlockedError(error) {
+    const data = error && error.data ? error.data : null;
+    const reason = String(data?.reason || data?.code || '').toLowerCase();
+
+    return reason === 'service_has_staff'
+      || reason === 'service_has_active_bookings'
+      || Boolean(data?.has_staff)
+      || Boolean(data?.has_active_bookings);
+  }
+
+  async function deleteService(serviceId, button) {
+    const service = state.services.find((item) => item.id === serviceId) || null;
+
+    if (!service || state.deletingId) return;
+
+    state.deletingId = serviceId;
+    const originalText = button ? button.textContent : '';
+
+    if (button) {
+      button.disabled = true;
+      button.textContent = 'Sprawdzanie...';
+    }
+
+    setMessage(els.listMessage, 'Sprawdzanie, czy usługę można usunąć...', 'muted');
+
+    try {
+      await requestJson('/api/services/delete.php', {
+        method: 'POST',
+        body: JSON.stringify({ id: serviceId, check_only: true }),
+      });
+
+      const confirmed = await showServiceDeleteConfirm();
+
+      if (!confirmed) {
+        if (button) {
+          button.disabled = false;
+          button.textContent = originalText || 'Usuń usługę';
+        }
+
+        setMessage(els.listMessage, '', '');
+        return;
+      }
+
+      if (button) {
+        button.textContent = 'Usuwanie...';
+      }
+
+      setMessage(els.listMessage, 'Usuwanie usługi...', 'muted');
+
+      const data = await requestJson('/api/services/delete.php', {
+        method: 'POST',
+        body: JSON.stringify({ id: serviceId }),
+      });
+
+      if (state.selectedId === serviceId) {
+        state.selectedId = null;
+      }
+
+      dispatchServicesUpdatedEvent(null, { service_id: serviceId, deleted: true });
+      setMessage(els.listMessage, data.message || 'Usługa została usunięta.', 'success');
+      await loadServicePaymentsData({ forceRefresh: true });
+    } catch (error) {
+      if (isServiceDeleteBlockedError(error)) {
+        setMessage(els.listMessage, serviceDeleteBlockMessage(), 'error');
+
+        await showServiceDeleteBlockInfo();
+      } else {
+        setMessage(els.listMessage, error.message || 'Nie udało się usunąć usługi.', 'error');
+      }
+
+      if (button) {
+        button.disabled = false;
+        button.textContent = originalText || 'Usuń usługę';
+      }
+    } finally {
+      state.deletingId = null;
+    }
+  }
+
   async function requestJson(url, options = {}) {
     if (typeof window.apiFetch === 'function') {
       const data = await window.apiFetch(url, {
@@ -914,7 +1044,9 @@
       });
 
       if (!data || data.success !== true) {
-        throw new Error(data?.error || 'Nie udało się wykonać operacji.');
+        const error = new Error(data?.error || 'Nie udało się wykonać operacji.');
+        error.data = data;
+        throw error;
       }
 
       return data;
@@ -945,7 +1077,9 @@
     }
 
     if (!response.ok || !data || data.success !== true) {
-      throw new Error(data?.error || 'Nie udało się wykonać operacji.');
+      const error = new Error(data?.error || 'Nie udało się wykonać operacji.');
+      error.data = data;
+      throw error;
     }
 
     return data;

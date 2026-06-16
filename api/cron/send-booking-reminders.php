@@ -179,9 +179,9 @@ function cron_booking_reminders_tenant_mail_config(string $tenantId, array &$cac
         $tenantQuery
     );
 
-    $cache[$tenantId] = ($emailSettings && $tenantData)
+    $cache[$tenantId] = $tenantData
         ? [
-            'email_settings' => $emailSettings,
+            'email_settings' => is_array($emailSettings) ? $emailSettings : null,
             'tenant_data' => $tenantData,
         ]
         : null;
@@ -281,7 +281,7 @@ function cron_booking_reminders_process(string $type, DateTimeImmutable $now): a
         }
 
         try {
-            $mailSent = booking_mail_send_booking_reminder(
+            $mailSent = booking_mail_send_booking_reminder_with_fallback(
                 $mailConfig['email_settings'],
                 $mailConfig['tenant_data'],
                 $booking,

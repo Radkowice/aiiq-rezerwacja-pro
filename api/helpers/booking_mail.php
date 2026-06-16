@@ -699,6 +699,122 @@ if (!function_exists('booking_mail_send_reschedule_confirmation')) {
     }
 }
 
+if (!function_exists('booking_mail_reminder_subject_context')) {
+    function booking_mail_reminder_subject_context(array $tenantData, array $booking): string
+    {
+        $context = trim((string)($booking['service_name_snapshot'] ?? $booking['service_name'] ?? ''));
+
+        if ($context === '') {
+            $context = trim((string)(
+                $tenantData['client_name']
+                ?? $tenantData['company_full_name']
+                ?? $tenantData['company_name']
+                ?? ''
+            ));
+        }
+
+        if ($context === '') {
+            return '';
+        }
+
+        if (function_exists('mb_strlen') && mb_strlen($context, 'UTF-8') > 64) {
+            return rtrim(mb_substr($context, 0, 61, 'UTF-8')) . '...';
+        }
+
+        if (!function_exists('mb_strlen') && strlen($context) > 64) {
+            return rtrim(substr($context, 0, 61)) . '...';
+        }
+
+        return $context;
+    }
+}
+
+if (!function_exists('booking_mail_booking_reminder_subject')) {
+    function booking_mail_booking_reminder_subject(array $tenantData, array $booking, string $type): string
+    {
+        $base = $type === 'day_before'
+            ? 'Przypomnienie o jutrzejszej wizycie'
+            : 'Przypomnienie o dzisiejszej wizycie';
+        $context = booking_mail_reminder_subject_context($tenantData, $booking);
+
+        return $context !== '' ? $base . ': ' . $context : $base;
+    }
+}
+
+if (!function_exists('booking_mail_send_system_booking_reminder')) {
+    function booking_mail_send_system_booking_reminder(
+        array $tenantData,
+        array $booking,
+        string $type,
+        ?array $emailSettings = null
+    ): bool {
+        $type = trim($type);
+
+        if (!in_array($type, ['day_before', 'same_day'], true)) {
+            return false;
+        }
+
+        $email = trim((string)($booking['email'] ?? ''));
+
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return false;
+        }
+
+        $name = trim((string)($booking['name'] ?? ''));
+        $displayName = $name !== '' ? $name : 'Kliencie';
+        $date = trim((string)($booking['booking_date'] ?? $booking['date'] ?? ''));
+        $time = trim((string)($booking['booking_time'] ?? $booking['time'] ?? ''));
+        $serviceName = trim((string)($booking['service_name_snapshot'] ?? $booking['service_name'] ?? ''));
+        $staffDisplayName = trim((string)($booking['staff_display_name'] ?? ''));
+        $companyEmail = booking_mail_company_contact_email($tenantData, $emailSettings);
+        $subject = booking_mail_booking_reminder_subject($tenantData, $booking, $type);
+        $intro = $type === 'day_before'
+            ? 'przypominamy o jutrzejszej rezerwacji.'
+            : 'przypominamy, że Twoja wizyta jest zaplanowana na dziś.';
+
+        $row = static function (string $label, string $value): string {
+            $value = trim($value);
+
+            if ($value === '') {
+                return '';
+            }
+
+            return '<tr><td style="padding:8px 0;color:#6b7280;">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ':</td>'
+                . '<td style="padding:8px 0;text-align:right;"><strong>' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '</strong></td></tr>';
+        };
+
+        $termText = trim($date . ($time !== '' ? ' o ' . $time : ''));
+        $detailsRows = ''
+            . $row('Usługa', $serviceName)
+            . $row('Osoba obsługująca', $staffDisplayName)
+            . ($type === 'day_before' ? $row('Termin', $termText) : $row('Godzina', $time));
+        $contactText = $companyEmail !== '' ? $companyEmail : 'brak adresu kontaktowego';
+
+        $message = ''
+            . '<p style="margin:0 0 14px;"><strong>📅 Przypomnienie o rezerwacji.</strong></p>'
+            . '<p style="margin:0 0 14px;">Dzień dobry ' . htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') . ', ' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '</p>'
+            . ($detailsRows !== ''
+                ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px;border-collapse:collapse;">' . $detailsRows . '</table>'
+                : '')
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Ta wiadomość została wysłana z adresu systemowego, ponieważ usługodawca nie skonfigurował własnej skrzynki e-mail. W razie potrzeby skontaktuj się z usługodawcą: <strong>' . htmlspecialchars($contactText, ENT_QUOTES, 'UTF-8') . '</strong>.</p>';
+
+        $html = buildSystemMailLayout(
+            $subject,
+            'Automatyczne przypomnienie o rezerwacji.',
+            $message,
+            'To przypomnienie zostało wysłane przez system AI-IQ Rezerwacja Pro.'
+        );
+
+        return sendSystemMail(
+            $email,
+            $subject,
+            $html,
+            $companyEmail !== '' ? $companyEmail : null,
+            trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''))
+        );
+    }
+}
+
 if (!function_exists('booking_mail_send_booking_reminder')) {
     function booking_mail_send_booking_reminder(
         array $emailSettings,
@@ -735,9 +851,7 @@ if (!function_exists('booking_mail_send_booking_reminder')) {
         $footerCustom = (string)($tenantData['email_footer_custom'] ?? '');
         $footerHtml = booking_mail_build_footer($plan, $footerMode, $footerCustom);
 
-        $subject = $type === 'day_before'
-            ? 'Przypomnienie o jutrzejszej wizycie'
-            : 'Przypomnienie o dzisiejszej wizycie';
+        $subject = booking_mail_booking_reminder_subject($tenantData, $booking, $type);
 
         $headline = $subject;
         $intro = $type === 'day_before'
@@ -780,6 +894,7 @@ if (!function_exists('booking_mail_send_booking_reminder')) {
             '<div style="margin:0;padding:0;background:#f4f7fb;">'
             . '<div style="max-width:640px;margin:0 auto;background:#ffffff;font-family:Arial,sans-serif;color:#17324d;">'
             . '<div style="background:linear-gradient(135deg,#071b2d,#0f2d47);padding:32px 24px;text-align:center;color:#ffffff;">'
+            . '<div style="font-size:42px;line-height:1;margin-bottom:12px;">' . ($type === 'day_before' ? '📅' : '⏰') . '</div>'
             . '<h1 style="margin:0;font-size:28px;">' . htmlspecialchars($headline, ENT_QUOTES, 'UTF-8') . '</h1>'
             . ($companyName !== ''
                 ? '<p style="margin:12px 0 0 0;font-size:16px;opacity:0.95;">' . htmlspecialchars($companyName, ENT_QUOTES, 'UTF-8') . '</p>'
@@ -822,5 +937,29 @@ if (!function_exists('booking_mail_send_booking_reminder')) {
         $mail->send();
 
         return true;
+    }
+}
+
+if (!function_exists('booking_mail_send_booking_reminder_with_fallback')) {
+    function booking_mail_send_booking_reminder_with_fallback(
+        ?array $emailSettings,
+        array $tenantData,
+        array $booking,
+        string $type
+    ): bool {
+        if (booking_mail_has_usable_smtp($emailSettings)) {
+            try {
+                $settingsForSend = $emailSettings;
+                $settingsForSend['send_client_confirmation'] = true;
+
+                if (booking_mail_send_booking_reminder($settingsForSend, $tenantData, $booking, $type)) {
+                    return true;
+                }
+            } catch (Throwable $e) {
+                error_log('BOOKING_REMINDER_FALLBACK_SMTP_FAILED: ' . get_class($e));
+            }
+        }
+
+        return booking_mail_send_system_booking_reminder($tenantData, $booking, $type, $emailSettings);
     }
 }

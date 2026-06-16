@@ -235,7 +235,10 @@
 }
 
 .service-list-item.is-selected {
-  border-color: #7f1d1d;
+  padding: 11px;
+  border: 3px solid color-mix(in srgb, var(--color-primary) 82%, #ffffff);
+  background: color-mix(in srgb, var(--color-card) 92%, var(--color-primary));
+  box-shadow: 0 10px 24px rgba(40, 64, 107, 0.12);
 }
 
 .service-list-item.is-inactive {
