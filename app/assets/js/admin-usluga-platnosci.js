@@ -12,6 +12,7 @@
     deactivatingId: null,
     deletingId: null,
     loadSequence: 0,
+    searchQuery: '',
   };
 
   const els = {};
@@ -39,6 +40,7 @@
     els.section = section;
     els.refreshButton = section.querySelector('#service-payments-refresh-btn');
     els.newButton = section.querySelector('#service-new-btn');
+    els.searchInput = section.querySelector('#service-search-input');
     els.list = section.querySelector('#service-list');
     els.listMessage = section.querySelector('#service-list-message');
     els.form = section.querySelector('#service-form');
@@ -100,6 +102,8 @@
     els.saveButton?.addEventListener('click', saveService);
     els.refreshButton?.addEventListener('click', refreshServicePaymentsFromButton);
     els.globalSaveButton?.addEventListener('click', saveGlobalServiceSettings);
+    els.searchInput?.addEventListener('input', updateServiceSearch);
+    els.searchInput?.addEventListener('change', updateServiceSearch);
 
     window.addEventListener('aiiq:staff-updated', refreshStaffAfterUpdate);
     window.addEventListener('aiiq:section-shown', (event) => {
@@ -139,6 +143,8 @@
 
       if (state.services.length === 0) {
         setMessage(els.listMessage, 'Brak usług. Dodaj pierwszą usługę.', 'muted');
+      } else if (state.searchQuery.trim() !== '' && getFilteredServices().length === 0) {
+        setMessage(els.listMessage, 'Brak usług pasujących do wyszukiwania.', 'muted');
       } else {
         setMessage(els.listMessage, '', '');
       }
@@ -475,6 +481,29 @@
     return state.services.find((service) => service.id === state.selectedId) || null;
   }
 
+  function updateServiceSearch() {
+    state.searchQuery = els.searchInput?.value || '';
+    renderServiceList();
+  }
+
+  function getServiceSearchText(service) {
+    return [
+      service.name,
+      service.description,
+      service.is_active ? 'aktywna' : 'nieaktywna wyłączona',
+    ].join(' ').toLowerCase();
+  }
+
+  function getFilteredServices() {
+    const query = state.searchQuery.trim().toLowerCase();
+
+    if (!query) {
+      return state.services;
+    }
+
+    return state.services.filter((service) => getServiceSearchText(service).includes(query));
+  }
+
   function applySavedServiceResponse(data) {
     const freshStaffIds = Array.isArray(data?.staff_ids)
       ? data.staff_ids.map(String)
@@ -557,7 +586,22 @@
       return;
     }
 
-    els.list.innerHTML = state.services.map((service) => {
+    const visibleServices = getFilteredServices();
+
+    if (visibleServices.length === 0) {
+      els.list.innerHTML = '';
+      setMessage(els.listMessage, 'Brak usług pasujących do wyszukiwania.', 'muted');
+      return;
+    }
+
+    if (
+      state.searchQuery.trim() !== ''
+      || els.listMessage?.textContent === 'Brak usług pasujących do wyszukiwania.'
+    ) {
+      setMessage(els.listMessage, '', '');
+    }
+
+    els.list.innerHTML = visibleServices.map((service) => {
       const selected = service.id === state.selectedId ? ' is-selected' : '';
       const inactive = service.is_active ? '' : ' is-inactive';
       const paymentLabel = service.payments_enabled && Number(service.price_amount) > 0
@@ -735,7 +779,18 @@
     const durationMinutes = readInteger(els.durationMinutes, 'Czas trwania', 1);
     const breakMinutes = readInteger(els.breakMinutes, 'Przerwa po usłudze', 0, 1440);
     const bookingBufferMinutes = readMinNoticeMinutes();
-    const sortOrder = readInteger(els.sortOrder, 'Kolejność', -1000000, 1000000);
+    const sortOrderValue = String(els.sortOrder.value || '').trim();
+    const rawSortOrder = Number.parseInt(sortOrderValue, 10);
+
+    if (sortOrderValue !== '' && !/^-?\d+$/.test(sortOrderValue)) {
+      throw new Error('Kolejność musi być liczbą całkowitą.');
+    }
+
+    if (Number.isFinite(rawSortOrder) && rawSortOrder < 0) {
+      throw new Error('Kolejność nie może być mniejsza niż 0.');
+    }
+
+    const sortOrder = readInteger(els.sortOrder, 'Kolejność', 0, 1000000);
     const priceAmount = readPrice();
     const priceCurrency = (els.priceCurrency.value.trim() || 'PLN').toUpperCase();
     const paymentsEnabled = Boolean(els.paymentsEnabled.checked);

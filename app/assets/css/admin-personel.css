@@ -227,9 +227,48 @@ section[data-section="personel"] .personel-form-section + .personel-form-section
 
 section[data-section="personel"] .personel-form-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 360px));
-  justify-content: start;
+  width: min(100%, 734px);
+  margin-inline: auto;
+  grid-template-columns: repeat(2, minmax(220px, 360px));
+  grid-template-areas:
+    "name phone"
+    "email sort"
+    "color .";
+  justify-content: center;
+  align-items: start;
   gap: 14px;
+}
+
+section[data-section="personel"] .personel-form-grid > .form-group {
+  width: 100%;
+  max-width: 360px;
+  justify-self: start;
+}
+
+section[data-section="personel"] #personel-display-name {
+  width: 100%;
+  max-width: 360px;
+  box-sizing: border-box;
+}
+
+section[data-section="personel"] .personel-field-name {
+  grid-area: name;
+}
+
+section[data-section="personel"] .personel-field-phone {
+  grid-area: phone;
+}
+
+section[data-section="personel"] .personel-field-email {
+  grid-area: email;
+}
+
+section[data-section="personel"] .personel-field-color {
+  grid-area: color;
+}
+
+section[data-section="personel"] .personel-field-sort {
+  grid-area: sort;
 }
 
 section[data-section="personel"] #personel-color {
@@ -342,7 +381,15 @@ section[data-section="personel"] .personel-color-picker .sr-only {
 }
 
 section[data-section="personel"] #personel-sort-order {
-  max-width: 220px;
+  max-width: 110px;
+}
+
+section[data-section="personel"] .personel-field-hint {
+  display: block;
+  margin-top: 6px;
+  color: #6b7280;
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 section[data-section="personel"] .personel-checkboxes {
@@ -554,6 +601,17 @@ section[data-section="personel"] .personel-day-times input {
   section[data-section="personel"] .personel-days,
   section[data-section="personel"] .personel-list {
     grid-template-columns: 1fr;
+  }
+
+  section[data-section="personel"] .personel-form-grid {
+    grid-template-areas:
+      "name"
+      "phone"
+      "email"
+      "sort"
+      "color";
+    width: 100%;
+    margin-inline: 0;
   }
 
   section[data-section="personel"] .personel-card-header,

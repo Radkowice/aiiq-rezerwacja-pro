@@ -870,20 +870,26 @@
       throw new Error('Podaj imię i nazwisko osoby.');
     }
 
+    const sortOrderValue = els.sortOrder.value.trim();
+    const sortOrder = sortOrderValue === '' ? 0 : Number.parseInt(sortOrderValue, 10);
+
+    if (sortOrderValue !== '' && !/^-?\d+$/.test(sortOrderValue)) {
+      throw new Error('Kolejność musi być liczbą całkowitą.');
+    }
+
+    if (sortOrder < 0) {
+      throw new Error('Kolejność nie może być mniejsza niż 0.');
+    }
+
     const payload = {
       display_name: displayName,
       email: els.email.value.trim(),
       phone: els.phone.value.trim(),
       description: els.description.value.trim(),
       color: normalizeStaffColorValue(els.color.value),
-      sort_order: els.sortOrder.value.trim() === '' ? 0 : Number.parseInt(els.sortOrder.value, 10),
+      sort_order: sortOrder,
       is_active: els.isActive.checked
     };
-
-    if (Number.isNaN(payload.sort_order)) {
-      throw new Error('Kolejność musi być liczbą.');
-    }
-
 
     if (state.selectedId) {
       payload.id = state.selectedId;

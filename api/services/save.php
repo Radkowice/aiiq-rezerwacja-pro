@@ -614,7 +614,22 @@ if ($paymentsEnabled && ($priceAmount === null || (float) $priceAmount <= 0)) {
 $paymentMessage = services_save_text($input['payment_message'] ?? null, 'payment_message', 2000);
 $isActive = services_save_boolean($input['is_active'] ?? true, 'is_active');
 $visibleOnFront = services_save_boolean($input['visible_on_front'] ?? true, 'visible_on_front');
-$sortOrder = services_save_integer($input['sort_order'] ?? 0, 'sort_order', -1000000, 1000000);
+$sortOrderInput = $input['sort_order'] ?? 0;
+
+if (!is_bool($sortOrderInput)
+    && !is_array($sortOrderInput)
+    && !is_object($sortOrderInput)
+    && preg_match('/^-?\d+$/', (string) $sortOrderInput)
+    && (int) $sortOrderInput < 0
+) {
+    services_json([
+        'success' => false,
+        'error' => 'Kolejność nie może być mniejsza niż 0.',
+        'field' => 'sort_order',
+    ], 422);
+}
+
+$sortOrder = services_save_integer($sortOrderInput, 'sort_order', 0, 1000000);
 $hasStaffIdsPayload = array_key_exists('staff_ids', $input);
 $staffIds = $hasStaffIdsPayload ? services_save_staff_ids($input['staff_ids']) : null;
 

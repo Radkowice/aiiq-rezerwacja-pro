@@ -471,13 +471,23 @@ if (!is_int($sortOrderRaw) && !ctype_digit((string) $sortOrderRaw) && !preg_matc
     ], 422);
 }
 
+$sortOrder = (int) $sortOrderRaw;
+
+if ($sortOrder < 0) {
+    staff_save_json([
+        'success' => false,
+        'error' => 'Kolejność nie może być mniejsza niż 0.',
+        'field' => 'sort_order',
+    ], 422);
+}
+
 $payload = [
     'display_name' => $displayName,
     'email' => $email,
     'phone' => $phone,
     'description' => $description,
     'color' => $color,
-    'sort_order' => (int) $sortOrderRaw,
+    'sort_order' => $sortOrder,
 ];
 
 // Pola usługi i e-maila pracownika zostają obsługiwane tylko dla zgodności

@@ -85,6 +85,10 @@
         <button type="button" class="btn btn-secondary" id="service-new-btn">Nowa usługa</button>
       </div>
 
+      <div class="service-search">
+        <label for="service-search-input">Szukaj</label>
+        <input type="search" id="service-search-input" placeholder="Szukaj usługi..." autocomplete="off">
+      </div>
       <div class="service-action-message" id="service-list-message" hidden></div>
       <div class="service-list" id="service-list"></div>
     </div>
@@ -140,7 +144,8 @@
 
           <label>
             <span>Kolejność</span>
-            <input type="number" id="service-sort-order" step="1" value="0">
+            <input type="number" id="service-sort-order" min="0" step="1" value="0" placeholder="1">
+            <small class="service-field-hint">Niższa liczba oznacza wyższą pozycję na liście i w kalendarzu rezerwacji.</small>
           </label>
 
           <label>

@@ -62,30 +62,31 @@
           <div class="personel-form-section">
             <h4>Dane osoby</h4>
 
-            <div class="form-group">
-              <label for="personel-display-name">Imię i nazwisko</label>
-              <input type="text" id="personel-display-name" autocomplete="name" required>
-            </div>
-
             <div class="personel-form-grid">
-              <div class="form-group">
-                <label for="personel-email">Email</label>
-                <input type="email" id="personel-email" autocomplete="email">
+              <div class="form-group personel-field-name">
+                <label for="personel-display-name">Imię i nazwisko</label>
+                <input type="text" id="personel-display-name" autocomplete="name" required>
               </div>
 
-              <div class="form-group">
+              <div class="form-group personel-field-phone">
                 <label for="personel-phone">Telefon</label>
                 <input type="tel" id="personel-phone" autocomplete="tel">
               </div>
 
-              <div class="form-group">
+              <div class="form-group personel-field-email">
+                <label for="personel-email">Email</label>
+                <input type="email" id="personel-email" autocomplete="email">
+              </div>
+
+              <div class="form-group personel-field-color">
                 <label for="personel-color">Kolor</label>
                 <input type="color" id="personel-color" value="#2563eb">
               </div>
 
-              <div class="form-group">
+              <div class="form-group personel-field-sort">
                 <label for="personel-sort-order">Kolejność</label>
-                <input type="number" id="personel-sort-order" step="1" inputmode="numeric">
+                <input type="number" id="personel-sort-order" min="0" step="1" inputmode="numeric" placeholder="1">
+                <small class="personel-field-hint">Niższa liczba oznacza wyższą pozycję na liście.</small>
               </div>
             </div>
 
