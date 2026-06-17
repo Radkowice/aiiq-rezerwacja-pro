@@ -159,9 +159,14 @@ body {
 }
 
 .calendar-header button {
-  background: var(--front-blocked-color, #e5e7eb);
-  color: var(--front-calendar-disabled-text-color, #374151);
+  background: var(--front-button-color, var(--front-cell-color, var(--front-active-color, var(--accent))));
+  color: var(--front-button-text-color, var(--front-calendar-cell-text-color, var(--primary)));
   border-radius: calc(var(--front-radius, 16px) / 2);
+}
+
+.calendar-header button:disabled {
+  background: var(--front-blocked-color, #e5e7eb);
+  color: var(--front-calendar-blocked-text-color, var(--front-calendar-disabled-text-color, #374151));
 }
 
 .calendar-header button:hover {
@@ -174,26 +179,28 @@ body {
 
 .day {
   background: var(--front-cell-color, #243042);
-  color: var(--front-calendar-text-color, #ffffff);
+  color: var(--front-calendar-cell-text-color, var(--front-calendar-text-color, var(--front-text-color)));
   border-radius: calc(var(--front-radius, 16px) / 2);
 }
 
 .day.available {
   background: var(--front-cell-color, #16a34a);
+  color: var(--front-calendar-cell-text-color, var(--front-calendar-text-color, var(--front-text-color)));
 }
 
 .day.medium {
   background: var(--front-cell-color, #f59e0b);
+  color: var(--front-calendar-cell-text-color, var(--front-calendar-text-color, var(--front-text-color)));
 }
 
 .day.disabled {
   background: var(--front-blocked-color, #e5e7eb);
-  color: var(--front-calendar-disabled-text-color, #374151);
+  color: var(--front-calendar-blocked-text-color, var(--front-calendar-disabled-text-color, var(--front-text-color)));
 }
 
 .day.selected {
   background: var(--front-active-color, #2563eb) !important;
-  color: var(--front-button-text-color, #ffffff) !important;
+  color: var(--front-calendar-active-text-color, var(--front-button-text-color, var(--front-text-color))) !important;
   border-color: color-mix(in srgb, var(--front-active-color, #2563eb) 45%, white) !important;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--front-active-color, #2563eb) 22%, transparent) !important;
 }
@@ -205,8 +212,8 @@ textarea:focus {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--front-active-color, #2563eb) 18%, transparent) !important;
 }
 
-button:not(#prevMonth):not(#nextMonth) {
-  background: var(--front-active-color, var(--accent)) !important;
+#bookBtn {
+  background: var(--front-button-color, var(--front-cell-color, var(--front-active-color, var(--accent)))) !important;
   color: var(--front-button-text-color, var(--primary)) !important;
 }
 

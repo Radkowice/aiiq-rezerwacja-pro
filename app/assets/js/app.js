@@ -248,6 +248,7 @@ function applyCalendarFrontStyle(style = {}) {
   const cellColor = String(style.cell_color || '#ffffff').trim() || '#ffffff';
   const activeColor = String(style.active_color || '#2563eb').trim() || '#2563eb';
   const blockedColor = String(style.blocked_color || '#e5e7eb').trim() || '#e5e7eb';
+  const buttonColor = String(style.button_color || cellColor || activeColor).trim();
 
   root.style.setProperty('--front-bg-color', bgColor);
   root.style.setProperty('--front-card-color', cardColor);
@@ -257,8 +258,12 @@ function applyCalendarFrontStyle(style = {}) {
   root.style.setProperty('--front-text-color', getReadableFrontTextColor(cardColor));
   root.style.setProperty('--front-muted-text-color', getReadableFrontTextColor(bgColor, '#475569', '#f8fafc'));
   root.style.setProperty('--front-calendar-text-color', getReadableFrontTextColor(cellColor));
+  root.style.setProperty('--front-calendar-cell-text-color', getReadableFrontTextColor(cellColor));
   root.style.setProperty('--front-calendar-disabled-text-color', getReadableFrontTextColor(blockedColor, '#374151', '#ffffff'));
-  root.style.setProperty('--front-button-text-color', getReadableFrontTextColor(activeColor));
+  root.style.setProperty('--front-calendar-blocked-text-color', getReadableFrontTextColor(blockedColor, '#374151', '#ffffff'));
+  root.style.setProperty('--front-calendar-active-text-color', getReadableFrontTextColor(activeColor));
+  root.style.setProperty('--front-button-color', buttonColor);
+  root.style.setProperty('--front-button-text-color', getReadableFrontTextColor(buttonColor));
 
   const radius = String(style.radius || '16').replace(/[^\d]/g, '');
   const width = String(style.width || '520').replace(/[^\d]/g, '');
