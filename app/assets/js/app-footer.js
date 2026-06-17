@@ -2,6 +2,37 @@
   'use strict';
 
   const AI_IQ_URL = 'https://www.ai-iq.pl';
+  const PLATFORM_ORIGIN = 'https://rezerwacja-ai-iq.pl';
+
+  function isPlatformSubdomain(hostname) {
+    return String(hostname || '').toLowerCase().endsWith('.rezerwacja-ai-iq.pl');
+  }
+
+  function buildAppInfoUrl() {
+    const url = new URL('/o-aplikacji.html', PLATFORM_ORIGIN);
+
+    if (isPlatformSubdomain(window.location.hostname)) {
+      url.searchParams.set('return', `${window.location.origin}/`);
+    }
+
+    return url.toString();
+  }
+
+  function updateAppInfoLinks(root) {
+    root.querySelectorAll('a[href]').forEach((link) => {
+      let url;
+
+      try {
+        url = new URL(link.getAttribute('href'), window.location.href);
+      } catch (error) {
+        return;
+      }
+
+      if (url.pathname === '/o-aplikacji.html') {
+        link.href = buildAppInfoUrl();
+      }
+    });
+  }
 
   function buildFooterMain() {
     const main = document.createElement('span');
@@ -28,6 +59,7 @@
     root.replaceChildren(buildFooterMain());
 
     extras.forEach((extra) => {
+      updateAppInfoLinks(extra);
       root.appendChild(extra);
     });
   }

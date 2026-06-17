@@ -135,6 +135,11 @@
   display: none !important;
 }
 
+.front-branding.has-front-logo #frontLogo[hidden] {
+  display: block !important;
+  visibility: hidden;
+}
+
 #serviceTitleFront {
   margin: 0 0 18px;
   font-size: 28px;

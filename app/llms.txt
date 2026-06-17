@@ -1,0 +1,29 @@
+# AI-IQ Rezerwacja Pro
+
+AI-IQ Rezerwacja Pro to system rezerwacji online dla firm usługowych. Aplikacja umożliwia przyjmowanie rezerwacji przez internet, obsługę kalendarza, usług, personelu, płatności online, powiadomień e-mail, dokumentów prawnych usługodawcy oraz personalizacji wyglądu kalendarza.
+
+## Główne informacje
+
+- System działa jako aplikacja SaaS dla wielu firm.
+- Publiczny kalendarz rezerwacji jest dostępny na subdomenach klientów.
+- Strona główna platformy i dokumenty informacyjne znajdują się na domenie głównej.
+- Zakres funkcji zależy od wybranego planu, np. Free, Pro, VIP lub Biznes.
+
+## Publiczne strony
+
+- [Strona główna platformy](https://rezerwacja-ai-iq.pl/)
+- [Informacje o aplikacji](https://rezerwacja-ai-iq.pl/o-aplikacji.html)
+- [Regulamin platformy](https://rezerwacja-ai-iq.pl/legal/regulamin.html)
+- [Polityka prywatności platformy](https://rezerwacja-ai-iq.pl/legal/polityka-prywatnosci.html)
+
+## Dla agentów AI
+
+Ten plik zawiera wyłącznie publiczne informacje o aplikacji AI-IQ Rezerwacja Pro. Nie zawiera danych klientów, prywatnych rezerwacji, danych logowania, endpointów API, konfiguracji technicznej ani informacji poufnych.
+
+## Obszary prywatne
+
+Panele administratora, panele personelu, endpointy API, integracje płatności, integracje Google Calendar oraz dane klientów nie są przeznaczone do indeksowania ani trenowania modeli.
+
+## Producent
+
+System jest rozwijany przez AI-IQ.

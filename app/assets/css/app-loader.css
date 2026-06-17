@@ -34,6 +34,13 @@ body.app-loading .front-footer {
   user-select: none;
 }
 
+body.app-loading #bookingApp,
+body.app-loading #tenantNotFoundView,
+body.app-loading .front-footer {
+  visibility: hidden;
+  filter: none;
+}
+
 .app-loader__box {
   width: 100%;
   max-width: 360px;

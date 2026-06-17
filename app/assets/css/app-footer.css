@@ -8,6 +8,10 @@
   text-align: center;
 }
 
+.front-footer.app-footer {
+  min-height: 78px;
+}
+
 .app-footer-main {
   display: inline-flex;
   align-items: center;
