@@ -201,6 +201,103 @@ function supabase_select(string $url, array $headers): array
     ];
 }
 
+function booking_insert_error_text(array $result): string
+{
+    $parts = [];
+    $response = (string)($result['response'] ?? '');
+    $decoded = $response !== '' ? json_decode($response, true) : null;
+
+    if (is_array($decoded)) {
+        foreach (['code', 'message', 'details', 'hint', 'error'] as $key) {
+            if (!empty($decoded[$key]) && !is_array($decoded[$key]) && !is_object($decoded[$key])) {
+                $parts[] = (string)$decoded[$key];
+            }
+        }
+    }
+
+    if ($response !== '') {
+        $parts[] = $response;
+    }
+
+    if (!empty($result['error'])) {
+        $parts[] = (string)$result['error'];
+    }
+
+    return strtolower(implode(' ', $parts));
+}
+
+function booking_insert_error_is_conflict(array $result): bool
+{
+    $httpCode = (int)($result['httpCode'] ?? 0);
+
+    if ($httpCode === 409) {
+        return true;
+    }
+
+    $errorText = booking_insert_error_text($result);
+
+    foreach ([
+        '23505',
+        'duplicate key',
+        'unique constraint',
+        'violates unique',
+        'conflict',
+        'already exists',
+        'slot',
+        'termin',
+    ] as $needle) {
+        if ($errorText !== '' && str_contains($errorText, $needle)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+function booking_insert_error_is_temporary(array $result): bool
+{
+    $httpCode = (int)($result['httpCode'] ?? 0);
+
+    if ($httpCode === 0 || $httpCode === 429 || $httpCode >= 500) {
+        return true;
+    }
+
+    return trim((string)($result['error'] ?? '')) !== '';
+}
+
+function booking_insert_error_response(array $result): void
+{
+    $httpCode = (int)($result['httpCode'] ?? 0);
+
+    if (booking_insert_error_is_conflict($result)) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana godzina jest już niedostępna',
+        ], 409);
+    }
+
+    if ($httpCode === 429) {
+        json_response([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo zapisać rezerwacji. Spróbuj ponownie za moment.',
+        ], 429);
+    }
+
+    if (booking_insert_error_is_temporary($result)) {
+        json_response([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo zapisać rezerwacji. Spróbuj ponownie za moment.',
+        ], 503);
+    }
+
+    json_response([
+        'success' => false,
+        'error' => 'Nie udało się zapisać rezerwacji. Spróbuj ponownie.',
+    ], 500);
+}
+
 function fetch_single_record(string $baseUrl, array $headers, string $table, string $query): ?array
 {
     $url = rtrim($baseUrl, '/') . "/rest/v1/{$table}?{$query}&limit=1";
@@ -907,19 +1004,39 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
 }
 
 // Tenant po domenie
-$TENANT_ID = getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
-debug_log('BOOK_TENANT_FINAL', $TENANT_ID);
+$tenantLookup = getTenantLookupFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
+$tenantLookupStatus = (string)($tenantLookup['status'] ?? '');
 
-if (!$TENANT_ID) {
-    debug_log('BOOK_TENANT_ERROR', [
+if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
+    $TENANT_ID = (string)$tenantLookup['tenant_id'];
+    debug_log('BOOK_TENANT_FINAL', $TENANT_ID);
+} elseif ($tenantLookupStatus === 'not_found') {
+    debug_log('BOOK_TENANT_NOT_FOUND', [
         'host' => $_SERVER['HTTP_HOST'] ?? null,
         'server_name' => $_SERVER['SERVER_NAME'] ?? null,
     ]);
 
     json_response([
         'success' => false,
-        'error' => 'Błąd konfiguracji systemu (brak tenant)',
-    ], 400);
+        'error' => 'tenant_not_found',
+        'message' => 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.',
+    ], 404);
+} else {
+    $tenantLookupHttpCode = (int)($tenantLookup['http_code'] ?? 503);
+    $tenantLookupResponseCode = $tenantLookupHttpCode === 429 ? 429 : 503;
+
+    debug_log('BOOK_TENANT_TECHNICAL_ERROR', [
+        'host' => $_SERVER['HTTP_HOST'] ?? null,
+        'server_name' => $_SERVER['SERVER_NAME'] ?? null,
+        'lookup_status' => $tenantLookupStatus,
+        'http_code' => $tenantLookupHttpCode,
+    ]);
+
+    json_response([
+        'success' => false,
+        'error' => 'temporary_unavailable',
+        'message' => 'Nie udało się chwilowo potwierdzić domeny kalendarza. Spróbuj ponownie za moment.',
+    ], $tenantLookupResponseCode);
 }
 
 // Input
@@ -1676,10 +1793,7 @@ debug_log('BOOK_BOOKINGS_RESPONSE', [
 ]);
 
 if ($bookingResult['error'] || $bookingResult['httpCode'] >= 400) {
-    json_response([
-        'success' => false,
-        'error' => 'Nie udało się zapisać rezerwacji. Spróbuj ponownie.',
-    ], 500);
+    booking_insert_error_response($bookingResult);
 }
 
 $bookingRows = json_decode((string)($bookingResult['response'] ?? ''), true);

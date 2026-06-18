@@ -248,7 +248,7 @@ function applyCalendarFrontStyle(style = {}) {
   const cellColor = String(style.cell_color || '#ffffff').trim() || '#ffffff';
   const activeColor = String(style.active_color || '#2563eb').trim() || '#2563eb';
   const blockedColor = String(style.blocked_color || '#e5e7eb').trim() || '#e5e7eb';
-  const buttonColor = String(style.button_color || cellColor || activeColor).trim();
+  const buttonColor = String(style.button_color || activeColor || cellColor).trim();
 
   root.style.setProperty('--front-bg-color', bgColor);
   root.style.setProperty('--front-card-color', cardColor);

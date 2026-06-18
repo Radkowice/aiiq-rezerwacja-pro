@@ -18,31 +18,214 @@ function front_bootstrap_json(array $payload, int $statusCode = 200): void
     exit;
 }
 
+function front_bootstrap_cache_dir(): string
+{
+    return __DIR__ . '/../../data/cache/front-bootstrap';
+}
+
+function front_bootstrap_cache_key(): string
+{
+    $hosts = host_candidates();
+    $hostKey = !empty($hosts) ? implode('|', $hosts) : (string)($_SERVER['HTTP_HOST'] ?? '');
+
+    return hash('sha256', strtolower($hostKey));
+}
+
+function front_bootstrap_cache_file(string $cacheKey): string
+{
+    return front_bootstrap_cache_dir() . '/' . $cacheKey . '.json';
+}
+
+function front_bootstrap_blocked_cache_dir(): string
+{
+    return __DIR__ . '/../../data/cache/front-bootstrap-blocked';
+}
+
+function front_bootstrap_cache_file_in_dir(string $cacheDir, string $cacheKey): string
+{
+    return $cacheDir . '/' . $cacheKey . '.json';
+}
+
+function front_bootstrap_ensure_cache_dir_path(string $cacheDir): bool
+{
+    if (!is_dir($cacheDir)) {
+        @mkdir($cacheDir, 0775, true);
+    }
+
+    return is_dir($cacheDir);
+}
+
+function front_bootstrap_ensure_cache_dir(): bool
+{
+    return front_bootstrap_ensure_cache_dir_path(front_bootstrap_cache_dir());
+}
+
+function front_bootstrap_lock_cache_in_dir(string $cacheDir, string $cacheKey)
+{
+    if (!front_bootstrap_ensure_cache_dir_path($cacheDir)) {
+        return null;
+    }
+
+    $lockHandle = @fopen($cacheDir . '/' . $cacheKey . '.lock', 'c');
+
+    if (!$lockHandle) {
+        return null;
+    }
+
+    if (!flock($lockHandle, LOCK_EX)) {
+        fclose($lockHandle);
+        return null;
+    }
+
+    return $lockHandle;
+}
+
+function front_bootstrap_lock_cache(string $cacheKey)
+{
+    return front_bootstrap_lock_cache_in_dir(front_bootstrap_cache_dir(), $cacheKey);
+}
+
+function front_bootstrap_read_cache_from_dir(string $cacheDir, string $cacheKey): ?array
+{
+    $file = front_bootstrap_cache_file_in_dir($cacheDir, $cacheKey);
+
+    if (!is_file($file)) {
+        return null;
+    }
+
+    $raw = @file_get_contents($file);
+    $cache = json_decode((string) $raw, true);
+
+    if (
+        !is_array($cache)
+        || !isset($cache['expires_at'], $cache['payload'])
+        || (int) $cache['expires_at'] < time()
+        || !is_array($cache['payload'])
+    ) {
+        return null;
+    }
+
+    return $cache['payload'];
+}
+
+function front_bootstrap_read_cache(string $cacheKey): ?array
+{
+    return front_bootstrap_read_cache_from_dir(front_bootstrap_cache_dir(), $cacheKey);
+}
+
+function front_bootstrap_write_cache_to_dir(string $cacheDir, string $cacheKey, array $payload, int $ttlSeconds): void
+{
+    if (!front_bootstrap_ensure_cache_dir_path($cacheDir)) {
+        return;
+    }
+
+    $cache = [
+        'expires_at' => time() + $ttlSeconds,
+        'payload' => $payload,
+    ];
+
+    @file_put_contents(
+        front_bootstrap_cache_file_in_dir($cacheDir, $cacheKey),
+        json_encode($cache, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        LOCK_EX
+    );
+}
+
+function front_bootstrap_write_cache(string $cacheKey, array $payload, int $ttlSeconds = 40): void
+{
+    front_bootstrap_write_cache_to_dir(front_bootstrap_cache_dir(), $cacheKey, $payload, $ttlSeconds);
+}
+
+function front_bootstrap_blocked_cache_key(string $tenantId): string
+{
+    $hosts = host_candidates();
+    $hostKey = !empty($hosts) ? implode('|', $hosts) : (string)($_SERVER['HTTP_HOST'] ?? '');
+    $scope = strtolower($hostKey) . '|' . $tenantId . '|' . date('Y-m');
+
+    return hash('sha256', $scope);
+}
+
+function front_bootstrap_read_blocked_cache(string $cacheKey): ?array
+{
+    return front_bootstrap_read_cache_from_dir(front_bootstrap_blocked_cache_dir(), $cacheKey);
+}
+
+function front_bootstrap_write_blocked_cache(string $cacheKey, array $payload, int $ttlSeconds = 25): void
+{
+    front_bootstrap_write_cache_to_dir(front_bootstrap_blocked_cache_dir(), $cacheKey, $payload, $ttlSeconds);
+}
+
+function front_bootstrap_lock_blocked_cache(string $cacheKey)
+{
+    return front_bootstrap_lock_cache_in_dir(front_bootstrap_blocked_cache_dir(), $cacheKey);
+}
+
+function front_bootstrap_technical_status(array $result): int
+{
+    return (int)($result['httpCode'] ?? 0) === 429 ? 429 : 503;
+}
+
 function front_bootstrap_request(string $url, string $key, string $schema): array
 {
-    $ch = curl_init($url);
-
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPGET => true,
-        CURLOPT_HTTPHEADER => supabaseHeaders($key, $schema),
-        CURLOPT_CONNECTTIMEOUT => 5,
-        CURLOPT_TIMEOUT => 20,
-    ]);
-
-    $response = curl_exec($ch);
-    $error = curl_error($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-    curl_close($ch);
-
-    return [
-        'ok' => $response !== false && $error === '' && $httpCode >= 200 && $httpCode < 300,
-        'response' => $response,
-        'error' => $error,
-        'httpCode' => $httpCode,
-        'data' => json_decode((string) $response, true),
+    $attempts = 2;
+    $lastResult = [
+        'ok' => false,
+        'response' => false,
+        'error' => '',
+        'httpCode' => 0,
+        'data' => null,
+        'jsonValid' => false,
+        'retryable' => true,
     ];
+
+    for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        $ch = curl_init($url);
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => supabaseHeaders($key, $schema),
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 20,
+        ]);
+
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        curl_close($ch);
+
+        $data = json_decode((string) $response, true);
+        $jsonValid = json_last_error() === JSON_ERROR_NONE;
+        $retryable = $response === false
+            || $error !== ''
+            || $httpCode === 429
+            || $httpCode >= 500
+            || $httpCode === 0;
+
+        $lastResult = [
+            'ok' => $response !== false
+                && $error === ''
+                && $httpCode >= 200
+                && $httpCode < 300
+                && $jsonValid
+                && is_array($data),
+            'response' => $response,
+            'error' => $error,
+            'httpCode' => $httpCode,
+            'data' => $data,
+            'jsonValid' => $jsonValid,
+            'retryable' => $retryable,
+        ];
+
+        if ($lastResult['ok'] || !$retryable || $attempt === $attempts) {
+            break;
+        }
+
+        usleep(150000);
+    }
+
+    return $lastResult;
 }
 
 
@@ -103,6 +286,24 @@ function front_bootstrap_multi_request(array $requests, string $key, string $sch
     }
 
     curl_multi_close($multi);
+
+    foreach ($requests as $name => $url) {
+        $result = $results[$name] ?? null;
+        $retryable = !is_array($result)
+            || ($result['response'] ?? false) === false
+            || ($result['error'] ?? '') !== ''
+            || (int)($result['httpCode'] ?? 0) === 429
+            || (int)($result['httpCode'] ?? 0) >= 500
+            || (int)($result['httpCode'] ?? 0) === 0;
+
+        if (is_array($result) && !empty($result['ok'])) {
+            continue;
+        }
+
+        if ($retryable && is_string($url) && trim($url) !== '') {
+            $results[$name] = front_bootstrap_request($url, $key, $schema);
+        }
+    }
 
     return $results;
 }
@@ -240,7 +441,11 @@ function front_bootstrap_build_branding(
     $result = front_bootstrap_request($url, $serviceRoleKey, $schema);
 
     if (!$result['ok']) {
-        front_bootstrap_fail('Nie udało się pobrać brandingu', 500);
+        front_bootstrap_json([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo pobrać brandingu. Spróbuj ponownie za moment.',
+        ], front_bootstrap_technical_status($result));
     }
 
     $row = front_bootstrap_first_row($result);
@@ -306,7 +511,11 @@ function front_bootstrap_build_service(
     $settingsResult = $results['settings'] ?? ['ok' => false];
 
     if (!$settingsResult['ok']) {
-        front_bootstrap_fail('Nie udało się pobrać danych usługi', 500);
+        front_bootstrap_json([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo pobrać danych usługi. Spróbuj ponownie za moment.',
+        ], front_bootstrap_technical_status($settingsResult));
     }
 
     $settings = front_bootstrap_first_row($settingsResult);
@@ -724,6 +933,15 @@ function front_bootstrap_build_blocked(
         'exceptions' => $exceptionsUrl,
     ], $serviceRoleKey, $schema);
 
+    $blockedCacheable = true;
+
+    foreach (['dates', 'times', 'settings', 'exceptions'] as $resultKey) {
+        if (empty($results[$resultKey]['ok'])) {
+            $blockedCacheable = false;
+            break;
+        }
+    }
+
     $blockedDates = [];
     $globalBlockedDates = [];
     $staffBlockedDates = [];
@@ -825,6 +1043,7 @@ function front_bootstrap_build_blocked(
     }
 
     return [
+        '_cacheable' => $blockedCacheable,
         'success' => true,
         'blockedDates' => array_values(array_unique($blockedDates)),
         'blockedTimes' => $blockedTimes,
@@ -844,26 +1063,53 @@ function front_bootstrap_build_blocked(
     ];
 }
 
-try {
-    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
-        header('Allow: GET');
-        front_bootstrap_json([
-            'success' => false,
-            'error' => 'Metoda niedozwolona',
-        ], 405);
+function front_bootstrap_get_blocked(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    array $calendarSettings
+): array {
+    $cacheKey = front_bootstrap_blocked_cache_key($tenantId);
+    $blocked = front_bootstrap_read_blocked_cache($cacheKey);
+
+    if (is_array($blocked)) {
+        return $blocked;
     }
 
-    $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
-    $serviceRoleKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
-    $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+    $lockHandle = front_bootstrap_lock_blocked_cache($cacheKey);
 
-    if ($supabaseUrl === '' || $serviceRoleKey === '') {
-        front_bootstrap_fail('Brak konfiguracji Supabase', 500);
+    if ($lockHandle) {
+        $blocked = front_bootstrap_read_blocked_cache($cacheKey);
+
+        if (is_array($blocked)) {
+            flock($lockHandle, LOCK_UN);
+            fclose($lockHandle);
+            return $blocked;
+        }
     }
 
-    $tenantId = getTenantIdFromHost($supabaseUrl, $serviceRoleKey, $schema);
+    $blocked = front_bootstrap_build_blocked($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $calendarSettings);
+    $blockedCacheable = ($blocked['_cacheable'] ?? true) === true;
+    unset($blocked['_cacheable']);
 
-    if (!$tenantId) {
+    if (is_array($blocked) && ($blocked['success'] ?? false) === true && $blockedCacheable) {
+        front_bootstrap_write_blocked_cache($cacheKey, $blocked);
+    }
+
+    if ($lockHandle) {
+        flock($lockHandle, LOCK_UN);
+        fclose($lockHandle);
+    }
+
+    return $blocked;
+}
+
+function front_bootstrap_build_static_bundle(string $supabaseUrl, string $serviceRoleKey, string $schema): array
+{
+    $tenantLookup = getTenantLookupFromHost($supabaseUrl, $serviceRoleKey, $schema);
+
+    if (($tenantLookup['status'] ?? '') === 'not_found') {
         front_bootstrap_json([
             'success' => false,
             'error' => 'tenant_not_found',
@@ -871,7 +1117,18 @@ try {
         ], 404);
     }
 
-    $tenantId = (string) $tenantId;
+    if (($tenantLookup['status'] ?? '') !== 'found' || empty($tenantLookup['tenant_id'])) {
+        $statusCode = (int)($tenantLookup['http_code'] ?? 503);
+        $statusCode = $statusCode === 429 ? 429 : 503;
+
+        front_bootstrap_json([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo potwierdzić domeny kalendarza. Spróbuj ponownie za moment.',
+        ], $statusCode);
+    }
+
+    $tenantId = (string) $tenantLookup['tenant_id'];
     $planContext = plan_features_get_context($tenantId);
     $brandingBundle = front_bootstrap_build_branding($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $planContext);
     $serviceBundle = front_bootstrap_build_service($supabaseUrl, $serviceRoleKey, $schema, $tenantId);
@@ -915,13 +1172,81 @@ try {
         $publicPlanContext,
         (string)($serviceBundle['company_full_name'] ?? '')
     );
-    $blocked = front_bootstrap_build_blocked($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $service);
+
+    return [
+        'tenant_id' => $tenantId,
+        'plan_context' => $publicPlanContext,
+        'branding' => $brandingBundle['branding'],
+        'service' => $serviceBundle['service'],
+        'services' => $services,
+        'staff' => $staff,
+        'legal' => $legal,
+        'calendar_service' => $service,
+    ];
+}
+
+try {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
+        header('Allow: GET');
+        front_bootstrap_json([
+            'success' => false,
+            'error' => 'Metoda niedozwolona',
+        ], 405);
+    }
+
+    $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+    $serviceRoleKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+    $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+
+    if ($supabaseUrl === '' || $serviceRoleKey === '') {
+        front_bootstrap_fail('Brak konfiguracji Supabase', 500);
+    }
+
+    $cacheKey = front_bootstrap_cache_key();
+    $staticBundle = front_bootstrap_read_cache($cacheKey);
+
+    if (!is_array($staticBundle)) {
+        $cacheLockHandle = front_bootstrap_lock_cache($cacheKey);
+
+        if ($cacheLockHandle) {
+            $staticBundle = front_bootstrap_read_cache($cacheKey);
+        }
+
+        if (!is_array($staticBundle)) {
+            $staticBundle = front_bootstrap_build_static_bundle($supabaseUrl, $serviceRoleKey, $schema);
+            front_bootstrap_write_cache($cacheKey, $staticBundle);
+        }
+
+        if ($cacheLockHandle) {
+            flock($cacheLockHandle, LOCK_UN);
+            fclose($cacheLockHandle);
+        }
+    }
+
+    $tenantId = (string)($staticBundle['tenant_id'] ?? '');
+    $publicPlanContext = is_array($staticBundle['plan_context'] ?? null) ? $staticBundle['plan_context'] : [];
+    $branding = is_array($staticBundle['branding'] ?? null) ? $staticBundle['branding'] : [];
+    $servicePayload = $staticBundle['service'] ?? null;
+    $services = is_array($staticBundle['services'] ?? null) ? $staticBundle['services'] : ['success' => true, 'services' => []];
+    $staff = is_array($staticBundle['staff'] ?? null) ? $staticBundle['staff'] : ['success' => false, 'staff_enabled' => false, 'staff' => []];
+    $legal = is_array($staticBundle['legal'] ?? null) ? $staticBundle['legal'] : ['success' => true, 'enabled' => false, 'documents' => null];
+    $service = is_array($staticBundle['calendar_service'] ?? null) ? $staticBundle['calendar_service'] : [];
+
+    if ($tenantId === '') {
+        front_bootstrap_json([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo potwierdzić domeny kalendarza. Spróbuj ponownie za moment.',
+        ], 503);
+    }
+
+    $blocked = front_bootstrap_get_blocked($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $service);
 
     front_bootstrap_json([
         'success' => true,
         'plan_context' => $publicPlanContext,
-        'branding' => $brandingBundle['branding'],
-        'service' => $serviceBundle['service'],
+        'branding' => $branding,
+        'service' => $servicePayload,
         'services' => $services,
         'staff' => $staff,
         'legal' => $legal,
