@@ -1217,6 +1217,7 @@ function showSuccess(message) {
 function applyFrontCalendarEnabledState() {
   const bookBtn = getEl('bookBtn');
   const calendar = getEl('calendar');
+  const dateEl = getEl('date');
   const timeEl = getEl('time');
 
   if (FRONT_CALENDAR_ENABLED === true) {
@@ -1227,6 +1228,14 @@ function applyFrontCalendarEnabledState() {
 
     if (calendar) {
       calendar.classList.remove('calendar-disabled');
+      if (calendar.dataset.disabledState === '1') {
+        calendar.innerHTML = '';
+        delete calendar.dataset.disabledState;
+      }
+    }
+
+    if (timeEl) {
+      timeEl.disabled = false;
     }
 
     return;
@@ -1239,10 +1248,25 @@ function applyFrontCalendarEnabledState() {
 
   if (calendar) {
     calendar.classList.add('calendar-disabled');
+    calendar.dataset.disabledState = '1';
+    calendar.innerHTML = `
+      <div class="calendar-disabled-message" role="status" aria-live="polite">
+        <span class="calendar-disabled-icon" aria-hidden="true">📅</span>
+        <div>
+          <strong>Kalendarz jest obecnie wyłączony.</strong>
+          <span>Rezerwacja online nie jest teraz dostępna.</span>
+        </div>
+      </div>
+    `;
+  }
+
+  if (dateEl) {
+    dateEl.value = '';
   }
 
   if (timeEl) {
     timeEl.innerHTML = '<option value="">Kalendarz wyłączony</option>';
+    timeEl.disabled = true;
   }
 
   showError('Kalendarz rezerwacji jest obecnie konfigurowany przez administratora. Spróbuj ponownie później.');
