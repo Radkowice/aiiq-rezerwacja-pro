@@ -1622,7 +1622,7 @@ if (is_array($serviceSettings)) {
 
 if (is_array($selectedService)) {
     $globalServiceName = trim((string) ($selectedService['name'] ?? ''));
-    $paymentRequiredConfigured = $globalPaymentRequiredConfigured && !empty($selectedService['payments_enabled']);
+    $paymentRequiredConfigured = !empty($selectedService['payments_enabled']);
     $configuredAmount = booking_nullable_float($selectedService, 'price_amount') ?? 0.0;
     $configuredCurrency = trim((string) ($selectedService['price_currency'] ?? 'PLN'));
 

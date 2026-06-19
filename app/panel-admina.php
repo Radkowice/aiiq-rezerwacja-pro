@@ -3,6 +3,9 @@ require_once __DIR__ . '/../api/helpers/session.php';
 require_once __DIR__ . '/helpers/footer.php';
 start_secure_session();
 
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
+
 if (empty($_SESSION['csrf'])) {
     $_SESSION['csrf'] = bin2hex(random_bytes(32));
 }
@@ -26,7 +29,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/admin-moje-konto.css?v=1">
   <link rel="stylesheet" href="/assets/css/panel-admina-przyciski.css?v=2">
   <link rel="stylesheet" href="/assets/css/admin-integracje.css?v=1">
-  <link rel="stylesheet" href="/assets/css/admin-usluga-platnosci.css?v=1">
+  <link rel="stylesheet" href="/assets/css/admin-usluga-platnosci.css?v=2">
   <link rel="stylesheet" href="/assets/css/admin-dokumenty-prawne.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-informacje.css?v=1">
   <link rel="stylesheet" href="/assets/css/plany.css?v=1">
@@ -43,12 +46,12 @@ if (empty($_SESSION['csrf'])) {
   <script type="module" src="/assets/js/admin-api.js?v=2"></script>
   <script src="/assets/js/admin-email.js?v=smtp-fix-1" defer></script>
   <script src="/assets/js/admin-modal.js" defer></script>
-  <script src="/assets/js/admin-kalendarz.js" defer></script>
+  <script src="/assets/js/admin-kalendarz.js?v=20260615-2" defer></script>
   <script src="/assets/js/panel-admina.js?v=3" defer></script>
   <script src="/assets/js/admin-personel.js?v=1" defer></script>
   <script src="/assets/js/admin-ustawienia.js" defer></script>
   <script src="/assets/js/admin-integracje.js?v=2"></script>
-  <script src="/assets/js/admin-usluga-platnosci.js?v=1"></script>
+  <script src="/assets/js/admin-usluga-platnosci.js?v=20260619-1"></script>
   <script src="/assets/js/admin-dokumenty-prawne.js?v=1" defer></script>
   <script src="/assets/js/admin-informacje.js?v=2" defer></script>
 </head>

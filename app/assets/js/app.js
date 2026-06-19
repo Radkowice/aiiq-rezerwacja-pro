@@ -51,6 +51,8 @@ let FRONT_SERVICE_GLOBAL = {
   payment_message: ''
 };
 
+const FRONT_SERVICES_UNAVAILABLE_MESSAGE = 'Nie udało się pobrać listy usług. Odśwież stronę lub spróbuj ponownie za chwilę.';
+
 let FRONT_FORM_FIELDS = {
   show_email: true,
   show_phone: true,
@@ -996,14 +998,15 @@ function renderFrontService(service) {
   const priceEl = getEl('frontServicePrice');
   const paymentMessageEl = getEl('frontPaymentMessage');
   const paymentRedirectInfoEl = getEl('frontPaymentRedirectInfo');
-  const canShowPayments = publicPlanHasFeature('online_payments');
+  const canShowPayments = publicPlanHasFeature('online_payments') && publicPlanHasFeature('payu');
   const canShowProServiceDetails = !isPublicFreePlan();
 
   const serviceName = String(service?.service_name || '').trim();
   const serviceDescription = canShowProServiceDetails ? String(service?.service_description || '').trim() : '';
-  const paymentRequired = canShowPayments && service?.payment_required === true;
+  const hasPayablePrice = Number(service?.price_amount) > 0;
+  const paymentRequired = canShowPayments && hasPayablePrice && service?.payment_required === true;
   const paymentMessage = paymentRequired ? String(service?.payment_message || '').trim() : '';
-  const priceText = paymentRequired ? formatFrontPrice(service?.price_amount, service?.price_currency || 'PLN') : '';
+  const priceText = formatFrontPrice(service?.price_amount, service?.price_currency || 'PLN');
 
   FRONT_PAYMENT_REQUIRED = paymentRequired;
 
@@ -1022,8 +1025,9 @@ function renderFrontService(service) {
     if (serviceText) serviceText.classList.add('hidden');
   }
 
-  if (paymentRequired && paymentBox) {
-    const hasPrice = Boolean(priceText);
+  const hasPrice = Boolean(priceText);
+
+  if ((hasPrice || paymentRequired) && paymentBox) {
     const hasPaymentMessage = Boolean(paymentMessage);
 
     if (priceRow) {
@@ -1073,11 +1077,17 @@ function updateFrontServiceForSelectedStaff() {
 }
 
 async function loadFrontServiceSettings() {
-  const hasPublicServices = await loadFrontPublicServices();
+  const publicServicesStatus = await loadFrontPublicServices();
 
-  if (hasPublicServices) {
+  if (publicServicesStatus === 'available') {
     renderFrontServiceSelect();
     return;
+  }
+
+  if (publicServicesStatus === 'error') {
+    const error = new Error(FRONT_SERVICES_UNAVAILABLE_MESSAGE);
+    error.code = 'services_unavailable';
+    throw error;
   }
 
   await loadFrontLegacyServiceSettings();
@@ -1092,12 +1102,20 @@ async function loadFrontPublicServices() {
 
     const data = await res.json();
 
-    if (!res.ok || data.success !== true || !Array.isArray(data.services) || data.services.length === 0) {
+    if (!res.ok || data.success !== true || !Array.isArray(data.services)) {
       FRONT_PUBLIC_SERVICES = [];
       FRONT_USING_PUBLIC_SERVICES = false;
       selectedServiceId = '';
       selectedService = null;
-      return false;
+      return 'error';
+    }
+
+    if (data.services.length === 0) {
+      FRONT_PUBLIC_SERVICES = [];
+      FRONT_USING_PUBLIC_SERVICES = false;
+      selectedServiceId = '';
+      selectedService = null;
+      return 'empty';
     }
 
     FRONT_PUBLIC_SERVICES = data.services
@@ -1109,21 +1127,21 @@ async function loadFrontPublicServices() {
     if (!FRONT_USING_PUBLIC_SERVICES) {
       selectedServiceId = '';
       selectedService = null;
-      return false;
+      return 'error';
     }
 
     FRONT_SELECTED_SERVICE_SIGNATURE = FRONT_PUBLIC_SERVICES[0]
       ? `service:${FRONT_PUBLIC_SERVICES[0].id}`
       : '';
 
-    return true;
+    return 'available';
   } catch (error) {
     console.error('loadFrontPublicServices error:', error);
     FRONT_PUBLIC_SERVICES = [];
     FRONT_USING_PUBLIC_SERVICES = false;
     selectedServiceId = '';
     selectedService = null;
-    return false;
+    return 'error';
   }
 }
 
@@ -2327,6 +2345,14 @@ function applyFrontServiceSettingsData(service = null) {
 }
 
 function applyFrontPublicServicesData(servicesPayload = {}) {
+  if (servicesPayload?.success !== true || !Array.isArray(servicesPayload.services)) {
+    FRONT_PUBLIC_SERVICES = [];
+    FRONT_USING_PUBLIC_SERVICES = false;
+    selectedServiceId = '';
+    selectedService = null;
+    return false;
+  }
+
   const services = Array.isArray(servicesPayload.services)
     ? servicesPayload.services
     : [];
@@ -2341,11 +2367,18 @@ function applyFrontPublicServicesData(servicesPayload = {}) {
     FRONT_SELECTED_SERVICE_SIGNATURE = FRONT_PUBLIC_SERVICES[0]
       ? `service:${FRONT_PUBLIC_SERVICES[0].id}`
       : '';
-    return;
+    return true;
+  }
+
+  if (services.length > 0) {
+    selectedServiceId = '';
+    selectedService = null;
+    return false;
   }
 
   selectedServiceId = '';
   selectedService = null;
+  return true;
 }
 
 function applyFrontStaffData(staffPayload = {}) {
@@ -2490,7 +2523,12 @@ async function loadFrontBootstrap() {
 
   applyFrontBrandingData(data.branding || {}, data.plan_context || null);
   applyFrontServiceSettingsData(data.service || null);
-  applyFrontPublicServicesData(data.services || {});
+  const servicesLoaded = applyFrontPublicServicesData(data.services || {});
+
+  if (!servicesLoaded) {
+    return 'services_unavailable';
+  }
+
   applyFrontStaffData(data.staff || {});
   applyFrontLegalDocumentsData(data.legal || {});
   applyFrontBlockedData(data.blocked || {});
@@ -2512,6 +2550,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bootstrapResult = await loadFrontBootstrap();
 
     if (bootstrapResult === 'tenant_not_found') {
+      return;
+    }
+
+    if (bootstrapResult === 'services_unavailable') {
+      showError(FRONT_SERVICES_UNAVAILABLE_MESSAGE);
+      if (window.AppLoader) {
+        window.AppLoader.fail(FRONT_SERVICES_UNAVAILABLE_MESSAGE);
+      }
       return;
     }
 
@@ -2564,6 +2610,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   } catch (e) {
     console.error(e);
+
+    if (e?.code === 'services_unavailable') {
+      showError(FRONT_SERVICES_UNAVAILABLE_MESSAGE);
+      if (window.AppLoader) {
+        window.AppLoader.fail(FRONT_SERVICES_UNAVAILABLE_MESSAGE);
+      }
+      return;
+    }
 
     if (window.AppLoader) {
       window.AppLoader.fail('Nie udało się potwierdzić adresu kalendarza. Odśwież stronę i spróbuj ponownie.');

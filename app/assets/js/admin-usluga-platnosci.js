@@ -604,9 +604,12 @@
     els.list.innerHTML = visibleServices.map((service) => {
       const selected = service.id === state.selectedId ? ' is-selected' : '';
       const inactive = service.is_active ? '' : ' is-inactive';
-      const paymentLabel = service.payments_enabled && Number(service.price_amount) > 0
+      const priceLabel = Number(service.price_amount) > 0
         ? `${escapeHtml(formatPrice(service.price_amount))} ${escapeHtml(service.price_currency)}`
-        : 'bez płatności';
+        : 'brak ceny';
+      const paymentLabel = service.payments_enabled
+        ? 'płatność online'
+        : 'bez płatności online';
       const visibilityLabel = service.visible_on_front ? 'widoczna' : 'ukryta';
       const activeLabel = service.is_active ? 'aktywna' : 'wyłączona';
       const staffCount = service.staff_ids.length;
@@ -620,6 +623,7 @@
           <div class="service-list-main service-list-content">
             <strong class="service-list-title">${escapeHtml(service.name || 'Bez nazwy')}</strong>
             <div class="service-list-meta">
+              <span class="service-badge is-neutral">${priceLabel}</span>
               <span class="service-badge ${service.payments_enabled ? 'is-payment' : 'is-neutral'}">${paymentLabel}</span>
               <span class="service-badge is-neutral">${service.duration_minutes} min</span>
               <span class="service-badge is-neutral">${staffCount} ${formatStaffCount(staffCount)}</span>

@@ -102,38 +102,8 @@ if (!tenant_has_feature($tenantId, 'multiple_services')) {
     ]);
 }
 
-$globalPaymentsEnabled = false;
 $payuEnabled = false;
 $onlinePaymentsEnabled = tenant_has_feature($tenantId, 'online_payments') && tenant_has_feature($tenantId, 'payu');
-
-$serviceSettingsUrl = $supabaseUrl
-    . '/rest/v1/tenant_service_settings'
-    . '?select=payment_required'
-    . '&tenant_id=eq.' . rawurlencode($tenantId)
-    . '&limit=1';
-
-$serviceSettingsResult = public_services_request($serviceSettingsUrl, $supabaseKey, $schema);
-
-if ($serviceSettingsResult['response'] === false || $serviceSettingsResult['error'] !== '') {
-    public_services_json([
-        'success' => false,
-        'error' => 'Nie udało się pobrać ustawień płatności',
-    ], 500);
-}
-
-if ($serviceSettingsResult['httpCode'] < 200 || $serviceSettingsResult['httpCode'] >= 300) {
-    public_services_json([
-        'success' => false,
-        'error' => 'Nie udało się pobrać ustawień płatności',
-    ], 500);
-}
-
-$serviceSettingsRows = is_array($serviceSettingsResult['data'] ?? null) ? $serviceSettingsResult['data'] : [];
-$serviceSettings = $serviceSettingsRows[0] ?? null;
-
-if (is_array($serviceSettings)) {
-    $globalPaymentsEnabled = !empty($serviceSettings['payment_required']);
-}
 
 $payuUrl = $supabaseUrl
     . '/rest/v1/tenant_integrations'
@@ -175,6 +145,7 @@ $serviceSelect = implode(',', [
     'price_amount',
     'price_currency',
     'payments_enabled',
+    'payment_message',
     'sort_order',
 ]);
 
@@ -353,7 +324,6 @@ foreach ($serviceRows as $serviceRow) {
     $servicePaymentsEnabled = !empty($serviceRow['payments_enabled']);
     $paymentRequired = $onlinePaymentsEnabled
         && $payuEnabled
-        && $globalPaymentsEnabled
         && $servicePaymentsEnabled
         && $priceAmount !== null
         && $priceAmount > 0;
@@ -366,6 +336,7 @@ foreach ($serviceRows as $serviceRow) {
         'price_currency' => (string) ($serviceRow['price_currency'] ?? 'PLN'),
         'payments_enabled' => $servicePaymentsEnabled,
         'payment_required' => $paymentRequired,
+        'payment_message' => (string) ($serviceRow['payment_message'] ?? ''),
         'duration' => public_services_nullable_int($serviceRow['duration_minutes'] ?? null),
         'break_minutes' => public_services_nullable_int($serviceRow['break_minutes'] ?? null),
         'booking_buffer_minutes' => public_services_nullable_int($serviceRow['booking_buffer_minutes'] ?? null),

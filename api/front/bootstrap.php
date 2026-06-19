@@ -481,7 +481,8 @@ function front_bootstrap_build_service(
     string $supabaseUrl,
     string $serviceRoleKey,
     string $schema,
-    string $tenantId
+    string $tenantId,
+    array $planContext
 ): array {
     $settingsUrl = $supabaseUrl
         . '/rest/v1/tenant_service_settings'
@@ -548,7 +549,14 @@ function front_bootstrap_build_service(
 
     $settings['payment_required_configured'] = !empty($settings['payment_required']);
     $settings['payment_provider_enabled'] = $payuEnabled;
-    $settings['payment_required'] = !empty($settings['payment_required']) && $payuEnabled;
+    $globalPriceAmount = front_bootstrap_price($settings['price_amount'] ?? null);
+    $globalPaymentFeatureEnabled = front_bootstrap_feature($planContext, 'online_payments')
+        && front_bootstrap_feature($planContext, 'payu');
+    $settings['payment_required'] = !empty($settings['payment_required'])
+        && $globalPaymentFeatureEnabled
+        && $payuEnabled
+        && $globalPriceAmount !== null
+        && $globalPriceAmount > 0;
 
     return [
         'service' => $settings,
@@ -565,7 +573,6 @@ function front_bootstrap_build_services(
     string $schema,
     string $tenantId,
     array $publicPlanContext,
-    bool $globalPaymentsEnabled,
     bool $payuEnabled
 ): array {
     if (!front_bootstrap_feature($publicPlanContext, 'multiple_services')) {
@@ -586,6 +593,7 @@ function front_bootstrap_build_services(
         'price_amount',
         'price_currency',
         'payments_enabled',
+        'payment_message',
         'sort_order',
     ]);
 
@@ -719,7 +727,6 @@ function front_bootstrap_build_services(
         $servicePaymentsEnabled = !empty($serviceRow['payments_enabled']);
         $paymentRequired = $onlinePaymentsEnabled
             && $payuEnabled
-            && $globalPaymentsEnabled
             && $servicePaymentsEnabled
             && $priceAmount !== null
             && $priceAmount > 0;
@@ -732,6 +739,7 @@ function front_bootstrap_build_services(
             'price_currency' => (string)($serviceRow['price_currency'] ?? 'PLN'),
             'payments_enabled' => $servicePaymentsEnabled,
             'payment_required' => $paymentRequired,
+            'payment_message' => (string)($serviceRow['payment_message'] ?? ''),
             'duration' => front_bootstrap_nullable_int($serviceRow['duration_minutes'] ?? null),
             'break_minutes' => front_bootstrap_nullable_int($serviceRow['break_minutes'] ?? null),
             'booking_buffer_minutes' => front_bootstrap_nullable_int($serviceRow['booking_buffer_minutes'] ?? null),
@@ -1131,7 +1139,7 @@ function front_bootstrap_build_static_bundle(string $supabaseUrl, string $servic
     $tenantId = (string) $tenantLookup['tenant_id'];
     $planContext = plan_features_get_context($tenantId);
     $brandingBundle = front_bootstrap_build_branding($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $planContext);
-    $serviceBundle = front_bootstrap_build_service($supabaseUrl, $serviceRoleKey, $schema, $tenantId);
+    $serviceBundle = front_bootstrap_build_service($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $planContext);
     $publicPlanContext = $brandingBundle['plan_context'];
     $service = is_array($serviceBundle['service'] ?? null) ? $serviceBundle['service'] : [];
 
@@ -1141,7 +1149,6 @@ function front_bootstrap_build_static_bundle(string $supabaseUrl, string $servic
         $schema,
         $tenantId,
         $publicPlanContext,
-        !empty($serviceBundle['global_payments_enabled']),
         !empty($serviceBundle['payu_enabled'])
     );
 

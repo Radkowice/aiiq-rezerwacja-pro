@@ -18,6 +18,9 @@
 
     <div class="settings-card service-payments-card service-payments-global-card">
       <h3>Ustawienia globalne usługi i płatności</h3>
+      <p class="service-payments-desc">
+        Ustawienia globalne są używane jako domyślna usługa wtedy, gdy nie tworzysz osobnych usług albo nie korzystasz z personelu. Jeżeli tworzysz usługi poniżej, każda usługa ma własną nazwę, cenę i płatność.
+      </p>
 
       <div class="service-payments-form-grid service-payments-global-grid">
         <label class="full">
@@ -49,18 +52,6 @@
             </span>
           </label>
 
-          <div class="service-payment-deadline full">
-            <span class="service-payment-deadline-label">Termin płatności</span>
-            <div class="service-payment-deadline-controls">
-              <input type="number" id="global-payment-time-limit-value" min="1" max="10080" step="1" value="24">
-              <select id="global-payment-time-limit-unit">
-                <option value="hours">godziny</option>
-                <option value="days">dni</option>
-              </select>
-            </div>
-            <small>Po tym czasie system może wysłać przypomnienie o nieopłaconej rezerwacji.</small>
-          </div>
-
           <label class="full">
             <span>Globalny komunikat płatności</span>
             <textarea id="global-service-payment-message" rows="3" placeholder="np. Rezerwacja zostanie potwierdzona po zaksięgowaniu płatności."></textarea>
@@ -68,10 +59,25 @@
         </div>
       </div>
 
-      <div class="service-global-actions">
-        <div class="service-action-message" id="global-service-message" hidden></div>
-        <button type="button" class="btn btn-primary" id="global-service-save-btn">Zapisz ustawienia globalne</button>
+    </div>
+  </div>
+
+  <div class="settings-card service-payments-card service-payment-deadline-card">
+    <h3>Termin płatności</h3>
+    <p class="service-payments-desc">Termin płatności dotyczy wszystkich usług oraz ustawień globalnych.</p>
+    <div class="service-payment-deadline">
+      <div class="service-payment-deadline-controls">
+        <input type="number" id="global-payment-time-limit-value" min="1" max="10080" step="1" value="24" aria-label="Wartość terminu płatności">
+        <select id="global-payment-time-limit-unit" aria-label="Jednostka terminu płatności">
+          <option value="hours">godziny</option>
+          <option value="days">dni</option>
+        </select>
       </div>
+      <small>Po tym czasie system może wysłać przypomnienie o nieopłaconej rezerwacji.</small>
+    </div>
+    <div class="service-global-actions">
+      <div class="service-action-message" id="global-service-message" hidden></div>
+      <button type="button" class="btn btn-primary" id="global-service-save-btn">Zapisz ustawienia globalne</button>
     </div>
   </div>
 
@@ -144,8 +150,8 @@
 
           <label>
             <span>Kolejność</span>
-            <input type="number" id="service-sort-order" min="0" step="1" value="0" placeholder="1">
-            <small class="service-field-hint">Niższa liczba oznacza wyższą pozycję na liście i w kalendarzu rezerwacji.</small>
+            <input type="number" id="service-sort-order" min="0" step="1" value="0" placeholder="10">
+            <small class="service-field-hint">Niższa liczba oznacza wyższą pozycję na liście i na froncie rezerwacji. Zalecane: 10, 20, 30.</small>
           </label>
 
           <label>

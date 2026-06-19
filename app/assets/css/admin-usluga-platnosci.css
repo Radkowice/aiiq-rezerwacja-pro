@@ -163,6 +163,10 @@
   gap: 8px;
 }
 
+.service-payment-deadline-card {
+  margin-bottom: var(--admin-section-gap, 18px);
+}
+
 .service-payment-deadline-label {
   color: var(--color-text);
   font-size: 13px;
