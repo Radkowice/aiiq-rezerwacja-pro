@@ -19,11 +19,23 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+$sessionUser = $_SESSION['user'] ?? null;
+
+if (!is_array($sessionUser) || empty($sessionUser['id']) || empty($sessionUser['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
         'success' => false,
         'error' => 'Brak autoryzacji'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$role = strtolower(trim((string) ($sessionUser['role'] ?? '')));
+if (!in_array($role, ['admin', 'administrator'], true)) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Brak uprawnień administratora'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -39,8 +51,8 @@ if (!is_array($input)) {
     exit;
 }
 
-$tenantId = (string) $_SESSION['user']['tenant_id'];
-$userId = (string) $_SESSION['user']['id'];
+$tenantId = (string) $sessionUser['tenant_id'];
+$userId = (string) $sessionUser['id'];
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');

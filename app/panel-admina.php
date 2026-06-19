@@ -26,7 +26,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/admin-personel.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-email.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-ustawienia.css?v=1">
-  <link rel="stylesheet" href="/assets/css/admin-moje-konto.css?v=1">
+  <link rel="stylesheet" href="/assets/css/admin-moje-konto.css?v=2">
   <link rel="stylesheet" href="/assets/css/panel-admina-przyciski.css?v=2">
   <link rel="stylesheet" href="/assets/css/admin-integracje.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-usluga-platnosci.css?v=2">
@@ -41,8 +41,8 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/app-loader.js"></script>
   <script src="/assets/js/app-loader-init.js"></script>
   <script src="/assets/js/admin-csrf.js"></script>
-  <script src="/assets/js/auth.js" defer></script>
-  <script src="/assets/js/buttons.js?v=4"></script>
+  <script src="/assets/js/auth.js?v=2" defer></script>
+  <script src="/assets/js/buttons.js?v=8"></script>
   <script type="module" src="/assets/js/admin-api.js?v=2"></script>
   <script src="/assets/js/admin-email.js?v=smtp-fix-1" defer></script>
   <script src="/assets/js/admin-modal.js" defer></script>

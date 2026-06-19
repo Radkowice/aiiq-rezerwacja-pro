@@ -9,7 +9,8 @@ function finishButtonState(button, defaultText, startTime, minTime = 3000) {
 }
 
 document.addEventListener('DOMContentLoaded', () => {                             
-  const accountMessage = document.getElementById('account-message');
+  const accountMessage = document.getElementById('account-message')
+    || document.getElementById('settings-message');
 
   // MOJE KONTO — dane firmy
   const saveAccountDataBtn = document.getElementById('save-company-btn');
@@ -111,6 +112,108 @@ function getReadableReservationsColors(baseColor) {
   // MOJE KONTO — branding
   const saveBrandingBtn = document.getElementById('save-branding-btn');
 
+  const ALLOWED_BRANDING_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp'];
+  const ALLOWED_BRANDING_EXTENSIONS = ['png', 'jpg', 'jpeg', 'webp'];
+
+  function validateBrandingFile(file, type) {
+    const extension = String(file?.name || '').split('.').pop().toLowerCase();
+
+    const hasAllowedMime = !file?.type || ALLOWED_BRANDING_MIME_TYPES.includes(file.type);
+
+    if (!file || !hasAllowedMime || !ALLOWED_BRANDING_EXTENSIONS.includes(extension)) {
+      throw new Error('Dozwolone formaty: PNG, JPG, WebP.');
+    }
+
+    if (type === 'favicon' && file.size > 512 * 1024) {
+      throw new Error('Favicona jest za duża. Maksymalny rozmiar to 512 KB. Zmniejsz obraz i spróbuj ponownie.');
+    }
+
+    if (type === 'logo' && file.size > 2 * 1024 * 1024) {
+      throw new Error('Logo jest za duże. Maksymalny rozmiar to 2 MB.');
+    }
+  }
+
+  async function readUploadResponse(response, fallbackMessage) {
+    const responseText = await response.text();
+    let data = null;
+
+    if (responseText) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (error) {
+        data = null;
+      }
+    }
+
+    if (response.status === 413) {
+      throw new Error('Plik jest za duży.');
+    }
+
+    if (!response.ok || data?.success !== true) {
+      throw new Error(data?.error || data?.message || fallbackMessage);
+    }
+
+    return data;
+  }
+
+  function setFaviconFieldMessage(message = '') {
+    const fieldMessage = document.getElementById('account-favicon-message');
+    if (!fieldMessage) return;
+
+    if (message) {
+      fieldMessage.textContent = message;
+      fieldMessage.classList.add('error');
+      fieldMessage.hidden = false;
+      fieldMessage.removeAttribute('hidden');
+      return;
+    }
+
+    fieldMessage.textContent = '';
+    fieldMessage.classList.remove('error');
+    fieldMessage.hidden = true;
+  }
+
+  function validateBrandingInput(input, type, showGlobalMessage = true) {
+    if (!input?.files?.length) {
+      if (type === 'favicon') setFaviconFieldMessage('');
+      return null;
+    }
+
+    try {
+      validateBrandingFile(input.files[0], type);
+      if (type === 'favicon') setFaviconFieldMessage('');
+      return null;
+    } catch (error) {
+      const validationError = error instanceof Error
+        ? error
+        : new Error('Nie udało się zweryfikować pliku.');
+
+      if (type === 'favicon') {
+        setFaviconFieldMessage(validationError.message);
+      }
+      if (showGlobalMessage) {
+        showBrandingActionMessage(validationError.message, 'error');
+      }
+
+      return validationError;
+    }
+  }
+
+  const brandingLogoInput = document.getElementById('account-logo');
+  const brandingFaviconInput = document.getElementById('account-favicon');
+
+  if (brandingLogoInput) {
+    brandingLogoInput.addEventListener('change', () => {
+      validateBrandingInput(brandingLogoInput, 'logo');
+    });
+  }
+
+  if (brandingFaviconInput) {
+    brandingFaviconInput.addEventListener('change', () => {
+      validateBrandingInput(brandingFaviconInput, 'favicon');
+    });
+  }
+
   if (saveBrandingBtn) {
     saveBrandingBtn.addEventListener('click', async () => {
       const startTime = Date.now();
@@ -123,6 +226,19 @@ function getReadableReservationsColors(baseColor) {
 const service_title_front = document.getElementById('service-title-front')?.value || '';
 const company_id = document.getElementById('account-company-id')?.value || '';
 const logoInput = document.getElementById('account-logo');
+const faviconInput = document.getElementById('account-favicon');
+
+if (logoInput?.files?.length) {
+  const logoValidationError = validateBrandingInput(logoInput, 'logo', false);
+  if (logoValidationError) throw logoValidationError;
+}
+
+if (faviconInput?.files?.length) {
+  const faviconValidationError = validateBrandingInput(faviconInput, 'favicon', false);
+  if (faviconValidationError) throw faviconValidationError;
+} else {
+  setFaviconFieldMessage('');
+}
 
 let logo_url_front = '';
 
@@ -136,20 +252,14 @@ if (logoInput && logoInput.files && logoInput.files.length > 0) {
     body: formData
   });
 
-  const uploadData = await uploadRes.json();
-
-  if (!uploadRes.ok || uploadData.success !== true) {
-    throw new Error(uploadData.error || 'Nie udało się przesłać logo.');
-  }
+  const uploadData = await readUploadResponse(uploadRes, 'Nie udało się zapisać pliku. Spróbuj ponownie lub wybierz mniejszy obraz.');
 
   logo_url_front = uploadData.logo_url_front || '';
 
   if (logo_url_front) {
-    setLogoPreview(logo_url_front);
+    await setLogoPreview('/api/system/logo-front.php');
   }
 }
-
-const faviconInput = document.getElementById('account-favicon');
 
 let favicon_url_front = '';
 
@@ -163,16 +273,12 @@ if (faviconInput && faviconInput.files && faviconInput.files.length > 0) {
     body: formData
   });
 
-  const uploadData = await uploadRes.json();
-
-  if (!uploadRes.ok || uploadData.success !== true) {
-    throw new Error(uploadData.error || 'Nie udało się przesłać favicony.');
-  }
+  const uploadData = await readUploadResponse(uploadRes, 'Nie udało się zapisać pliku. Spróbuj ponownie lub wybierz mniejszy obraz.');
 
   favicon_url_front = uploadData.favicon_url_front || '';
 
   if (favicon_url_front) {
-    setFaviconPreview(favicon_url_front);
+    await setFaviconPreview('/api/system/favicon-front.php');
   }
 }
 
@@ -195,31 +301,13 @@ const res = await apiFetch('/api/system/branding.php', {
   body: JSON.stringify(payload)
 });
 
-        if (accountMessage) {
-          accountMessage.style.display = 'block';
-          accountMessage.textContent =
-            res && res.success ? 'Branding zapisany' : (res?.error || 'Błąd zapisu brandingu');
-
-          accountMessage.className = `message ${res?.success ? 'success' : 'error'}`;
-
-          setTimeout(() => {
-            accountMessage.textContent = '';
-            accountMessage.className = 'message';
-          }, 3000);
-        }
+        showBrandingActionMessage(
+          res && res.success ? 'Branding zapisany' : (res?.error || 'Błąd zapisu brandingu'),
+          res?.success ? 'success' : 'error'
+        );
       } catch (err) {
         console.error('save branding error:', err);
-
-        if (accountMessage) {
-          accountMessage.style.display = 'block';
-          accountMessage.textContent = 'Błąd serwera';
-          accountMessage.className = 'message error';
-
-          setTimeout(() => {
-            accountMessage.textContent = '';
-            accountMessage.className = 'message';
-          }, 3000);
-        }
+        showBrandingActionMessage(err?.message || 'Błąd serwera', 'error');
       }
 
       finishButtonState(saveBrandingBtn, 'Zapisz branding', startTime);
@@ -229,18 +317,26 @@ const res = await apiFetch('/api/system/branding.php', {
     // MOJE KONTO — usuwanie logo i favicony frontu
   const deleteLogoFrontBtn = document.getElementById('delete-logo-front-btn');
   const deleteFaviconFrontBtn = document.getElementById('delete-favicon-front-btn');
+  let brandingMessageTimer = null;
 
   function showBrandingActionMessage(message, type = 'success') {
     if (!accountMessage) return;
 
+    if (brandingMessageTimer) {
+      clearTimeout(brandingMessageTimer);
+    }
+
     accountMessage.style.display = 'block';
+    accountMessage.hidden = false;
+    accountMessage.removeAttribute('hidden');
     accountMessage.textContent = message;
     accountMessage.className = `message ${type}`;
 
-    setTimeout(() => {
+    brandingMessageTimer = setTimeout(() => {
       accountMessage.textContent = '';
       accountMessage.className = 'message';
-    }, 3000);
+      brandingMessageTimer = null;
+    }, type === 'error' ? 7000 : 3000);
   }
 
   function withCacheBuster(url) {
@@ -260,18 +356,31 @@ const res = await apiFetch('/api/system/branding.php', {
       logoInput.value = '';
     }
 
-    if (logoPreview) {
+    if (!logoPreview) return Promise.resolve(false);
+
+    logoPreview.style.display = 'none';
+    if (logoEmpty) logoEmpty.style.display = 'none';
+
+    return new Promise((resolve, reject) => {
+      logoPreview.onload = () => {
+        logoPreview.onload = null;
+        logoPreview.onerror = null;
+        logoPreview.style.display = 'block';
+        if (logoEmpty) logoEmpty.style.display = 'none';
+        if (deleteBtn) deleteBtn.style.display = 'inline-flex';
+        resolve(true);
+      };
+      logoPreview.onerror = () => {
+        logoPreview.onload = null;
+        logoPreview.onerror = null;
+        logoPreview.removeAttribute('src');
+        logoPreview.style.display = 'none';
+        if (logoEmpty) logoEmpty.style.display = 'block';
+        if (deleteBtn) deleteBtn.style.display = 'inline-flex';
+        reject(new Error('Logo zostało zapisane, ale nie udało się załadować podglądu.'));
+      };
       logoPreview.src = withCacheBuster(url);
-      logoPreview.style.display = 'block';
-    }
-
-    if (logoEmpty) {
-      logoEmpty.style.display = 'none';
-    }
-
-    if (deleteBtn) {
-      deleteBtn.style.display = 'inline-flex';
-    }
+    });
   }
 
   function setFaviconPreview(url) {
@@ -284,18 +393,31 @@ const res = await apiFetch('/api/system/branding.php', {
       faviconInput.value = '';
     }
 
-    if (faviconPreview) {
+    if (!faviconPreview) return Promise.resolve(false);
+
+    faviconPreview.style.display = 'none';
+    if (faviconEmpty) faviconEmpty.style.display = 'none';
+
+    return new Promise((resolve, reject) => {
+      faviconPreview.onload = () => {
+        faviconPreview.onload = null;
+        faviconPreview.onerror = null;
+        faviconPreview.style.display = 'block';
+        if (faviconEmpty) faviconEmpty.style.display = 'none';
+        if (deleteBtn) deleteBtn.style.display = 'inline-flex';
+        resolve(true);
+      };
+      faviconPreview.onerror = () => {
+        faviconPreview.onload = null;
+        faviconPreview.onerror = null;
+        faviconPreview.removeAttribute('src');
+        faviconPreview.style.display = 'none';
+        if (faviconEmpty) faviconEmpty.style.display = 'block';
+        if (deleteBtn) deleteBtn.style.display = 'inline-flex';
+        reject(new Error('Favicona została zapisana, ale nie udało się załadować podglądu.'));
+      };
       faviconPreview.src = withCacheBuster(url);
-      faviconPreview.style.display = 'block';
-    }
-
-    if (faviconEmpty) {
-      faviconEmpty.style.display = 'none';
-    }
-
-    if (deleteBtn) {
-      deleteBtn.style.display = 'inline-flex';
-    }
+    });
   }
 
   function clearLogoPreview() {

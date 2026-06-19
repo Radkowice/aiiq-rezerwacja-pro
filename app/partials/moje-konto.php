@@ -144,7 +144,7 @@
 
       <div class="form-group">
         <label for="account-logo">Logo</label>
-        <input type="file" id="account-logo" accept="image/*">
+        <input type="file" id="account-logo" accept="image/png,image/jpeg,image/webp">
         <small>Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 2 MB.</small>
 
         <div class="branding-logo-preview-wrap">
@@ -160,8 +160,9 @@
 
       <div class="form-group">
         <label for="account-favicon">Favicon frontu kalendarza</label>
-        <input type="file" id="account-favicon" accept="image/png,image/jpeg,image/webp,image/x-icon,image/vnd.microsoft.icon">
-        <small>Dozwolone formaty: PNG, JPG, WEBP, ICO. Maksymalnie 512 KB.</small>
+        <input type="file" id="account-favicon" accept="image/png,image/jpeg,image/webp">
+        <small>Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 512 KB. Plik zostanie zapisany jako PNG.</small>
+        <p id="account-favicon-message" class="account-field-message" hidden></p>
 
         <div class="branding-favicon-preview-wrap">
           <div class="branding-logo-preview-label">Aktualna favicon</div>

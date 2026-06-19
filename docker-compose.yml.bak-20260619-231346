@@ -1,0 +1,84 @@
+services:
+  rezerwacja:
+    image: nginx:alpine
+    container_name: aiiq-rezerwacja-pro
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/.htpasswd:/etc/nginx/.htpasswd
+      - /opt/aplikacje-produkcja/rezerwacja-ai-iq-pro/aiiq-rezerwacja-pro/app:/usr/share/nginx/html
+      - /opt/aplikacje-produkcja/rezerwacja-ai-iq-pro/aiiq-rezerwacja-pro/app/entrypoint.sh:/entrypoint.sh
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - TZ=${TZ}
+           
+    command: ["/bin/sh", "/entrypoint.sh", "nginx", "-g", "daemon off;"]
+    labels:
+      - "traefik.enable=true"
+
+      - "traefik.http.routers.aiiq-rezerwacja-pro.rule=Host(`rezerwacja-ai-iq.pl`) || HostRegexp(`{subdomain:[a-z0-9-]+}.rezerwacja-ai-iq.pl`)"
+      - "traefik.http.routers.aiiq-rezerwacja-pro.entrypoints=websecure"
+      - "traefik.http.routers.aiiq-rezerwacja-pro.tls=true"
+      - "traefik.http.routers.aiiq-rezerwacja-pro.tls.certresolver=letsencrypt"
+
+      - "traefik.http.routers.aiiq-rezerwacja-pro-http.rule=Host(`rezerwacja-ai-iq.pl`) || HostRegexp(`{subdomain:[a-z0-9-]+}.rezerwacja-ai-iq.pl`)"
+      - "traefik.http.routers.aiiq-rezerwacja-pro-http.entrypoints=web"
+      - "traefik.http.routers.aiiq-rezerwacja-pro-http.middlewares=aiiq-rezerwacja-pro-https-redirect"
+      - "traefik.http.routers.aiiq-rezerwacja-pro-http.service=aiiq-rezerwacja-pro"
+      - "traefik.http.middlewares.aiiq-rezerwacja-pro-https-redirect.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.aiiq-rezerwacja-pro-https-redirect.redirectscheme.permanent=true"
+
+      - "traefik.http.services.aiiq-rezerwacja-pro.loadbalancer.server.port=80"
+      
+    depends_on:
+      - php
+    networks:
+      - web
+  php:
+    user: "82:82"
+    image: php:8.2-fpm-alpine
+    container_name: aiiq-rezerwacja-pro-php
+    volumes:
+      - ./api:/var/www/api
+      - ./app:/var/www/html
+      - ./data:/var/www/data
+      - ./vendor:/var/www/vendor
+      - ./php/php-timezone.ini:/usr/local/etc/php/conf.d/99-timezone.ini:ro
+    
+    networks:
+      - web
+    environment:
+      - AIIQ_API_TOKEN=${AIIQ_API_TOKEN}
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY}
+      - PANEL_API_TOKEN=${PANEL_API_TOKEN}
+      - TZ=${TZ}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_DB_SCHEMA=${SUPABASE_DB_SCHEMA}
+      - APP_ENCRYPTION_KEY=${APP_ENCRYPTION_KEY}
+      - SMTP_SYSTEM_HOST=${SMTP_SYSTEM_HOST}
+      - SMTP_SYSTEM_PORT=${SMTP_SYSTEM_PORT}
+      - SMTP_SYSTEM_USER=${SMTP_SYSTEM_USER}
+      - SMTP_SYSTEM_PASS=${SMTP_SYSTEM_PASS}
+      - SMTP_SYSTEM_FROM=${SMTP_SYSTEM_FROM}
+      - SMTP_SYSTEM_NAME=${SMTP_SYSTEM_NAME}
+      - SMTP_SYSTEM_ENCRYPTION=${SMTP_SYSTEM_ENCRYPTION}
+      - SMTP_SYSTEM_REPLY_TO=${SMTP_SYSTEM_REPLY_TO}
+      - SMTP_SYSTEM_REPLY_TO_NAME=${SMTP_SYSTEM_REPLY_TO_NAME}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_REDIRECT_URI=${GOOGLE_REDIRECT_URI}
+      - CLEANUP_CRON_TOKEN=${CLEANUP_CRON_TOKEN}
+      - AI_IQ_PAYU_ENV=${AI_IQ_PAYU_ENV}
+      - AI_IQ_PAYU_POS_ID=${AI_IQ_PAYU_POS_ID}
+      - AI_IQ_PAYU_CLIENT_ID=${AI_IQ_PAYU_CLIENT_ID}
+      - AI_IQ_PAYU_CLIENT_SECRET=${AI_IQ_PAYU_CLIENT_SECRET}
+      - AI_IQ_PAYU_SECOND_KEY=${AI_IQ_PAYU_SECOND_KEY}
+      - AI_IQ_PAYU_CURRENCY=${AI_IQ_PAYU_CURRENCY}
+      - AI_IQ_PAYU_AUTH_URL=${AI_IQ_PAYU_AUTH_URL}
+      - AI_IQ_PAYU_ORDER_URL=${AI_IQ_PAYU_ORDER_URL}
+      - SUBSCRIPTION_REMINDER_CRON_SECRET=${SUBSCRIPTION_REMINDER_CRON_SECRET}
+     
+      
+networks:
+  web:
+    external: true

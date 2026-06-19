@@ -408,13 +408,26 @@ if (logoPreview && logoEmpty) {
   const deleteLogoBtn = document.getElementById('delete-logo-front-btn');
 
   if (logoUrl) {
-    logoPreview.src = logoUrl;
-    logoPreview.style.display = 'block';
+    const previewVersion = encodeURIComponent(branding.updated_at || Date.now());
+    logoPreview.style.display = 'none';
     logoEmpty.style.display = 'none';
-
-    if (deleteLogoBtn) {
-      deleteLogoBtn.style.display = 'inline-flex';
-    }
+    logoPreview.onload = () => {
+      logoPreview.onload = null;
+      logoPreview.onerror = null;
+      logoPreview.style.display = 'block';
+      logoEmpty.style.display = 'none';
+      if (deleteLogoBtn) deleteLogoBtn.style.display = 'inline-flex';
+    };
+    logoPreview.onerror = () => {
+      logoPreview.onload = null;
+      logoPreview.onerror = null;
+      logoPreview.removeAttribute('src');
+      logoPreview.style.display = 'none';
+      logoEmpty.textContent = 'Nie udało się załadować podglądu logo.';
+      logoEmpty.style.display = 'block';
+      if (deleteLogoBtn) deleteLogoBtn.style.display = 'inline-flex';
+    };
+    logoPreview.src = `/api/system/logo-front.php?v=${previewVersion}`;
   } else {
     logoPreview.removeAttribute('src');
     logoPreview.style.display = 'none';
@@ -434,13 +447,26 @@ if (faviconPreview && faviconEmpty) {
   const deleteFaviconBtn = document.getElementById('delete-favicon-front-btn');
 
   if (faviconUrl) {
-    faviconPreview.src = faviconUrl;
-    faviconPreview.style.display = 'block';
+    const previewVersion = encodeURIComponent(branding.updated_at || Date.now());
+    faviconPreview.style.display = 'none';
     faviconEmpty.style.display = 'none';
-
-    if (deleteFaviconBtn) {
-      deleteFaviconBtn.style.display = 'inline-flex';
-    }
+    faviconPreview.onload = () => {
+      faviconPreview.onload = null;
+      faviconPreview.onerror = null;
+      faviconPreview.style.display = 'block';
+      faviconEmpty.style.display = 'none';
+      if (deleteFaviconBtn) deleteFaviconBtn.style.display = 'inline-flex';
+    };
+    faviconPreview.onerror = () => {
+      faviconPreview.onload = null;
+      faviconPreview.onerror = null;
+      faviconPreview.removeAttribute('src');
+      faviconPreview.style.display = 'none';
+      faviconEmpty.textContent = 'Nie udało się załadować podglądu favicony.';
+      faviconEmpty.style.display = 'block';
+      if (deleteFaviconBtn) deleteFaviconBtn.style.display = 'inline-flex';
+    };
+    faviconPreview.src = `/api/system/favicon-front.php?v=${previewVersion}`;
   } else {
     faviconPreview.removeAttribute('src');
     faviconPreview.style.display = 'none';

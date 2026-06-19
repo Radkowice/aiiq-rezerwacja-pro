@@ -185,6 +185,25 @@ body.theme-dark [data-section="moje_konto"] {
   margin-bottom: 18px;
 }
 
+.account-field-message {
+  margin: 8px 0 0;
+  padding: 10px 12px;
+  border-radius: var(--admin-input-radius, var(--radius-small));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.account-field-message.error {
+  color: var(--danger, #b91c1c);
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.3);
+}
+
+.account-field-message[hidden] {
+  display: none !important;
+}
+
 .branding-logo-preview-label {
   font-weight: var(--admin-label-weight, 500);
   margin-bottom: 8px;
