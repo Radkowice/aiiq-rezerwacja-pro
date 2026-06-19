@@ -158,13 +158,13 @@ if (!function_exists('booking_mail_system_confirmation_html')) {
             (string)($payment['currency'] ?? $booking['payment_currency'] ?? 'PLN')
         );
 
-        $row = static function (string $label, string $value): string {
+        $row = static function (string $icon, string $label, string $value): string {
             if (trim($value) === '') {
                 return '';
             }
 
             return '<tr>'
-                . '<td style="padding:8px 0;color:#6b7280;">' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ':</td>'
+                . '<td style="padding:8px 0;color:#6b7280;"><span style="display:inline-block;width:24px;" aria-hidden="true">' . htmlspecialchars($icon, ENT_QUOTES, 'UTF-8') . '</span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ':</td>'
                 . '<td style="padding:8px 0;text-align:right;"><strong>' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '</strong></td>'
                 . '</tr>';
         };
@@ -172,17 +172,17 @@ if (!function_exists('booking_mail_system_confirmation_html')) {
         $message = ''
             . '<p style="margin:0 0 14px;"><strong>Twoja rezerwacja została potwierdzona.</strong></p>'
             . '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px;border-collapse:collapse;">'
-            . $row('Firma', $companyName)
-            . $row('Usługa', $serviceName)
-            . $row('Data', $date)
-            . $row('Godzina', $time)
-            . $row('Osoba obsługująca', $staffDisplayName)
-            . $row('Status płatności', $paymentStatus)
-            . $row('Kwota', $amountText)
-            . $row('Klient', $name)
-            . $row('E-mail klienta', $email)
-            . $row('Telefon klienta', $phone)
-            . $row('Kontakt do firmy', $companyEmail)
+            . $row('🏢', 'Firma', $companyName)
+            . $row('📋', 'Usługa', $serviceName)
+            . $row('📅', 'Data', $date)
+            . $row('🕒', 'Godzina', $time)
+            . $row('🙋', 'Osoba obsługująca', $staffDisplayName)
+            . $row('💳', 'Status płatności', $paymentStatus)
+            . $row('💰', 'Kwota', $amountText)
+            . $row('👤', 'Klient', $name)
+            . $row('✉️', 'Twój e-mail', $email)
+            . $row('📞', 'Twój telefon', $phone)
+            . $row('📬', 'Kontakt do firmy', $companyEmail)
             . '</table>'
             . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">To jest automatyczna wiadomość wysłana przez system AI-IQ Rezerwacja Pro.</p>'
             . '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">Odpowiedzi na ten adres mogą nie być obsługiwane.</p>'
