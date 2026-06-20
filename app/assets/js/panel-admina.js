@@ -325,6 +325,10 @@ const BOOKING_VIEWS = {
   all: 'Wszystkie'
 };
 
+const ADMIN_NOTIFICATIONS_POLL_INTERVAL_MS = 15000;
+let adminNotificationsPollTimer = null;
+let adminNotificationsLoading = false;
+
 function isValidBookingsView(view) {
   return Object.prototype.hasOwnProperty.call(BOOKING_VIEWS, view);
 }
@@ -340,7 +344,7 @@ function scheduleAdminBackgroundTasks() {
     });
 
     if (aiIqHasFeature('admin_staff_notifications')) {
-      window.AdminLoadQueue.enqueue('admin-notifications', () => loadAdminNotifications(), {
+      window.AdminLoadQueue.enqueue('admin-notifications', () => startAdminNotificationsPolling(), {
         optional: true
       });
     }
@@ -813,6 +817,8 @@ function applyAdminNotificationsPlanLock() {
     return;
   }
 
+  stopAdminNotificationsPolling();
+
   const root = document.getElementById('adminNotifications');
   const countEl = document.getElementById('adminNotificationsCount');
 
@@ -827,6 +833,33 @@ function applyAdminNotificationsPlanLock() {
   }
 
   renderAdminNotificationsProMessage();
+}
+
+function stopAdminNotificationsPolling() {
+  if (adminNotificationsPollTimer !== null) {
+    window.clearInterval(adminNotificationsPollTimer);
+    adminNotificationsPollTimer = null;
+  }
+}
+
+function startAdminNotificationsPolling() {
+  if (!aiIqHasFeature('admin_staff_notifications')) {
+    applyAdminNotificationsPlanLock();
+    return Promise.resolve();
+  }
+
+  if (adminNotificationsPollTimer === null) {
+    adminNotificationsPollTimer = window.setInterval(() => {
+      if (!aiIqHasFeature('admin_staff_notifications')) {
+        applyAdminNotificationsPlanLock();
+        return;
+      }
+
+      loadAdminNotifications({ silent: true });
+    }, ADMIN_NOTIFICATIONS_POLL_INTERVAL_MS);
+  }
+
+  return loadAdminNotifications();
 }
 
 function initAdminNotifications() {
@@ -850,7 +883,7 @@ function initAdminNotifications() {
     toggle.setAttribute('aria-expanded', shouldOpen ? 'true' : 'false');
 
     if (shouldOpen) {
-      await loadAdminNotifications();
+      await loadAdminNotifications({ force: true });
     }
   });
 
@@ -959,7 +992,18 @@ function formatAdminNotificationDate(value) {
   return `${day}.${month}.${year}, ${hours}:${minutes}`;
 }
 
-async function loadAdminNotifications() {
+async function loadAdminNotifications(options = {}) {
+  if (!aiIqHasFeature('admin_staff_notifications')) {
+    applyAdminNotificationsPlanLock();
+    return;
+  }
+
+  if (adminNotificationsLoading && !options.force) {
+    return;
+  }
+
+  adminNotificationsLoading = true;
+
   try {
     const response = await fetch(ADMIN_NOTIFICATIONS_ENDPOINT, {
       method: 'GET',
@@ -970,6 +1014,10 @@ async function loadAdminNotifications() {
     const data = await response.json().catch(() => null);
 
     if (!response.ok || !data?.success) {
+      if (options.silent) {
+        return;
+      }
+
       setAdminNotificationsCount(0);
       renderAdminNotificationsList([], {
         error: data?.requires_migration
@@ -983,17 +1031,23 @@ async function loadAdminNotifications() {
     renderAdminNotificationsList(data.notifications || []);
   } catch (error) {
     console.error('admin notifications load error:', error);
+    if (options.silent) {
+      return;
+    }
+
     setAdminNotificationsCount(0);
     renderAdminNotificationsList([], {
       error: 'Nie udało się pobrać powiadomień.'
     });
+  } finally {
+    adminNotificationsLoading = false;
   }
 }
 
 window.loadAdminNotifications = loadAdminNotifications;
 
 window.addEventListener('aiiq:staff-blocks-changed', () => {
-  loadAdminNotifications();
+  loadAdminNotifications({ force: true });
 });
 
 async function markAdminNotificationsRead(button) {
@@ -1026,7 +1080,7 @@ async function markAdminNotificationsRead(button) {
     }
 
     setAdminNotificationsCount(0);
-    await loadAdminNotifications();
+    await loadAdminNotifications({ force: true });
   } catch (error) {
     console.error('admin notifications mark read error:', error);
     renderAdminNotificationsList([], {

@@ -77,9 +77,14 @@ if (!isset($allowedFiles[$fileName])) {
     logo_front_not_found();
 }
 
-$storageRootPath = realpath('/var/www/html/data/logo');
-$tenantBasePath = realpath('/var/www/html/data/logo/' . $tenantId);
-$filePath = realpath('/var/www/html/data/logo/' . $tenantId . '/' . $fileName);
+$baseDir = realpath(__DIR__ . '/../../html');
+if ($baseDir === false) {
+    logo_front_not_found();
+}
+
+$storageRootPath = realpath($baseDir . '/data/logo');
+$tenantBasePath = realpath($baseDir . '/data/logo/' . $tenantId);
+$filePath = realpath($baseDir . '/data/logo/' . $tenantId . '/' . $fileName);
 
 if ($storageRootPath === false
     || $tenantBasePath === false

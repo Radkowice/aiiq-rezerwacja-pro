@@ -74,9 +74,14 @@ if (!isset($allowedFiles[$fileName])) {
     favicon_front_not_found();
 }
 
-$storageRootPath = realpath('/var/www/html/data/favicon');
-$tenantBasePath = realpath('/var/www/html/data/favicon/' . $tenantId);
-$filePath = realpath('/var/www/html/data/favicon/' . $tenantId . '/' . $fileName);
+$baseDir = realpath(__DIR__ . '/../../html');
+if ($baseDir === false) {
+    favicon_front_not_found();
+}
+
+$storageRootPath = realpath($baseDir . '/data/favicon');
+$tenantBasePath = realpath($baseDir . '/data/favicon/' . $tenantId);
+$filePath = realpath($baseDir . '/data/favicon/' . $tenantId . '/' . $fileName);
 
 if ($storageRootPath === false
     || $tenantBasePath === false
