@@ -875,7 +875,7 @@ async function loadFrontMonthAvailability(monthKey, expectedCacheKey = '') {
 async function refreshFrontCalendarForCurrentSelection() {
   try {
     if (!availabilityData) {
-      availabilityData = await getSettings();
+      await getSettings();
     }
 
     renderCalendarUI();
@@ -1642,33 +1642,23 @@ async function loadCalendarSettings() {
   }
 }
 
-async function getSettings(date = '') {
-  const res = await fetch('/api/booking/blocked.php', {
-    cache: 'no-store'
-  });
-
-  if (!res.ok) {
-    throw new Error('Nie udało się pobrać blokad.');
-  }
-
-  const data = await res.json();
-
-  const blockedDates = Array.isArray(data.blockedDates) ? data.blockedDates : [];
-  const blockedTimes = data.blockedTimes && typeof data.blockedTimes === 'object'
-    ? data.blockedTimes
+function buildSettingsFromBlockedPayload(blockedPayload = {}, date = '') {
+  const blockedDates = Array.isArray(blockedPayload.blockedDates) ? blockedPayload.blockedDates : [];
+  const blockedTimes = blockedPayload.blockedTimes && typeof blockedPayload.blockedTimes === 'object'
+    ? blockedPayload.blockedTimes
     : {};
 
-  const availabilityExceptions = Array.isArray(data.availabilityExceptions)
-    ? data.availabilityExceptions
+  const availabilityExceptions = Array.isArray(blockedPayload.availabilityExceptions)
+    ? blockedPayload.availabilityExceptions
     : [];
 
   const allTimes = generateTimeSlots();
 
-  const blockSettings = data.blockSettings && typeof data.blockSettings === 'object'
+  const blockSettings = blockedPayload.blockSettings && typeof blockedPayload.blockSettings === 'object'
     ? {
-        block_saturdays: !!data.blockSettings.block_saturdays,
-        block_sundays: !!data.blockSettings.block_sundays,
-        block_holidays: !!data.blockSettings.block_holidays
+        block_saturdays: !!blockedPayload.blockSettings.block_saturdays,
+        block_sundays: !!blockedPayload.blockSettings.block_sundays,
+        block_holidays: !!blockedPayload.blockSettings.block_holidays
       }
     : {
         block_saturdays: false,
@@ -1736,6 +1726,30 @@ async function getSettings(date = '') {
     blockSettings,
     availabilityExceptions
   };
+}
+
+async function getSettings(date = '', options = {}) {
+  const forceFresh = options && options.forceFresh === true;
+
+  if (!forceFresh && availabilityData && availabilityData.success === true) {
+    return buildSettingsFromBlockedPayload(availabilityData, date);
+  }
+
+  const res = await fetch('/api/booking/blocked.php', {
+    cache: 'no-store'
+  });
+
+  if (!res.ok) {
+    throw new Error('Nie udało się pobrać blokad.');
+  }
+
+  const data = await res.json();
+
+  if (data && data.success === true) {
+    availabilityData = data;
+  }
+
+  return buildSettingsFromBlockedPayload(data, date);
 }
 
 function generateTimeSlots() {
@@ -2155,7 +2169,7 @@ if (FRONT_STAFF_REQUIRED) {
         renderFrontServiceSelect();
         delete booking.staff_id;
 
-        const settings = await getSettings(booking.date);
+        const settings = await getSettings(booking.date, { forceFresh: true });
         finalAvailable = Array.isArray(settings?.availableTimes)
           ? settings.availableTimes
           : [];
@@ -2167,7 +2181,7 @@ if (FRONT_STAFF_REQUIRED) {
         finalAvailable = staffData.availableTimes;
       }
     } else {
-      const settings = await getSettings(booking.date);
+      const settings = await getSettings(booking.date, { forceFresh: true });
       finalAvailable = Array.isArray(settings?.availableTimes)
         ? settings.availableTimes
         : [];
@@ -2272,7 +2286,7 @@ if (FRONT_STAFF_REQUIRED) {
     timeInput.innerHTML = '<option value="">Wybierz godzinę *</option>';
 
     try {
-      availabilityData = await getSettings();
+      await getSettings('', { forceFresh: true });
       clearFrontMonthAvailabilityCache();
       viewDate = new Date();
       renderCalendarUI();
@@ -2615,7 +2629,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const { minMonthDate } = getMonthRangeLimits();
       viewDate = new Date(minMonthDate.getFullYear(), minMonthDate.getMonth(), 1);
 
-      availabilityData = await getSettings();
+      await getSettings();
       ALL_TIMES = generateTimeSlots();
       legalDocumentsPromise.catch(() => null);
     } else {
