@@ -4,9 +4,23 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/tenant.php';
 
+header('X-Content-Type-Options: nosniff');
+
 function logo_front_not_found(): void
 {
+    header('X-Content-Type-Options: nosniff');
+    header('Cache-Control: no-store');
+    header('Content-Type: text/plain; charset=utf-8');
     http_response_code(404);
+    exit;
+}
+
+$requestMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? ''));
+if (!in_array($requestMethod, ['GET', 'HEAD'], true)) {
+    header('Allow: GET, HEAD');
+    header('Cache-Control: no-store');
+    header('Content-Type: text/plain; charset=utf-8');
+    http_response_code(405);
     exit;
 }
 
@@ -88,9 +102,16 @@ if (!is_array($imageInfo) || strtolower((string) ($imageInfo['mime'] ?? '')) !==
     logo_front_not_found();
 }
 
+$fileSize = filesize($filePath);
+if ($fileSize === false) {
+    logo_front_not_found();
+}
+
 header('Content-Type: ' . $mime);
 header('X-Content-Type-Options: nosniff');
-header('Content-Length: ' . filesize($filePath));
+header('Content-Length: ' . $fileSize);
 header('Cache-Control: public, max-age=3600');
-readfile($filePath);
+if ($requestMethod === 'GET') {
+    readfile($filePath);
+}
 exit;

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -375,5 +376,6 @@ foreach ($allowedOldNames as $oldName) {
 upload_logo_json(200, [
     'success' => true,
     'message' => 'Logo zapisane.',
-    'logo_url_front' => $logoUrl,
+    'logo_url_front' => branding_asset_public_url($logoUrl, $tenantId, 'logo'),
+    'has_logo' => true,
 ]);

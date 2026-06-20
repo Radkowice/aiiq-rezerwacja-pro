@@ -7,6 +7,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -166,6 +167,11 @@ if (!$brandingResult['ok']) {
 }
 
 $branding = admin_bootstrap_first_row($brandingResult);
+
+if (is_array($branding)) {
+    $branding['logo_url_front'] = branding_asset_public_url((string)($branding['logo_url_front'] ?? ''), $tenantId, 'logo');
+    $branding['favicon_url_front'] = branding_asset_public_url((string)($branding['favicon_url_front'] ?? ''), $tenantId, 'favicon');
+}
 
 admin_bootstrap_json([
     'success' => true,

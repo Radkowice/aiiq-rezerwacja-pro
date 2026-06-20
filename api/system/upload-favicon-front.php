@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -344,5 +345,6 @@ foreach ($allowedOldNames as $oldName) {
 favicon_json(200, [
     'success' => true,
     'message' => 'Favicon zapisana.',
-    'favicon_url_front' => $faviconUrl,
+    'favicon_url_front' => branding_asset_public_url($faviconUrl, $tenantId, 'favicon'),
+    'has_favicon' => true,
 ]);

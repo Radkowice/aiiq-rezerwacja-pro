@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -384,6 +385,11 @@ if (!$brandingResult['ok']) {
 }
 
 $branding = $brandingResult['data'][0] ?? null;
+
+if (is_array($branding)) {
+    $branding['logo_url_front'] = branding_asset_public_url((string)($branding['logo_url_front'] ?? ''), $tenantId, 'logo');
+    $branding['favicon_url_front'] = branding_asset_public_url((string)($branding['favicon_url_front'] ?? ''), $tenantId, 'favicon');
+}
 
 $companyUrl = $supabaseUrl
     . '/rest/v1/tenant_service_settings?select=company_full_name,company_owner_name,company_tax_id,company_address,company_email,company_phone'

@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function payment_return_response(array $payload, int $statusCode = 200): void
@@ -158,8 +159,8 @@ if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
         ],
         'branding' => [
             'client_name' => $branding['client_name'] ?? '',
-            'logo_url_front' => $branding['logo_url_front'] ?? '',
-            'favicon_url_front' => $branding['favicon_url_front'] ?? '',
+            'logo_url_front' => branding_asset_public_url((string)($branding['logo_url_front'] ?? ''), (string)$tenantId, 'logo'),
+            'favicon_url_front' => branding_asset_public_url((string)($branding['favicon_url_front'] ?? ''), (string)$tenantId, 'favicon'),
         ],
         'service' => [
             'service_name' => $service['service_name'] ?? '',

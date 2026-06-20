@@ -32,25 +32,50 @@ function normalize_host(?string $host): string
         return '';
     }
 
-    // gdy proxy poda kilka hostów po przecinku
-    if (strpos($host, ',') !== false) {
-        $parts = array_map('trim', explode(',', $host));
-        $host = $parts[0] ?? '';
-    }
-
     // usuń port
     $host = preg_replace('/:\d+$/', '', $host);
 
-    // usuń końcową kropkę
-    $host = rtrim($host, '.');
-
     return $host;
+}
+
+function tenant_host_is_valid(string $host): bool
+{
+    if ($host === '' || strlen($host) > 253) {
+        return false;
+    }
+
+    if (str_contains($host, '/')
+        || str_contains($host, '\\')
+        || str_contains($host, ',')
+        || preg_match('/[\s\x00-\x1F\x7F]/', $host) === 1) {
+        return false;
+    }
+
+    if (preg_match('/^[a-z0-9.-]+$/', $host) !== 1
+        || $host[0] === '.'
+        || $host[0] === '-'
+        || str_ends_with($host, '.')
+        || str_ends_with($host, '-')) {
+        return false;
+    }
+
+    $segments = explode('.', $host);
+
+    foreach ($segments as $segment) {
+        if ($segment === ''
+            || strlen($segment) > 63
+            || preg_match('/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/', $segment) !== 1) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 function host_candidates(): array
 {
     $rawHosts = [
-        $_SERVER['HTTP_X_FORWARDED_HOST'] ?? '',
+        $_SERVER['HTTP_X_ORIGINAL_HOST'] ?? '',
         $_SERVER['HTTP_HOST'] ?? '',
         $_SERVER['SERVER_NAME'] ?? '',
     ];
@@ -60,25 +85,30 @@ function host_candidates(): array
     foreach ($rawHosts as $raw) {
         $host = normalize_host($raw);
 
-        if ($host === '') {
+        if (!tenant_host_is_valid($host)) {
             continue;
         }
 
         $candidates[] = $host;
 
         if (str_starts_with($host, 'www.')) {
-            $candidates[] = substr($host, 4);
+            $alternateHost = substr($host, 4);
         } else {
-            $candidates[] = 'www.' . $host;
+            $alternateHost = 'www.' . $host;
+        }
+
+        if (tenant_host_is_valid($alternateHost)) {
+            $candidates[] = $alternateHost;
         }
     }
 
     $candidates = array_values(array_unique(array_filter($candidates)));
 
     tenant_debug_log('HOST_CANDIDATES', [
-        'HTTP_X_FORWARDED_HOST' => $_SERVER['HTTP_X_FORWARDED_HOST'] ?? null,
+        'HTTP_X_ORIGINAL_HOST'  => $_SERVER['HTTP_X_ORIGINAL_HOST'] ?? null,
         'HTTP_HOST'             => $_SERVER['HTTP_HOST'] ?? null,
         'SERVER_NAME'           => $_SERVER['SERVER_NAME'] ?? null,
+        'X_FORWARDED_HOST_IGNORED' => trim((string) ($_SERVER['HTTP_X_FORWARDED_HOST'] ?? '')) !== '',
         'candidates'            => $candidates,
     ]);
 

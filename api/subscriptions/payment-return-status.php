@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/branding-assets.php';
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -263,6 +264,22 @@ try {
 
     $loginUrl = subscription_return_build_url($tenantDomain, '/logowanie.html');
     $panelUrl = subscription_return_build_url($tenantDomain, '/panel-admina.php');
+    $publicLogoPath = branding_asset_public_url(
+        is_array($branding) ? (string)($branding['logo_url_front'] ?? '') : '',
+        $tenantId,
+        'logo'
+    );
+    $publicFaviconPath = branding_asset_public_url(
+        is_array($branding) ? (string)($branding['favicon_url_front'] ?? '') : '',
+        $tenantId,
+        'favicon'
+    );
+    $publicLogoUrl = $publicLogoPath !== ''
+        ? subscription_return_build_url($tenantDomain, $publicLogoPath)
+        : '';
+    $publicFaviconUrl = $publicFaviconPath !== ''
+        ? subscription_return_build_url($tenantDomain, $publicFaviconPath)
+        : '';
 
     subscription_return_json(200, [
         'success' => true,
@@ -282,8 +299,8 @@ try {
             'company_name' => $displayCompanyName,
             'company_full_name' => $companyFullName,
             'company_owner_name' => $companyOwnerName,
-            'logo_url_front' => is_array($branding) ? (string) ($branding['logo_url_front'] ?? '') : '',
-            'favicon_url_front' => is_array($branding) ? (string) ($branding['favicon_url_front'] ?? '') : '',
+            'logo_url_front' => $publicLogoUrl,
+            'favicon_url_front' => $publicFaviconUrl,
         ],
         'urls' => [
             'tenant_domain' => $tenantDomain,

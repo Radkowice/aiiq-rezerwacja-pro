@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function branding_public_json(array $payload, int $statusCode = 200): void
@@ -254,15 +255,8 @@ if (!is_array($data) || empty($data[0])) {
 
 $row = $data[0];
 
-$updatedAt = trim((string)($row['updated_at'] ?? ''));
-$assetVersion = $updatedAt !== '' ? (string) strtotime($updatedAt) : (string) time();
-
-if ($assetVersion === '' || $assetVersion === '0' || $assetVersion === '-1') {
-    $assetVersion = (string) time();
-}
-
-$hasLogo = trim((string)($row['logo_url_front'] ?? '')) !== '';
-$hasFavicon = trim((string)($row['favicon_url_front'] ?? '')) !== '';
+$publicLogoUrl = branding_asset_public_url((string)($row['logo_url_front'] ?? ''), $tenantId, 'logo');
+$publicFaviconUrl = branding_asset_public_url((string)($row['favicon_url_front'] ?? ''), $tenantId, 'favicon');
 $planContext = plan_features_get_context((string) $tenantId);
 $features = is_array($planContext['features'] ?? null) ? $planContext['features'] : [];
 $publicFeatures = [
@@ -284,8 +278,8 @@ $payload = [
     'branding' => [
         'client_name' => $row['client_name'] ?? '',
         'service_title_front' => $row['service_title_front'] ?? '',
-        'logo_url_front' => $hasLogo ? '/api/system/logo-front.php?v=' . rawurlencode($assetVersion) : '',
-        'favicon_url_front' => $hasFavicon ? '/api/system/favicon-front.php?v=' . rawurlencode($assetVersion) : '',
+        'logo_url_front' => $publicLogoUrl,
+        'favicon_url_front' => $publicFaviconUrl,
         'calendar_front_style' => is_array($row['calendar_front_style'] ?? null)
             ? $row['calendar_front_style']
             : [],
