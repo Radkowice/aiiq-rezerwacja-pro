@@ -19,8 +19,23 @@ use PHPMailer\PHPMailer\Exception;
 start_secure_session();
 date_default_timezone_set('Europe/Warsaw');
 
+$bookingSlotLockHandle = null;
+$bookingGlobalSemaphoreHandle = null;
+
 function json_response(array $payload, int $status = 200): void
 {
+    global $bookingSlotLockHandle, $bookingGlobalSemaphoreHandle;
+
+    if (isset($bookingSlotLockHandle)) {
+        booking_release_slot_lock($bookingSlotLockHandle);
+        $bookingSlotLockHandle = null;
+    }
+
+    if (isset($bookingGlobalSemaphoreHandle)) {
+        booking_release_global_semaphore($bookingGlobalSemaphoreHandle);
+        $bookingGlobalSemaphoreHandle = null;
+    }
+
     if (ob_get_length()) {
         ob_clean();
     }
@@ -175,22 +190,55 @@ function supabase_insert(string $url, array $payload, array $headers): array
 
 function supabase_select(string $url, array $headers): array
 {
-    $ch = curl_init($url);
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPGET => true,
-        CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_TIMEOUT => 20,
-    ]);
-
-    $response = curl_exec($ch);
-    $error = curl_error($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-
+    $maxAttempts = 3;
+    $backoffs = [150000, 300000, 600000];
+    $response = false;
+    $error = '';
+    $httpCode = 0;
     $decoded = null;
-    if ($response !== false && $response !== '') {
-        $decoded = json_decode($response, true);
+    $jsonValid = false;
+    $jsonError = JSON_ERROR_NONE;
+    $temporary = false;
+    $attempt = 0;
+
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_TIMEOUT => 20,
+        ]);
+
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        $decoded = null;
+        $jsonValid = false;
+        $jsonError = JSON_ERROR_NONE;
+
+        if ($response !== false && $response !== '') {
+            $decoded = json_decode((string) $response, true);
+            $jsonError = json_last_error();
+            $jsonValid = $jsonError === JSON_ERROR_NONE;
+        } else {
+            $jsonError = JSON_ERROR_SYNTAX;
+        }
+
+        $temporary = $response === false
+            || trim((string) $error) !== ''
+            || $httpCode === 0
+            || $httpCode === 429
+            || $httpCode >= 500
+            || ($httpCode >= 200 && $httpCode < 300 && !$jsonValid);
+
+        if (!$temporary || $attempt === $maxAttempts) {
+            break;
+        }
+
+        usleep($backoffs[$attempt - 1] ?? 600000);
     }
 
     return [
@@ -198,7 +246,55 @@ function supabase_select(string $url, array $headers): array
         'data' => $decoded,
         'error' => $error,
         'httpCode' => $httpCode,
+        'temporary' => $temporary,
+        'jsonValid' => $jsonValid,
+        'jsonError' => $jsonError,
+        'attempts' => $attempt,
     ];
+}
+
+function supabase_select_is_temporary(array $result): bool
+{
+    $httpCode = (int)($result['httpCode'] ?? 0);
+
+    if (!empty($result['temporary'])) {
+        return true;
+    }
+
+    if ($httpCode === 0 || $httpCode === 429 || $httpCode >= 500) {
+        return true;
+    }
+
+    if (trim((string)($result['error'] ?? '')) !== '') {
+        return true;
+    }
+
+    return array_key_exists('jsonValid', $result)
+        && ($result['jsonValid'] ?? true) === false
+        && $httpCode >= 200
+        && $httpCode < 300;
+}
+
+function booking_temporary_unavailable(string $message = ''): void
+{
+    json_response([
+        'success' => false,
+        'error' => 'temporary_unavailable',
+        'message' => $message !== '' ? $message : 'Nie udało się chwilowo sprawdzić dostępności. Spróbuj ponownie za moment.',
+    ], 503);
+}
+
+function booking_tenant_has_feature_or_temporary(string $tenantId, string $featureKey): bool
+{
+    $context = plan_features_get_context($tenantId);
+
+    if (!empty($context['temporary_error'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić uprawnień konta. Spróbuj ponownie za moment.');
+    }
+
+    $features = is_array($context['features'] ?? null) ? $context['features'] : [];
+
+    return !empty($features[$featureKey]);
 }
 
 function booking_insert_error_text(array $result): string
@@ -280,7 +376,7 @@ function booking_insert_error_response(array $result): void
         json_response([
             'success' => false,
             'error' => 'temporary_unavailable',
-            'message' => 'Nie udało się chwilowo zapisać rezerwacji. Spróbuj ponownie za moment.',
+            'message' => 'W tym momencie system obsługuje dużo rezerwacji. Spróbuj ponownie za chwilę.',
         ], 429);
     }
 
@@ -288,7 +384,7 @@ function booking_insert_error_response(array $result): void
         json_response([
             'success' => false,
             'error' => 'temporary_unavailable',
-            'message' => 'Nie udało się chwilowo zapisać rezerwacji. Spróbuj ponownie za moment.',
+            'message' => 'W tym momencie system obsługuje dużo rezerwacji. Spróbuj ponownie za chwilę.',
         ], 503);
     }
 
@@ -310,6 +406,27 @@ function fetch_single_record(string $baseUrl, array $headers, string $table, str
     return $res['data'][0];
 }
 
+function fetch_single_record_result(string $baseUrl, array $headers, string $table, string $query): array
+{
+    $url = rtrim($baseUrl, '/') . "/rest/v1/{$table}?{$query}&limit=1";
+    $res = supabase_select($url, $headers);
+    $temporary = supabase_select_is_temporary($res);
+    $httpCode = (int)($res['httpCode'] ?? 0);
+    $data = $res['data'] ?? null;
+    $row = is_array($data) && isset($data[0]) && is_array($data[0])
+        ? $data[0]
+        : null;
+
+    return [
+        'ok' => !$temporary && $httpCode === 200 && is_array($data),
+        'found' => $row !== null,
+        'row' => $row,
+        'temporary' => $temporary,
+        'httpCode' => $httpCode,
+        'error' => (string)($res['error'] ?? ''),
+    ];
+}
+
 function fetch_public_staff_for_booking(string $baseUrl, array $headers, string $tenantId, string $staffId): ?array
 {
     if ($staffId === '') {
@@ -322,6 +439,27 @@ function fetch_public_staff_for_booking(string $baseUrl, array $headers, string 
         . '&select=id,display_name,service_name,service_duration_minutes,service_break_minutes,booking_buffer_minutes,service_price,payments_enabled,email_subject,email_heading,email_body';
 
     return fetch_single_record($baseUrl, $headers, 'staff_profiles', $query);
+}
+
+function fetch_public_staff_for_booking_result(string $baseUrl, array $headers, string $tenantId, string $staffId): array
+{
+    if ($staffId === '') {
+        return [
+            'ok' => true,
+            'found' => false,
+            'row' => null,
+            'temporary' => false,
+            'httpCode' => 200,
+            'error' => '',
+        ];
+    }
+
+    $query = 'tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=eq.' . rawurlencode($staffId)
+        . '&is_active=eq.true'
+        . '&select=id,display_name,service_name,service_duration_minutes,service_break_minutes,booking_buffer_minutes,service_price,payments_enabled,email_subject,email_heading,email_body';
+
+    return fetch_single_record_result($baseUrl, $headers, 'staff_profiles', $query);
 }
 
 function fetch_public_service_for_booking(string $baseUrl, array $headers, string $tenantId, string $serviceId): ?array
@@ -337,6 +475,28 @@ function fetch_public_service_for_booking(string $baseUrl, array $headers, strin
         . '&select=id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled';
 
     return fetch_single_record($baseUrl, $headers, 'tenant_services', $query);
+}
+
+function fetch_public_service_for_booking_result(string $baseUrl, array $headers, string $tenantId, string $serviceId): array
+{
+    if ($serviceId === '') {
+        return [
+            'ok' => true,
+            'found' => false,
+            'row' => null,
+            'temporary' => false,
+            'httpCode' => 200,
+            'error' => '',
+        ];
+    }
+
+    $query = 'tenant_id=eq.' . rawurlencode($tenantId)
+        . '&id=eq.' . rawurlencode($serviceId)
+        . '&is_active=eq.true'
+        . '&visible_on_front=eq.true'
+        . '&select=id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled';
+
+    return fetch_single_record_result($baseUrl, $headers, 'tenant_services', $query);
 }
 
 function fetch_service_staff_ids_for_booking(string $baseUrl, array $headers, string $tenantId, string $serviceId): ?array
@@ -367,6 +527,55 @@ function fetch_service_staff_ids_for_booking(string $baseUrl, array $headers, st
     }
 
     return array_keys($staffIds);
+}
+
+function fetch_service_staff_ids_for_booking_result(string $baseUrl, array $headers, string $tenantId, string $serviceId): array
+{
+    if ($serviceId === '') {
+        return [
+            'ok' => true,
+            'staffIds' => [],
+            'temporary' => false,
+            'httpCode' => 200,
+            'error' => '',
+        ];
+    }
+
+    $query = 'select=staff_id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&service_id=eq.' . rawurlencode($serviceId);
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/tenant_service_staff?' . $query;
+    $result = supabase_select($url, $headers);
+    $temporary = supabase_select_is_temporary($result);
+
+    if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
+        return [
+            'ok' => false,
+            'staffIds' => [],
+            'temporary' => $temporary,
+            'httpCode' => (int)($result['httpCode'] ?? 0),
+            'error' => (string)($result['error'] ?? ''),
+        ];
+    }
+
+    $staffIds = [];
+
+    foreach ($result['data'] as $row) {
+        if (!is_array($row) || empty($row['staff_id'])) {
+            continue;
+        }
+
+        $staffIds[(string) $row['staff_id']] = true;
+    }
+
+    return [
+        'ok' => true,
+        'staffIds' => array_keys($staffIds),
+        'temporary' => false,
+        'httpCode' => (int)($result['httpCode'] ?? 0),
+        'error' => '',
+    ];
 }
 
 function booking_nullable_int(array $row, string $key): ?int
@@ -448,7 +657,7 @@ function staff_slot_matches_schedule(
     string $time,
     int $duration,
     int $break
-): bool {
+): ?bool {
     $weekday = (int) (new DateTimeImmutable($date))->format('N');
     $query = 'select=weekday,start_time,end_time,is_active'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
@@ -460,7 +669,7 @@ function staff_slot_matches_schedule(
     $result = supabase_select($url, $headers);
 
     if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
-        return false;
+        return supabase_select_is_temporary($result) ? null : false;
     }
 
     $slotMinutes = booking_time_to_minutes($time);
@@ -503,7 +712,7 @@ function staff_slot_is_free(
     string $time,
     int $candidateDuration,
     int $candidateBreak
-): bool
+): ?bool
 {
     $query = 'tenant_id=eq.' . rawurlencode($tenantId)
         . '&staff_id=eq.' . rawurlencode($staffId)
@@ -514,7 +723,7 @@ function staff_slot_is_free(
     $bookingsResult = supabase_select($bookingsUrl, $headers);
 
     if (($bookingsResult['httpCode'] ?? 0) !== 200 || !is_array($bookingsResult['data'])) {
-        return false;
+        return supabase_select_is_temporary($bookingsResult) ? null : false;
     }
 
     $bookings = $bookingsResult['data'];
@@ -538,17 +747,23 @@ function staff_slot_is_free(
 
         $serviceResult = supabase_select($serviceUrl, $headers);
 
-        if (($serviceResult['httpCode'] ?? 0) === 200 && is_array($serviceResult['data'])) {
-            foreach ($serviceResult['data'] as $serviceRow) {
-                if (!is_array($serviceRow) || empty($serviceRow['id'])) {
-                    continue;
-                }
-
-                $settingsByServiceId[(string) $serviceRow['id']] = [
-                    'duration' => max(1, (int) ($serviceRow['duration_minutes'] ?? $candidateDuration)),
-                    'break' => max(0, (int) ($serviceRow['break_minutes'] ?? $candidateBreak)),
-                ];
+        if (($serviceResult['httpCode'] ?? 0) !== 200 || !is_array($serviceResult['data'])) {
+            if (supabase_select_is_temporary($serviceResult)) {
+                return null;
             }
+
+            return false;
+        }
+
+        foreach ($serviceResult['data'] as $serviceRow) {
+            if (!is_array($serviceRow) || empty($serviceRow['id'])) {
+                continue;
+            }
+
+            $settingsByServiceId[(string) $serviceRow['id']] = [
+                'duration' => max(1, (int) ($serviceRow['duration_minutes'] ?? $candidateDuration)),
+                'break' => max(0, (int) ($serviceRow['break_minutes'] ?? $candidateBreak)),
+            ];
         }
     }
 
@@ -587,7 +802,7 @@ function staff_slot_is_free(
     return true;
 }
 
-function booking_global_slot_is_available(string $baseUrl, array $headers, string $tenantId, string $date, string $time, string $staffId = ''): bool
+function booking_global_slot_is_available(string $baseUrl, array $headers, string $tenantId, string $date, string $time, string $staffId = ''): ?bool
 {
     $staffBlockFilter = $staffId === ''
         ? '&staff_id=is.null'
@@ -598,7 +813,13 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
         . $staffBlockFilter
         . '&select=date';
 
-    if (fetch_single_record($baseUrl, $headers, 'blocked_dates', $blockedDateQuery) !== null) {
+    $blockedDateResult = fetch_single_record_result($baseUrl, $headers, 'blocked_dates', $blockedDateQuery);
+
+    if (!empty($blockedDateResult['temporary'])) {
+        return null;
+    }
+
+    if (!empty($blockedDateResult['found'])) {
         return false;
     }
 
@@ -610,7 +831,7 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
     $blockedTimesResult = supabase_select($blockedTimesUrl, $headers);
 
     if (($blockedTimesResult['httpCode'] ?? 0) !== 200 || !is_array($blockedTimesResult['data'])) {
-        return true;
+        return supabase_select_is_temporary($blockedTimesResult) ? null : false;
     }
 
     foreach ($blockedTimesResult['data'] as $row) {
@@ -626,6 +847,152 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
     }
 
     return true;
+}
+
+function booking_global_semaphore_dir(): string
+{
+    return __DIR__ . '/../../data/cache/booking-semaphore';
+}
+
+// Globalny limit równoległych ścieżek book.php; nie zastępuje locka per slot.
+// Nie zastępuje też unikalnego indeksu w bazie, który powinien być ostatnią bramką.
+function booking_acquire_global_semaphore(int $limit = 5, int $timeoutMs = 20000)
+{
+    $semaphoreDir = booking_global_semaphore_dir();
+
+    if (!is_dir($semaphoreDir) && !@mkdir($semaphoreDir, 0775, true) && !is_dir($semaphoreDir)) {
+        return false;
+    }
+
+    if (!is_writable($semaphoreDir)) {
+        return false;
+    }
+
+    $limit = max(1, $limit);
+    $deadline = microtime(true) + (max(1, $timeoutMs) / 1000);
+
+    do {
+        for ($index = 0; $index < $limit; $index++) {
+            $lockFile = $semaphoreDir . DIRECTORY_SEPARATOR . 'book-global-' . $index . '.lock';
+            $handle = @fopen($lockFile, 'c+');
+
+            if (!is_resource($handle)) {
+                continue;
+            }
+
+            if (@flock($handle, LOCK_EX | LOCK_NB)) {
+                return $handle;
+            }
+
+            @fclose($handle);
+        }
+
+        usleep(75000);
+    } while (microtime(true) < $deadline);
+
+    return false;
+}
+
+function booking_release_global_semaphore($semaphoreHandle): void
+{
+    if (!is_resource($semaphoreHandle)) {
+        return;
+    }
+
+    @flock($semaphoreHandle, LOCK_UN);
+    @fclose($semaphoreHandle);
+}
+
+function booking_slot_lock_key(string $tenantId, string $serviceId, string $staffId, string $date, string $time): string
+{
+    $parts = [
+        'tenant_id' => trim($tenantId),
+        'service_id' => trim($serviceId) !== '' ? trim($serviceId) : 'global',
+        'staff_id' => trim($staffId) !== '' ? trim($staffId) : 'global',
+        'booking_date' => trim($date),
+        'booking_time' => substr(trim($time), 0, 5),
+    ];
+
+    return 'booking-slot-' . hash('sha256', json_encode($parts, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . '.lock';
+}
+
+function booking_slot_lock_dir(): string
+{
+    return __DIR__ . '/../../data/cache/booking-locks';
+}
+
+function booking_acquire_slot_lock(string $lockKey, int $timeoutMs = 6000)
+{
+    $lockDir = booking_slot_lock_dir();
+
+    if (!is_dir($lockDir) && !@mkdir($lockDir, 0775, true) && !is_dir($lockDir)) {
+        return false;
+    }
+
+    if (!is_writable($lockDir)) {
+        return false;
+    }
+
+    $lockFile = $lockDir . DIRECTORY_SEPARATOR . $lockKey;
+    $handle = @fopen($lockFile, 'c+');
+
+    if (!is_resource($handle)) {
+        return false;
+    }
+
+    $deadline = microtime(true) + (max(1, $timeoutMs) / 1000);
+
+    do {
+        if (@flock($handle, LOCK_EX | LOCK_NB)) {
+            return $handle;
+        }
+
+        usleep(75000);
+    } while (microtime(true) < $deadline);
+
+    @fclose($handle);
+
+    return false;
+}
+
+function booking_release_slot_lock($lockHandle): void
+{
+    if (!is_resource($lockHandle)) {
+        return;
+    }
+
+    @flock($lockHandle, LOCK_UN);
+    @fclose($lockHandle);
+}
+
+function booking_slot_taken_response(): void
+{
+    json_response([
+        'success' => false,
+        'error' => 'slot_taken',
+        'message' => 'Ten termin został właśnie zarezerwowany przez inną osobę. Wybierz inną godzinę.'
+    ], 409);
+}
+
+function booking_quick_slot_is_free(string $baseUrl, array $headers, string $tenantId, string $staffId, string $date, string $time): ?bool
+{
+    $query = 'select=id,payment_status,status'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&booking_date=eq.' . rawurlencode($date)
+        . '&booking_time=eq.' . rawurlencode($time);
+
+    $query .= $staffId !== ''
+        ? '&staff_id=eq.' . rawurlencode($staffId)
+        : '&staff_id=is.null';
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/bookings?' . $query . '&limit=1';
+    $result = supabase_select($url, $headers);
+
+    if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'] ?? null)) {
+        return null;
+    }
+
+    return empty($result['data']);
 }
 
 function booking_subscription_allows_staff(?string $planCode, ?string $status, ?string $currentPeriodEnd = null): bool
@@ -1003,41 +1370,7 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     ], 500);
 }
 
-// Tenant po domenie
-$tenantLookup = getTenantLookupFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
-$tenantLookupStatus = (string)($tenantLookup['status'] ?? '');
-
-if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
-    $TENANT_ID = (string)$tenantLookup['tenant_id'];
-    debug_log('BOOK_TENANT_FINAL', $TENANT_ID);
-} elseif ($tenantLookupStatus === 'not_found') {
-    debug_log('BOOK_TENANT_NOT_FOUND', [
-        'host' => $_SERVER['HTTP_HOST'] ?? null,
-        'server_name' => $_SERVER['SERVER_NAME'] ?? null,
-    ]);
-
-    json_response([
-        'success' => false,
-        'error' => 'tenant_not_found',
-        'message' => 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.',
-    ], 404);
-} else {
-    $tenantLookupHttpCode = (int)($tenantLookup['http_code'] ?? 503);
-    $tenantLookupResponseCode = $tenantLookupHttpCode === 429 ? 429 : 503;
-
-    debug_log('BOOK_TENANT_TECHNICAL_ERROR', [
-        'host' => $_SERVER['HTTP_HOST'] ?? null,
-        'server_name' => $_SERVER['SERVER_NAME'] ?? null,
-        'lookup_status' => $tenantLookupStatus,
-        'http_code' => $tenantLookupHttpCode,
-    ]);
-
-    json_response([
-        'success' => false,
-        'error' => 'temporary_unavailable',
-        'message' => 'Nie udało się chwilowo potwierdzić domeny kalendarza. Spróbuj ponownie za moment.',
-    ], $tenantLookupResponseCode);
-}
+$TENANT_ID = '';
 
 // Input
 $rawInput = file_get_contents('php://input');
@@ -1053,6 +1386,20 @@ if (!is_array($input) || empty($input)) {
         'error' => 'Brak danych',
     ], 400);
 }
+
+$date  = trim((string) ($input['date'] ?? ''));
+$time  = trim((string) ($input['time'] ?? ''));
+$name  = trim((string) ($input['name'] ?? ''));
+$email = trim((string) ($input['email'] ?? ''));
+$phone = trim((string) ($input['phone'] ?? ''));
+$note  = trim((string) ($input['note'] ?? $input['message'] ?? ''));
+$staffId = trim((string) ($input['staff_id'] ?? ''));
+$serviceId = trim((string) ($input['service_id'] ?? ''));
+
+$website = trim((string) ($input['website'] ?? ''));
+$formStartedAtRaw = trim((string) ($input['form_started_at'] ?? ''));
+$formFillTimeRaw = trim((string) ($input['form_fill_time_ms'] ?? ''));
+$termsAcceptedRaw = $input['terms_accepted'] ?? null;
 
 // Anty-spam / blacklist / rate limit
 $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
@@ -1144,22 +1491,6 @@ if (time() - (int) $_SESSION['last_booking_time'] < 10) {
 
 $_SESSION['last_booking_time'] = time();
 
-// Walidacja
-
-$date  = trim((string) ($input['date'] ?? ''));
-$time  = trim((string) ($input['time'] ?? ''));
-$name  = trim((string) ($input['name'] ?? ''));
-$email = trim((string) ($input['email'] ?? ''));
-$phone = trim((string) ($input['phone'] ?? ''));
-$note  = trim((string) ($input['note'] ?? $input['message'] ?? ''));
-$staffId = trim((string) ($input['staff_id'] ?? ''));
-$serviceId = trim((string) ($input['service_id'] ?? ''));
-
-$website = trim((string) ($input['website'] ?? ''));
-$formStartedAtRaw = trim((string) ($input['form_started_at'] ?? ''));
-$formFillTimeRaw = trim((string) ($input['form_fill_time_ms'] ?? ''));
-$termsAcceptedRaw = $input['terms_accepted'] ?? null;
-
 // Cicha pułapka na boty — człowiek tego pola nie widzi.
 if ($website !== '') {
     debug_log('BOOK_BOT_HONEYPOT_BLOCKED', [
@@ -1237,42 +1568,6 @@ if ($formFillTimeMs > 1000 * 60 * 60 * 6) {
     ], 400);
 }
 
-$headers = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, false);
-$minimalHeaders = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, true);
-
-$calendarSettingsUrl = $SUPABASE_URL
-    . '/rest/v1/calendar_settings'
-    . '?select=calendar_enabled,consultation_duration,consultation_break,booking_buffer'
-    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
-    . '&limit=1';
-
-$calendarSettingsResult = supabase_select($calendarSettingsUrl, $headers);
-$calendarSettingsRow = $calendarSettingsResult['data'][0] ?? [];
-
-$calendarEnabled = !empty($calendarSettingsRow['calendar_enabled']);
-
-if ($calendarEnabled !== true) {
-    json_response([
-        'success' => false,
-        'error' => 'Kalendarz rezerwacji jest obecnie wyłączony.',
-    ], 403);
-}
-
-$formFieldsUrl = $SUPABASE_URL
-    . '/rest/v1/tenant_branding'
-    . '?select=calendar_form_fields'
-    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
-    . '&limit=1';
-
-$formFieldsResult = supabase_select($formFieldsUrl, $headers);
-$formFieldsRow = $formFieldsResult['data'][0] ?? [];
-$formFields = is_array($formFieldsRow['calendar_form_fields'] ?? null)
-    ? $formFieldsRow['calendar_form_fields']
-    : [];
-
-$requireEmail = true;
-$requirePhone = ($formFields['show_phone'] ?? true) !== false;
-
 if ($date === '' || $time === '' || $name === '') {
     json_response([
         'success' => false,
@@ -1322,6 +1617,108 @@ if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
         'error' => 'Nieprawidłowy format godziny',
     ], 400);
 }
+
+if ($serviceId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $serviceId)) {
+    json_response([
+        'success' => false,
+        'error' => 'Wybrana usługa jest niedostępna.',
+    ], 404);
+}
+
+if ($staffId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $staffId)) {
+    json_response([
+        'success' => false,
+        'error' => 'Nieprawidłowy personel',
+    ], 400);
+}
+
+$bookingGlobalSemaphoreHandle = booking_acquire_global_semaphore(5, 20000);
+
+if (!is_resource($bookingGlobalSemaphoreHandle)) {
+    json_response([
+        'success' => false,
+        'error' => 'temporary_unavailable',
+        'message' => 'W tym momencie system obsługuje dużo rezerwacji. Spróbuj ponownie za chwilę.'
+    ], 503);
+}
+
+try {
+// Tenant po domenie
+$tenantLookup = getTenantLookupFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
+$tenantLookupStatus = (string)($tenantLookup['status'] ?? '');
+
+if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
+    $TENANT_ID = (string)$tenantLookup['tenant_id'];
+    debug_log('BOOK_TENANT_FINAL', $TENANT_ID);
+} elseif ($tenantLookupStatus === 'not_found') {
+    debug_log('BOOK_TENANT_NOT_FOUND', [
+        'host' => $_SERVER['HTTP_HOST'] ?? null,
+        'server_name' => $_SERVER['SERVER_NAME'] ?? null,
+    ]);
+
+    json_response([
+        'success' => false,
+        'error' => 'tenant_not_found',
+        'message' => 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.',
+    ], 404);
+} else {
+    $tenantLookupHttpCode = (int)($tenantLookup['http_code'] ?? 503);
+    $tenantLookupResponseCode = $tenantLookupHttpCode === 429 ? 429 : 503;
+
+    debug_log('BOOK_TENANT_TECHNICAL_ERROR', [
+        'host' => $_SERVER['HTTP_HOST'] ?? null,
+        'server_name' => $_SERVER['SERVER_NAME'] ?? null,
+        'lookup_status' => $tenantLookupStatus,
+        'http_code' => $tenantLookupHttpCode,
+    ]);
+
+    json_response([
+        'success' => false,
+        'error' => 'temporary_unavailable',
+        'message' => 'Nie udało się chwilowo potwierdzić domeny kalendarza. Spróbuj ponownie za moment.',
+    ], $tenantLookupResponseCode);
+}
+
+$headers = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, false);
+$minimalHeaders = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, true);
+
+$calendarSettingsUrl = $SUPABASE_URL
+    . '/rest/v1/calendar_settings'
+    . '?select=calendar_enabled,consultation_duration,consultation_break,booking_buffer'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . '&limit=1';
+
+$calendarSettingsResult = supabase_select($calendarSettingsUrl, $headers);
+
+if (supabase_select_is_temporary($calendarSettingsResult)) {
+    booking_temporary_unavailable('Nie udało się chwilowo pobrać ustawień kalendarza. Spróbuj ponownie za moment.');
+}
+
+$calendarSettingsRow = $calendarSettingsResult['data'][0] ?? [];
+
+$calendarEnabled = !empty($calendarSettingsRow['calendar_enabled']);
+
+if ($calendarEnabled !== true) {
+    json_response([
+        'success' => false,
+        'error' => 'Kalendarz rezerwacji jest obecnie wyłączony.',
+    ], 403);
+}
+
+$formFieldsUrl = $SUPABASE_URL
+    . '/rest/v1/tenant_branding'
+    . '?select=calendar_form_fields'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . '&limit=1';
+
+$formFieldsResult = supabase_select($formFieldsUrl, $headers);
+$formFieldsRow = $formFieldsResult['data'][0] ?? [];
+$formFields = is_array($formFieldsRow['calendar_form_fields'] ?? null)
+    ? $formFieldsRow['calendar_form_fields']
+    : [];
+
+$requireEmail = true;
+$requirePhone = ($formFields['show_phone'] ?? true) !== false;
 
 if ($requireEmail) {
     if ($email === '') {
@@ -1373,7 +1770,7 @@ $selectedService = null;
 $selectedServiceStaffIds = [];
 
 if ($serviceId !== '') {
-    if (!tenant_has_feature($TENANT_ID, 'multiple_services')) {
+    if (!booking_tenant_has_feature_or_temporary($TENANT_ID, 'multiple_services')) {
         json_response([
             'success' => false,
             'error' => 'Wiele usług jest dostępne w wersji Pro.',
@@ -1382,14 +1779,13 @@ if ($serviceId !== '') {
         ], 403);
     }
 
-    if (!preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $serviceId)) {
-        json_response([
-            'success' => false,
-            'error' => 'Wybrana usługa jest niedostępna.',
-        ], 404);
+    $selectedServiceResult = fetch_public_service_for_booking_result($SUPABASE_URL, $headers, $TENANT_ID, $serviceId);
+
+    if (!empty($selectedServiceResult['temporary'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić wybranej usługi. Spróbuj ponownie za moment.');
     }
 
-    $selectedService = fetch_public_service_for_booking($SUPABASE_URL, $headers, $TENANT_ID, $serviceId);
+    $selectedService = $selectedServiceResult['row'] ?? null;
 
     if (!is_array($selectedService) || empty($selectedService['id'])) {
         json_response([
@@ -1398,14 +1794,20 @@ if ($serviceId !== '') {
         ], 404);
     }
 
-    $selectedServiceStaffIds = fetch_service_staff_ids_for_booking($SUPABASE_URL, $headers, $TENANT_ID, $serviceId);
+    $selectedServiceStaffResult = fetch_service_staff_ids_for_booking_result($SUPABASE_URL, $headers, $TENANT_ID, $serviceId);
 
-    if (!is_array($selectedServiceStaffIds)) {
+    if (!empty($selectedServiceStaffResult['temporary'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić personelu dla wybranej usługi. Spróbuj ponownie za moment.');
+    }
+
+    if (empty($selectedServiceStaffResult['ok'])) {
         json_response([
             'success' => false,
             'error' => 'Nie udało się sprawdzić personelu dla wybranej usługi.',
         ], 500);
     }
+
+    $selectedServiceStaffIds = $selectedServiceStaffResult['staffIds'];
 
     if (!empty($selectedServiceStaffIds)) {
         if ($staffId === '') {
@@ -1430,7 +1832,7 @@ if ($serviceId !== '') {
 }
 
 if ($staffId !== '') {
-    if (!tenant_has_feature($TENANT_ID, 'staff_module')) {
+    if (!booking_tenant_has_feature_or_temporary($TENANT_ID, 'staff_module')) {
         json_response([
             'success' => false,
             'error' => 'Rezerwacja do pracownika jest dostępna w wersji Pro.',
@@ -1439,19 +1841,18 @@ if ($staffId !== '') {
         ], 403);
     }
 
-    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $staffId)) {
-        json_response([
-            'success' => false,
-            'error' => 'Nieprawidłowy personel',
-        ], 400);
-    }
-
-    $subscriptionRow = fetch_single_record(
+    $subscriptionResult = fetch_single_record_result(
         $SUPABASE_URL,
         $headers,
         'tenant_subscriptions',
         'tenant_id=eq.' . rawurlencode($TENANT_ID) . '&select=plan_code,status,current_period_end'
     );
+
+    if (!empty($subscriptionResult['temporary'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić abonamentu. Spróbuj ponownie za moment.');
+    }
+
+    $subscriptionRow = $subscriptionResult['row'] ?? null;
 
     $planCode = is_array($subscriptionRow) ? (string) ($subscriptionRow['plan_code'] ?? 'free') : 'free';
     $subscriptionStatus = is_array($subscriptionRow) ? (string) ($subscriptionRow['status'] ?? '') : '';
@@ -1464,7 +1865,13 @@ if ($staffId !== '') {
         ], 403);
     }
 
-    $staffRow = fetch_public_staff_for_booking($SUPABASE_URL, $headers, $TENANT_ID, $staffId);
+    $staffResult = fetch_public_staff_for_booking_result($SUPABASE_URL, $headers, $TENANT_ID, $staffId);
+
+    if (!empty($staffResult['temporary'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić personelu. Spróbuj ponownie za moment.');
+    }
+
+    $staffRow = $staffResult['row'] ?? null;
 
     if (!is_array($staffRow) || empty($staffRow['id'])) {
         json_response([
@@ -1500,11 +1907,14 @@ if ($staffId !== '') {
         ], 409);
     }
 
-    if (!booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time, $staffId)) {
-        json_response([
-            'success' => false,
-            'error' => 'Wybrana godzina jest już niedostępna',
-        ], 409);
+    $globalSlotAvailable = booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time, $staffId);
+
+    if ($globalSlotAvailable === null) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić blokad terminu. Spróbuj ponownie za moment.');
+    }
+
+    if ($globalSlotAvailable === false) {
+        booking_slot_taken_response();
     }
 
     $staffSlotMatchesSchedule = staff_slot_matches_schedule(
@@ -1518,14 +1928,18 @@ if ($staffId !== '') {
         $effectiveBreak
     );
 
-    if (!$staffSlotMatchesSchedule) {
+    if ($staffSlotMatchesSchedule === null) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić grafiku personelu. Spróbuj ponownie za moment.');
+    }
+
+    if ($staffSlotMatchesSchedule === false) {
         json_response([
             'success' => false,
             'error' => 'Wybrana godzina jest niedostępna dla tej osoby',
         ], 409);
     }
 
-    if (!staff_slot_is_free(
+    $staffSlotIsFree = staff_slot_is_free(
         $SUPABASE_URL,
         $headers,
         $TENANT_ID,
@@ -1534,29 +1948,39 @@ if ($staffId !== '') {
         $time,
         $effectiveDuration,
         $effectiveBreak
+    );
+
+    if ($staffSlotIsFree === null) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić zajętości terminu. Spróbuj ponownie za moment.');
+    }
+
+    if ($staffSlotIsFree === false) {
+        booking_slot_taken_response();
+    }
+} else {
+    if (!booking_slot_respects_buffer(
+        $date,
+        $time,
+        booking_effective_min_notice_minutes(
+            is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null,
+            $globalBookingBuffer
+        )
     )) {
         json_response([
             'success' => false,
-            'error' => 'Wybrana godzina jest już zajęta',
+            'error' => 'Wybrana godzina jest już niedostępna',
         ], 409);
     }
-} elseif (!booking_slot_respects_buffer(
-    $date,
-    $time,
-    booking_effective_min_notice_minutes(
-        is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null,
-        $globalBookingBuffer
-    )
-)) {
-    json_response([
-        'success' => false,
-        'error' => 'Wybrana godzina jest już niedostępna',
-    ], 409);
-} elseif (!booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time)) {
-    json_response([
-        'success' => false,
-        'error' => 'Wybrana godzina jest już niedostępna',
-    ], 409);
+
+    $globalSlotAvailable = booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time);
+
+    if ($globalSlotAvailable === null) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić blokad terminu. Spróbuj ponownie za moment.');
+    }
+
+    if ($globalSlotAvailable === false) {
+        booking_slot_taken_response();
+    }
 }
 
 $googleEventDurationMinutes = max(1, (int) (
@@ -1707,6 +2131,31 @@ try {
     ], 500);
 }
 
+$bookingSlotLockKey = booking_slot_lock_key($TENANT_ID, $serviceId, $staffId, $date, $time);
+$bookingSlotLockHandle = booking_acquire_slot_lock($bookingSlotLockKey, 6000);
+
+if (!is_resource($bookingSlotLockHandle)) {
+    json_response([
+        'success' => false,
+        'error' => 'temporary_unavailable',
+        'message' => 'Nie udało się chwilowo potwierdzić dostępności terminu. Spróbuj ponownie za moment.'
+    ], 503);
+}
+
+$quickSlotIsFree = booking_quick_slot_is_free($SUPABASE_URL, $headers, $TENANT_ID, $staffId, $date, $time);
+
+if ($quickSlotIsFree === null) {
+    json_response([
+        'success' => false,
+        'error' => 'temporary_unavailable',
+        'message' => 'Nie udało się chwilowo potwierdzić dostępności terminu. Spróbuj ponownie za moment.'
+    ], 503);
+}
+
+if ($quickSlotIsFree === false) {
+    booking_slot_taken_response();
+}
+
 // Zapis rezerwacji
 $bookingPayload = [
     'tenant_id'    => $TENANT_ID,
@@ -1830,10 +2279,26 @@ if ($staffId === '') {
     ]);
 
     if ($blockResult['error'] || $blockResult['httpCode'] >= 400) {
-        json_response([
-            'success' => false,
-            'error' => 'Nie udało się zablokować terminu. Spróbuj ponownie.',
-        ], 500);
+        debug_log('BOOK_BLOCKED_TIMES_AUXILIARY_FAILED', [
+            'httpCode' => $blockResult['httpCode'],
+            'error' => $blockResult['error'] ? substr((string) $blockResult['error'], 0, 180) : null,
+            'booking_id' => $bookingId,
+            'tenant_id' => $TENANT_ID,
+            'date' => $date,
+            'time' => $time,
+        ]);
+    }
+}
+
+} finally {
+    if (isset($bookingSlotLockHandle)) {
+        booking_release_slot_lock($bookingSlotLockHandle);
+        $bookingSlotLockHandle = null;
+    }
+
+    if (isset($bookingGlobalSemaphoreHandle)) {
+        booking_release_global_semaphore($bookingGlobalSemaphoreHandle);
+        $bookingGlobalSemaphoreHandle = null;
     }
 }
 

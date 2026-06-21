@@ -83,28 +83,75 @@ function plan_features_config(): array
 
 function plan_features_request(string $url, string $supabaseKey, string $schema): array
 {
-    $ch = curl_init($url);
+    $maxAttempts = 3;
+    $backoffs = [150000, 300000, 600000];
+    $response = false;
+    $curlError = '';
+    $httpCode = 0;
+    $data = null;
+    $jsonValid = false;
+    $temporary = false;
+    $attempt = 0;
 
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_HTTPGET => true,
-        CURLOPT_HTTPHEADER => supabaseHeaders($supabaseKey, $schema),
-        CURLOPT_TIMEOUT => 15,
-    ]);
+    for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
+        $ch = curl_init($url);
 
-    $response = curl_exec($ch);
-    $curlError = curl_error($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_HTTPGET => true,
+            CURLOPT_HTTPHEADER => supabaseHeaders($supabaseKey, $schema),
+            CURLOPT_TIMEOUT => 15,
+        ]);
 
-    curl_close($ch);
+        $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        curl_close($ch);
+
+        $data = null;
+        $jsonValid = false;
+
+        if ($response !== false && $response !== '') {
+            $data = json_decode((string) $response, true);
+            $jsonValid = json_last_error() === JSON_ERROR_NONE;
+        }
+
+        $temporary = $response === false
+            || $curlError !== ''
+            || $httpCode === 0
+            || $httpCode === 429
+            || $httpCode >= 500
+            || ($httpCode >= 200 && $httpCode < 300 && !$jsonValid);
+
+        if (!$temporary || $attempt === $maxAttempts) {
+            break;
+        }
+
+        usleep($backoffs[$attempt - 1] ?? 600000);
+    }
 
     return [
-        'ok' => $response !== false && $curlError === '' && $httpCode >= 200 && $httpCode < 300,
+        'ok' => $response !== false && $curlError === '' && $httpCode >= 200 && $httpCode < 300 && $jsonValid,
         'http_code' => $httpCode,
         'error' => $curlError,
-        'data' => json_decode((string) $response, true),
+        'data' => $data,
         'raw' => $response,
+        'temporary' => $temporary,
+        'json_valid' => $jsonValid,
+        'attempts' => $attempt,
     ];
+}
+
+function plan_features_temporary_error_flag(?bool $value = null): bool
+{
+    static $flag = false;
+
+    if ($value !== null) {
+        $flag = $value;
+    }
+
+    return $flag;
 }
 
 function plan_features_log(string $message, array $context = []): void
@@ -264,6 +311,15 @@ function plan_features_get_subscription_from_config(string $tenantId, array $con
 
     $result = plan_features_request($url, $config['supabase_key'], $config['schema']);
 
+    if (!empty($result['temporary'])) {
+        plan_features_temporary_error_flag(true);
+
+        return array_merge(plan_features_default_subscription(), [
+            'source' => 'temporary_error',
+            'temporary_error' => true,
+        ]);
+    }
+
     if (!$result['ok'] || !is_array($result['data'] ?? null) || empty($result['data'][0]) || !is_array($result['data'][0])) {
         return plan_features_default_subscription();
     }
@@ -300,6 +356,10 @@ function plan_features_fetch_single(string $table, string $query, array $config)
 
     $url = $config['supabase_url'] . '/rest/v1/' . $table . '?' . $query . '&limit=1';
     $result = plan_features_request($url, $config['supabase_key'], $config['schema']);
+
+    if (!empty($result['temporary'])) {
+        plan_features_temporary_error_flag(true);
+    }
 
     if (!$result['ok'] || !is_array($result['data'] ?? null)) {
         plan_features_log('database_read_failed', [
@@ -552,10 +612,26 @@ function plan_features_get_context_from_database(string $tenantId, array $config
 
 function plan_features_get_context(string $tenantId): array
 {
+    static $cache = [];
+
+    $cacheKey = trim($tenantId);
+
+    if (array_key_exists($cacheKey, $cache)) {
+        return $cache[$cacheKey];
+    }
+
+    plan_features_temporary_error_flag(false);
+
     $config = plan_features_config();
     $context = plan_features_get_context_from_database($tenantId, $config);
 
     if (is_array($context)) {
+        if (plan_features_temporary_error_flag()) {
+            $context['temporary_error'] = true;
+        }
+
+        $cache[$cacheKey] = $context;
+
         return $context;
     }
 
@@ -564,7 +640,15 @@ function plan_features_get_context(string $tenantId): array
         'schema' => $config['schema'] ?? null,
     ]);
 
-    return plan_features_get_context_fallback($tenantId);
+    $context = plan_features_get_context_fallback($tenantId);
+
+    if (plan_features_temporary_error_flag()) {
+        $context['temporary_error'] = true;
+    }
+
+    $cache[$cacheKey] = $context;
+
+    return $context;
 }
 
 function tenant_has_feature(string $tenantId, string $featureKey): bool

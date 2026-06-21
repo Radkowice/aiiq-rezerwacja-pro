@@ -124,7 +124,8 @@ function tenant_lookup_http_code(array $result): int
 
 function tenant_lookup_request(string $url, string $SUPABASE_KEY, string $SCHEMA): array
 {
-    $attempts = 2;
+    $attempts = 3;
+    $backoffs = [150000, 300000, 600000];
     $lastResult = [
         'ok' => false,
         'retryable' => true,
@@ -154,7 +155,8 @@ function tenant_lookup_request(string $url, string $SUPABASE_KEY, string $SCHEMA
             || $curlError !== ''
             || $httpCode === 429
             || $httpCode >= 500
-            || $httpCode === 0;
+            || $httpCode === 0
+            || ($httpCode >= 200 && $httpCode < 300 && !$jsonValid);
 
         $lastResult = [
             'ok' => $response !== false
@@ -175,7 +177,7 @@ function tenant_lookup_request(string $url, string $SUPABASE_KEY, string $SCHEMA
             break;
         }
 
-        usleep(150000);
+        usleep($backoffs[$attempt - 1] ?? 600000);
     }
 
     return $lastResult;
