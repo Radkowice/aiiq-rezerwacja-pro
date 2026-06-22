@@ -3,9 +3,15 @@ declare(strict_types=1);
 
 function activation_link_secret(): string
 {
+    $activationLinkSecret = trim((string) (getenv('ACTIVATION_LINK_SECRET') ?: ''));
+
+    if ($activationLinkSecret !== '') {
+        return $activationLinkSecret;
+    }
+
+    // Fallback przejściowy: docelowo na VPS należy ustawić osobny ACTIVATION_LINK_SECRET.
     return trim((string) (
-        getenv('ACTIVATION_LINK_SECRET')
-        ?: getenv('SUPABASE_SERVICE_ROLE_KEY')
+        getenv('SUPABASE_SERVICE_ROLE_KEY')
         ?: getenv('SUPABASE_KEY')
         ?: ''
     ));
