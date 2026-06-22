@@ -122,10 +122,43 @@ function tenant_lookup_http_code(array $result): int
     return $httpCode === 429 ? 429 : 503;
 }
 
-function tenant_lookup_request(string $url, string $SUPABASE_KEY, string $SCHEMA): array
+function tenant_lookup_retry_delay_us(int $attempt, int $httpCode): int
 {
+    $baseDelays = [150000, 300000, 600000];
+    $baseDelay = $baseDelays[$attempt - 1] ?? 600000;
+
+    if ($httpCode !== 429 && $httpCode < 500) {
+        return $baseDelay;
+    }
+
+    $jitterMax = $attempt <= 1 ? 100000 : 200000;
+
+    try {
+        return $baseDelay + random_int(0, $jitterMax);
+    } catch (Throwable $e) {
+        return $baseDelay;
+    }
+}
+
+function tenant_lookup_request(
+    string $url,
+    string $SUPABASE_KEY,
+    string $SCHEMA,
+    ?callable $diagnosticLogger = null
+): array
+{
+    static $requestCache = [];
+
     $attempts = 3;
-    $backoffs = [150000, 300000, 600000];
+    $requestCacheKey = hash(
+        'sha256',
+        $url . "\n" . $SCHEMA . "\n" . hash('sha256', $SUPABASE_KEY)
+    );
+
+    if (array_key_exists($requestCacheKey, $requestCache)) {
+        return $requestCache[$requestCacheKey];
+    }
+
     $lastResult = [
         'ok' => false,
         'retryable' => true,
@@ -146,7 +179,9 @@ function tenant_lookup_request(string $url, string $SUPABASE_KEY, string $SCHEMA
 
         $response = curl_exec($ch);
         $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $durationMs = (int) round(((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000);
         curl_close($ch);
 
         $data = json_decode((string) $response, true);
@@ -173,17 +208,45 @@ function tenant_lookup_request(string $url, string $SUPABASE_KEY, string $SCHEMA
             'json_valid' => $jsonValid,
         ];
 
+        if ($retryable && $diagnosticLogger !== null) {
+            try {
+                $diagnosticLogger([
+                    'stage' => 'tenant_lookup',
+                    'method' => 'GET',
+                    'endpoint' => $url,
+                    'http_code' => $httpCode,
+                    'curl_errno' => $curlErrno,
+                    'curl_error' => $curlError,
+                    'attempt' => $attempt,
+                    'max_attempts' => $attempts,
+                    'json_valid' => $jsonValid,
+                    'duration_ms' => $durationMs,
+                ]);
+            } catch (Throwable $e) {
+                // Diagnostyka nie może zmieniać przebiegu rozpoznawania tenanta.
+            }
+        }
+
         if ($lastResult['ok'] || !$retryable || $attempt === $attempts) {
             break;
         }
 
-        usleep($backoffs[$attempt - 1] ?? 600000);
+        usleep(tenant_lookup_retry_delay_us($attempt, $httpCode));
+    }
+
+    if (!empty($lastResult['ok'])) {
+        $requestCache[$requestCacheKey] = $lastResult;
     }
 
     return $lastResult;
 }
 
-function getTenantLookupFromHost(string $SUPABASE_URL, string $SUPABASE_KEY, string $SCHEMA): array
+function getTenantLookupFromHost(
+    string $SUPABASE_URL,
+    string $SUPABASE_KEY,
+    string $SCHEMA,
+    ?callable $diagnosticLogger = null
+): array
 {
 
     $hosts = host_candidates();
@@ -206,7 +269,7 @@ function getTenantLookupFromHost(string $SUPABASE_URL, string $SUPABASE_KEY, str
             . '&is_active=eq.true'
             . '&limit=1';
 
-        $result = tenant_lookup_request($url, $SUPABASE_KEY, $SCHEMA);
+        $result = tenant_lookup_request($url, $SUPABASE_KEY, $SCHEMA, $diagnosticLogger);
         $decodedResponse = is_array($result['data'] ?? null) ? $result['data'] : null;
         $responseCount = is_array($decodedResponse) ? count($decodedResponse) : 0;
 

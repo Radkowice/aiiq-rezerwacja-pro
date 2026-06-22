@@ -81,10 +81,36 @@ function plan_features_config(): array
     ];
 }
 
-function plan_features_request(string $url, string $supabaseKey, string $schema): array
+function plan_features_retry_delay_us(int $attempt, int $httpCode): int
 {
+    $baseDelays = [150000, 300000, 600000];
+    $baseDelay = $baseDelays[$attempt - 1] ?? 600000;
+
+    if ($httpCode !== 429 && $httpCode < 500) {
+        return $baseDelay;
+    }
+
+    $jitterMax = $attempt <= 1 ? 100000 : 200000;
+
+    try {
+        return $baseDelay + random_int(0, $jitterMax);
+    } catch (Throwable $e) {
+        return $baseDelay;
+    }
+}
+
+function plan_features_request(
+    string $url,
+    string $supabaseKey,
+    string $schema,
+    string $stage = 'plan_context',
+    string $tenantId = '',
+    ?callable $diagnosticLogger = null
+): array
+{
+    static $requestCache = [];
+
     $maxAttempts = 3;
-    $backoffs = [150000, 300000, 600000];
     $response = false;
     $curlError = '';
     $httpCode = 0;
@@ -92,6 +118,14 @@ function plan_features_request(string $url, string $supabaseKey, string $schema)
     $jsonValid = false;
     $temporary = false;
     $attempt = 0;
+    $requestCacheKey = hash(
+        'sha256',
+        $url . "\n" . $schema . "\n" . hash('sha256', $supabaseKey)
+    );
+
+    if (array_key_exists($requestCacheKey, $requestCache)) {
+        return $requestCache[$requestCacheKey];
+    }
 
     for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
         $ch = curl_init($url);
@@ -105,7 +139,9 @@ function plan_features_request(string $url, string $supabaseKey, string $schema)
 
         $response = curl_exec($ch);
         $curlError = curl_error($ch);
+        $curlErrno = curl_errno($ch);
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $durationMs = (int) round(((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000);
 
         curl_close($ch);
 
@@ -124,14 +160,34 @@ function plan_features_request(string $url, string $supabaseKey, string $schema)
             || $httpCode >= 500
             || ($httpCode >= 200 && $httpCode < 300 && !$jsonValid);
 
+        if ($temporary && $diagnosticLogger !== null) {
+            try {
+                $diagnosticLogger([
+                    'stage' => $stage,
+                    'method' => 'GET',
+                    'endpoint' => $url,
+                    'http_code' => $httpCode,
+                    'curl_errno' => $curlErrno,
+                    'curl_error' => $curlError,
+                    'attempt' => $attempt,
+                    'max_attempts' => $maxAttempts,
+                    'json_valid' => $jsonValid,
+                    'duration_ms' => $durationMs,
+                    'tenant_id' => $tenantId,
+                ]);
+            } catch (Throwable $e) {
+                // Diagnostyka nie może zmieniać obliczania uprawnień planu.
+            }
+        }
+
         if (!$temporary || $attempt === $maxAttempts) {
             break;
         }
 
-        usleep($backoffs[$attempt - 1] ?? 600000);
+        usleep(plan_features_retry_delay_us($attempt, $httpCode));
     }
 
-    return [
+    $result = [
         'ok' => $response !== false && $curlError === '' && $httpCode >= 200 && $httpCode < 300 && $jsonValid,
         'http_code' => $httpCode,
         'error' => $curlError,
@@ -141,6 +197,12 @@ function plan_features_request(string $url, string $supabaseKey, string $schema)
         'json_valid' => $jsonValid,
         'attempts' => $attempt,
     ];
+
+    if (!empty($result['ok']) && is_array($data)) {
+        $requestCache[$requestCacheKey] = $result;
+    }
+
+    return $result;
 }
 
 function plan_features_temporary_error_flag(?bool $value = null): bool
@@ -291,7 +353,11 @@ function plan_features_access_state(array $subscription): array
     ];
 }
 
-function plan_features_get_subscription_from_config(string $tenantId, array $config): array
+function plan_features_get_subscription_from_config(
+    string $tenantId,
+    array $config,
+    ?callable $diagnosticLogger = null
+): array
 {
     $tenantId = trim($tenantId);
 
@@ -309,7 +375,14 @@ function plan_features_get_subscription_from_config(string $tenantId, array $con
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1';
 
-    $result = plan_features_request($url, $config['supabase_key'], $config['schema']);
+    $result = plan_features_request(
+        $url,
+        $config['supabase_key'],
+        $config['schema'],
+        'plan_context',
+        $tenantId,
+        $diagnosticLogger
+    );
 
     if (!empty($result['temporary'])) {
         plan_features_temporary_error_flag(true);
@@ -343,19 +416,32 @@ function plan_features_get_subscription_from_config(string $tenantId, array $con
     ];
 }
 
-function plan_features_get_subscription(string $tenantId): array
+function plan_features_get_subscription(string $tenantId, ?callable $diagnosticLogger = null): array
 {
-    return plan_features_get_subscription_from_config($tenantId, plan_features_config());
+    return plan_features_get_subscription_from_config($tenantId, plan_features_config(), $diagnosticLogger);
 }
 
-function plan_features_fetch_single(string $table, string $query, array $config): ?array
+function plan_features_fetch_single(
+    string $table,
+    string $query,
+    array $config,
+    string $tenantId = '',
+    ?callable $diagnosticLogger = null
+): ?array
 {
     if ($config['supabase_url'] === '' || $config['supabase_key'] === '') {
         return null;
     }
 
     $url = $config['supabase_url'] . '/rest/v1/' . $table . '?' . $query . '&limit=1';
-    $result = plan_features_request($url, $config['supabase_key'], $config['schema']);
+    $result = plan_features_request(
+        $url,
+        $config['supabase_key'],
+        $config['schema'],
+        'plan_context',
+        $tenantId,
+        $diagnosticLogger
+    );
 
     if (!empty($result['temporary'])) {
         plan_features_temporary_error_flag(true);
@@ -493,9 +579,15 @@ function plan_features_merge_override(array $globalLimits, ?array $override): ar
     return $effective;
 }
 
-function plan_features_get_context_fallback(string $tenantId, ?array $subscription = null): array
+function plan_features_get_context_fallback(
+    string $tenantId,
+    ?array $subscription = null,
+    ?callable $diagnosticLogger = null
+): array
 {
-    $subscription = is_array($subscription) ? $subscription : plan_features_get_subscription($tenantId);
+    $subscription = is_array($subscription)
+        ? $subscription
+        : plan_features_get_subscription($tenantId, $diagnosticLogger);
     $accessState = plan_features_access_state($subscription);
     $subscriptionPlanCode = $accessState['subscription_plan_code'];
     $status = $accessState['status'];
@@ -518,7 +610,11 @@ function plan_features_get_context_fallback(string $tenantId, ?array $subscripti
     ]);
 }
 
-function plan_features_get_context_from_database(string $tenantId, array $config): ?array
+function plan_features_get_context_from_database(
+    string $tenantId,
+    array $config,
+    ?callable $diagnosticLogger = null
+): ?array
 {
     $tenantId = trim($tenantId);
 
@@ -526,7 +622,7 @@ function plan_features_get_context_from_database(string $tenantId, array $config
         return null;
     }
 
-    $subscription = plan_features_get_subscription_from_config($tenantId, $config);
+    $subscription = plan_features_get_subscription_from_config($tenantId, $config, $diagnosticLogger);
 
     if (($subscription['source'] ?? '') !== 'tenant_subscriptions') {
         return null;
@@ -549,7 +645,9 @@ function plan_features_get_context_from_database(string $tenantId, array $config
         $globalSelect
             . '&plan_code=eq.' . rawurlencode($storagePlanCode)
             . '&is_active=eq.true',
-        $config
+        $config,
+        $tenantId,
+        $diagnosticLogger
     );
 
     if (!is_array($global)) {
@@ -561,7 +659,9 @@ function plan_features_get_context_from_database(string $tenantId, array $config
         'select=' . rawurlencode('plan_code,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active')
             . '&tenant_id=eq.' . rawurlencode($tenantId)
             . '&is_active=eq.true',
-        $config
+        $config,
+        $tenantId,
+        $diagnosticLogger
     );
 
     if (!$hasProAccess) {
@@ -578,7 +678,9 @@ function plan_features_get_context_from_database(string $tenantId, array $config
                 $globalSelect
                     . '&plan_code=eq.' . rawurlencode($overrideStoragePlanCode)
                     . '&is_active=eq.true',
-                $config
+                $config,
+                $tenantId,
+                $diagnosticLogger
             );
 
             if (is_array($overrideGlobal)) {
@@ -610,7 +712,7 @@ function plan_features_get_context_from_database(string $tenantId, array $config
     ]);
 }
 
-function plan_features_get_context(string $tenantId): array
+function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger = null): array
 {
     static $cache = [];
 
@@ -623,7 +725,7 @@ function plan_features_get_context(string $tenantId): array
     plan_features_temporary_error_flag(false);
 
     $config = plan_features_config();
-    $context = plan_features_get_context_from_database($tenantId, $config);
+    $context = plan_features_get_context_from_database($tenantId, $config, $diagnosticLogger);
 
     if (is_array($context)) {
         if (plan_features_temporary_error_flag()) {
@@ -640,7 +742,7 @@ function plan_features_get_context(string $tenantId): array
         'schema' => $config['schema'] ?? null,
     ]);
 
-    $context = plan_features_get_context_fallback($tenantId);
+    $context = plan_features_get_context_fallback($tenantId, null, $diagnosticLogger);
 
     if (plan_features_temporary_error_flag()) {
         $context['temporary_error'] = true;
@@ -651,7 +753,11 @@ function plan_features_get_context(string $tenantId): array
     return $context;
 }
 
-function tenant_has_feature(string $tenantId, string $featureKey): bool
+function tenant_has_feature(
+    string $tenantId,
+    string $featureKey,
+    ?callable $diagnosticLogger = null
+): bool
 {
     $featureKey = trim($featureKey);
 
@@ -659,7 +765,7 @@ function tenant_has_feature(string $tenantId, string $featureKey): bool
         return false;
     }
 
-    $context = plan_features_get_context($tenantId);
+    $context = plan_features_get_context($tenantId, $diagnosticLogger);
     $features = is_array($context['features'] ?? null) ? $context['features'] : [];
 
     return !empty($features[$featureKey]);

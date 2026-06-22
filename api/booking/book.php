@@ -65,6 +65,99 @@ function debug_log(string $label, $data): void
     );
 }
 
+function booking_supabase_endpoint_label(string $url): string
+{
+    $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
+
+    if (preg_match('#^/rest/v1/[a-zA-Z0-9_]+$#', $path) === 1) {
+        return $path;
+    }
+
+    return 'supabase';
+}
+
+function booking_log_supabase_transient_error(array $context): void
+{
+    $curlError = trim(preg_replace('/[\r\n]+/', ' ', (string) ($context['curl_error'] ?? '')) ?? '');
+    $curlError = preg_replace('#https?://\S+#i', '[url]', $curlError) ?? '';
+    $tenantId = trim((string) ($context['tenant_id'] ?? ''));
+    $httpCode = (int) ($context['http_code'] ?? 0);
+    $curlErrno = (int) ($context['curl_errno'] ?? 0);
+    $jsonValid = !empty($context['json_valid']);
+
+    if ($curlErrno === 28) {
+        $reason = 'curl_timeout';
+    } elseif ($curlErrno !== 0 || $curlError !== '') {
+        $reason = 'curl_transport_error';
+    } elseif ($httpCode === 429) {
+        $reason = 'http_429';
+    } elseif ($httpCode >= 500) {
+        $reason = 'http_5xx';
+    } elseif ($httpCode === 0) {
+        $reason = 'http_0_no_response';
+    } elseif (!$jsonValid) {
+        $reason = 'invalid_json';
+    } else {
+        $reason = 'other_transient_error';
+    }
+
+    $logContext = [
+        'stage' => substr(trim((string) ($context['stage'] ?? 'unknown')), 0, 80) ?: 'unknown',
+        'method' => strtoupper(substr(trim((string) ($context['method'] ?? 'GET')), 0, 10)),
+        'endpoint' => booking_supabase_endpoint_label((string) ($context['endpoint'] ?? '')),
+        'reason' => $reason,
+        'http_code' => $httpCode,
+        'curl_errno' => $curlErrno,
+        'curl_error' => $curlError !== '' ? substr($curlError, 0, 240) : '',
+        'attempt' => max(1, (int) ($context['attempt'] ?? 1)),
+        'max_attempts' => max(1, (int) ($context['max_attempts'] ?? 1)),
+        'json_valid' => $jsonValid,
+        'duration_ms' => max(0, (int) ($context['duration_ms'] ?? 0)),
+    ];
+
+    if ($tenantId !== '') {
+        $logContext['tenant_id'] = substr($tenantId, 0, 128);
+    }
+
+    debug_log('BOOK_SUPABASE_TRANSIENT_ERROR', $logContext);
+}
+
+function booking_supabase_stage_uses_request_cache(string $stage): bool
+{
+    return in_array($stage, [
+        'calendar_settings',
+        'calendar_form_fields',
+        'tenant_branding',
+        'service',
+        'service_staff',
+        'staff',
+        'staff_availability',
+        'subscription',
+        'service_settings',
+        'payu_settings',
+        'email_settings',
+        'email_templates',
+    ], true);
+}
+
+function booking_supabase_retry_delay_us(int $attempt, int $httpCode): int
+{
+    $baseDelays = [150000, 300000, 600000];
+    $baseDelay = $baseDelays[$attempt - 1] ?? 600000;
+
+    if ($httpCode !== 429 && $httpCode < 500) {
+        return $baseDelay;
+    }
+
+    $jitterMax = $attempt <= 1 ? 100000 : 200000;
+
+    try {
+        return $baseDelay + random_int(0, $jitterMax);
+    } catch (Throwable $e) {
+        return $baseDelay;
+    }
+}
+
 function booking_debug_log_service(array $data): void
 {
     $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: '');
@@ -112,6 +205,41 @@ function booking_debug_log_service(array $data): void
         error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: ' . $e->getMessage());
         // Debug techniczny nie może przerywać rezerwacji.
     }
+}
+
+function booking_load_test_ip_is_allowed(string $remoteAddress): bool
+{
+    $remoteAddress = trim($remoteAddress);
+    $remotePacked = filter_var($remoteAddress, FILTER_VALIDATE_IP) !== false
+        ? @inet_pton($remoteAddress)
+        : false;
+
+    if ($remotePacked === false) {
+        return false;
+    }
+
+    $configuredIps = trim((string) (getenv('BOOKING_LOAD_TEST_ALLOW_IPS') ?: ''));
+
+    if ($configuredIps === '') {
+        return false;
+    }
+
+    foreach (explode(',', $configuredIps) as $configuredIp) {
+        $configuredIp = trim($configuredIp);
+        $configuredPacked = filter_var($configuredIp, FILTER_VALIDATE_IP) !== false
+            ? @inet_pton($configuredIp)
+            : false;
+
+        if (
+            $configuredPacked !== false
+            && strlen($configuredPacked) === strlen($remotePacked)
+            && hash_equals($configuredPacked, $remotePacked)
+        ) {
+            return true;
+        }
+    }
+
+    return false;
 }
 
 function is_valid_international_phone(string $phone): bool
@@ -167,7 +295,7 @@ function supabase_headers(string $key, string $schema, bool $minimal = false): a
     return $headers;
 }
 
-function supabase_insert(string $url, array $payload, array $headers): array
+function supabase_insert(string $url, array $payload, array $headers, string $stage = 'unknown', string $tenantId = ''): array
 {
     $ch = curl_init($url);
     curl_setopt_array($ch, [
@@ -180,8 +308,46 @@ function supabase_insert(string $url, array $payload, array $headers): array
 
     $response = curl_exec($ch);
     $error = curl_error($ch);
+    $curlErrno = curl_errno($ch);
     $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $durationMs = (int) round(((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000);
     curl_close($ch);
+
+    $jsonValid = false;
+
+    if ($response !== false && $response !== '') {
+        json_decode((string) $response, true);
+        $jsonValid = json_last_error() === JSON_ERROR_NONE;
+    }
+
+    $expectsJsonResponse = $stage !== 'blocked_times_insert';
+    $invalidJsonResponse = $expectsJsonResponse
+        && $httpCode >= 200
+        && $httpCode < 300
+        && $response !== false
+        && !$jsonValid;
+    $temporary = $response === false
+        || trim((string) $error) !== ''
+        || $httpCode === 0
+        || $httpCode === 429
+        || $httpCode >= 500
+        || $invalidJsonResponse;
+
+    if ($temporary) {
+        booking_log_supabase_transient_error([
+            'stage' => $stage,
+            'method' => 'POST',
+            'endpoint' => $url,
+            'http_code' => $httpCode,
+            'curl_errno' => $curlErrno,
+            'curl_error' => $error,
+            'attempt' => 1,
+            'max_attempts' => 1,
+            'json_valid' => $jsonValid,
+            'duration_ms' => $durationMs,
+            'tenant_id' => $tenantId,
+        ]);
+    }
 
     return [
         'response' => $response,
@@ -190,10 +356,11 @@ function supabase_insert(string $url, array $payload, array $headers): array
     ];
 }
 
-function supabase_select(string $url, array $headers): array
+function supabase_select(string $url, array $headers, string $stage = 'unknown', string $tenantId = ''): array
 {
+    static $requestCache = [];
+
     $maxAttempts = 3;
-    $backoffs = [150000, 300000, 600000];
     $response = false;
     $error = '';
     $httpCode = 0;
@@ -202,6 +369,18 @@ function supabase_select(string $url, array $headers): array
     $jsonError = JSON_ERROR_NONE;
     $temporary = false;
     $attempt = 0;
+    $requestCacheKey = '';
+
+    if (booking_supabase_stage_uses_request_cache($stage)) {
+        $requestCacheKey = hash(
+            'sha256',
+            $url . "\n" . json_encode($headers, JSON_UNESCAPED_SLASHES)
+        );
+
+        if (array_key_exists($requestCacheKey, $requestCache)) {
+            return $requestCache[$requestCacheKey];
+        }
+    }
 
     for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
         $ch = curl_init($url);
@@ -214,7 +393,9 @@ function supabase_select(string $url, array $headers): array
 
         $response = curl_exec($ch);
         $error = curl_error($ch);
+        $curlErrno = curl_errno($ch);
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $durationMs = (int) round(((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000);
         curl_close($ch);
 
         $decoded = null;
@@ -236,14 +417,30 @@ function supabase_select(string $url, array $headers): array
             || $httpCode >= 500
             || ($httpCode >= 200 && $httpCode < 300 && !$jsonValid);
 
+        if ($temporary) {
+            booking_log_supabase_transient_error([
+                'stage' => $stage,
+                'method' => 'GET',
+                'endpoint' => $url,
+                'http_code' => $httpCode,
+                'curl_errno' => $curlErrno,
+                'curl_error' => $error,
+                'attempt' => $attempt,
+                'max_attempts' => $maxAttempts,
+                'json_valid' => $jsonValid,
+                'duration_ms' => $durationMs,
+                'tenant_id' => $tenantId,
+            ]);
+        }
+
         if (!$temporary || $attempt === $maxAttempts) {
             break;
         }
 
-        usleep($backoffs[$attempt - 1] ?? 600000);
+        usleep(booking_supabase_retry_delay_us($attempt, $httpCode));
     }
 
-    return [
+    $result = [
         'response' => $response,
         'data' => $decoded,
         'error' => $error,
@@ -253,6 +450,19 @@ function supabase_select(string $url, array $headers): array
         'jsonError' => $jsonError,
         'attempts' => $attempt,
     ];
+
+    if (
+        $requestCacheKey !== ''
+        && !$temporary
+        && $httpCode >= 200
+        && $httpCode < 300
+        && $jsonValid
+        && is_array($decoded)
+    ) {
+        $requestCache[$requestCacheKey] = $result;
+    }
+
+    return $result;
 }
 
 function supabase_select_is_temporary(array $result): bool
@@ -288,7 +498,7 @@ function booking_temporary_unavailable(string $message = ''): void
 
 function booking_tenant_has_feature_or_temporary(string $tenantId, string $featureKey): bool
 {
-    $context = plan_features_get_context($tenantId);
+    $context = plan_features_get_context($tenantId, 'booking_log_supabase_transient_error');
 
     if (!empty($context['temporary_error'])) {
         booking_temporary_unavailable('Nie udało się chwilowo sprawdzić uprawnień konta. Spróbuj ponownie za moment.');
@@ -396,10 +606,17 @@ function booking_insert_error_response(array $result): void
     ], 500);
 }
 
-function fetch_single_record(string $baseUrl, array $headers, string $table, string $query): ?array
+function fetch_single_record(
+    string $baseUrl,
+    array $headers,
+    string $table,
+    string $query,
+    string $stage = 'unknown',
+    string $tenantId = ''
+): ?array
 {
     $url = rtrim($baseUrl, '/') . "/rest/v1/{$table}?{$query}&limit=1";
-    $res = supabase_select($url, $headers);
+    $res = supabase_select($url, $headers, $stage, $tenantId);
 
     if (($res['httpCode'] ?? 0) !== 200 || empty($res['data'][0]) || !is_array($res['data'][0])) {
         return null;
@@ -408,10 +625,17 @@ function fetch_single_record(string $baseUrl, array $headers, string $table, str
     return $res['data'][0];
 }
 
-function fetch_single_record_result(string $baseUrl, array $headers, string $table, string $query): array
+function fetch_single_record_result(
+    string $baseUrl,
+    array $headers,
+    string $table,
+    string $query,
+    string $stage = 'unknown',
+    string $tenantId = ''
+): array
 {
     $url = rtrim($baseUrl, '/') . "/rest/v1/{$table}?{$query}&limit=1";
-    $res = supabase_select($url, $headers);
+    $res = supabase_select($url, $headers, $stage, $tenantId);
     $temporary = supabase_select_is_temporary($res);
     $httpCode = (int)($res['httpCode'] ?? 0);
     $data = $res['data'] ?? null;
@@ -461,7 +685,7 @@ function fetch_public_staff_for_booking_result(string $baseUrl, array $headers, 
         . '&is_active=eq.true'
         . '&select=id,display_name,service_name,service_duration_minutes,service_break_minutes,booking_buffer_minutes,service_price,payments_enabled,email_subject,email_heading,email_body';
 
-    return fetch_single_record_result($baseUrl, $headers, 'staff_profiles', $query);
+    return fetch_single_record_result($baseUrl, $headers, 'staff_profiles', $query, 'staff', $tenantId);
 }
 
 function fetch_public_service_for_booking(string $baseUrl, array $headers, string $tenantId, string $serviceId): ?array
@@ -498,7 +722,7 @@ function fetch_public_service_for_booking_result(string $baseUrl, array $headers
         . '&visible_on_front=eq.true'
         . '&select=id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled';
 
-    return fetch_single_record_result($baseUrl, $headers, 'tenant_services', $query);
+    return fetch_single_record_result($baseUrl, $headers, 'tenant_services', $query, 'service', $tenantId);
 }
 
 function fetch_service_staff_ids_for_booking(string $baseUrl, array $headers, string $tenantId, string $serviceId): ?array
@@ -512,7 +736,7 @@ function fetch_service_staff_ids_for_booking(string $baseUrl, array $headers, st
         . '&service_id=eq.' . rawurlencode($serviceId);
 
     $url = rtrim($baseUrl, '/') . '/rest/v1/tenant_service_staff?' . $query;
-    $result = supabase_select($url, $headers);
+    $result = supabase_select($url, $headers, 'service_staff', $tenantId);
 
     if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
         return null;
@@ -548,7 +772,7 @@ function fetch_service_staff_ids_for_booking_result(string $baseUrl, array $head
         . '&service_id=eq.' . rawurlencode($serviceId);
 
     $url = rtrim($baseUrl, '/') . '/rest/v1/tenant_service_staff?' . $query;
-    $result = supabase_select($url, $headers);
+    $result = supabase_select($url, $headers, 'service_staff', $tenantId);
     $temporary = supabase_select_is_temporary($result);
 
     if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
@@ -668,7 +892,7 @@ function staff_slot_matches_schedule(
         . '&is_active=eq.true';
 
     $url = rtrim($baseUrl, '/') . '/rest/v1/staff_availability?' . $query;
-    $result = supabase_select($url, $headers);
+    $result = supabase_select($url, $headers, 'staff_availability', $tenantId);
 
     if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
         return supabase_select_is_temporary($result) ? null : false;
@@ -722,7 +946,7 @@ function staff_slot_is_free(
         . '&select=id,booking_time,service_id';
 
     $bookingsUrl = rtrim($baseUrl, '/') . '/rest/v1/bookings?' . $query;
-    $bookingsResult = supabase_select($bookingsUrl, $headers);
+    $bookingsResult = supabase_select($bookingsUrl, $headers, 'bookings_availability', $tenantId);
 
     if (($bookingsResult['httpCode'] ?? 0) !== 200 || !is_array($bookingsResult['data'])) {
         return supabase_select_is_temporary($bookingsResult) ? null : false;
@@ -747,7 +971,7 @@ function staff_slot_is_free(
             . '&tenant_id=eq.' . rawurlencode($tenantId)
             . '&id=in.(' . implode(',', array_map('rawurlencode', array_keys($serviceIds))) . ')';
 
-        $serviceResult = supabase_select($serviceUrl, $headers);
+        $serviceResult = supabase_select($serviceUrl, $headers, 'bookings_availability_services', $tenantId);
 
         if (($serviceResult['httpCode'] ?? 0) !== 200 || !is_array($serviceResult['data'])) {
             if (supabase_select_is_temporary($serviceResult)) {
@@ -815,7 +1039,14 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
         . $staffBlockFilter
         . '&select=date';
 
-    $blockedDateResult = fetch_single_record_result($baseUrl, $headers, 'blocked_dates', $blockedDateQuery);
+    $blockedDateResult = fetch_single_record_result(
+        $baseUrl,
+        $headers,
+        'blocked_dates',
+        $blockedDateQuery,
+        'blocked_dates',
+        $tenantId
+    );
 
     if (!empty($blockedDateResult['temporary'])) {
         return null;
@@ -830,7 +1061,7 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
         . '&date=eq.' . rawurlencode($date)
         . $staffBlockFilter;
 
-    $blockedTimesResult = supabase_select($blockedTimesUrl, $headers);
+    $blockedTimesResult = supabase_select($blockedTimesUrl, $headers, 'blocked_times', $tenantId);
 
     if (($blockedTimesResult['httpCode'] ?? 0) !== 200 || !is_array($blockedTimesResult['data'])) {
         return supabase_select_is_temporary($blockedTimesResult) ? null : false;
@@ -989,7 +1220,7 @@ function booking_quick_slot_is_free(string $baseUrl, array $headers, string $ten
         : '&staff_id=is.null';
 
     $url = rtrim($baseUrl, '/') . '/rest/v1/bookings?' . $query . '&limit=1';
-    $result = supabase_select($url, $headers);
+    $result = supabase_select($url, $headers, 'bookings_availability_check', $tenantId);
 
     if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'] ?? null)) {
         return null;
@@ -1406,7 +1637,10 @@ $termsAcceptedRaw = $input['terms_accepted'] ?? null;
 
 // Anty-spam / blacklist / rate limit
 $ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+$bookingLoadTestIpAllowed = booking_load_test_ip_is_allowed($ip);
 
+// Kontrolowany wyjątek testowy: po testach obciążeniowych ENV powinien być pusty lub nieustawiony.
+if (!$bookingLoadTestIpAllowed) {
 $blacklistFile = __DIR__ . '/../data/blacklist.json';
 if (!file_exists($blacklistFile)) {
     @file_put_contents($blacklistFile, json_encode([], JSON_UNESCAPED_UNICODE));
@@ -1480,6 +1714,7 @@ if (count($rateData[$ip]) >= $limit) {
 
 $rateData[$ip][] = $now;
 @file_put_contents($rateFile, json_encode($rateData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+}
 
 if (!isset($_SESSION['last_booking_time'])) {
     $_SESSION['last_booking_time'] = 0;
@@ -1649,7 +1884,12 @@ if (!is_resource($bookingGlobalSemaphoreHandle)) {
 $bookingGlobalSemaphoreAcquired = true;
 
 // Tenant po domenie
-$tenantLookup = getTenantLookupFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
+$tenantLookup = getTenantLookupFromHost(
+    $SUPABASE_URL,
+    $SUPABASE_KEY,
+    $SUPABASE_DB_SCHEMA,
+    'booking_log_supabase_transient_error'
+);
 $tenantLookupStatus = (string)($tenantLookup['status'] ?? '');
 
 if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
@@ -1693,7 +1933,7 @@ $calendarSettingsUrl = $SUPABASE_URL
     . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
     . '&limit=1';
 
-$calendarSettingsResult = supabase_select($calendarSettingsUrl, $headers);
+$calendarSettingsResult = supabase_select($calendarSettingsUrl, $headers, 'calendar_settings', $TENANT_ID);
 
 if (supabase_select_is_temporary($calendarSettingsResult)) {
     booking_temporary_unavailable('Nie udało się chwilowo pobrać ustawień kalendarza. Spróbuj ponownie za moment.');
@@ -1712,14 +1952,15 @@ if ($calendarEnabled !== true) {
 
 $formFieldsUrl = $SUPABASE_URL
     . '/rest/v1/tenant_branding'
-    . '?select=calendar_form_fields'
-    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . '?tenant_id=eq.' . rawurlencode($TENANT_ID)
     . '&limit=1';
 
-$formFieldsResult = supabase_select($formFieldsUrl, $headers);
-$formFieldsRow = $formFieldsResult['data'][0] ?? [];
-$formFields = is_array($formFieldsRow['calendar_form_fields'] ?? null)
-    ? $formFieldsRow['calendar_form_fields']
+$formFieldsResult = supabase_select($formFieldsUrl, $headers, 'tenant_branding', $TENANT_ID);
+$tenantBrandingRow = is_array($formFieldsResult['data'][0] ?? null)
+    ? $formFieldsResult['data'][0]
+    : [];
+$formFields = is_array($tenantBrandingRow['calendar_form_fields'] ?? null)
+    ? $tenantBrandingRow['calendar_form_fields']
     : [];
 
 $requireEmail = true;
@@ -1846,22 +2087,15 @@ if ($staffId !== '') {
         ], 403);
     }
 
-    $subscriptionResult = fetch_single_record_result(
-        $SUPABASE_URL,
-        $headers,
-        'tenant_subscriptions',
-        'tenant_id=eq.' . rawurlencode($TENANT_ID) . '&select=plan_code,status,current_period_end'
-    );
+    $subscriptionContext = plan_features_get_context($TENANT_ID, 'booking_log_supabase_transient_error');
 
-    if (!empty($subscriptionResult['temporary'])) {
+    if (!empty($subscriptionContext['temporary_error'])) {
         booking_temporary_unavailable('Nie udało się chwilowo sprawdzić abonamentu. Spróbuj ponownie za moment.');
     }
 
-    $subscriptionRow = $subscriptionResult['row'] ?? null;
-
-    $planCode = is_array($subscriptionRow) ? (string) ($subscriptionRow['plan_code'] ?? 'free') : 'free';
-    $subscriptionStatus = is_array($subscriptionRow) ? (string) ($subscriptionRow['status'] ?? '') : '';
-    $currentPeriodEnd = is_array($subscriptionRow) ? (string) ($subscriptionRow['current_period_end'] ?? '') : '';
+    $planCode = (string) ($subscriptionContext['subscription_plan_code'] ?? 'free');
+    $subscriptionStatus = (string) ($subscriptionContext['status'] ?? '');
+    $currentPeriodEnd = (string) ($subscriptionContext['current_period_end'] ?? '');
 
     if (!booking_subscription_allows_staff($planCode, $subscriptionStatus, $currentPeriodEnd)) {
         json_response([
@@ -2001,7 +2235,9 @@ $serviceSettings = fetch_single_record(
     $SUPABASE_URL,
     $headers,
     'tenant_service_settings',
-    $tenantQuery
+    $tenantQuery,
+    'service_settings',
+    $TENANT_ID
 );
 
 $paymentRequired = false;
@@ -2024,7 +2260,9 @@ $payuIntegration = fetch_single_record(
     $SUPABASE_URL,
     $headers,
     'tenant_integrations',
-    $tenantQuery . '&provider=eq.payu'
+    $tenantQuery . '&provider=eq.payu',
+    'payu_settings',
+    $TENANT_ID
 );
 
 if (is_array($payuIntegration)) {
@@ -2076,7 +2314,10 @@ if ($staffId !== '' && !is_array($selectedService)) {
     }
 }
 
-if (!tenant_has_feature($TENANT_ID, 'online_payments') || !tenant_has_feature($TENANT_ID, 'payu')) {
+if (
+    !tenant_has_feature($TENANT_ID, 'online_payments', 'booking_log_supabase_transient_error')
+    || !tenant_has_feature($TENANT_ID, 'payu', 'booking_log_supabase_transient_error')
+) {
     $effectivePaymentRequiredConfigured = false;
     $payuEnabled = false;
 }
@@ -2214,7 +2455,9 @@ booking_debug_log_service([
 $bookingResult = supabase_insert(
     $SUPABASE_URL . '/rest/v1/bookings',
     $bookingPayload,
-    $headers
+    $headers,
+    'bookings_insert',
+    $TENANT_ID
 );
 
 $bookingRowsForDebug = json_decode((string)($bookingResult['response'] ?? ''), true);
@@ -2271,7 +2514,9 @@ if ($staffId === '') {
     $blockResult = supabase_insert(
         $SUPABASE_URL . '/rest/v1/blocked_times',
         $blockPayload,
-        $minimalHeaders
+        $minimalHeaders,
+        'blocked_times_insert',
+        $TENANT_ID
     );
 
     debug_log('BOOK_BLOCKED_TIMES_RESPONSE', [
@@ -2359,24 +2604,21 @@ try {
         $SUPABASE_URL,
         $headers,
         'email_settings',
-        $tenantQuery . '&is_active=eq.true'
+        $tenantQuery . '&is_active=eq.true',
+        'email_settings',
+        $TENANT_ID
     );
 
     $emailTemplate = fetch_single_record(
         $SUPABASE_URL,
         $headers,
         'email_templates',
-        $tenantQuery . '&template_key=eq.booking_client_confirmation&is_enabled=eq.true'
+        $tenantQuery . '&template_key=eq.booking_client_confirmation&is_enabled=eq.true',
+        'email_templates',
+        $TENANT_ID
     );
 
-    $tenantData = fetch_single_record(
-        $SUPABASE_URL,
-        $headers,
-        'tenant_branding',
-        $tenantQuery
-    );
-
-    $tenantData = is_array($tenantData) ? $tenantData : [];
+    $tenantData = $tenantBrandingRow;
     $tenantMailData = array_merge(
         $tenantData,
         is_array($serviceSettings) ? $serviceSettings : []
@@ -2431,7 +2673,7 @@ try {
     $footerHtml = buildFooter($plan, $footerMode, $footerCustom);
     $rescheduleUrl = '';
 
-    if (tenant_has_feature($TENANT_ID, 'reschedule_booking')) {
+    if (tenant_has_feature($TENANT_ID, 'reschedule_booking', 'booking_log_supabase_transient_error')) {
         $rescheduleUrl = bookingBuildRescheduleUrl($manageToken, $manageTokenExpiresAt);
     }
 
