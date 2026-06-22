@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
+require_once __DIR__ . '/../helpers/activation_link.php';
 
 $SUPABASE_URL = rtrim((string) getenv('SUPABASE_URL'), '/');
 $SUPABASE_KEY = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
@@ -17,8 +18,7 @@ function activation_redirect(string $url): void
 
 function activation_redirect_error(string $reason = 'invalid'): void
 {
-    global $CENTRAL_LOGIN_URL;
-    activation_redirect($CENTRAL_LOGIN_URL . '?activation=' . rawurlencode($reason));
+    activation_redirect('https://rezerwacja-ai-iq.pl/aktywacja-link.html');
 }
 
 function activation_request(string $method, string $path, ?array $payload = null): array
@@ -70,6 +70,74 @@ function activation_is_valid_domain(string $domain): bool
         '/^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/',
         $domain
     ) === 1;
+}
+
+function activation_is_uuid(string $value): bool
+{
+    return preg_match(
+        '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i',
+        trim($value)
+    ) === 1;
+}
+
+function activation_fetch_user(string $tenantId, string $userId): ?array
+{
+    $result = activation_request(
+        'GET',
+        '/rest/v1/users?select=id,tenant_id,email,role,is_active&id=eq.' . rawurlencode($userId)
+        . '&tenant_id=eq.' . rawurlencode($tenantId) . '&limit=1'
+    );
+
+    if (!$result['ok'] || !is_array($result['data'][0] ?? null)) {
+        return null;
+    }
+
+    return $result['data'][0];
+}
+
+function activation_fetch_active_domain(string $tenantId): string
+{
+    $result = activation_request(
+        'GET',
+        '/rest/v1/tenant_domains?select=domain&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true&order=is_primary.desc&limit=1'
+    );
+    $domain = strtolower(trim((string) ($result['data'][0]['domain'] ?? '')));
+
+    return $result['ok'] && activation_is_valid_domain($domain) ? $domain : '';
+}
+
+function activation_redirect_already_active(string $tenantId): void
+{
+    $domain = activation_fetch_active_domain($tenantId);
+
+    if ($domain !== '') {
+        activation_redirect('https://' . $domain . '/konto-aktywne.html');
+    }
+
+    activation_redirect('https://rezerwacja-ai-iq.pl/konto-aktywne.html');
+}
+
+function activation_active_tenant_from_ref(string $token, string $ref): string
+{
+    $context = activation_link_parse_ref($token, $ref);
+
+    if (!is_array($context)) {
+        return '';
+    }
+
+    $tenantId = trim((string) ($context['tenant_id'] ?? ''));
+    $userId = trim((string) ($context['user_id'] ?? ''));
+    $user = activation_fetch_user($tenantId, $userId);
+
+    if (
+        !is_array($user)
+        || !filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)
+    ) {
+        return '';
+    }
+
+    return $tenantId;
 }
 
 function activation_escape(string $value): string
@@ -292,6 +360,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET' || $SUPABASE_URL === '' || $
 }
 
 $token = trim((string) ($_GET['token'] ?? ''));
+$activationRef = trim((string) ($_GET['ref'] ?? ''));
 if (preg_match('/^[a-f0-9]{64}$/i', $token) !== 1) {
     activation_redirect_error();
 }
@@ -306,11 +375,47 @@ $tokenResult = activation_request(
     . '&expires_at=gt.' . rawurlencode($now)
     . '&limit=1'
 );
-unset($token, $tokenHash);
 
 if (!$tokenResult['ok'] || empty($tokenResult['data'][0])) {
+    $historicalTokenResult = activation_request(
+        'GET',
+        '/rest/v1/user_activation_tokens?select=id,tenant_id,user_id,used_at,revoked_at,expires_at'
+        . '&token_hash=eq.' . rawurlencode($tokenHash)
+        . '&limit=1'
+    );
+    if ($historicalTokenResult['ok'] && is_array($historicalTokenResult['data'][0] ?? null)) {
+        $historicalTokenState = $historicalTokenResult['data'][0];
+        $historicalTokenId = trim((string) ($historicalTokenState['id'] ?? ''));
+        $historicalTenantId = trim((string) ($historicalTokenState['tenant_id'] ?? ''));
+        $historicalUserId = trim((string) ($historicalTokenState['user_id'] ?? ''));
+
+        if (
+            $historicalTokenId !== ''
+            && $historicalTenantId !== ''
+            && activation_is_uuid($historicalUserId)
+        ) {
+            $historicalTokenUser = activation_fetch_user($historicalTenantId, $historicalUserId);
+
+            if (
+                is_array($historicalTokenUser)
+                && filter_var($historicalTokenUser['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)
+            ) {
+                activation_redirect_already_active($historicalTenantId);
+            }
+        }
+    }
+
+    $refTenantId = activation_active_tenant_from_ref($token, $activationRef);
+    unset($token, $tokenHash, $activationRef);
+
+    if ($refTenantId !== '') {
+        activation_redirect_already_active($refTenantId);
+    }
+
     activation_redirect_error();
 }
+
+unset($token, $tokenHash, $activationRef);
 
 $activationState = $tokenResult['data'][0];
 $stateId = trim((string) ($activationState['id'] ?? ''));
@@ -320,23 +425,22 @@ $userId = trim((string) ($activationState['user_id'] ?? ''));
 if (
     $stateId === ''
     || $tenantId === ''
-    || preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $userId) !== 1
+    || !activation_is_uuid($userId)
 ) {
     activation_redirect_error();
 }
 
-$userResult = activation_request(
-    'GET',
-    '/rest/v1/users?select=id,tenant_id,email,role,is_active&id=eq.' . rawurlencode($userId)
-    . '&tenant_id=eq.' . rawurlencode($tenantId) . '&limit=1'
-);
-if (!$userResult['ok'] || empty($userResult['data'][0])) {
+$user = activation_fetch_user($tenantId, $userId);
+if (!is_array($user)) {
     activation_redirect_error();
 }
 
-$user = $userResult['data'][0];
 $adminEmail = trim((string) ($user['email'] ?? ''));
 $wasActive = filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+if ($wasActive) {
+    activation_redirect_already_active($tenantId);
+}
 
 $activateUserResult = activation_request(
     'PATCH',
@@ -370,14 +474,9 @@ if (!$revokeOtherTokensResult['ok']) {
     activation_redirect_error();
 }
 
-$domainResult = activation_request(
-    'GET',
-    '/rest/v1/tenant_domains?select=domain&tenant_id=eq.' . rawurlencode($tenantId)
-    . '&is_active=eq.true&order=is_primary.desc&limit=1'
-);
-$domain = strtolower(trim((string) ($domainResult['data'][0]['domain'] ?? '')));
+$domain = activation_fetch_active_domain($tenantId);
 
-if (!$domainResult['ok'] || !activation_is_valid_domain($domain)) {
+if ($domain === '') {
     activation_redirect_error('domain_unavailable');
 }
 

@@ -2,6 +2,7 @@
 header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
+require_once __DIR__ . '/../helpers/activation_link.php';
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
@@ -622,7 +623,14 @@ try {
 
         $createdActivationToken = true;
 
-        $activationUrl = 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($activationToken);
+        $activationRef = activation_link_build_ref($activationToken, $tenantId, $userId);
+
+        if ($activationRef === '') {
+            throw new Exception('Nie udało się przygotować odnośnika aktywacyjnego.');
+        }
+
+        $activationUrl = 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($activationToken)
+            . '&ref=' . rawurlencode($activationRef);
         $registrationMailHtml = buildRegistrationConfirmationMailHtml([
             'company_name' => $companyFullName !== '' ? $companyFullName : $clientName,
             'plan' => 'Free',
@@ -635,7 +643,7 @@ try {
             throw new Exception('Nie udało się wysłać wiadomości aktywacyjnej.');
         }
 
-        unset($activationToken, $activationUrl);
+        unset($activationToken, $activationRef, $activationUrl);
     }
 
     register_debug('SUCCESS', [

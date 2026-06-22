@@ -1,4 +1,12 @@
+const loginUrlParams = new URLSearchParams(window.location.search);
+const loginActivatedState = loginUrlParams.get('activated');
+const skipSetupRedirect = loginActivatedState === 'already';
+
 async function checkSetupBeforeLogin() {
+  if (skipSetupRedirect) {
+    return;
+  }
+
   try {
     const res = await fetch('/api/auth/register.php', {
       cache: 'no-store'
@@ -6,7 +14,7 @@ async function checkSetupBeforeLogin() {
 
     const data = await res.json().catch(() => null);
 
-    if (data?.registration_allowed === true) {
+    if (!skipSetupRedirect && data?.registration_allowed === true) {
       window.location.href = '/rejestracja.html';
     }
   } catch (e) {
@@ -36,7 +44,9 @@ function showActivationMessage() {
   const activated = params.get('activated');
   const activationError = params.get('activation');
 
-  if (activated === '1') {
+  if (activated === 'already') {
+    setLoginError('Konto zostało aktywowane.');
+  } else if (activated === '1') {
     setLoginError('Konto zostało aktywowane. Możesz się teraz zalogować.');
   } else if (activationError === 'domain_unavailable') {
     setLoginError('Konto zostało aktywowane, ale adres panelu nie jest jeszcze dostępny.');
@@ -119,6 +129,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (togglePasswordButton) {
     togglePasswordButton.addEventListener('click', togglePassword);
+  }
+
+  if (skipSetupRedirect) {
+    showActivationMessage();
+    return;
   }
 
   await checkSetupBeforeLogin();

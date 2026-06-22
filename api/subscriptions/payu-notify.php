@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
+require_once __DIR__ . '/../helpers/activation_link.php';
 
 function subscription_payu_notify_json(int $status, array $payload): void
 {
@@ -504,7 +505,14 @@ function subscription_payu_notify_create_activation_url(
         return '';
     }
 
-    return 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($token);
+    $activationRef = activation_link_build_ref($token, $tenantId, $userId);
+
+    if ($activationRef === '') {
+        return '';
+    }
+
+    return 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($token)
+        . '&ref=' . rawurlencode($activationRef);
 }
 
 function subscription_payu_notify_build_initial_pro_registration_mail(
