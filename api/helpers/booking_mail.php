@@ -257,6 +257,139 @@ if (!function_exists('booking_mail_send_client_confirmation_with_fallback')) {
     }
 }
 
+if (!function_exists('booking_mail_admin_notification_enabled')) {
+    function booking_mail_admin_notification_enabled(?array $emailSettings): bool
+    {
+        return !is_array($emailSettings)
+            || !array_key_exists('send_admin_notification', $emailSettings)
+            || !empty($emailSettings['send_admin_notification']);
+    }
+}
+
+if (!function_exists('booking_mail_admin_notification_email')) {
+    function booking_mail_admin_notification_email(
+        array $tenantData,
+        ?array $emailSettings = null,
+        string $adminAccountEmail = ''
+    ): string {
+        $candidates = [
+            $emailSettings['admin_notify_email'] ?? '',
+            $adminAccountEmail,
+            $tenantData['admin_email'] ?? '',
+            $tenantData['company_email'] ?? '',
+            $tenantData['contact_email'] ?? '',
+            $tenantData['email'] ?? '',
+        ];
+
+        foreach ($candidates as $candidate) {
+            $email = trim((string)$candidate);
+
+            if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+                return $email;
+            }
+        }
+
+        return '';
+    }
+}
+
+if (!function_exists('booking_mail_system_admin_notification_html')) {
+    function booking_mail_system_admin_notification_html(array $tenantData, array $booking): string
+    {
+        $companyName = trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''));
+        $name = trim((string)($booking['name'] ?? ''));
+        $email = trim((string)($booking['email'] ?? ''));
+        $phone = trim((string)($booking['phone'] ?? ''));
+        $date = trim((string)($booking['booking_date'] ?? $booking['date'] ?? ''));
+        $time = trim((string)($booking['booking_time'] ?? $booking['time'] ?? ''));
+        $serviceName = trim((string)($booking['service_name_snapshot'] ?? $booking['service_name'] ?? ''));
+        $staffDisplayName = trim((string)($booking['staff_display_name'] ?? ''));
+        $notes = trim((string)($booking['notes'] ?? $booking['message'] ?? ''));
+
+        $row = static function (string $icon, string $label, string $value): string {
+            if ($value === '') {
+                return '';
+            }
+
+            return '<tr>'
+                . '<td style="padding:8px 0;color:#6b7280;"><span style="display:inline-block;width:24px;" aria-hidden="true">' . htmlspecialchars($icon, ENT_QUOTES, 'UTF-8') . '</span>' . htmlspecialchars($label, ENT_QUOTES, 'UTF-8') . ':</td>'
+                . '<td style="padding:8px 0;text-align:right;"><strong>' . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . '</strong></td>'
+                . '</tr>';
+        };
+
+        $message = ''
+            . '<p style="margin:0 0 14px;"><strong>W systemie pojawiła się nowa rezerwacja.</strong></p>'
+            . '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px;border-collapse:collapse;">'
+            . $row('🏢', 'Firma', $companyName)
+            . $row('👤', 'Klient', $name)
+            . $row('✉️', 'E-mail', $email)
+            . $row('📞', 'Telefon', $phone)
+            . $row('📋', 'Usługa', $serviceName)
+            . $row('🙋', 'Personel', $staffDisplayName)
+            . $row('📅', 'Data', $date)
+            . $row('🕒', 'Godzina', $time)
+            . $row('📝', 'Wiadomość klienta', $notes)
+            . '</table>'
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Powiadomienie zostało wysłane z systemowego adresu AI-IQ, ponieważ własna wysyłka SMTP nie jest skonfigurowana lub chwilowo nie zadziałała.</p>';
+
+        return buildSystemMailLayout(
+            'Nowa rezerwacja',
+            'Powiadomienie administratora o rezerwacji zapisanej w systemie.',
+            $message,
+            'Wysłanie tego powiadomienia nie wpływa na zapis rezerwacji.'
+        );
+    }
+}
+
+if (!function_exists('booking_mail_send_admin_notification_with_fallback')) {
+    function booking_mail_send_admin_notification_with_fallback(
+        ?array $emailSettings,
+        array $tenantData,
+        array $booking,
+        string $recipient,
+        string $subject,
+        string $tenantHtml,
+        string $tenantAltBody
+    ): bool {
+        $recipient = trim($recipient);
+
+        if (
+            !booking_mail_admin_notification_enabled($emailSettings)
+            || $recipient === ''
+            || !filter_var($recipient, FILTER_VALIDATE_EMAIL)
+        ) {
+            return false;
+        }
+
+        if (booking_mail_has_usable_smtp($emailSettings)) {
+            try {
+                $mail = new PHPMailer(true);
+                booking_mail_configure_mailer($mail, $emailSettings);
+                $mail->addAddress($recipient);
+                $mail->isHTML(true);
+                $mail->Subject = $subject;
+                $mail->Body = $tenantHtml;
+                $mail->AltBody = $tenantAltBody;
+                $mail->send();
+
+                return true;
+            } catch (Throwable $e) {
+                error_log('BOOKING_ADMIN_MAIL_SMTP_FAILED: ' . get_class($e));
+            }
+        }
+
+        $companyEmail = booking_mail_company_contact_email($tenantData, $emailSettings);
+
+        return sendSystemMail(
+            $recipient,
+            $subject,
+            booking_mail_system_admin_notification_html($tenantData, $booking),
+            $companyEmail !== '' ? $companyEmail : null,
+            trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''))
+        );
+    }
+}
+
 if (!function_exists('booking_mail_configure_mailer')) {
     function booking_mail_configure_mailer(PHPMailer $mail, array $emailSettings): void
     {

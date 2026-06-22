@@ -21,19 +21,21 @@ date_default_timezone_set('Europe/Warsaw');
 
 $bookingSlotLockHandle = null;
 $bookingGlobalSemaphoreHandle = null;
+$bookingGlobalSemaphoreAcquired = false;
 
 function json_response(array $payload, int $status = 200): void
 {
-    global $bookingSlotLockHandle, $bookingGlobalSemaphoreHandle;
+    global $bookingSlotLockHandle, $bookingGlobalSemaphoreHandle, $bookingGlobalSemaphoreAcquired;
 
     if (isset($bookingSlotLockHandle)) {
         booking_release_slot_lock($bookingSlotLockHandle);
         $bookingSlotLockHandle = null;
     }
 
-    if (isset($bookingGlobalSemaphoreHandle)) {
+    if ($bookingGlobalSemaphoreAcquired) {
         booking_release_global_semaphore($bookingGlobalSemaphoreHandle);
         $bookingGlobalSemaphoreHandle = null;
+        $bookingGlobalSemaphoreAcquired = false;
     }
 
     if (ob_get_length()) {
@@ -856,7 +858,7 @@ function booking_global_semaphore_dir(): string
 
 // Globalny limit równoległych ścieżek book.php; nie zastępuje locka per slot.
 // Nie zastępuje też unikalnego indeksu w bazie, który powinien być ostatnią bramką.
-function booking_acquire_global_semaphore(int $limit = 5, int $timeoutMs = 20000)
+function booking_acquire_global_semaphore(int $limit = 3, int $timeoutMs = 40000, int $pollIntervalUs = 150000)
 {
     $semaphoreDir = booking_global_semaphore_dir();
 
@@ -870,6 +872,7 @@ function booking_acquire_global_semaphore(int $limit = 5, int $timeoutMs = 20000
 
     $limit = max(1, $limit);
     $deadline = microtime(true) + (max(1, $timeoutMs) / 1000);
+    $pollIntervalUs = max(100000, min(200000, $pollIntervalUs));
 
     do {
         for ($index = 0; $index < $limit; $index++) {
@@ -887,7 +890,7 @@ function booking_acquire_global_semaphore(int $limit = 5, int $timeoutMs = 20000
             @fclose($handle);
         }
 
-        usleep(75000);
+        usleep($pollIntervalUs);
     } while (microtime(true) < $deadline);
 
     return false;
@@ -1632,7 +1635,8 @@ if ($staffId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $staffId)) {
     ], 400);
 }
 
-$bookingGlobalSemaphoreHandle = booking_acquire_global_semaphore(5, 20000);
+try {
+$bookingGlobalSemaphoreHandle = booking_acquire_global_semaphore(3, 40000, 150000);
 
 if (!is_resource($bookingGlobalSemaphoreHandle)) {
     json_response([
@@ -1642,7 +1646,8 @@ if (!is_resource($bookingGlobalSemaphoreHandle)) {
     ], 503);
 }
 
-try {
+$bookingGlobalSemaphoreAcquired = true;
+
 // Tenant po domenie
 $tenantLookup = getTenantLookupFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
 $tenantLookupStatus = (string)($tenantLookup['status'] ?? '');
@@ -2296,9 +2301,10 @@ if ($staffId === '') {
         $bookingSlotLockHandle = null;
     }
 
-    if (isset($bookingGlobalSemaphoreHandle)) {
+    if ($bookingGlobalSemaphoreAcquired) {
         booking_release_global_semaphore($bookingGlobalSemaphoreHandle);
         $bookingGlobalSemaphoreHandle = null;
+        $bookingGlobalSemaphoreAcquired = false;
     }
 }
 
@@ -2461,8 +2467,19 @@ try {
         ]);
     }
 
-    if ($emailSettings && !empty($emailSettings['send_admin_notification'])) {
-        $adminNotifyEmail = trim((string) ($emailSettings['admin_notify_email'] ?? ''));
+    if (booking_mail_admin_notification_enabled($emailSettings)) {
+        $adminAccount = fetch_single_record(
+            $SUPABASE_URL,
+            $headers,
+            'users',
+            $tenantQuery . '&select=email&role=in.(admin,administrator)&is_active=eq.true'
+        );
+        $adminAccountEmail = trim((string)($adminAccount['email'] ?? ''));
+        $adminNotifyEmail = booking_mail_admin_notification_email(
+            $tenantMailData,
+            $emailSettings,
+            $adminAccountEmail
+        );
 
         if ($adminNotifyEmail !== '') {
             $adminHtml = buildAdminEmailHtml(
@@ -2489,16 +2506,42 @@ try {
                 ($note !== '' ? "Wiadomość klienta: {$note}\n" : '') .
                 "\n";
 
-            $adminMail = new PHPMailer(true);
-            configureMailer($adminMail, $emailSettings);
-            $adminMail->addAddress($adminNotifyEmail);
-            $adminMail->isHTML(true);
-            $adminMail->Subject = $adminFinalSubject;
-            $adminMail->Body = $adminHtml;
-            $adminMail->AltBody = $adminAltBody;
-            $adminMail->send();
+            $mailSentAdmin = booking_mail_send_admin_notification_with_fallback(
+                $emailSettings,
+                $tenantMailData,
+                [
+                    'id' => $bookingId,
+                    'name' => $name,
+                    'email' => $email,
+                    'phone' => $phone,
+                    'booking_date' => $date,
+                    'booking_time' => $time,
+                    'notes' => $note,
+                    'service_name_snapshot' => $bookedServiceName,
+                    'staff_display_name' => $staffDisplayName,
+                    'payment_required' => $paymentRequired,
+                    'payment_status' => $paymentStatus,
+                    'payment_amount' => $paymentAmount,
+                    'payment_currency' => $paymentCurrency,
+                ],
+                $adminNotifyEmail,
+                $adminFinalSubject,
+                $adminHtml,
+                $adminAltBody
+            );
 
-            $mailSentAdmin = true;
+            if (!$mailSentAdmin) {
+                debug_log('BOOK_ADMIN_EMAIL_SEND_FAILED', [
+                    'booking_id' => $bookingId,
+                    'tenant_id' => $TENANT_ID,
+                    'has_tenant_smtp' => booking_mail_has_usable_smtp($emailSettings),
+                ]);
+            }
+        } else {
+            debug_log('BOOK_ADMIN_EMAIL_RECIPIENT_MISSING', [
+                'booking_id' => $bookingId,
+                'tenant_id' => $TENANT_ID,
+            ]);
         }
     }
 } catch (Exception $e) {
