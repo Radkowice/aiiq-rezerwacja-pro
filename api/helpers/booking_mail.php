@@ -802,7 +802,7 @@ if (!function_exists('booking_mail_send_system_booking_reminder')) {
 
         $html = buildSystemMailLayout(
             $subject,
-            'Automatyczne przypomnienie o rezerwacji.',
+            'Przypomnienie o rezerwacji.',
             $message,
             'To przypomnienie zostało wysłane przez system AI-IQ Rezerwacja Pro.'
         );

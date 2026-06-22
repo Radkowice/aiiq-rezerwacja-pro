@@ -180,6 +180,7 @@ function activation_build_fallback_pro_mail_html(array $payment, array $subscrip
         . '<div style="background:#ffffff;border:1px solid #dbe5f3;border-radius:18px;padding:28px;">'
         . '<div style="text-align:center;margin-bottom:22px;">'
         . '<div style="display:inline-block;background:#0f172a;color:#fff;border-radius:999px;padding:10px 18px;font-weight:700;">AI-IQ</div>'
+        . '<div style="font-size:42px;line-height:1;margin:18px 0 0;" aria-hidden="true">💳</div>'
         . '<h1 style="margin:22px 0 8px;font-size:26px;line-height:1.25;">Plan Pro jest aktywny</h1>'
         . '<p style="margin:0;color:#475569;line-height:1.5;">Konto administratora zostało aktywowane. Możesz zalogować się do panelu i korzystać z funkcji planu Pro.</p>'
         . '</div>'

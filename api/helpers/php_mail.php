@@ -45,6 +45,9 @@ function buildSystemMailLayout(string $title, string $intro, string $messageHtml
                             <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;font-weight:bold;text-align:center;">
                                 ' . $appName . '
                             </div>
+                            <div style="margin:12px auto 0;font-size:42px;line-height:1;text-align:center;" aria-hidden="true">
+                                📩
+                            </div>
                             <div style="margin:10px auto 0;font-size:28px;line-height:1.25;font-weight:700;color:#ffffff;text-align:center;">
                                 ' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '
                             </div>

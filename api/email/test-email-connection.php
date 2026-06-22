@@ -168,6 +168,7 @@ try {
     $mail->isHTML(true);
     $mail->Subject = 'Test połączenia SMTP — AI-IQ Rezerwacja Pro';
     $mail->Body = ''
+        . '<p><strong>📩 Test połączenia SMTP</strong></p>'
         . '<p>To jest testowa wiadomość SMTP z panelu AI-IQ Rezerwacja Pro.</p>'
         . '<p>Jeśli ją widzisz, konfiguracja poczty działa poprawnie.</p>';
     $mail->AltBody = "To jest testowa wiadomość SMTP z panelu AI-IQ Rezerwacja Pro.\nJeśli ją widzisz, konfiguracja poczty działa poprawnie.";
