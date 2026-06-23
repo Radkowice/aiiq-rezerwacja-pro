@@ -73,6 +73,10 @@ function google_calendar_supabase_request(
 
     curl_close($ch);
 
+    if (function_exists('booking_supabase_request_record')) {
+        booking_supabase_request_record($method, $url, 'google_calendar', $httpCode);
+    }
+
     return [
         'http_code' => $httpCode,
         'response' => $response,
@@ -116,8 +120,9 @@ function google_calendar_http_request(
     ];
 }
 
-function google_calendar_get_integration(string $tenantId): ?array
+function google_calendar_get_integration(string $tenantId, ?array &$lookupResult = null): ?array
 {
+    $lookupResult = ['status' => 'failed'];
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
@@ -142,6 +147,7 @@ function google_calendar_get_integration(string $tenantId): ?array
     $row = $result['data'][0] ?? null;
 
     if (!$row || empty($row['enabled'])) {
+        $lookupResult = ['status' => 'skipped'];
         return null;
     }
 
@@ -157,6 +163,8 @@ function google_calendar_get_integration(string $tenantId): ?array
     if (empty($secrets['access_token']) && empty($secrets['refresh_token'])) {
         return null;
     }
+
+    $lookupResult = ['status' => 'done'];
 
     return [
         'settings' => $settings,
@@ -483,21 +491,32 @@ function google_calendar_build_event(array $booking, array $settings): array
     ];
 }
 
-function createGoogleCalendarEventForBooking(string $tenantId, array $booking): ?string
+function createGoogleCalendarEventForBooking(
+    string $tenantId,
+    array $booking,
+    ?array &$executionResult = null
+): ?string
 {
-   
-    $integration = google_calendar_get_integration($tenantId);
+    $executionResult = ['status' => 'failed'];
+    $integrationLookup = null;
+    $integration = google_calendar_get_integration($tenantId, $integrationLookup);
 
     if (!$integration) {
-        google_calendar_debug('NO_INTEGRATION_OR_DISABLED', $tenantId);
+        $executionResult = [
+            'status' => ($integrationLookup['status'] ?? '') === 'skipped'
+                ? 'skipped'
+                : 'failed',
+        ];
+        google_calendar_debug('NO_INTEGRATION_OR_DISABLED', [
+            'tenant_ref' => substr(hash('sha256', $tenantId), 0, 16),
+        ]);
         return null;
     }
 
     google_calendar_debug('INTEGRATION_FOUND', [
-        'settings' => $integration['settings'] ?? [],
         'has_access_token' => !empty($integration['secrets']['access_token'] ?? ''),
         'has_refresh_token' => !empty($integration['secrets']['refresh_token'] ?? ''),
-        'token_expires_at' => $integration['secrets']['token_expires_at'] ?? null,
+        'has_calendar_id' => !empty($integration['settings']['calendar_id'] ?? ''),
     ]);
 
     $settings = $integration['settings'];
@@ -516,13 +535,20 @@ function createGoogleCalendarEventForBooking(string $tenantId, array $booking): 
         $calendarId = 'primary';
     }
 
-    google_calendar_debug('CALENDAR_ID', $calendarId);
+    google_calendar_debug('CALENDAR_SELECTED', [
+        'is_primary' => $calendarId === 'primary',
+    ]);
 
     try {
         $event = google_calendar_build_event($booking, $settings);
-        google_calendar_debug('EVENT_PAYLOAD', $event);
+        google_calendar_debug('EVENT_READY', [
+            'has_start' => !empty($event['start']['dateTime'] ?? ''),
+            'has_end' => !empty($event['end']['dateTime'] ?? ''),
+        ]);
     } catch (Throwable $e) {
-        google_calendar_debug('BUILD_EVENT_ERROR', $e->getMessage());
+        google_calendar_debug('BUILD_EVENT_ERROR', [
+            'exception' => get_class($e),
+        ]);
         return null;
     }
 
@@ -543,8 +569,8 @@ function createGoogleCalendarEventForBooking(string $tenantId, array $booking): 
 
     google_calendar_debug('GOOGLE_RESPONSE', [
         'http_code' => $result['http_code'] ?? null,
-        'error' => $result['error'] ?? null,
-        'response' => $result['response'] ?? null,
+        'has_transport_error' => !empty($result['error']),
+        'has_event_id' => !empty($result['data']['id'] ?? ''),
     ]);
 
     if ($result['error'] || $result['http_code'] < 200 || $result['http_code'] >= 300) {
@@ -553,7 +579,13 @@ function createGoogleCalendarEventForBooking(string $tenantId, array $booking): 
 
     $googleEventId = (string) ($result['data']['id'] ?? '');
 
-    google_calendar_debug('GOOGLE_EVENT_ID', $googleEventId);
+    if ($googleEventId !== '') {
+        $executionResult = ['status' => 'done'];
+    }
+
+    google_calendar_debug('GOOGLE_EVENT_CREATED', [
+        'has_event_id' => $googleEventId !== '',
+    ]);
 
     return $googleEventId !== '' ? $googleEventId : null;
 }
@@ -573,7 +605,9 @@ function updateGoogleCalendarEventForBooking(string $tenantId, string $googleEve
     $integration = google_calendar_get_integration($tenantId);
 
     if (!$integration) {
-        google_calendar_debug('UPDATE_NO_INTEGRATION_OR_DISABLED', $tenantId);
+        google_calendar_debug('UPDATE_NO_INTEGRATION_OR_DISABLED', [
+            'tenant_ref' => substr(hash('sha256', $tenantId), 0, 16),
+        ]);
         return [
             'success' => false,
             'not_found' => false,
@@ -602,11 +636,14 @@ function updateGoogleCalendarEventForBooking(string $tenantId, string $googleEve
     try {
         $event = google_calendar_build_event($booking, $settings);
         google_calendar_debug('UPDATE_EVENT_PAYLOAD', [
-            'event_id' => $googleEventId,
-            'event' => $event,
+            'event_ref' => substr(hash('sha256', $googleEventId), 0, 16),
+            'has_start' => !empty($event['start']['dateTime'] ?? ''),
+            'has_end' => !empty($event['end']['dateTime'] ?? ''),
         ]);
     } catch (Throwable $e) {
-        google_calendar_debug('UPDATE_BUILD_EVENT_ERROR', $e->getMessage());
+        google_calendar_debug('UPDATE_BUILD_EVENT_ERROR', [
+            'exception' => get_class($e),
+        ]);
         return [
             'success' => false,
             'not_found' => false,
@@ -631,10 +668,9 @@ function updateGoogleCalendarEventForBooking(string $tenantId, string $googleEve
     );
 
     google_calendar_debug('UPDATE_GOOGLE_RESPONSE', [
-        'event_id' => $googleEventId,
+        'event_ref' => substr(hash('sha256', $googleEventId), 0, 16),
         'http_code' => $result['http_code'] ?? null,
-        'error' => $result['error'] ?? null,
-        'response' => $result['response'] ?? null,
+        'has_transport_error' => !empty($result['error']),
     ]);
 
     $statusCode = (int) ($result['http_code'] ?? 0);

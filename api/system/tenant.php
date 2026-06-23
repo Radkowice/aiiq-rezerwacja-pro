@@ -184,6 +184,10 @@ function tenant_lookup_request(
         $durationMs = (int) round(((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000);
         curl_close($ch);
 
+        if (function_exists('booking_supabase_request_record')) {
+            booking_supabase_request_record('GET', $url, 'tenant_lookup', $httpCode);
+        }
+
         $data = json_decode((string) $response, true);
         $jsonValid = json_last_error() === JSON_ERROR_NONE;
         $retryable = $response === false
@@ -260,6 +264,28 @@ function getTenantLookupFromHost(
         ];
     }
 
+    $persistentCacheKey = '';
+    $requestCountBefore = function_exists('booking_supabase_request_count_for_stage')
+        ? booking_supabase_request_count_for_stage('tenant_lookup')
+        : 0;
+
+    if (function_exists('booking_context_cache_key')) {
+        $persistentCacheKey = booking_context_cache_key('tenant_lookup', [
+            'hosts' => $hosts,
+            'supabase_url' => rtrim($SUPABASE_URL, '/'),
+            'schema' => $SCHEMA,
+        ]);
+        $cachedLookup = booking_context_cache_read('tenant_lookup', $persistentCacheKey);
+
+        if (
+            is_array($cachedLookup)
+            && ($cachedLookup['status'] ?? '') === 'found'
+            && !empty($cachedLookup['tenant_id'])
+        ) {
+            return $cachedLookup;
+        }
+    }
+
     $technicalError = null;
 
     foreach ($hosts as $host) {
@@ -300,11 +326,26 @@ function getTenantLookupFromHost(
                 'found' => true,
             ]);
 
-            return [
+            $lookup = [
                 'status' => 'found',
                 'tenant_id' => (string) $data[0]['tenant_id'],
                 'host' => $host,
             ];
+
+            if ($persistentCacheKey !== '') {
+                $requestCountAfter = function_exists('booking_supabase_request_count_for_stage')
+                    ? booking_supabase_request_count_for_stage('tenant_lookup')
+                    : $requestCountBefore + 1;
+                booking_context_cache_write(
+                    'tenant_lookup',
+                    $persistentCacheKey,
+                    $lookup,
+                    booking_context_cache_default_ttl(),
+                    max(1, $requestCountAfter - $requestCountBefore)
+                );
+            }
+
+            return $lookup;
         }
     }
 

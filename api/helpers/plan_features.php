@@ -145,6 +145,10 @@ function plan_features_request(
 
         curl_close($ch);
 
+        if (function_exists('booking_supabase_request_record')) {
+            booking_supabase_request_record('GET', $url, $stage, $httpCode);
+        }
+
         $data = null;
         $jsonValid = false;
 
@@ -460,6 +464,108 @@ function plan_features_fetch_single(
     return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
 }
 
+function plan_features_global_limits_select(): string
+{
+    return 'plan_code,plan_name,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active';
+}
+
+function plan_features_get_global_limits_dictionary(
+    array $config,
+    ?callable $diagnosticLogger = null
+): ?array {
+    if (
+        $config['supabase_url'] === ''
+        || $config['supabase_key'] === ''
+        || !function_exists('booking_context_cache_key')
+        || !function_exists('booking_context_cache_read')
+        || !function_exists('booking_context_cache_write')
+        || !function_exists('booking_context_cache_acquire_lock')
+        || !function_exists('booking_context_cache_release_lock')
+        || !function_exists('booking_context_cache_global_plan_ttl')
+    ) {
+        return null;
+    }
+
+    $stage = 'plan_global_limits';
+    $cacheKey = booking_context_cache_key($stage, [
+        'supabase_url' => $config['supabase_url'],
+        'schema' => $config['schema'],
+        'version' => 1,
+    ]);
+    $cached = booking_context_cache_read($stage, $cacheKey);
+
+    if (is_array($cached['limits'] ?? null)) {
+        return $cached['limits'];
+    }
+
+    $lockHandle = booking_context_cache_acquire_lock($cacheKey, 5000);
+
+    if (!is_resource($lockHandle)) {
+        return null;
+    }
+
+    try {
+        $cached = booking_context_cache_read($stage, $cacheKey, false);
+
+        if (is_array($cached['limits'] ?? null)) {
+            return $cached['limits'];
+        }
+
+        $url = $config['supabase_url']
+            . '/rest/v1/subscription_plan_limits'
+            . '?select=' . rawurlencode(plan_features_global_limits_select())
+            . '&is_active=eq.true';
+        $result = plan_features_request(
+            $url,
+            $config['supabase_key'],
+            $config['schema'],
+            $stage,
+            '',
+            $diagnosticLogger
+        );
+
+        if (!$result['ok'] || !is_array($result['data'] ?? null)) {
+            return null;
+        }
+
+        $dictionary = [];
+
+        foreach ($result['data'] as $row) {
+            if (!is_array($row) || empty($row['plan_code'])) {
+                continue;
+            }
+
+            $rawPlanCode = strtolower(trim((string)$row['plan_code']));
+
+            if (!in_array($rawPlanCode, ['free', 'pro', 'vip', 'business', 'biznes'], true)) {
+                continue;
+            }
+
+            $storagePlanCode = $rawPlanCode === 'business' ? 'biznes' : $rawPlanCode;
+
+            if (!isset($dictionary[$storagePlanCode])) {
+                $dictionary[$storagePlanCode] = $row;
+            }
+        }
+
+        if (empty($dictionary)) {
+            return null;
+        }
+
+        booking_context_cache_write(
+            $stage,
+            $cacheKey,
+            ['limits' => $dictionary],
+            booking_context_cache_global_plan_ttl(),
+            max(1, (int)($result['attempts'] ?? 1))
+        );
+
+        return $dictionary;
+    } finally {
+        booking_context_cache_release_lock($lockHandle);
+    }
+}
+
 function plan_features_bool_or_null($value): ?bool
 {
     if ($value === null || $value === '') {
@@ -639,49 +745,52 @@ function plan_features_get_context_from_database(
     $fallbackFeatures = $featuresMap[$effectivePlanCode] ?? $featuresMap['free'];
     $fallbackLimits = $limitsMap[$effectivePlanCode] ?? $limitsMap['free'];
 
-    $globalSelect = 'select=' . rawurlencode('plan_code,plan_name,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active');
-    $global = plan_features_fetch_single(
-        'subscription_plan_limits',
-        $globalSelect
-            . '&plan_code=eq.' . rawurlencode($storagePlanCode)
-            . '&is_active=eq.true',
-        $config,
-        $tenantId,
-        $diagnosticLogger
-    );
+    $globalSelect = 'select=' . rawurlencode(plan_features_global_limits_select());
+    $globalLimits = plan_features_get_global_limits_dictionary($config, $diagnosticLogger);
+    $global = is_array($globalLimits[$storagePlanCode] ?? null)
+        ? $globalLimits[$storagePlanCode]
+        : plan_features_fetch_single(
+            'subscription_plan_limits',
+            $globalSelect
+                . '&plan_code=eq.' . rawurlencode($storagePlanCode)
+                . '&is_active=eq.true',
+            $config,
+            $tenantId,
+            $diagnosticLogger
+        );
 
     if (!is_array($global)) {
         return null;
     }
 
-    $override = plan_features_fetch_single(
-        'tenant_plan_overrides',
-        'select=' . rawurlencode('plan_code,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active')
-            . '&tenant_id=eq.' . rawurlencode($tenantId)
-            . '&is_active=eq.true',
-        $config,
-        $tenantId,
-        $diagnosticLogger
-    );
-
-    if (!$hasProAccess) {
-        $override = null;
-    }
+    $override = $hasProAccess
+        ? plan_features_fetch_single(
+            'tenant_plan_overrides',
+            'select=' . rawurlencode('plan_code,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active')
+                . '&tenant_id=eq.' . rawurlencode($tenantId)
+                . '&is_active=eq.true',
+            $config,
+            $tenantId,
+            $diagnosticLogger
+        )
+        : null;
 
     if (is_array($override) && $override['plan_code'] !== null && trim((string) $override['plan_code']) !== '') {
         $overridePlanCode = plan_features_normalize_plan_code((string) $override['plan_code']);
         $overrideStoragePlanCode = plan_features_storage_plan_code($overridePlanCode);
 
         if ($overrideStoragePlanCode !== $storagePlanCode) {
-            $overrideGlobal = plan_features_fetch_single(
-                'subscription_plan_limits',
-                $globalSelect
-                    . '&plan_code=eq.' . rawurlencode($overrideStoragePlanCode)
-                    . '&is_active=eq.true',
-                $config,
-                $tenantId,
-                $diagnosticLogger
-            );
+            $overrideGlobal = is_array($globalLimits[$overrideStoragePlanCode] ?? null)
+                ? $globalLimits[$overrideStoragePlanCode]
+                : plan_features_fetch_single(
+                    'subscription_plan_limits',
+                    $globalSelect
+                        . '&plan_code=eq.' . rawurlencode($overrideStoragePlanCode)
+                        . '&is_active=eq.true',
+                    $config,
+                    $tenantId,
+                    $diagnosticLogger
+                );
 
             if (is_array($overrideGlobal)) {
                 $global = $overrideGlobal;
@@ -725,6 +834,25 @@ function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger
     plan_features_temporary_error_flag(false);
 
     $config = plan_features_config();
+    $persistentCacheKey = '';
+    $requestCountBefore = function_exists('booking_supabase_request_count_for_stage')
+        ? booking_supabase_request_count_for_stage('plan_context')
+        : 0;
+
+    if (function_exists('booking_context_cache_key')) {
+        $persistentCacheKey = booking_context_cache_key('plan_context', [
+            'tenant_id' => trim($tenantId),
+            'supabase_url' => $config['supabase_url'],
+            'schema' => $config['schema'],
+        ]);
+        $cachedContext = booking_context_cache_read('plan_context', $persistentCacheKey);
+
+        if (is_array($cachedContext)) {
+            $cache[$cacheKey] = $cachedContext;
+            return $cachedContext;
+        }
+    }
+
     $context = plan_features_get_context_from_database($tenantId, $config, $diagnosticLogger);
 
     if (is_array($context)) {
@@ -733,6 +861,19 @@ function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger
         }
 
         $cache[$cacheKey] = $context;
+
+        if ($persistentCacheKey !== '' && empty($context['temporary_error'])) {
+            $requestCountAfter = function_exists('booking_supabase_request_count_for_stage')
+                ? booking_supabase_request_count_for_stage('plan_context')
+                : $requestCountBefore + 1;
+            booking_context_cache_write(
+                'plan_context',
+                $persistentCacheKey,
+                $context,
+                booking_context_cache_default_ttl(),
+                max(1, $requestCountAfter - $requestCountBefore)
+            );
+        }
 
         return $context;
     }
@@ -749,6 +890,19 @@ function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger
     }
 
     $cache[$cacheKey] = $context;
+
+    if ($persistentCacheKey !== '' && empty($context['temporary_error'])) {
+        $requestCountAfter = function_exists('booking_supabase_request_count_for_stage')
+            ? booking_supabase_request_count_for_stage('plan_context')
+            : $requestCountBefore + 1;
+        booking_context_cache_write(
+            'plan_context',
+            $persistentCacheKey,
+            $context,
+            booking_context_cache_default_ttl(),
+            max(1, $requestCountAfter - $requestCountBefore)
+        );
+    }
 
     return $context;
 }

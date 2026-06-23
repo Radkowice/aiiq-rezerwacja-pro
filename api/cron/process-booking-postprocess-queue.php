@@ -1,0 +1,213 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/../helpers/booking_postprocess_queue.php';
+require_once __DIR__ . '/../helpers/booking_context_cache.php';
+require_once __DIR__ . '/../helpers/booking_postprocess.php';
+
+function booking_postprocess_worker_log(string $event, array $context = []): void
+{
+    $allowed = [];
+
+    foreach (['job_ref', 'attempt', 'result', 'failed_tasks', 'error_code', 'http_code', 'processed', 'recovered'] as $key) {
+        if (array_key_exists($key, $context) && (is_scalar($context[$key]) || is_array($context[$key]))) {
+            $allowed[$key] = $context[$key];
+        }
+    }
+
+    $line = date(DATE_ATOM) . ' [' . substr($event, 0, 80) . '] '
+        . json_encode($allowed, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+        . PHP_EOL;
+    @file_put_contents(
+        booking_postprocess_queue_root() . '/worker.log',
+        $line,
+        FILE_APPEND | LOCK_EX
+    );
+}
+
+function booking_postprocess_worker_error_code(Throwable $error): string
+{
+    $message = trim($error->getMessage());
+
+    if ($message !== '' && preg_match('/^[a-zA-Z0-9_:-]{1,120}$/', $message) === 1) {
+        return $message;
+    }
+
+    return substr(get_class($error), 0, 120);
+}
+
+function booking_postprocess_worker_response(array $payload, int $statusCode = 200): void
+{
+    if (PHP_SAPI !== 'cli') {
+        http_response_code($statusCode);
+        header('Content-Type: application/json; charset=utf-8');
+    }
+
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+    exit;
+}
+
+function booking_postprocess_worker_header(string $name): string
+{
+    $serverKey = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+    return trim((string)($_SERVER[$serverKey] ?? ''));
+}
+
+function booking_postprocess_worker_authorized(): bool
+{
+    if (PHP_SAPI === 'cli') {
+        return true;
+    }
+
+    $expected = trim((string)getenv('BOOKING_POSTPROCESS_CRON_SECRET'));
+    $provided = booking_postprocess_worker_header('X-Cron-Secret');
+
+    return $expected !== '' && $provided !== '' && hash_equals($expected, $provided);
+}
+
+function booking_postprocess_worker_mark_unfinished_failed(array $job): array
+{
+    foreach ($job['tasks'] as $task => $status) {
+        if (!in_array($status, ['done', 'skipped'], true)) {
+            $job['tasks'][$task] = 'failed';
+        }
+    }
+
+    return $job;
+}
+
+if (!booking_postprocess_worker_authorized()) {
+    booking_postprocess_worker_response(['success' => false, 'error' => 'unauthorized'], 401);
+}
+
+if (!booking_postprocess_queue_ensure_directories()) {
+    booking_postprocess_worker_response([
+        'success' => false,
+        'error' => 'queue_unavailable',
+        'processed' => 0,
+    ], 500);
+}
+
+$workerLock = booking_postprocess_queue_acquire_worker_lock();
+
+if (!is_resource($workerLock)) {
+    booking_postprocess_worker_response([
+        'success' => true,
+        'message' => 'worker_already_running',
+        'processed' => 0,
+    ]);
+}
+
+$processed = 0;
+$completed = 0;
+$retried = 0;
+$failed = 0;
+$recovered = 0;
+
+try {
+    $recovered = booking_postprocess_queue_recover_stale_processing(300);
+
+    for ($index = 0; $index < 5; $index++) {
+        $claimed = booking_postprocess_queue_claim_due_job();
+
+        if (!is_array($claimed)) {
+            break;
+        }
+
+        $job = $claimed['job'];
+        $processingFile = (string)$claimed['file'];
+        $jobRef = substr((string)$job['job_id'], 0, 16);
+        $processed++;
+
+        try {
+            $result = booking_postprocess_execute_job($job);
+            $job['tasks'] = is_array($result['tasks'] ?? null)
+                ? $result['tasks']
+                : $job['tasks'];
+
+            if (!empty($result['success'])) {
+                if (booking_postprocess_queue_complete_job($job, $processingFile)) {
+                    $completed++;
+                    booking_postprocess_worker_log('JOB_DONE', [
+                        'job_ref' => $jobRef,
+                        'attempt' => $job['attempt'],
+                        'result' => 'done',
+                    ]);
+                } else {
+                    $job = booking_postprocess_worker_mark_unfinished_failed($job);
+                    booking_postprocess_queue_retry_job($job, $processingFile);
+                    $retried++;
+                }
+            } else {
+                $failedTasks = [];
+
+                foreach ($job['tasks'] as $task => $status) {
+                    if (!in_array($status, ['done', 'skipped'], true)) {
+                        $failedTasks[] = $task;
+                    }
+                }
+
+                $willFailPermanently = ((int)$job['attempt'] + 1) >= 5;
+                booking_postprocess_queue_retry_job($job, $processingFile);
+
+                if ($willFailPermanently) {
+                    $failed++;
+                } else {
+                    $retried++;
+                }
+
+                booking_postprocess_worker_log(
+                    $willFailPermanently ? 'JOB_FAILED' : 'JOB_RETRY',
+                    [
+                        'job_ref' => $jobRef,
+                        'attempt' => (int)$job['attempt'] + 1,
+                        'result' => $willFailPermanently ? 'failed' : 'retry',
+                        'failed_tasks' => $failedTasks,
+                    ]
+                );
+            }
+        } catch (Throwable $e) {
+            $job = booking_postprocess_worker_mark_unfinished_failed($job);
+            $willFailPermanently = ((int)$job['attempt'] + 1) >= 5;
+            booking_postprocess_queue_retry_job($job, $processingFile);
+
+            if ($willFailPermanently) {
+                $failed++;
+            } else {
+                $retried++;
+            }
+
+            booking_postprocess_worker_log(
+                $willFailPermanently ? 'JOB_EXCEPTION_FAILED' : 'JOB_EXCEPTION_RETRY',
+                [
+                    'job_ref' => $jobRef,
+                    'attempt' => (int)$job['attempt'] + 1,
+                    'result' => $willFailPermanently ? 'failed' : 'retry',
+                    'error_code' => booking_postprocess_worker_error_code($e),
+                ]
+            );
+        }
+
+        try {
+            usleep(random_int(200000, 500000));
+        } catch (Throwable $e) {
+            usleep(300000);
+        }
+    }
+} finally {
+    booking_postprocess_queue_release_worker_lock($workerLock);
+}
+
+booking_postprocess_worker_log('WORKER_DONE', [
+    'processed' => $processed,
+    'recovered' => $recovered,
+]);
+
+booking_postprocess_worker_response([
+    'success' => true,
+    'processed' => $processed,
+    'completed' => $completed,
+    'retried' => $retried,
+    'failed' => $failed,
+    'recovered' => $recovered,
+]);

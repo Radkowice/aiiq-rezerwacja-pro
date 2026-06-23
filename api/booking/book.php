@@ -5,6 +5,8 @@ ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/booking_context_cache.php';
+require_once __DIR__ . '/../helpers/booking_postprocess_queue.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 require __DIR__ . '/../PHPMailer/src/Exception.php';
@@ -42,6 +44,25 @@ function json_response(array $payload, int $status = 200): void
         ob_clean();
     }
 
+    if (function_exists('booking_supabase_request_summary')) {
+        $cacheTotals = function_exists('booking_context_cache_metric_totals')
+            ? booking_context_cache_metric_totals()
+            : ['hits' => 0, 'misses' => 0, 'http_requests_avoided' => 0];
+
+        debug_log('BOOK_SUPABASE_REQUEST_SUMMARY', [
+            'critical_total' => booking_supabase_request_total_for_phase('critical'),
+            'post_insert_total' => booking_supabase_request_total_for_phase('post_insert'),
+            'total' => booking_supabase_request_total(),
+            'requests' => booking_supabase_request_summary(),
+            'cache_hits' => (int)($cacheTotals['hits'] ?? 0),
+            'cache_misses' => (int)($cacheTotals['misses'] ?? 0),
+            'http_requests_avoided' => (int)($cacheTotals['http_requests_avoided'] ?? 0),
+            'cache' => function_exists('booking_context_cache_metrics')
+                ? booking_context_cache_metrics()
+                : [],
+        ]);
+    }
+
     http_response_code($status);
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
@@ -74,6 +95,104 @@ function booking_supabase_endpoint_label(string $url): string
     }
 
     return 'supabase';
+}
+
+function booking_supabase_request_phase(?string $phase = null): string
+{
+    static $currentPhase = 'critical';
+
+    if ($phase !== null) {
+        $currentPhase = $phase === 'post_insert' ? 'post_insert' : 'critical';
+    }
+
+    return $currentPhase;
+}
+
+function booking_supabase_request_store(?array $entry = null): array
+{
+    static $summary = [];
+
+    if ($entry === null) {
+        return $summary;
+    }
+
+    $method = strtoupper(substr(trim((string)($entry['method'] ?? 'GET')), 0, 10));
+    $stage = substr(trim((string)($entry['stage'] ?? 'unknown')), 0, 80) ?: 'unknown';
+    $endpoint = booking_supabase_endpoint_label((string)($entry['url'] ?? ''));
+    $status = (int)($entry['status'] ?? 0);
+    $phase = ($entry['phase'] ?? '') === 'post_insert' ? 'post_insert' : 'critical';
+    $key = $phase . '|' . $method . '|' . $stage . '|' . $endpoint;
+
+    if (!isset($summary[$key])) {
+        $summary[$key] = [
+            'phase' => $phase,
+            'method' => $method,
+            'stage' => $stage,
+            'endpoint' => $endpoint,
+            'count' => 0,
+            'statuses' => [],
+        ];
+    }
+
+    $summary[$key]['count']++;
+    $statusKey = (string)$status;
+    $summary[$key]['statuses'][$statusKey] = ($summary[$key]['statuses'][$statusKey] ?? 0) + 1;
+
+    return $summary;
+}
+
+function booking_supabase_request_record(string $method, string $url, string $stage, int $status): void
+{
+    booking_supabase_request_store([
+        'method' => $method,
+        'url' => $url,
+        'stage' => $stage,
+        'status' => $status,
+        'phase' => booking_supabase_request_phase(),
+    ]);
+}
+
+function booking_supabase_request_summary(): array
+{
+    return array_values(booking_supabase_request_store());
+}
+
+function booking_supabase_request_total(): int
+{
+    $total = 0;
+
+    foreach (booking_supabase_request_store() as $entry) {
+        $total += (int)($entry['count'] ?? 0);
+    }
+
+    return $total;
+}
+
+function booking_supabase_request_total_for_phase(string $phase): int
+{
+    $phase = $phase === 'post_insert' ? 'post_insert' : 'critical';
+    $total = 0;
+
+    foreach (booking_supabase_request_store() as $entry) {
+        if (($entry['phase'] ?? 'critical') === $phase) {
+            $total += (int)($entry['count'] ?? 0);
+        }
+    }
+
+    return $total;
+}
+
+function booking_supabase_request_count_for_stage(string $stage): int
+{
+    $count = 0;
+
+    foreach (booking_supabase_request_store() as $entry) {
+        if (($entry['stage'] ?? '') === $stage) {
+            $count += (int)($entry['count'] ?? 0);
+        }
+    }
+
+    return $count;
 }
 
 function booking_log_supabase_transient_error(array $context): void
@@ -129,13 +248,13 @@ function booking_supabase_stage_uses_request_cache(string $stage): bool
         'calendar_form_fields',
         'tenant_branding',
         'service',
+        'service_durations',
         'service_staff',
         'staff',
         'staff_availability',
         'subscription',
         'service_settings',
         'payu_settings',
-        'email_settings',
         'email_templates',
     ], true);
 }
@@ -313,6 +432,8 @@ function supabase_insert(string $url, array $payload, array $headers, string $st
     $durationMs = (int) round(((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000);
     curl_close($ch);
 
+    booking_supabase_request_record('POST', $url, $stage, $httpCode);
+
     $jsonValid = false;
 
     if ($response !== false && $response !== '') {
@@ -370,6 +491,7 @@ function supabase_select(string $url, array $headers, string $stage = 'unknown',
     $temporary = false;
     $attempt = 0;
     $requestCacheKey = '';
+    $persistentCacheKey = '';
 
     if (booking_supabase_stage_uses_request_cache($stage)) {
         $requestCacheKey = hash(
@@ -379,6 +501,25 @@ function supabase_select(string $url, array $headers, string $stage = 'unknown',
 
         if (array_key_exists($requestCacheKey, $requestCache)) {
             return $requestCache[$requestCacheKey];
+        }
+    }
+
+    if (
+        function_exists('booking_context_cache_stage_is_allowed')
+        && booking_context_cache_stage_is_allowed($stage)
+    ) {
+        $persistentCacheKey = booking_context_cache_key($stage, [
+            'url' => $url,
+            'schema' => (string)(getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro'),
+        ]);
+        $persistentResult = booking_context_cache_read($stage, $persistentCacheKey);
+
+        if (is_array($persistentResult)) {
+            if ($requestCacheKey !== '') {
+                $requestCache[$requestCacheKey] = $persistentResult;
+            }
+
+            return $persistentResult;
         }
     }
 
@@ -397,6 +538,8 @@ function supabase_select(string $url, array $headers, string $stage = 'unknown',
         $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $durationMs = (int) round(((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000);
         curl_close($ch);
+
+        booking_supabase_request_record('GET', $url, $stage, $httpCode);
 
         $decoded = null;
         $jsonValid = false;
@@ -460,6 +603,23 @@ function supabase_select(string $url, array $headers, string $stage = 'unknown',
         && is_array($decoded)
     ) {
         $requestCache[$requestCacheKey] = $result;
+    }
+
+    if (
+        $persistentCacheKey !== ''
+        && !$temporary
+        && $httpCode >= 200
+        && $httpCode < 300
+        && $jsonValid
+        && is_array($decoded)
+    ) {
+        booking_context_cache_write(
+            $stage,
+            $persistentCacheKey,
+            $result,
+            booking_context_cache_default_ttl(),
+            max(1, $attempt)
+        );
     }
 
     return $result;
@@ -874,16 +1034,13 @@ function booking_slot_respects_buffer(string $date, string $time, int $bufferMin
     return $slotDateTime >= $minAllowedDateTime;
 }
 
-function staff_slot_matches_schedule(
+function fetch_staff_availability_for_booking_result(
     string $baseUrl,
     array $headers,
     string $tenantId,
     string $staffId,
-    string $date,
-    string $time,
-    int $duration,
-    int $break
-): ?bool {
+    string $date
+): array {
     $weekday = (int) (new DateTimeImmutable($date))->format('N');
     $query = 'select=weekday,start_time,end_time,is_active'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
@@ -895,14 +1052,32 @@ function staff_slot_matches_schedule(
     $result = supabase_select($url, $headers, 'staff_availability', $tenantId);
 
     if (($result['httpCode'] ?? 0) !== 200 || !is_array($result['data'])) {
-        return supabase_select_is_temporary($result) ? null : false;
+        return [
+            'ok' => false,
+            'temporary' => supabase_select_is_temporary($result),
+            'rows' => [],
+        ];
     }
+
+    return [
+        'ok' => true,
+        'temporary' => false,
+        'rows' => $result['data'],
+    ];
+}
+
+function staff_slot_matches_schedule(
+    array $availabilityRows,
+    string $time,
+    int $duration,
+    int $break
+): bool {
 
     $slotMinutes = booking_time_to_minutes($time);
     $duration = max(1, $duration);
     $break = max(0, $break);
 
-    foreach ($result['data'] as $row) {
+    foreach ($availabilityRows as $row) {
         if (!is_array($row)) {
             continue;
         }
@@ -937,7 +1112,8 @@ function staff_slot_is_free(
     string $date,
     string $time,
     int $candidateDuration,
-    int $candidateBreak
+    int $candidateBreak,
+    array $knownServicesById = []
 ): ?bool
 {
     $query = 'tenant_id=eq.' . rawurlencode($tenantId)
@@ -965,13 +1141,32 @@ function staff_slot_is_free(
 
     $settingsByServiceId = [];
 
+    foreach ($knownServicesById as $knownServiceId => $knownService) {
+        if (!is_array($knownService)) {
+            continue;
+        }
+
+        $knownServiceId = trim((string)$knownServiceId);
+
+        if ($knownServiceId === '') {
+            continue;
+        }
+
+        $settingsByServiceId[$knownServiceId] = [
+            'duration' => max(1, (int)($knownService['duration_minutes'] ?? $candidateDuration)),
+            'break' => max(0, (int)($knownService['break_minutes'] ?? $candidateBreak)),
+        ];
+
+        unset($serviceIds[$knownServiceId]);
+    }
+
     if (!empty($serviceIds)) {
         $serviceUrl = rtrim($baseUrl, '/') . '/rest/v1/tenant_services'
             . '?select=id,duration_minutes,break_minutes'
             . '&tenant_id=eq.' . rawurlencode($tenantId)
             . '&id=in.(' . implode(',', array_map('rawurlencode', array_keys($serviceIds))) . ')';
 
-        $serviceResult = supabase_select($serviceUrl, $headers, 'bookings_availability_services', $tenantId);
+        $serviceResult = supabase_select($serviceUrl, $headers, 'service_durations', $tenantId);
 
         if (($serviceResult['httpCode'] ?? 0) !== 200 || !is_array($serviceResult['data'])) {
             if (supabase_select_is_temporary($serviceResult)) {
@@ -1604,6 +1799,15 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     ], 500);
 }
 
+function booking_context_has_feature(array $bookingContext, string $featureKey): bool
+{
+    $features = is_array($bookingContext['plan_context']['features'] ?? null)
+        ? $bookingContext['plan_context']['features']
+        : [];
+
+    return !empty($features[$featureKey]);
+}
+
 $TENANT_ID = '';
 
 // Input
@@ -1924,6 +2128,21 @@ if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
     ], $tenantLookupResponseCode);
 }
 
+$bookingContext = [
+    'tenant_id' => $TENANT_ID,
+    'matched_domain' => (string)($tenantLookup['host'] ?? ''),
+    'calendar_settings' => [],
+    'tenant_branding' => [],
+    'plan_context' => [],
+    'selected_service' => null,
+    'service_staff_ids' => [],
+    'staff' => null,
+    'staff_availability' => [],
+    'service_settings' => null,
+    'public_integrations' => [],
+    'email_template' => null,
+];
+
 $headers = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, false);
 $minimalHeaders = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, true);
 
@@ -1940,6 +2159,7 @@ if (supabase_select_is_temporary($calendarSettingsResult)) {
 }
 
 $calendarSettingsRow = $calendarSettingsResult['data'][0] ?? [];
+$bookingContext['calendar_settings'] = is_array($calendarSettingsRow) ? $calendarSettingsRow : [];
 
 $calendarEnabled = !empty($calendarSettingsRow['calendar_enabled']);
 
@@ -1952,13 +2172,15 @@ if ($calendarEnabled !== true) {
 
 $formFieldsUrl = $SUPABASE_URL
     . '/rest/v1/tenant_branding'
-    . '?tenant_id=eq.' . rawurlencode($TENANT_ID)
+    . '?select=calendar_form_fields,client_name,email_footer_mode,email_footer_custom'
+    . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
     . '&limit=1';
 
 $formFieldsResult = supabase_select($formFieldsUrl, $headers, 'tenant_branding', $TENANT_ID);
 $tenantBrandingRow = is_array($formFieldsResult['data'][0] ?? null)
     ? $formFieldsResult['data'][0]
     : [];
+$bookingContext['tenant_branding'] = $tenantBrandingRow;
 $formFields = is_array($tenantBrandingRow['calendar_form_fields'] ?? null)
     ? $tenantBrandingRow['calendar_form_fields']
     : [];
@@ -2004,6 +2226,14 @@ if ($requirePhone) {
     $phone = '';
 }
 
+$planContext = plan_features_get_context($TENANT_ID, 'booking_log_supabase_transient_error');
+
+if (!empty($planContext['temporary_error'])) {
+    booking_temporary_unavailable('Nie udało się chwilowo sprawdzić uprawnień konta. Spróbuj ponownie za moment.');
+}
+
+$bookingContext['plan_context'] = $planContext;
+
 $staffDisplayName = '';
 $staffServiceName = '';
 $staffServicePrice = null;
@@ -2016,7 +2246,7 @@ $selectedService = null;
 $selectedServiceStaffIds = [];
 
 if ($serviceId !== '') {
-    if (!booking_tenant_has_feature_or_temporary($TENANT_ID, 'multiple_services')) {
+    if (!booking_context_has_feature($bookingContext, 'multiple_services')) {
         json_response([
             'success' => false,
             'error' => 'Wiele usług jest dostępne w wersji Pro.',
@@ -2032,6 +2262,7 @@ if ($serviceId !== '') {
     }
 
     $selectedService = $selectedServiceResult['row'] ?? null;
+    $bookingContext['selected_service'] = $selectedService;
 
     if (!is_array($selectedService) || empty($selectedService['id'])) {
         json_response([
@@ -2054,6 +2285,7 @@ if ($serviceId !== '') {
     }
 
     $selectedServiceStaffIds = $selectedServiceStaffResult['staffIds'];
+    $bookingContext['service_staff_ids'] = $selectedServiceStaffIds;
 
     if (!empty($selectedServiceStaffIds)) {
         if ($staffId === '') {
@@ -2078,7 +2310,7 @@ if ($serviceId !== '') {
 }
 
 if ($staffId !== '') {
-    if (!booking_tenant_has_feature_or_temporary($TENANT_ID, 'staff_module')) {
+    if (!booking_context_has_feature($bookingContext, 'staff_module')) {
         json_response([
             'success' => false,
             'error' => 'Rezerwacja do pracownika jest dostępna w wersji Pro.',
@@ -2087,11 +2319,7 @@ if ($staffId !== '') {
         ], 403);
     }
 
-    $subscriptionContext = plan_features_get_context($TENANT_ID, 'booking_log_supabase_transient_error');
-
-    if (!empty($subscriptionContext['temporary_error'])) {
-        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić abonamentu. Spróbuj ponownie za moment.');
-    }
+    $subscriptionContext = $bookingContext['plan_context'];
 
     $planCode = (string) ($subscriptionContext['subscription_plan_code'] ?? 'free');
     $subscriptionStatus = (string) ($subscriptionContext['status'] ?? '');
@@ -2111,6 +2339,7 @@ if ($staffId !== '') {
     }
 
     $staffRow = $staffResult['row'] ?? null;
+    $bookingContext['staff'] = $staffRow;
 
     if (!is_array($staffRow) || empty($staffRow['id'])) {
         json_response([
@@ -2156,26 +2385,46 @@ if ($staffId !== '') {
         booking_slot_taken_response();
     }
 
-    $staffSlotMatchesSchedule = staff_slot_matches_schedule(
+    $staffAvailabilityResult = fetch_staff_availability_for_booking_result(
         $SUPABASE_URL,
         $headers,
         $TENANT_ID,
         $staffId,
-        $date,
+        $date
+    );
+
+    if (!empty($staffAvailabilityResult['temporary'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić grafiku personelu. Spróbuj ponownie za moment.');
+    }
+
+    if (empty($staffAvailabilityResult['ok'])) {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana godzina jest niedostępna dla tej osoby',
+        ], 409);
+    }
+
+    $bookingContext['staff_availability'] = $staffAvailabilityResult['rows'];
+    $staffSlotMatchesSchedule = staff_slot_matches_schedule(
+        $bookingContext['staff_availability'],
         $time,
         $effectiveDuration,
         $effectiveBreak
     );
-
-    if ($staffSlotMatchesSchedule === null) {
-        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić grafiku personelu. Spróbuj ponownie za moment.');
-    }
 
     if ($staffSlotMatchesSchedule === false) {
         json_response([
             'success' => false,
             'error' => 'Wybrana godzina jest niedostępna dla tej osoby',
         ], 409);
+    }
+
+    $knownServicesById = [];
+
+    $contextService = $bookingContext['selected_service'] ?? null;
+
+    if (is_array($contextService) && !empty($contextService['id'])) {
+        $knownServicesById[(string)$contextService['id']] = $contextService;
     }
 
     $staffSlotIsFree = staff_slot_is_free(
@@ -2186,7 +2435,8 @@ if ($staffId !== '') {
         $date,
         $time,
         $effectiveDuration,
-        $effectiveBreak
+        $effectiveBreak,
+        $knownServicesById
     );
 
     if ($staffSlotIsFree === null) {
@@ -2235,10 +2485,11 @@ $serviceSettings = fetch_single_record(
     $SUPABASE_URL,
     $headers,
     'tenant_service_settings',
-    $tenantQuery,
+    $tenantQuery . '&select=service_name,payment_required,price_amount,price_currency,payment_time_limit_value,payment_time_limit_unit,company_full_name,company_email',
     'service_settings',
     $TENANT_ID
 );
+$bookingContext['service_settings'] = $serviceSettings;
 
 $paymentRequired = false;
 $paymentStatus = 'not_required';
@@ -2255,19 +2506,6 @@ $configuredCurrency = 'PLN';
 $paymentLimitValue = 48;
 $paymentLimitUnit = 'hours';
 $globalPaymentRequiredConfigured = false;
-
-$payuIntegration = fetch_single_record(
-    $SUPABASE_URL,
-    $headers,
-    'tenant_integrations',
-    $tenantQuery . '&provider=eq.payu',
-    'payu_settings',
-    $TENANT_ID
-);
-
-if (is_array($payuIntegration)) {
-    $payuEnabled = !empty($payuIntegration['enabled']);
-}
 
 if (is_array($serviceSettings)) {
     $globalServiceName = trim((string) ($serviceSettings['service_name'] ?? ''));
@@ -2315,11 +2553,10 @@ if ($staffId !== '' && !is_array($selectedService)) {
 }
 
 if (
-    !tenant_has_feature($TENANT_ID, 'online_payments', 'booking_log_supabase_transient_error')
-    || !tenant_has_feature($TENANT_ID, 'payu', 'booking_log_supabase_transient_error')
+    !booking_context_has_feature($bookingContext, 'online_payments')
+    || !booking_context_has_feature($bookingContext, 'payu')
 ) {
     $effectivePaymentRequiredConfigured = false;
-    $payuEnabled = false;
 }
 
 if ($effectivePaymentRequiredConfigured && $effectivePaymentAmount <= 0) {
@@ -2328,6 +2565,23 @@ if ($effectivePaymentRequiredConfigured && $effectivePaymentAmount <= 0) {
         'error' => 'Brak poprawnej kwoty płatności dla wybranej usługi.',
     ], 422);
 }
+
+if ($effectivePaymentRequiredConfigured) {
+    $payuIntegration = fetch_single_record(
+        $SUPABASE_URL,
+        $headers,
+        'tenant_integrations',
+        $tenantQuery . '&provider=eq.payu&select=enabled',
+        'payu_settings',
+        $TENANT_ID
+    );
+
+    if (is_array($payuIntegration)) {
+        $payuEnabled = !empty($payuIntegration['enabled']);
+    }
+}
+
+$bookingContext['public_integrations']['payu_enabled'] = $payuEnabled;
 
 $paymentRequiredConfigured = $effectivePaymentRequiredConfigured;
 $paymentRequired = $paymentRequiredConfigured && $payuEnabled;
@@ -2553,243 +2807,13 @@ if ($staffId === '') {
     }
 }
 
-// Google Calendar — tworzenie wydarzenia po zapisaniu rezerwacji
-try {
-    if ($bookingId !== '') {
-        $bookingForGooglePayload = $bookingPayload;
-        unset($bookingForGooglePayload['staff_id']);
-        unset($bookingForGooglePayload['manage_token'], $bookingForGooglePayload['manage_token_expires_at']);
-
-        $bookingForGoogle = array_merge($bookingForGooglePayload, [
-            'id' => $bookingId,
-            'staff_display_name' => $staffDisplayName,
-            'duration_minutes' => $googleEventDurationMinutes,
-        ]);
-
-        $googleTenantId = (string)($bookingPayload['tenant_id'] ?? '');
-
-        if ($googleTenantId !== '') {
-            $googleEventId = createGoogleCalendarEventForBooking($googleTenantId, $bookingForGoogle);
-
-            if ($googleEventId) {
-                google_calendar_update_booking_event_id($bookingId, $googleEventId, $googleTenantId);
-                debug_log('BOOK_GOOGLE_EVENT_CREATED', $googleEventId);
-            } else {
-                debug_log('BOOK_GOOGLE_EVENT_SKIPPED', 'Brak eventu Google lub integracja nieaktywna');
-            }
-        } else {
-            debug_log('BOOK_GOOGLE_EVENT_SKIPPED', 'Brak tenant_id w bookingPayload');
-        }
-    } else {
-        debug_log('BOOK_GOOGLE_EVENT_SKIPPED', 'Brak booking_id');
-    }
-} catch (Throwable $e) {
-    debug_log('BOOK_GOOGLE_EVENT_ERROR', [
-        'exception_type' => get_class($e),
-        'booking_id' => $bookingId,
-        'tenant_id' => $TENANT_ID,
-    ]);
-}
-
-
-// Maile
+booking_supabase_request_phase('post_insert');
+$postprocessQueued = booking_postprocess_queue_enqueue($bookingId, $TENANT_ID);
 $mailSentClient = false;
 $mailSentAdmin = false;
-$mailErrors = [];
 
-try {
-    $tenantQuery = 'tenant_id=eq.' . rawurlencode($TENANT_ID);
-
-    $emailSettings = fetch_single_record(
-        $SUPABASE_URL,
-        $headers,
-        'email_settings',
-        $tenantQuery . '&is_active=eq.true',
-        'email_settings',
-        $TENANT_ID
-    );
-
-    $emailTemplate = fetch_single_record(
-        $SUPABASE_URL,
-        $headers,
-        'email_templates',
-        $tenantQuery . '&template_key=eq.booking_client_confirmation&is_enabled=eq.true',
-        'email_templates',
-        $TENANT_ID
-    );
-
-    $tenantData = $tenantBrandingRow;
-    $tenantMailData = array_merge(
-        $tenantData,
-        is_array($serviceSettings) ? $serviceSettings : []
-    );
-    $emailSettings = is_array($emailSettings) ? $emailSettings : null;
-    $emailTemplate = is_array($emailTemplate) ? $emailTemplate : null;
-
-    $companyName = (string) ($tenantMailData['client_name'] ?? $tenantMailData['company_full_name'] ?? '');
-    $plan = 'basic';
-    $footerMode = (string) ($tenantMailData['email_footer_mode'] ?? 'system');
-    $footerCustom = (string) ($tenantMailData['email_footer_custom'] ?? '');
-    $effectiveEmailTemplate = $emailTemplate ?? booking_mail_default_client_template();
-
-    if ($staffEmailSubject !== '') {
-        $effectiveEmailTemplate['subject'] = $staffEmailSubject;
-    }
-
-    if ($staffEmailHeading !== '') {
-        $effectiveEmailTemplate['service_name'] = $staffEmailHeading;
-    }
-
-    if ($staffEmailBody !== '') {
-        $effectiveEmailTemplate['body_html'] = $staffEmailBody;
-    }
-
-    $emailHeading = trim((string) ($effectiveEmailTemplate['service_name'] ?? ''));
-
-    if ($emailHeading === '') {
-        $emailHeading = 'Dziękujemy za rezerwację';
-    }
-
-    $bookedServiceName = trim((string) ($serviceNameSnapshot ?? ''));
-
-    $placeholders = [
-        '{name}'    => $name,
-        '{date}'    => $date,
-        '{time}'    => $time,
-        '{email}'   => $email,
-        '{phone}'   => $phone,
-        '{message}' => $note,
-    ];
-
-    $finalSubject = replacePlaceholders((string) ($effectiveEmailTemplate['subject'] ?? ''), $placeholders);
-    $introHtml = replacePlaceholders((string) ($effectiveEmailTemplate['body_html'] ?? ''), $placeholders);
-
-    $adminFinalSubject = 'Nowa rezerwacja – ' . $date . ' ' . $time;
-    $adminIntroHtml =
-        '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">'
-        . 'W systemie pojawiła się nowa rezerwacja. Szczegóły rezerwacji znajdują się poniżej.'
-        . '</p>';
-
-    $footerHtml = buildFooter($plan, $footerMode, $footerCustom);
-    $rescheduleUrl = '';
-
-    if (tenant_has_feature($TENANT_ID, 'reschedule_booking', 'booking_log_supabase_transient_error')) {
-        $rescheduleUrl = bookingBuildRescheduleUrl($manageToken, $manageTokenExpiresAt);
-    }
-
-    if (!$paymentRequired) {
-        $mailSentClient = booking_mail_send_client_confirmation_with_fallback(
-            $emailSettings,
-            $effectiveEmailTemplate,
-            $tenantMailData,
-            [
-                'id' => $bookingId,
-                'name' => $name,
-                'email' => $email,
-                'phone' => $phone,
-                'booking_date' => $date,
-                'booking_time' => $time,
-                'notes' => $note,
-                'service_name_snapshot' => $bookedServiceName,
-                'staff_display_name' => $staffDisplayName,
-                'payment_required' => false,
-                'payment_status' => 'not_required',
-            ],
-            [
-                'reschedule_url' => $rescheduleUrl,
-            ]
-        );
-    }
-
-    if ($paymentRequired) {
-        debug_log('BOOK_CLIENT_EMAIL_SKIPPED_PAYMENT_REQUIRED', [
-            'booking_id' => $bookingId,
-            'payment_required' => true,
-            'payment_status' => $paymentStatus,
-        ]);
-    }
-
-    if (booking_mail_admin_notification_enabled($emailSettings)) {
-        $adminAccount = fetch_single_record(
-            $SUPABASE_URL,
-            $headers,
-            'users',
-            $tenantQuery . '&select=email&role=in.(admin,administrator)&is_active=eq.true'
-        );
-        $adminAccountEmail = trim((string)($adminAccount['email'] ?? ''));
-        $adminNotifyEmail = booking_mail_admin_notification_email(
-            $tenantMailData,
-            $emailSettings,
-            $adminAccountEmail
-        );
-
-        if ($adminNotifyEmail !== '') {
-            $adminHtml = buildAdminEmailHtml(
-                $adminIntroHtml,
-                $companyName,
-                $footerHtml,
-                $name,
-                $email,
-                $phone,
-                $date,
-                $time,
-                $note,
-                $staffDisplayName
-            );
-
-            $adminAltBody =
-                "Nowa rezerwacja\n\n" .
-                "Imię: {$name}\n" .
-                "E-mail: {$email}\n" .
-                "Telefon: {$phone}\n" .
-                "Data: {$date}\n" .
-                ($staffDisplayName !== '' ? "Personel: {$staffDisplayName}\n" : '') .
-                "Godzina: {$time}\n" .
-                ($note !== '' ? "Wiadomość klienta: {$note}\n" : '') .
-                "\n";
-
-            $mailSentAdmin = booking_mail_send_admin_notification_with_fallback(
-                $emailSettings,
-                $tenantMailData,
-                [
-                    'id' => $bookingId,
-                    'name' => $name,
-                    'email' => $email,
-                    'phone' => $phone,
-                    'booking_date' => $date,
-                    'booking_time' => $time,
-                    'notes' => $note,
-                    'service_name_snapshot' => $bookedServiceName,
-                    'staff_display_name' => $staffDisplayName,
-                    'payment_required' => $paymentRequired,
-                    'payment_status' => $paymentStatus,
-                    'payment_amount' => $paymentAmount,
-                    'payment_currency' => $paymentCurrency,
-                ],
-                $adminNotifyEmail,
-                $adminFinalSubject,
-                $adminHtml,
-                $adminAltBody
-            );
-
-            if (!$mailSentAdmin) {
-                debug_log('BOOK_ADMIN_EMAIL_SEND_FAILED', [
-                    'booking_id' => $bookingId,
-                    'tenant_id' => $TENANT_ID,
-                    'has_tenant_smtp' => booking_mail_has_usable_smtp($emailSettings),
-                ]);
-            }
-        } else {
-            debug_log('BOOK_ADMIN_EMAIL_RECIPIENT_MISSING', [
-                'booking_id' => $bookingId,
-                'tenant_id' => $TENANT_ID,
-            ]);
-        }
-    }
-} catch (Exception $e) {
-    $mailErrors[] = $e->getMessage();
-    debug_log('BOOK_MAIL_ERROR', [
-        'exception_type' => get_class($e),
+if (!$postprocessQueued) {
+    debug_log('BOOK_POSTPROCESS_ENQUEUE_FAILED', [
         'booking_id' => $bookingId,
         'tenant_id' => $TENANT_ID,
     ]);
@@ -2813,4 +2837,6 @@ json_response([
 
     'mail_sent_client' => $mailSentClient,
     'mail_sent_admin' => $mailSentAdmin,
+    'mail_queued' => $postprocessQueued,
+    'postprocess_queued' => $postprocessQueued,
 ], 200);
