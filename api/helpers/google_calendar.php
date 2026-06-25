@@ -120,14 +120,111 @@ function google_calendar_http_request(
     ];
 }
 
+function google_calendar_execution_result(string $status, string $reason = '', array $context = []): array
+{
+    $result = ['status' => $status];
+
+    if ($reason !== '') {
+        $result['reason'] = $reason;
+    }
+
+    foreach ($context as $key => $value) {
+        if (is_scalar($value) || $value === null) {
+            $result[$key] = $value;
+        }
+    }
+
+    return $result;
+}
+
+function google_calendar_is_temporary_http_failure(array $result): bool
+{
+    $httpCode = (int) ($result['http_code'] ?? 0);
+
+    return !empty($result['error'])
+        || $httpCode === 0
+        || $httpCode === 408
+        || $httpCode === 429
+        || $httpCode >= 500;
+}
+
+function google_calendar_api_error_code(array $data): string
+{
+    $error = $data['error'] ?? '';
+
+    if (is_string($error)) {
+        return strtolower(trim($error));
+    }
+
+    if (!is_array($error)) {
+        return '';
+    }
+
+    foreach (['status', 'reason', 'code'] as $key) {
+        $value = $error[$key] ?? '';
+
+        if (is_scalar($value) && trim((string) $value) !== '') {
+            return strtolower(trim((string) $value));
+        }
+    }
+
+    $errors = $error['errors'] ?? [];
+
+    if (is_array($errors)) {
+        foreach ($errors as $item) {
+            if (!is_array($item)) {
+                continue;
+            }
+
+            $reason = $item['reason'] ?? '';
+
+            if (is_scalar($reason) && trim((string) $reason) !== '') {
+                return strtolower(trim((string) $reason));
+            }
+        }
+    }
+
+    return '';
+}
+
+function google_calendar_is_permanent_oauth_error(array $data): bool
+{
+    return in_array(google_calendar_api_error_code($data), [
+        'access_denied',
+        'deleted_client',
+        'disabled_client',
+        'invalid_client',
+        'invalid_grant',
+        'invalid_request',
+        'unauthorized_client',
+    ], true);
+}
+
+function google_calendar_is_temporary_google_api_failure(array $result): bool
+{
+    if (google_calendar_is_temporary_http_failure($result)) {
+        return true;
+    }
+
+    $data = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+    return in_array(google_calendar_api_error_code($data), [
+        'backenderror',
+        'internalerror',
+        'ratelimitexceeded',
+        'userratelimitexceeded',
+    ], true);
+}
+
 function google_calendar_get_integration(string $tenantId, ?array &$lookupResult = null): ?array
 {
-    $lookupResult = ['status' => 'failed'];
+    $lookupResult = google_calendar_execution_result('failed', 'unknown');
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
+        $lookupResult = google_calendar_execution_result('skipped', 'missing_supabase_config');
         return null;
     }
 
@@ -141,30 +238,65 @@ function google_calendar_get_integration(string $tenantId, ?array &$lookupResult
     $result = google_calendar_supabase_request($url, 'GET', $supabaseKey, $schema);
 
     if ($result['error'] || $result['http_code'] !== 200) {
+        $lookupResult = google_calendar_execution_result(
+            google_calendar_is_temporary_http_failure($result) ? 'failed' : 'skipped',
+            google_calendar_is_temporary_http_failure($result)
+                ? 'integration_lookup_temporary'
+                : 'integration_lookup_rejected',
+            ['http_code' => (int) ($result['http_code'] ?? 0)]
+        );
         return null;
     }
 
     $row = $result['data'][0] ?? null;
 
-    if (!$row || empty($row['enabled'])) {
-        $lookupResult = ['status' => 'skipped'];
+    if (!$row) {
+        $lookupResult = google_calendar_execution_result('skipped', 'integration_missing');
+        return null;
+    }
+
+    if (!filter_var($row['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        $lookupResult = google_calendar_execution_result('skipped', 'integration_disabled');
+        return null;
+    }
+
+    if (trim((string) ($row['disconnected_at'] ?? '')) !== '') {
+        $lookupResult = google_calendar_execution_result('skipped', 'integration_disconnected');
         return null;
     }
 
     $settings = is_array($row['settings'] ?? null) ? $row['settings'] : [];
-    $storedSecrets = is_array($row['secrets'] ?? null) ? $row['secrets'] : [];
+
+    if (trim((string) ($settings['calendar_id'] ?? '')) === '') {
+        $lookupResult = google_calendar_execution_result('skipped', 'missing_calendar_id');
+        return null;
+    }
+
+    if (!is_array($row['secrets'] ?? null) || empty($row['secrets'])) {
+        $lookupResult = google_calendar_execution_result('skipped', 'missing_secrets');
+        return null;
+    }
+
+    $storedSecrets = $row['secrets'];
 
     try {
         $secrets = decrypt_json_secret($storedSecrets);
     } catch (Throwable $e) {
+        $lookupResult = google_calendar_execution_result('skipped', 'secrets_decrypt_failed');
+        return null;
+    }
+
+    if (!is_array($secrets)) {
+        $lookupResult = google_calendar_execution_result('skipped', 'secrets_invalid');
         return null;
     }
 
     if (empty($secrets['access_token']) && empty($secrets['refresh_token'])) {
+        $lookupResult = google_calendar_execution_result('skipped', 'missing_tokens');
         return null;
     }
 
-    $lookupResult = ['status' => 'done'];
+    $lookupResult = google_calendar_execution_result('done');
 
     return [
         'settings' => $settings,
@@ -220,17 +352,21 @@ function google_calendar_save_secrets(string $tenantId, array $settings, array $
 function google_calendar_refresh_access_token_if_needed(
     string $tenantId,
     array $settings,
-    array $secrets
+    array $secrets,
+    ?array &$refreshResult = null
 ): ?array {
+    $refreshResult = google_calendar_execution_result('failed', 'unknown');
     $accessToken = (string) ($secrets['access_token'] ?? '');
     $refreshToken = (string) ($secrets['refresh_token'] ?? '');
     $tokenExpiresAt = strtotime((string) ($secrets['token_expires_at'] ?? ''));
 
     if ($accessToken !== '' && $tokenExpiresAt && $tokenExpiresAt > (time() + 120)) {
+        $refreshResult = google_calendar_execution_result('done');
         return $secrets;
     }
 
     if ($refreshToken === '') {
+        $refreshResult = google_calendar_execution_result('skipped', 'missing_refresh_token');
         return null;
     }
 
@@ -238,6 +374,7 @@ function google_calendar_refresh_access_token_if_needed(
     $googleClientSecret = trim((string) getenv('GOOGLE_CLIENT_SECRET'));
 
     if ($googleClientId === '' || $googleClientSecret === '') {
+        $refreshResult = google_calendar_execution_result('skipped', 'missing_google_oauth_client_config');
         return null;
     }
 
@@ -267,13 +404,40 @@ function google_calendar_refresh_access_token_if_needed(
 
     curl_close($ch);
 
+    $data = json_decode((string) $response, true);
+    $data = is_array($data) ? $data : [];
+    $tokenResult = [
+        'http_code' => $httpCode,
+        'error' => $curlError,
+        'data' => $data,
+    ];
+
     if ($curlError || $httpCode < 200 || $httpCode >= 300) {
+        if (google_calendar_is_temporary_http_failure($tokenResult)) {
+            $refreshResult = google_calendar_execution_result(
+                'failed',
+                'token_refresh_temporary',
+                ['http_code' => $httpCode]
+            );
+        } elseif (google_calendar_is_permanent_oauth_error($data)) {
+            $refreshResult = google_calendar_execution_result(
+                'skipped',
+                'token_refresh_permanent',
+                ['http_code' => $httpCode]
+            );
+        } else {
+            $refreshResult = google_calendar_execution_result(
+                'skipped',
+                'token_refresh_rejected',
+                ['http_code' => $httpCode]
+            );
+        }
+
         return null;
     }
 
-    $data = json_decode((string) $response, true);
-
     if (!is_array($data) || empty($data['access_token'])) {
+        $refreshResult = google_calendar_execution_result('skipped', 'token_refresh_missing_access_token');
         return null;
     }
 
@@ -287,6 +451,8 @@ function google_calendar_refresh_access_token_if_needed(
     ]);
 
     google_calendar_save_secrets($tenantId, $settings, $updatedSecrets);
+
+    $refreshResult = google_calendar_execution_result('done');
 
     return $updatedSecrets;
 }
@@ -497,18 +663,19 @@ function createGoogleCalendarEventForBooking(
     ?array &$executionResult = null
 ): ?string
 {
-    $executionResult = ['status' => 'failed'];
+    $executionResult = google_calendar_execution_result('failed', 'unknown');
     $integrationLookup = null;
     $integration = google_calendar_get_integration($tenantId, $integrationLookup);
 
     if (!$integration) {
-        $executionResult = [
-            'status' => ($integrationLookup['status'] ?? '') === 'skipped'
-                ? 'skipped'
-                : 'failed',
-        ];
-        google_calendar_debug('NO_INTEGRATION_OR_DISABLED', [
+        $executionResult = is_array($integrationLookup)
+            ? $integrationLookup
+            : google_calendar_execution_result('failed', 'integration_lookup_unknown');
+        google_calendar_debug('GOOGLE_CALENDAR_INTEGRATION_UNAVAILABLE', [
             'tenant_ref' => substr(hash('sha256', $tenantId), 0, 16),
+            'status' => $executionResult['status'] ?? 'failed',
+            'reason' => $executionResult['reason'] ?? 'unknown',
+            'http_code' => $executionResult['http_code'] ?? null,
         ]);
         return null;
     }
@@ -522,21 +689,25 @@ function createGoogleCalendarEventForBooking(
     $settings = $integration['settings'];
     $secrets = $integration['secrets'];
 
-    $secrets = google_calendar_refresh_access_token_if_needed($tenantId, $settings, $secrets);
+    $refreshResult = null;
+    $secrets = google_calendar_refresh_access_token_if_needed($tenantId, $settings, $secrets, $refreshResult);
 
     if (!$secrets || empty($secrets['access_token'])) {
-        google_calendar_debug('NO_ACCESS_TOKEN_AFTER_REFRESH');
+        $executionResult = is_array($refreshResult)
+            ? $refreshResult
+            : google_calendar_execution_result('failed', 'token_refresh_unknown');
+        google_calendar_debug('GOOGLE_CALENDAR_TOKEN_UNAVAILABLE', [
+            'status' => $executionResult['status'] ?? 'failed',
+            'reason' => $executionResult['reason'] ?? 'unknown',
+            'http_code' => $executionResult['http_code'] ?? null,
+        ]);
         return null;
     }
 
-    $calendarId = trim((string) ($settings['calendar_id'] ?? 'primary'));
-
-    if ($calendarId === '') {
-        $calendarId = 'primary';
-    }
+    $calendarId = trim((string) ($settings['calendar_id'] ?? ''));
 
     google_calendar_debug('CALENDAR_SELECTED', [
-        'is_primary' => $calendarId === 'primary',
+        'has_calendar_id' => $calendarId !== '',
     ]);
 
     try {
@@ -546,6 +717,7 @@ function createGoogleCalendarEventForBooking(
             'has_end' => !empty($event['end']['dateTime'] ?? ''),
         ]);
     } catch (Throwable $e) {
+        $executionResult = google_calendar_execution_result('skipped', 'build_event_failed');
         google_calendar_debug('BUILD_EVENT_ERROR', [
             'exception' => get_class($e),
         ]);
@@ -574,13 +746,28 @@ function createGoogleCalendarEventForBooking(
     ]);
 
     if ($result['error'] || $result['http_code'] < 200 || $result['http_code'] >= 300) {
+        $isTemporary = google_calendar_is_temporary_google_api_failure($result);
+        $executionResult = google_calendar_execution_result(
+            $isTemporary ? 'failed' : 'skipped',
+            $isTemporary
+                ? 'google_api_temporary'
+                : 'google_api_permanent',
+            ['http_code' => (int) ($result['http_code'] ?? 0)]
+        );
+        google_calendar_debug('GOOGLE_CALENDAR_CREATE_FAILED', [
+            'status' => $executionResult['status'] ?? 'failed',
+            'reason' => $executionResult['reason'] ?? 'unknown',
+            'http_code' => $executionResult['http_code'] ?? null,
+        ]);
         return null;
     }
 
     $googleEventId = (string) ($result['data']['id'] ?? '');
 
     if ($googleEventId !== '') {
-        $executionResult = ['status' => 'done'];
+        $executionResult = google_calendar_execution_result('done');
+    } else {
+        $executionResult = google_calendar_execution_result('skipped', 'missing_event_id');
     }
 
     google_calendar_debug('GOOGLE_EVENT_CREATED', [
