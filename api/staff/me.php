@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -13,7 +14,7 @@ start_secure_session();
 function staff_me_json(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo json_encode(public_response_sanitize($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 

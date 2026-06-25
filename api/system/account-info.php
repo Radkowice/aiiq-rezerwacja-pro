@@ -5,6 +5,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -15,7 +16,7 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 function account_info_json(int $status, array $payload): void
 {
     http_response_code($status);
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo json_encode(public_response_sanitize($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -347,7 +348,7 @@ $headers = supabaseHeaders($supabaseKey, $schema);
 $headers[] = 'Content-Type: application/json';
 
 $userUrl = $supabaseUrl
-    . '/rest/v1/users?select=id,email,tenant_id,role,is_active'
+    . '/rest/v1/users?select=email,role,is_active'
     . '&id=eq.' . rawurlencode($userId)
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&limit=1';
@@ -371,7 +372,7 @@ if (!is_array($user)) {
 }
 
 $brandingUrl = $supabaseUrl
-    . '/rest/v1/tenant_branding?select=tenant_id,client_name,client_number,company_id,service_title_front,logo_url_front,favicon_url_front'
+    . '/rest/v1/tenant_branding?select=client_name,client_number,service_title_front,logo_url_front,favicon_url_front'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&limit=1';
 
@@ -408,7 +409,7 @@ if (!$companyResult['ok']) {
 $company = $companyResult['data'][0] ?? null;
 
 $subscriptionUrl = $supabaseUrl
-    . '/rest/v1/tenant_subscriptions?select=tenant_id,plan_code,plan_name,billing_period,status,amount,currency,current_period_start,current_period_end,next_payment_due_at,grace_period_days,suspended_at,cancelled_at,last_payment_at,last_reminder_at,reminder_count,notes'
+    . '/rest/v1/tenant_subscriptions?select=plan_code,plan_name,billing_period,status,amount,currency,current_period_start,current_period_end,next_payment_due_at,grace_period_days,suspended_at,cancelled_at,last_payment_at,last_reminder_at,reminder_count,notes'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&limit=1';
 
@@ -429,6 +430,7 @@ account_info_json(200, [
     'success' => true,
     'user' => $user,
     'branding' => is_array($branding) ? $branding : null,
+    'public_identity' => public_response_identity(is_array($branding) ? $branding : null),
     'company' => is_array($company) ? $company : null,
     'subscription' => is_array($subscription) ? $subscription : null,
     'subscription_notice' => $subscriptionNotice,

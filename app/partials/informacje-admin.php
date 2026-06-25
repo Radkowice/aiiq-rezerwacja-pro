@@ -73,7 +73,7 @@
           <li>płatności online przez PayU,</li>
           <li>integrację z Google Calendar,</li>
           <li>własne logo, faviconę i wygląd kalendarza,</li>
-          <li>dodasz swój regulamin i politykę prywatności,</li>
+          <li>dokumenty prawne klienta,</li>
           <li>zmianę terminu rezerwacji przez klienta,</li>
           <li>automatyczne przypomnienia e-mail,</li>
           <li>większą kontrolę nad rezerwacjami, blokadami i dostępnością.</li>
@@ -184,16 +184,6 @@
           <div class="admin-info-row">
             <span>Numer klienta</span>
             <strong id="info-client-number">—</strong>
-          </div>
-
-          <div class="admin-info-row">
-            <span>Identyfikator firmy</span>
-            <strong id="info-company-id">—</strong>
-          </div>
-
-          <div class="admin-info-row">
-            <span>Tenant ID</span>
-            <strong id="info-tenant-id">—</strong>
           </div>
 
           <div class="admin-info-row">

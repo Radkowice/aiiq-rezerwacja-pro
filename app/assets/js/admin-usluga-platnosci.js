@@ -421,7 +421,6 @@
   function normalizeService(row) {
     return {
       id: row?.id ? String(row.id) : (row?.service_id ? String(row.service_id) : ''),
-      tenant_id: row?.tenant_id ? String(row.tenant_id) : '',
       name: row?.name ? String(row.name) : '',
       description: row?.description ? String(row.description) : '',
       duration_minutes: normalizeInteger(row?.duration_minutes, 60),

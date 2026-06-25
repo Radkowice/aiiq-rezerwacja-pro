@@ -5,6 +5,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -79,7 +80,7 @@ try {
 $headers = supabaseHeaders($supabaseKey, $schema);
 
 $userUrl = $supabaseUrl
-    . '/rest/v1/users?select=id,email,tenant_id,role'
+    . '/rest/v1/users?select=email,role'
     . '&id=eq.' . rawurlencode($userId)
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&limit=1';
@@ -126,7 +127,7 @@ if (!is_array($userData) || empty($userData[0])) {
 }
 
 $brandingUrl = $supabaseUrl
-    . '/rest/v1/tenant_branding?select=client_name,client_number,admin_theme,company_id,service_title_front,logo_url_front,favicon_url_front,reservations_style,calendar_front_style,calendar_form_fields'
+    . '/rest/v1/tenant_branding?select=client_name,client_number,admin_theme,service_title_front,logo_url_front,favicon_url_front,reservations_style,calendar_front_style,calendar_form_fields'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&limit=1';
 
@@ -170,9 +171,12 @@ if (is_array($branding)) {
     $branding['favicon_url_front'] = branding_asset_public_url((string)($branding['favicon_url_front'] ?? ''), $tenantId, 'favicon');
 }
 
-echo json_encode([
+$payload = [
     'success' => true,
     'user' => $userData[0],
     'branding' => $branding,
+    'public_identity' => public_response_identity(is_array($branding) ? $branding : null),
     'plan_context' => $planContext
-], JSON_UNESCAPED_UNICODE);
+];
+
+echo json_encode(public_response_sanitize($payload), JSON_UNESCAPED_UNICODE);

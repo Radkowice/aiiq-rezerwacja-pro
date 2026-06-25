@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -130,16 +131,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $rows = json_decode($response, true);
 
     if (!is_array($rows) || empty($rows[0]) || !is_array($rows[0])) {
-        echo json_encode([
+        echo json_encode(public_response_sanitize([
             'success' => true,
             'documents' => legal_default_payload($tenantId)
-        ], JSON_UNESCAPED_UNICODE);
+        ]), JSON_UNESCAPED_UNICODE);
         exit;
     }
 
     $row = $rows[0];
 
-    echo json_encode([
+    echo json_encode(public_response_sanitize([
         'success' => true,
         'documents' => [
             'tenant_id' => (string) ($row['tenant_id'] ?? $tenantId),
@@ -150,7 +151,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             'is_enabled' => !empty($row['is_enabled']),
             'updated_at' => $row['updated_at'] ?? null,
         ]
-    ], JSON_UNESCAPED_UNICODE);
+    ]), JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -224,8 +225,8 @@ if ($httpCode < 200 || $httpCode >= 300) {
     exit;
 }
 
-echo json_encode([
+echo json_encode(public_response_sanitize([
     'success' => true,
     'message' => 'Dokumenty prawne zapisane',
     'saved_fields' => array_keys($data)
-], JSON_UNESCAPED_UNICODE);
+]), JSON_UNESCAPED_UNICODE);

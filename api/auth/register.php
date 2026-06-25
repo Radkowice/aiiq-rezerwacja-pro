@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
@@ -722,7 +723,7 @@ try {
 function json_response(array $payload, int $status = 200): void
 {
     http_response_code($status);
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo json_encode(public_response_sanitize($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 

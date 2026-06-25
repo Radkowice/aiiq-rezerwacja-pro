@@ -2,11 +2,6 @@ function getPaymentReturnEl(id) {
   return document.getElementById(id);
 }
 
-function getPaymentReturnBookingId() {
-  const params = new URLSearchParams(window.location.search);
-  return String(params.get('booking_id') || '').trim();
-}
-
 function formatPaymentReturnDate(dateStr) {
   if (!dateStr) return '—';
 
@@ -132,16 +127,8 @@ function applyPaymentReturnStatus(paymentStatus, context = {}) {
 }
 
 async function loadPaymentReturnData() {
-  const bookingId = getPaymentReturnBookingId();
-
-  if (!bookingId) {
-    applyPaymentReturnStatus('pending');
-    setPaymentReturnText('paymentReturnServiceName', 'Nie znaleziono numeru rezerwacji');
-    return;
-  }
-
   try {
-    const res = await fetch(`/api/payments/payment-return-status.php?booking_id=${encodeURIComponent(bookingId)}`, {
+    const res = await fetch('/api/payments/payment-return-status.php', {
       cache: 'no-store'
     });
 

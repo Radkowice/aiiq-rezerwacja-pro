@@ -2236,14 +2236,7 @@ if (FRONT_STAFF_REQUIRED) {
       return;
     }
     
-        if (result.payment_required === true) {
-      const bookingId = result.booking_id || '';
-
-      if (!bookingId) {
-        showError('Rezerwacja została zapisana, ale nie udało się rozpocząć płatności. Skontaktuj się z obsługą.');
-        return;
-      }
-
+    if (result.payment_required === true) {
       bookBtn.innerHTML = '⏳ Przekierowanie do płatności...';
 
       const payuRes = await fetch('/api/payments/payu-create-order.php', {
@@ -2251,9 +2244,7 @@ if (FRONT_STAFF_REQUIRED) {
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          booking_id: bookingId
-        })
+        body: JSON.stringify({})
       });
 
       const payuText = await payuRes.text();

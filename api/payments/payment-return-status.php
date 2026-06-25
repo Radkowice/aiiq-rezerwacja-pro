@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
+require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../system/tenant.php';
+
+start_secure_session();
 
 function payment_return_response(array $payload, int $statusCode = 200): void
 {
@@ -48,6 +51,40 @@ function payment_return_supabase_get(string $url, string $key, string $schema): 
     ];
 }
 
+function payment_return_session_booking_id(string $tenantId): string
+{
+    $handoff = $_SESSION['booking_payment_return_handoff'] ?? null;
+
+    if (!is_array($handoff)) {
+        return '';
+    }
+
+    $bookingId = trim((string)($handoff['booking_id'] ?? ''));
+    $handoffTenantId = trim((string)($handoff['tenant_id'] ?? ''));
+    $createdAt = (int)($handoff['created_at'] ?? 0);
+
+    if ($bookingId === '' || $handoffTenantId === '' || $createdAt <= 0) {
+        unset($_SESSION['booking_payment_return_handoff']);
+        return '';
+    }
+
+    if (time() - $createdAt > 7200) {
+        unset($_SESSION['booking_payment_return_handoff']);
+        return '';
+    }
+
+    if (!hash_equals($tenantId, $handoffTenantId)) {
+        return '';
+    }
+
+    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
+        unset($_SESSION['booking_payment_return_handoff']);
+        return '';
+    }
+
+    return $bookingId;
+}
+
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
         header('Allow: GET');
@@ -59,19 +96,12 @@ try {
 
     $bookingId = trim((string)($_GET['booking_id'] ?? ''));
 
-  if ($bookingId === '') {
-    payment_return_response([
-        'success' => false,
-        'error' => 'Brak wymaganych danych.'
-    ], 400);
-}
-
-if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
-    payment_return_response([
-        'success' => false,
-        'error' => 'Nieprawidłowy identyfikator rezerwacji.'
-    ], 400);
-}
+    if ($bookingId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
+        payment_return_response([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator rezerwacji.'
+        ], 400);
+    }
 
     $supabaseUrl = rtrim((string)getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string)getenv('SUPABASE_SERVICE_ROLE_KEY');
@@ -93,9 +123,20 @@ if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
         ], 404);
     }
 
+    if ($bookingId === '') {
+        $bookingId = payment_return_session_booking_id((string)$tenantId);
+    }
+
+    if ($bookingId === '') {
+        payment_return_response([
+            'success' => false,
+            'error' => 'Brak aktywnej rezerwacji do sprawdzenia płatności.'
+        ], 400);
+    }
+
     $bookingUrl = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=id,tenant_id,name,booking_date,booking_time,service_name_snapshot,payment_status,payment_required,payment_amount,payment_currency'
+        . '?select=tenant_id,name,booking_date,booking_time,service_name_snapshot,payment_status,payment_required,payment_amount,payment_currency'
         . '&id=eq.' . rawurlencode($bookingId)
         . '&tenant_id=eq.' . rawurlencode((string)$tenantId)
         . '&limit=1';
@@ -147,7 +188,6 @@ if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
     payment_return_response([
         'success' => true,
         'booking' => [
-            'id' => $booking['id'] ?? '',
             'booking_date' => $booking['booking_date'] ?? '',
             'name' => $booking['name'] ?? '',
             'service_name_snapshot' => $booking['service_name_snapshot'] ?? '',

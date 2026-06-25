@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -45,7 +46,7 @@ if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)
 function sendServiceSettingsJson(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    echo json_encode(public_response_sanitize($payload), JSON_UNESCAPED_UNICODE);
     exit;
 }
 

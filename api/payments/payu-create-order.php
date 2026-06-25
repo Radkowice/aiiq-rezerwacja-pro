@@ -3,9 +3,12 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
+require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/payu.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../system/tenant.php';
+
+start_secure_session();
 
 function payu_create_order_response(array $payload, int $statusCode = 200): void
 {
@@ -23,6 +26,72 @@ function payu_get_json_input(): array
 
     $data = json_decode($raw, true);
     return is_array($data) ? $data : [];
+}
+
+function payu_get_session_booking_handoff(string $tenantId): string
+{
+    $handoff = $_SESSION['booking_payment_handoff'] ?? null;
+
+    if (!is_array($handoff)) {
+        return '';
+    }
+
+    $bookingId = trim((string)($handoff['booking_id'] ?? ''));
+    $handoffTenantId = trim((string)($handoff['tenant_id'] ?? ''));
+    $createdAt = (int)($handoff['created_at'] ?? 0);
+
+    if ($bookingId === '' || $handoffTenantId === '' || $createdAt <= 0) {
+        unset($_SESSION['booking_payment_handoff']);
+        return '';
+    }
+
+    if (time() - $createdAt > 1200) {
+        unset($_SESSION['booking_payment_handoff']);
+        return '';
+    }
+
+    if (!hash_equals($tenantId, $handoffTenantId)) {
+        return '';
+    }
+
+    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
+        unset($_SESSION['booking_payment_handoff']);
+        return '';
+    }
+
+    return $bookingId;
+}
+
+function payu_clear_session_booking_handoff(string $tenantId, string $bookingId): void
+{
+    $handoff = $_SESSION['booking_payment_handoff'] ?? null;
+
+    if (!is_array($handoff)) {
+        return;
+    }
+
+    $handoffBookingId = trim((string)($handoff['booking_id'] ?? ''));
+    $handoffTenantId = trim((string)($handoff['tenant_id'] ?? ''));
+
+    if (hash_equals($tenantId, $handoffTenantId) && hash_equals($bookingId, $handoffBookingId)) {
+        unset($_SESSION['booking_payment_handoff']);
+    }
+}
+
+function payu_store_session_payment_return_handoff(string $tenantId, string $bookingId): void
+{
+    $tenantId = trim($tenantId);
+    $bookingId = trim($bookingId);
+
+    if ($tenantId === '' || $bookingId === '') {
+        return;
+    }
+
+    $_SESSION['booking_payment_return_handoff'] = [
+        'booking_id' => $bookingId,
+        'tenant_id' => $tenantId,
+        'created_at' => time(),
+    ];
 }
 
 function payu_get_customer_ip(): string
@@ -297,14 +366,7 @@ try {
     $input = payu_get_json_input();
     $bookingId = trim((string) ($input['booking_id'] ?? ''));
 
-    if ($bookingId === '') {
-        payu_create_order_response([
-            'success' => false,
-            'error' => 'Brak booking_id.'
-        ], 400);
-    }
-
-    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
+    if ($bookingId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
         payu_create_order_response([
             'success' => false,
             'error' => 'Nieprawidłowy identyfikator rezerwacji.'
@@ -329,6 +391,17 @@ try {
             'success' => false,
             'error' => 'Nie rozpoznano klienta.'
         ], 404);
+    }
+
+    if ($bookingId === '') {
+        $bookingId = payu_get_session_booking_handoff((string) $hostTenantId);
+    }
+
+    if ($bookingId === '') {
+        payu_create_order_response([
+            'success' => false,
+            'error' => 'Brak aktywnej rezerwacji do płatności.'
+        ], 400);
     }
 
     $booking = payu_fetch_booking($bookingId, (string) $hostTenantId);
@@ -436,7 +509,7 @@ try {
 
     $orderPayload = [
         'notifyUrl' => $publicBaseUrl . '/api/payments/payu-notify.php',
-        'continueUrl' => $publicBaseUrl . '/platnosc-powrot.html?booking_id=' . rawurlencode($bookingId),
+        'continueUrl' => $publicBaseUrl . '/platnosc-powrot.html',
         'customerIp' => payu_get_customer_ip(),
         'merchantPosId' => $payu['pos_id'],
         'description' => $description,
@@ -502,7 +575,6 @@ try {
             'success' => false,
             'error' => 'Zamówienie PayU utworzone, ale nie udało się zapisać danych płatności w rezerwacji.',
             'payment_url' => $redirectUri,
-            'payment_order_id' => $orderId,
         ], 500);
     }
 
@@ -522,10 +594,12 @@ try {
         'email_sent' => $pendingEmailSent,
     ]);
 
+    payu_store_session_payment_return_handoff((string) $hostTenantId, $bookingId);
+    payu_clear_session_booking_handoff((string) $hostTenantId, $bookingId);
+
     payu_create_order_response([
         'success' => true,
         'payment_url' => $redirectUri,
-        'payment_order_id' => $orderId,
         'pending_email_sent' => $pendingEmailSent,
     ]);
 

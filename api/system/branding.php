@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -240,8 +241,8 @@ if ($httpCode < 200 || $httpCode >= 300) {
     exit;
 }
 
-echo json_encode([
+echo json_encode(public_response_sanitize([
     'success' => true,
     'message' => 'Branding zapisany',
     'saved_fields' => array_keys($data)
-], JSON_UNESCAPED_UNICODE);
+]), JSON_UNESCAPED_UNICODE);

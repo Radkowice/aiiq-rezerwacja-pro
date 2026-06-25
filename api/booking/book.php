@@ -69,6 +69,23 @@ function json_response(array $payload, int $status = 200): void
     exit;
 }
 
+function booking_payment_handoff_store(string $bookingId, string $tenantId): void
+{
+    $bookingId = trim($bookingId);
+    $tenantId = trim($tenantId);
+
+    if ($bookingId === '' || $tenantId === '') {
+        unset($_SESSION['booking_payment_handoff']);
+        return;
+    }
+
+    $_SESSION['booking_payment_handoff'] = [
+        'booking_id' => $bookingId,
+        'tenant_id' => $tenantId,
+        'created_at' => time(),
+    ];
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     header('Allow: POST');
     json_response([
@@ -2836,12 +2853,16 @@ if (!$postprocessQueued) {
     debug_log('BOOK_POSTPROCESS_ENQUEUE_FAILED', $postprocessQueueLogContext);
 }
 
+if ($paymentRequired) {
+    booking_payment_handoff_store($bookingId, $TENANT_ID);
+} else {
+    unset($_SESSION['booking_payment_handoff']);
+}
+
 // Finalna odpowiedź
 json_response([
     'success' => true,
     'message' => 'Rezerwacja zapisana',
-
-    'booking_id' => $bookingId,
 
     'payment_required_configured' => $paymentRequiredConfigured,
     'payment_provider_enabled' => $payuEnabled,
@@ -2852,8 +2873,6 @@ json_response([
     'payment_currency' => $paymentCurrency,
     'payment_expires_at' => $paymentExpiresAt,
 
-    'mail_sent_client' => $mailSentClient,
-    'mail_sent_admin' => $mailSentAdmin,
     'mail_queued' => $postprocessQueued,
     'postprocess_queued' => $postprocessQueued,
 ], 200);

@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 start_secure_session();
 
 header('Content-Type: application/json');
@@ -17,6 +18,5 @@ if (empty($_SESSION['csrf'])) {
 
 echo json_encode([
     "success" => true,
-    "user" => $_SESSION['user']
+    "user" => public_response_sanitize($_SESSION['user'])
 ]);
-

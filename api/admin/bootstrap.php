@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -15,7 +16,7 @@ start_secure_session();
 function admin_bootstrap_json(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    echo json_encode(public_response_sanitize($payload), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -126,7 +127,7 @@ $planContext = plan_features_get_context($tenantId);
 
 $userResult = admin_bootstrap_request(
     $supabaseUrl
-        . '/rest/v1/users?select=id,email,tenant_id,role'
+        . '/rest/v1/users?select=email,role'
         . '&id=eq.' . rawurlencode($userId)
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1',
@@ -152,7 +153,7 @@ if (!$user) {
 
 $brandingResult = admin_bootstrap_request(
     $supabaseUrl
-        . '/rest/v1/tenant_branding?select=client_name,client_number,admin_theme,company_id,service_title_front,logo_url_front,favicon_url_front,reservations_style,calendar_front_style,calendar_form_fields'
+        . '/rest/v1/tenant_branding?select=client_name,client_number,admin_theme,service_title_front,logo_url_front,favicon_url_front,reservations_style,calendar_front_style,calendar_form_fields'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1',
     $supabaseKey,
@@ -177,6 +178,7 @@ admin_bootstrap_json([
     'success' => true,
     'user' => $user,
     'branding' => $branding,
+    'public_identity' => public_response_identity(is_array($branding) ? $branding : null),
     'plan_context' => $planContext,
     'sections' => admin_bootstrap_sections($planContext),
 ]);

@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -273,10 +274,10 @@ if ($method === 'GET') {
         exit;
     }
 
-    echo json_encode([
+    echo json_encode(public_response_sanitize([
         'success'  => true,
         'settings' => $settings ?? default_calendar_settings()
-    ], JSON_UNESCAPED_UNICODE);
+    ]), JSON_UNESCAPED_UNICODE);
 
     exit;
 }
@@ -384,10 +385,10 @@ if ($method === 'POST' || $method === 'PATCH') {
         }
     }
 
-    echo json_encode([
+    echo json_encode(public_response_sanitize([
     'success'  => true,
     'settings' => $savedSettings ?? default_calendar_settings()
-], JSON_UNESCAPED_UNICODE);
+]), JSON_UNESCAPED_UNICODE);
 
     exit;
 }

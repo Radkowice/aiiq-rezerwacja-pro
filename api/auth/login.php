@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -117,5 +118,5 @@ $_SESSION['user'] = [
 
 echo json_encode([
     'success' => true,
-    'user'    => $_SESSION['user']
+    'user'    => public_response_sanitize($_SESSION['user'])
 ]);

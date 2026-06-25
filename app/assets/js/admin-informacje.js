@@ -614,8 +614,6 @@
       setInputValue('info-company-email', company.company_email);
       setInputValue('info-company-phone', company.company_phone);
       setText('info-client-number', branding.client_number);
-      setText('info-company-id', branding.company_id);
-      setText('info-tenant-id', branding.tenant_id || user.tenant_id);
       setText('info-user-email', user.email);
       setText('info-user-role', user.role);
 

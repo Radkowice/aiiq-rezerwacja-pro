@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -59,6 +60,139 @@ if ($TENANT_ID === '') {
     exit;
 }
 
+function booking_admin_select_fields(): string
+{
+    return implode(',', [
+        'id',
+        'booking_date',
+        'booking_time',
+        'name',
+        'email',
+        'phone',
+        'notes',
+        'status',
+        'service_id',
+        'staff_id',
+        'service_name_snapshot',
+        'payment_required',
+        'payment_status',
+        'payment_amount',
+        'payment_currency',
+        'payment_provider',
+        'payment_expires_at',
+        'source',
+        'created_at',
+        'updated_at',
+        'reschedule_count',
+        'rescheduled_at',
+        'google_event_id',
+    ]);
+}
+
+function booking_admin_string_value(array $row, string $key): string
+{
+    $value = $row[$key] ?? '';
+
+    if (is_string($value) || is_numeric($value)) {
+        return trim((string) $value);
+    }
+
+    return '';
+}
+
+function booking_admin_nullable_string(array $row, string $key): ?string
+{
+    $value = booking_admin_string_value($row, $key);
+
+    return $value !== '' ? $value : null;
+}
+
+function booking_admin_nullable_scalar(array $row, string $key)
+{
+    $value = $row[$key] ?? null;
+
+    if (is_string($value)) {
+        $value = trim($value);
+        return $value !== '' ? $value : null;
+    }
+
+    if (is_int($value) || is_float($value) || is_bool($value)) {
+        return $value;
+    }
+
+    return null;
+}
+
+function booking_admin_bool_value(array $row, string $key): bool
+{
+    $value = $row[$key] ?? false;
+
+    if (is_bool($value)) {
+        return $value;
+    }
+
+    if (is_int($value)) {
+        return $value === 1;
+    }
+
+    if (is_string($value)) {
+        $normalized = strtolower(trim($value));
+        return in_array($normalized, ['1', 'true', 'yes', 'on'], true);
+    }
+
+    return false;
+}
+
+function booking_admin_int_value(array $row, string $key): int
+{
+    $value = $row[$key] ?? 0;
+
+    if (is_int($value)) {
+        return max(0, $value);
+    }
+
+    if (is_numeric($value)) {
+        return max(0, (int) $value);
+    }
+
+    return 0;
+}
+
+function booking_admin_map_booking(array $booking, array $staffDisplayNames): array
+{
+    $staffId = booking_admin_string_value($booking, 'staff_id');
+    $googleEventId = booking_admin_string_value($booking, 'google_event_id');
+
+    return public_response_sanitize([
+        'id' => booking_admin_string_value($booking, 'id'),
+        'booking_date' => booking_admin_string_value($booking, 'booking_date'),
+        'booking_time' => booking_admin_string_value($booking, 'booking_time'),
+        'name' => booking_admin_string_value($booking, 'name'),
+        'email' => booking_admin_string_value($booking, 'email'),
+        'phone' => booking_admin_string_value($booking, 'phone'),
+        'notes' => booking_admin_nullable_string($booking, 'notes'),
+        'status' => booking_admin_string_value($booking, 'status'),
+        'service_id' => booking_admin_string_value($booking, 'service_id'),
+        'staff_id' => $staffId,
+        'staff_display_name' => $staffId !== '' && isset($staffDisplayNames[$staffId])
+            ? $staffDisplayNames[$staffId]
+            : null,
+        'service_name_snapshot' => booking_admin_nullable_string($booking, 'service_name_snapshot'),
+        'payment_required' => booking_admin_bool_value($booking, 'payment_required'),
+        'payment_status' => booking_admin_nullable_string($booking, 'payment_status'),
+        'payment_amount' => booking_admin_nullable_scalar($booking, 'payment_amount'),
+        'payment_currency' => booking_admin_nullable_string($booking, 'payment_currency'),
+        'payment_provider' => booking_admin_nullable_string($booking, 'payment_provider'),
+        'payment_expires_at' => booking_admin_nullable_string($booking, 'payment_expires_at'),
+        'source' => booking_admin_nullable_string($booking, 'source'),
+        'created_at' => booking_admin_nullable_string($booking, 'created_at'),
+        'updated_at' => booking_admin_nullable_string($booking, 'updated_at'),
+        'reschedule_count' => booking_admin_int_value($booking, 'reschedule_count'),
+        'rescheduled_at' => booking_admin_nullable_string($booking, 'rescheduled_at'),
+        'google_calendar_synced' => $googleEventId !== '',
+    ]);
+}
+
 $allowedViews = ['upcoming', 'today', 'past', 'all'];
 $view = strtolower(trim((string)($_GET['view'] ?? 'upcoming')));
 
@@ -69,7 +203,7 @@ if (!in_array($view, $allowedViews, true)) {
 $today = (new DateTimeImmutable('today'))->format('Y-m-d');
 
 $query = [
-    'select=*',
+    'select=' . rawurlencode(booking_admin_select_fields()),
     'tenant_id=eq.' . rawurlencode($TENANT_ID),
 ];
 
@@ -227,17 +361,14 @@ if (!empty($staffIds)) {
     }
 }
 
-foreach ($data as &$booking) {
+$bookings = [];
+
+foreach ($data as $booking) {
     if (!is_array($booking)) {
         continue;
     }
 
-    $staffId = trim((string)($booking['staff_id'] ?? ''));
-    $booking['staff_display_name'] = $staffId !== '' && isset($staffDisplayNames[$staffId])
-        ? $staffDisplayNames[$staffId]
-        : null;
+    $bookings[] = booking_admin_map_booking($booking, $staffDisplayNames);
 }
 
-unset($booking);
-
-echo json_encode($data, JSON_UNESCAPED_UNICODE);
+echo json_encode(public_response_sanitize($bookings), JSON_UNESCAPED_UNICODE);

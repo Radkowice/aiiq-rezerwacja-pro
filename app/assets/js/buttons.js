@@ -25,12 +25,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const client_name = document.getElementById('account-company-name')?.value || '';
         const client_number = document.getElementById('account-client-number')?.value || '';
-        const company_id = document.getElementById('account-company-id')?.value || '';
 
         const res = await apiFetch('/api/system/branding.php', {
           method: 'POST',
           body: JSON.stringify({
-            company_id,
             client_name,
             client_number
           })
@@ -224,7 +222,6 @@ function getReadableReservationsColors(baseColor) {
 
        const admin_theme = document.getElementById('account-theme')?.value || '';
 const service_title_front = document.getElementById('service-title-front')?.value || '';
-const company_id = document.getElementById('account-company-id')?.value || '';
 const logoInput = document.getElementById('account-logo');
 const faviconInput = document.getElementById('account-favicon');
 
@@ -283,7 +280,6 @@ if (faviconInput && faviconInput.files && faviconInput.files.length > 0) {
 }
 
 const payload = {
-  company_id,
   admin_theme,
   service_title_front
 };

@@ -19,11 +19,6 @@
       </div>
 
       <div class="form-group">
-        <label>Nr identyf. firmy</label>
-        <input type="text" id="account-company-id" readonly placeholder="Generowany automatycznie">
-      </div>
-
-      <div class="form-group">
         <label>Aktualny e-mail</label>
         <input type="email" id="account-email" readonly>
       </div>

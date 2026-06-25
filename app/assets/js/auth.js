@@ -347,7 +347,6 @@ async function loadAccountData() {
     // USER
     document.getElementById('account-email').value = user.email || '';
     document.getElementById('account-role').value = user.role || '';
-    document.getElementById('account-company-id').value = branding.company_id || user.tenant_id || '';
 
     // BRANDING
     document.getElementById('account-company-name').value = branding.client_name || '';
