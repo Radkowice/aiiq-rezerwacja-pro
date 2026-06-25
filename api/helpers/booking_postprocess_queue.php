@@ -3,7 +3,15 @@ declare(strict_types=1);
 
 function booking_postprocess_queue_root(): string
 {
-    return __DIR__ . '/../../data/queue/booking-postprocess';
+    $apiRoot = dirname(__DIR__);
+    $applicationRoot = dirname($apiRoot);
+    $frontendRoot = $applicationRoot . DIRECTORY_SEPARATOR . 'html';
+
+    if (basename($apiRoot) === 'api' && is_dir($frontendRoot)) {
+        return $frontendRoot . '/data/queue/booking-postprocess';
+    }
+
+    return $applicationRoot . '/data/queue/booking-postprocess';
 }
 
 function booking_postprocess_queue_directories(): array
@@ -19,18 +27,78 @@ function booking_postprocess_queue_directories(): array
     ];
 }
 
+function booking_postprocess_queue_last_error_store(?array $error = null): array
+{
+    static $lastError = ['reason' => 'unknown'];
+
+    if ($error !== null) {
+        $lastError = $error;
+    }
+
+    return $lastError;
+}
+
+function booking_postprocess_queue_set_last_error(string $reason, array $context = []): void
+{
+    $allowedReasons = [
+        'invalid_booking_id',
+        'invalid_tenant_id',
+        'ensure_directories_failed',
+        'job_validation_failed',
+        'json_encode_failed',
+        'tempnam_failed',
+        'file_put_contents_failed',
+        'rename_failed',
+        'chmod_failed',
+        'unknown',
+    ];
+    $allowedContextKeys = ['booking_id', 'tenant_id', 'job_id', 'target_dir', 'target_path', 'directory'];
+    $reason = in_array($reason, $allowedReasons, true) ? $reason : 'unknown';
+    $error = ['reason' => $reason];
+
+    foreach ($allowedContextKeys as $key) {
+        if (!array_key_exists($key, $context) || !is_scalar($context[$key])) {
+            continue;
+        }
+
+        $value = trim((string)$context[$key]);
+        $value = str_replace(["\r", "\n"], '', $value);
+
+        if ($value !== '') {
+            $error[$key] = substr($value, 0, 500);
+        }
+    }
+
+    booking_postprocess_queue_last_error_store($error);
+}
+
+function booking_postprocess_queue_last_error(): array
+{
+    return booking_postprocess_queue_last_error_store();
+}
+
 function booking_postprocess_queue_ensure_directories(): bool
 {
-    foreach (booking_postprocess_queue_directories() as $directory) {
+    foreach (booking_postprocess_queue_directories() as $name => $directory) {
         if (!is_dir($directory)) {
             @mkdir($directory, 0770, true);
         }
 
         if (!is_dir($directory) || !is_writable($directory)) {
+            booking_postprocess_queue_set_last_error('ensure_directories_failed', [
+                'directory' => (string)$name,
+                'target_dir' => $directory,
+            ]);
             return false;
         }
 
-        @chmod($directory, 0770);
+        if (!@chmod($directory, 0770) && !is_writable($directory)) {
+            booking_postprocess_queue_set_last_error('chmod_failed', [
+                'directory' => (string)$name,
+                'target_dir' => $directory,
+            ]);
+            return false;
+        }
     }
 
     return true;
@@ -113,25 +181,55 @@ function booking_postprocess_queue_job_is_valid(array $job): bool
 
 function booking_postprocess_queue_write_job(string $directory, array $job): bool
 {
-    if (!booking_postprocess_queue_job_is_valid($job) || !booking_postprocess_queue_ensure_directories()) {
+    if (!booking_postprocess_queue_job_is_valid($job)) {
+        booking_postprocess_queue_set_last_error('job_validation_failed', [
+            'booking_id' => $job['booking_id'] ?? '',
+            'tenant_id' => $job['tenant_id'] ?? '',
+            'job_id' => $job['job_id'] ?? '',
+            'directory' => $directory,
+        ]);
+        return false;
+    }
+
+    if (!booking_postprocess_queue_ensure_directories()) {
         return false;
     }
 
     $target = booking_postprocess_queue_job_file($directory, (string)$job['job_id']);
 
     if ($target === null) {
+        booking_postprocess_queue_set_last_error('unknown', [
+            'booking_id' => $job['booking_id'] ?? '',
+            'tenant_id' => $job['tenant_id'] ?? '',
+            'job_id' => $job['job_id'] ?? '',
+            'directory' => $directory,
+        ]);
         return false;
     }
 
     $json = json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
     if (!is_string($json)) {
+        booking_postprocess_queue_set_last_error('json_encode_failed', [
+            'booking_id' => $job['booking_id'] ?? '',
+            'tenant_id' => $job['tenant_id'] ?? '',
+            'job_id' => $job['job_id'] ?? '',
+            'target_path' => $target,
+            'target_dir' => dirname($target),
+        ]);
         return false;
     }
 
     $temporary = @tempnam(dirname($target), '.tmp-');
 
     if (!is_string($temporary) || $temporary === '') {
+        booking_postprocess_queue_set_last_error('tempnam_failed', [
+            'booking_id' => $job['booking_id'] ?? '',
+            'tenant_id' => $job['tenant_id'] ?? '',
+            'job_id' => $job['job_id'] ?? '',
+            'target_path' => $target,
+            'target_dir' => dirname($target),
+        ]);
         return false;
     }
 
@@ -139,11 +237,25 @@ function booking_postprocess_queue_write_job(string $directory, array $job): boo
     $written = @file_put_contents($temporary, $json, LOCK_EX);
 
     if ($written === false || $written !== strlen($json)) {
+        booking_postprocess_queue_set_last_error('file_put_contents_failed', [
+            'booking_id' => $job['booking_id'] ?? '',
+            'tenant_id' => $job['tenant_id'] ?? '',
+            'job_id' => $job['job_id'] ?? '',
+            'target_path' => $target,
+            'target_dir' => dirname($target),
+        ]);
         @unlink($temporary);
         return false;
     }
 
     if (!@rename($temporary, $target)) {
+        booking_postprocess_queue_set_last_error('rename_failed', [
+            'booking_id' => $job['booking_id'] ?? '',
+            'tenant_id' => $job['tenant_id'] ?? '',
+            'job_id' => $job['job_id'] ?? '',
+            'target_path' => $target,
+            'target_dir' => dirname($target),
+        ]);
         @unlink($temporary);
         return false;
     }
@@ -156,12 +268,28 @@ function booking_postprocess_queue_enqueue(string $bookingId, string $tenantId):
 {
     $bookingId = trim($bookingId);
     $tenantId = trim($tenantId);
+    booking_postprocess_queue_set_last_error('unknown', [
+        'booking_id' => $bookingId,
+        'tenant_id' => $tenantId,
+    ]);
 
-    if (
-        !booking_postprocess_queue_identifier_is_valid($bookingId)
-        || !booking_postprocess_queue_identifier_is_valid($tenantId)
-        || !booking_postprocess_queue_ensure_directories()
-    ) {
+    if (!booking_postprocess_queue_identifier_is_valid($bookingId)) {
+        booking_postprocess_queue_set_last_error('invalid_booking_id', [
+            'booking_id' => $bookingId,
+            'tenant_id' => $tenantId,
+        ]);
+        return false;
+    }
+
+    if (!booking_postprocess_queue_identifier_is_valid($tenantId)) {
+        booking_postprocess_queue_set_last_error('invalid_tenant_id', [
+            'booking_id' => $bookingId,
+            'tenant_id' => $tenantId,
+        ]);
+        return false;
+    }
+
+    if (!booking_postprocess_queue_ensure_directories()) {
         return false;
     }
 
@@ -285,7 +413,7 @@ function booking_postprocess_queue_claim_due_job(): ?array
     return null;
 }
 
-function booking_postprocess_queue_recover_stale_processing(int $olderThanSeconds = 300): int
+function booking_postprocess_queue_recover_stale_processing(int $olderThanSeconds = 300, bool $dryRun = false): int
 {
     if (!booking_postprocess_queue_ensure_directories()) {
         return 0;
@@ -319,7 +447,14 @@ function booking_postprocess_queue_recover_stale_processing(int $olderThanSecond
             || ($doneFile !== null && is_file($doneFile))
             || ($failedFile !== null && is_file($failedFile))
         ) {
-            @unlink($processingFile);
+            if (!$dryRun) {
+                @unlink($processingFile);
+            }
+            continue;
+        }
+
+        if ($dryRun) {
+            $recovered++;
             continue;
         }
 
@@ -382,4 +517,242 @@ function booking_postprocess_queue_complete_job(array $job, string $processingFi
     }
 
     return $written;
+}
+
+function booking_postprocess_queue_cleanup_result(): array
+{
+    return [
+        'checked' => 0,
+        'deleted' => 0,
+        'moved_to_failed' => 0,
+        'recovered' => 0,
+        'skipped' => 0,
+        'errors' => [],
+    ];
+}
+
+function booking_postprocess_queue_path_is_inside(string $path, string $basePath): bool
+{
+    $path = rtrim($path, DIRECTORY_SEPARATOR);
+    $basePath = rtrim($basePath, DIRECTORY_SEPARATOR);
+
+    return $path !== ''
+        && $basePath !== ''
+        && ($path === $basePath || str_starts_with($path, $basePath . DIRECTORY_SEPARATOR));
+}
+
+function booking_postprocess_queue_file_is_safe(string $file, string $baseDirectory, string $namePattern): bool
+{
+    $basePath = realpath($baseDirectory);
+    $realPath = realpath($file);
+
+    if ($basePath === false || $realPath === false || !is_file($realPath)) {
+        return false;
+    }
+
+    if (!booking_postprocess_queue_path_is_inside($realPath, $basePath)) {
+        return false;
+    }
+
+    return preg_match($namePattern, basename($realPath)) === 1;
+}
+
+function booking_postprocess_queue_file_is_older_than(string $file, int $olderThanSeconds): bool
+{
+    $modifiedAt = @filemtime($file);
+
+    return is_int($modifiedAt) && $modifiedAt < (time() - max(1, $olderThanSeconds));
+}
+
+function booking_postprocess_queue_cleanup_json_directory(
+    string $directory,
+    int $olderThanSeconds,
+    bool $dryRun = false
+): array {
+    $result = booking_postprocess_queue_cleanup_result();
+
+    if (!booking_postprocess_queue_ensure_directories()) {
+        $result['errors'][] = ['category' => 'queue_unavailable', 'directory' => $directory];
+        return $result;
+    }
+
+    $directories = booking_postprocess_queue_directories();
+    $baseDirectory = $directories[$directory] ?? '';
+
+    if ($baseDirectory === '' || $directory === 'root') {
+        $result['errors'][] = ['category' => 'invalid_directory', 'directory' => $directory];
+        return $result;
+    }
+
+    $files = @glob($baseDirectory . '/*.json');
+
+    if (!is_array($files)) {
+        $result['errors'][] = ['category' => 'glob_failed', 'directory' => $directory];
+        return $result;
+    }
+
+    foreach ($files as $file) {
+        $result['checked']++;
+
+        if (!booking_postprocess_queue_file_is_safe($file, $baseDirectory, '/^[a-f0-9]{64}\.json$/')) {
+            $result['skipped']++;
+            continue;
+        }
+
+        if (!booking_postprocess_queue_file_is_older_than($file, $olderThanSeconds)) {
+            $result['skipped']++;
+            continue;
+        }
+
+        if ($dryRun) {
+            $result['deleted']++;
+            continue;
+        }
+
+        if (@unlink($file)) {
+            $result['deleted']++;
+        } else {
+            $result['errors'][] = [
+                'category' => 'delete_failed',
+                'directory' => $directory,
+                'path' => $file,
+            ];
+        }
+    }
+
+    return $result;
+}
+
+function booking_postprocess_queue_cleanup_done(int $olderThanSeconds, bool $dryRun = false): array
+{
+    return booking_postprocess_queue_cleanup_json_directory('done', $olderThanSeconds, $dryRun);
+}
+
+function booking_postprocess_queue_cleanup_failed(int $olderThanSeconds, bool $dryRun = false): array
+{
+    return booking_postprocess_queue_cleanup_json_directory('failed', $olderThanSeconds, $dryRun);
+}
+
+function booking_postprocess_queue_fail_stale_pending(int $olderThanSeconds, bool $dryRun = false): array
+{
+    $result = booking_postprocess_queue_cleanup_result();
+
+    if (!booking_postprocess_queue_ensure_directories()) {
+        $result['errors'][] = ['category' => 'queue_unavailable', 'directory' => 'pending'];
+        return $result;
+    }
+
+    $directories = booking_postprocess_queue_directories();
+    $pendingDirectory = $directories['pending'];
+    $files = @glob($pendingDirectory . '/*.json');
+
+    if (!is_array($files)) {
+        $result['errors'][] = ['category' => 'glob_failed', 'directory' => 'pending'];
+        return $result;
+    }
+
+    foreach ($files as $file) {
+        $result['checked']++;
+
+        if (!booking_postprocess_queue_file_is_safe($file, $pendingDirectory, '/^[a-f0-9]{64}\.json$/')) {
+            $result['skipped']++;
+            continue;
+        }
+
+        if (!booking_postprocess_queue_file_is_older_than($file, $olderThanSeconds)) {
+            $result['skipped']++;
+            continue;
+        }
+
+        $job = booking_postprocess_queue_read_file($file);
+
+        if (!is_array($job)) {
+            $result['skipped']++;
+            continue;
+        }
+
+        $failedFile = booking_postprocess_queue_job_file('failed', (string)$job['job_id']);
+
+        if ($failedFile === null || is_file($failedFile)) {
+            $result['skipped']++;
+            continue;
+        }
+
+        if ($dryRun) {
+            $result['moved_to_failed']++;
+            continue;
+        }
+
+        $job['attempt'] = max(5, (int)$job['attempt']);
+
+        foreach ($job['tasks'] as $task => $status) {
+            if (!in_array($status, ['done', 'skipped'], true)) {
+                $job['tasks'][$task] = 'failed';
+            }
+        }
+
+        $written = booking_postprocess_queue_write_job('failed', $job);
+
+        if ($written && @unlink($file)) {
+            $result['moved_to_failed']++;
+        } else {
+            $result['errors'][] = [
+                'category' => 'move_to_failed_failed',
+                'directory' => 'pending',
+                'path' => $file,
+            ];
+        }
+    }
+
+    return $result;
+}
+
+function booking_postprocess_queue_cleanup_tmp(int $olderThanSeconds, bool $dryRun = false): array
+{
+    $result = booking_postprocess_queue_cleanup_result();
+
+    if (!booking_postprocess_queue_ensure_directories()) {
+        $result['errors'][] = ['category' => 'queue_unavailable', 'directory' => 'queue'];
+        return $result;
+    }
+
+    foreach (booking_postprocess_queue_directories() as $directory => $baseDirectory) {
+        $files = @glob($baseDirectory . '/.tmp-*');
+
+        if (!is_array($files)) {
+            $result['errors'][] = ['category' => 'glob_failed', 'directory' => $directory];
+            continue;
+        }
+
+        foreach ($files as $file) {
+            $result['checked']++;
+
+            if (!booking_postprocess_queue_file_is_safe($file, $baseDirectory, '/^\.tmp-[a-zA-Z0-9._-]+$/')) {
+                $result['skipped']++;
+                continue;
+            }
+
+            if (!booking_postprocess_queue_file_is_older_than($file, $olderThanSeconds)) {
+                $result['skipped']++;
+                continue;
+            }
+
+            if ($dryRun) {
+                $result['deleted']++;
+                continue;
+            }
+
+            if (@unlink($file)) {
+                $result['deleted']++;
+            } else {
+                $result['errors'][] = [
+                    'category' => 'delete_failed',
+                    'directory' => $directory,
+                    'path' => $file,
+                ];
+            }
+        }
+    }
+
+    return $result;
 }

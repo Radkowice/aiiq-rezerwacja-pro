@@ -1,9 +1,24 @@
 <?php
 declare(strict_types=1);
 
+if (!function_exists('booking_runtime_data_root')) {
+    function booking_runtime_data_root(): string
+    {
+        $apiRoot = dirname(__DIR__);
+        $applicationRoot = dirname($apiRoot);
+        $frontendRoot = $applicationRoot . DIRECTORY_SEPARATOR . 'html';
+
+        if (basename($apiRoot) === 'api' && is_dir($frontendRoot)) {
+            return $frontendRoot . '/data';
+        }
+
+        return $applicationRoot . '/data';
+    }
+}
+
 function booking_context_cache_dir(): string
 {
-    return __DIR__ . '/../../data/cache/booking-context';
+    return booking_runtime_data_root() . '/cache/booking-context';
 }
 
 function booking_context_cache_default_ttl(): int
@@ -102,6 +117,105 @@ function booking_context_cache_maybe_cleanup(): void
             @unlink($file);
         }
     }
+}
+
+function booking_context_cache_cleanup_result(): array
+{
+    return [
+        'checked' => 0,
+        'deleted' => 0,
+        'moved_to_failed' => 0,
+        'recovered' => 0,
+        'skipped' => 0,
+        'errors' => [],
+    ];
+}
+
+function booking_context_cache_path_is_inside(string $path, string $basePath): bool
+{
+    $path = rtrim($path, DIRECTORY_SEPARATOR);
+    $basePath = rtrim($basePath, DIRECTORY_SEPARATOR);
+
+    return $path !== ''
+        && $basePath !== ''
+        && ($path === $basePath || str_starts_with($path, $basePath . DIRECTORY_SEPARATOR));
+}
+
+function booking_context_cache_file_is_safe(string $file, string $baseDirectory): bool
+{
+    $basePath = realpath($baseDirectory);
+    $realPath = realpath($file);
+
+    if ($basePath === false || $realPath === false || !is_file($realPath)) {
+        return false;
+    }
+
+    if (!booking_context_cache_path_is_inside($realPath, $basePath)) {
+        return false;
+    }
+
+    return preg_match('/^(?:[a-f0-9]{64}\.json|\.tmp-[a-zA-Z0-9._-]+)$/', basename($realPath)) === 1;
+}
+
+function booking_context_cache_cleanup(int $olderThanSeconds, bool $dryRun = false): array
+{
+    $result = booking_context_cache_cleanup_result();
+    $dir = booking_context_cache_dir();
+
+    if (!is_dir($dir)) {
+        if ($dryRun) {
+            $result['skipped']++;
+            return $result;
+        }
+
+        @mkdir($dir, 0770, true);
+    }
+
+    if (!is_dir($dir) || !is_writable($dir)) {
+        $result['errors'][] = ['category' => 'cache_unavailable'];
+        return $result;
+    }
+
+    $files = @glob($dir . '/*');
+
+    if (!is_array($files)) {
+        $result['errors'][] = ['category' => 'glob_failed'];
+        return $result;
+    }
+
+    $threshold = time() - max(1, $olderThanSeconds);
+
+    foreach ($files as $file) {
+        $result['checked']++;
+
+        if (!booking_context_cache_file_is_safe($file, $dir)) {
+            $result['skipped']++;
+            continue;
+        }
+
+        $modifiedAt = @filemtime($file);
+
+        if (!is_int($modifiedAt) || $modifiedAt >= $threshold) {
+            $result['skipped']++;
+            continue;
+        }
+
+        if ($dryRun) {
+            $result['deleted']++;
+            continue;
+        }
+
+        if (@unlink($file)) {
+            $result['deleted']++;
+        } else {
+            $result['errors'][] = [
+                'category' => 'delete_failed',
+                'path' => $file,
+            ];
+        }
+    }
+
+    return $result;
 }
 
 function booking_context_cache_key(string $stage, array $parameters): string

@@ -1279,7 +1279,7 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
 
 function booking_global_semaphore_dir(): string
 {
-    return __DIR__ . '/../../data/cache/booking-semaphore';
+    return booking_runtime_data_root() . '/cache/booking-semaphore';
 }
 
 // Globalny limit równoległych ścieżek book.php; nie zastępuje locka per slot.
@@ -1347,7 +1347,7 @@ function booking_slot_lock_key(string $tenantId, string $serviceId, string $staf
 
 function booking_slot_lock_dir(): string
 {
-    return __DIR__ . '/../../data/cache/booking-locks';
+    return booking_runtime_data_root() . '/cache/booking-locks';
 }
 
 function booking_acquire_slot_lock(string $lockKey, int $timeoutMs = 6000)
@@ -2813,10 +2813,27 @@ $mailSentClient = false;
 $mailSentAdmin = false;
 
 if (!$postprocessQueued) {
-    debug_log('BOOK_POSTPROCESS_ENQUEUE_FAILED', [
+    $postprocessQueueError = function_exists('booking_postprocess_queue_last_error')
+        ? booking_postprocess_queue_last_error()
+        : ['reason' => 'unknown'];
+    $postprocessQueueReason = trim((string)($postprocessQueueError['reason'] ?? 'unknown'));
+    $postprocessQueueLogContext = [
         'booking_id' => $bookingId,
         'tenant_id' => $TENANT_ID,
-    ]);
+        'reason' => $postprocessQueueReason !== '' ? $postprocessQueueReason : 'unknown',
+    ];
+
+    foreach (['target_dir', 'target_path', 'directory', 'job_id'] as $postprocessQueueLogKey) {
+        if (
+            isset($postprocessQueueError[$postprocessQueueLogKey])
+            && is_scalar($postprocessQueueError[$postprocessQueueLogKey])
+            && trim((string)$postprocessQueueError[$postprocessQueueLogKey]) !== ''
+        ) {
+            $postprocessQueueLogContext[$postprocessQueueLogKey] = trim((string)$postprocessQueueError[$postprocessQueueLogKey]);
+        }
+    }
+
+    debug_log('BOOK_POSTPROCESS_ENQUEUE_FAILED', $postprocessQueueLogContext);
 }
 
 // Finalna odpowiedź
