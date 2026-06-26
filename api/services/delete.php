@@ -46,6 +46,51 @@ function services_delete_fetch_rows(
     return is_array($result['data'] ?? null) ? $result['data'] : [];
 }
 
+function services_delete_service_id_from_ref(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $serviceRef,
+    string $refSecret
+): string {
+    $normalizedRef = trim($serviceRef);
+
+    if ($normalizedRef === '') {
+        services_json([
+            'success' => false,
+            'error' => 'Nieprawidłowa usługa.',
+        ], 400);
+    }
+
+    $serviceRows = services_delete_fetch_rows(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        'tenant_services',
+        'select=id'
+            . '&tenant_id=eq.' . rawurlencode($tenantId)
+    );
+
+    foreach ($serviceRows as $serviceRow) {
+        if (!is_array($serviceRow) || empty($serviceRow['id'])) {
+            continue;
+        }
+
+        $serviceId = (string) $serviceRow['id'];
+        $expectedRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
+
+        if (hash_equals($expectedRef, $normalizedRef)) {
+            return $serviceId;
+        }
+    }
+
+    services_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa usługa.',
+    ], 400);
+}
+
 function services_delete_block_message(): string
 {
     return 'Nie można usunąć tej usługi. Usługę możesz usunąć dopiero wtedy, gdy nie będzie miała przypisanych rezerwacji ani pracowników.';
@@ -97,11 +142,25 @@ $supabaseUrl = $context['supabaseUrl'];
 $supabaseKey = $context['supabaseKey'];
 $schema = $context['schema'];
 $tenantId = $context['tenantId'];
+$refSecret = public_response_ref_secret($supabaseKey);
 
 require_tenant_feature($tenantId, 'multiple_services');
 
 $input = services_read_json_input();
-$serviceId = trim((string) ($input['id'] ?? ''));
+$serviceRefInput = $input['service_ref'] ?? '';
+
+if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
+    services_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa usługa.',
+    ], 400);
+}
+
+$serviceRef = trim((string) $serviceRefInput);
+$serviceId = $serviceRef !== ''
+    ? services_delete_service_id_from_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceRef, $refSecret)
+    // legacy id fallback kept only until admin-usluga-platnosci.js is migrated to service_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
+    : trim((string) ($input['id'] ?? ''));
 $checkOnly = !empty($input['check_only']);
 
 if (!services_is_uuid($serviceId)) {
@@ -152,6 +211,7 @@ if ($checkOnly) {
     services_json([
         'success' => true,
         'can_delete' => true,
+        'service_ref' => public_response_service_ref($tenantId, $serviceId, $refSecret),
         'has_staff' => false,
         'has_active_bookings' => false,
     ]);
@@ -184,7 +244,9 @@ services_json([
     'success' => true,
     'message' => 'Usługa została usunięta.',
     'deleted' => true,
+    // legacy service_id response kept only until admin-usluga-platnosci.js is migrated to service_ref. TODO_REMOVE_LEGACY_ID_RESPONSE
     'service_id' => $serviceId,
+    'service_ref' => public_response_service_ref($tenantId, $serviceId, $refSecret),
     'has_staff' => false,
     'has_active_bookings' => false,
 ]);

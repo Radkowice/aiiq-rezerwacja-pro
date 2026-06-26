@@ -19,6 +19,7 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../system/tenant.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 
 $SUPABASE_URL = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
@@ -27,6 +28,8 @@ $SUPABASE_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     json_response(['success' => false, 'error' => 'Brak konfiguracji Supabase'], 500);
 }
+
+$REF_SECRET = public_response_ref_secret($SUPABASE_KEY);
 
 $TENANT_ID = in_array($method, ['POST', 'DELETE'], true)
     ? (string)($_SESSION['user']['tenant_id'] ?? '')
@@ -112,6 +115,76 @@ function normalize_staff_id($value): ?string
     return $staffId;
 }
 
+function normalize_staff_ref($value): string
+{
+    $staffRef = trim((string)($value ?? ''));
+
+    return in_array($staffRef, ['', 'null', 'undefined'], true) ? '' : $staffRef;
+}
+
+function resolve_staff_ref(
+    $value,
+    string $tenantId,
+    string $supabaseUrl,
+    string $apiKey,
+    string $schema,
+    string $refSecret
+): ?string {
+    $staffRef = normalize_staff_ref($value);
+
+    if ($staffRef === '') {
+        return null;
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true';
+
+    $result = supabase_request('GET', $url, $apiKey, $schema);
+    $rows = is_array($result['data']) ? $result['data'] : [];
+
+    if (!$result['ok']) {
+        json_response(['success' => false, 'error' => 'Nieprawidłowy pracownik.'], 400);
+    }
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $staffId = trim((string)($row['id'] ?? ''));
+
+        if ($staffId === '') {
+            continue;
+        }
+
+        $expectedRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
+        if (hash_equals($expectedRef, $staffRef)) {
+            return $staffId;
+        }
+    }
+
+    json_response(['success' => false, 'error' => 'Nieprawidłowy pracownik.'], 400);
+}
+
+function resolve_staff_request_id(
+    $staffRefValue,
+    $staffIdValue,
+    string $tenantId,
+    string $supabaseUrl,
+    string $apiKey,
+    string $schema,
+    string $refSecret
+): ?string {
+    if (normalize_staff_ref($staffRefValue) !== '') {
+        return resolve_staff_ref($staffRefValue, $tenantId, $supabaseUrl, $apiKey, $schema, $refSecret);
+    }
+
+    return normalize_staff_id($staffIdValue);
+}
+
 function staff_filter(?string $staffId): string
 {
     return $staffId === null
@@ -171,7 +244,15 @@ if ($method === 'DELETE') {
     $date = trim((string)($input['date'] ?? ''));
     $time = trim((string)($input['time'] ?? ''));
     $deleteAllTimes = filter_var($input['deleteAllTimes'] ?? false, FILTER_VALIDATE_BOOLEAN);
-    $staffId = normalize_staff_id($input['staff_id'] ?? null);
+    $staffId = resolve_staff_request_id(
+        $input['staff_ref'] ?? null,
+        $input['staff_id'] ?? null,
+        $TENANT_ID,
+        $SUPABASE_URL,
+        $SUPABASE_KEY,
+        $SUPABASE_SCHEMA,
+        $REF_SECRET
+    );
 
     ensure_staff_belongs_to_tenant($staffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
@@ -222,13 +303,28 @@ if ($method === 'POST') {
             fail_supabase('Błąd zapisu ustawień blokad', $result);
         }
 
-        json_response(['success' => true, 'blockSettings' => $payload]);
+        json_response([
+            'success' => true,
+            'blockSettings' => [
+                'block_saturdays' => $payload['block_saturdays'],
+                'block_sundays' => $payload['block_sundays'],
+                'block_holidays' => $payload['block_holidays'],
+            ],
+        ]);
     }
 
     $date = trim((string)($input['date'] ?? ''));
     $time = trim((string)($input['time'] ?? ''));
     $allDay = filter_var($input['allDay'] ?? false, FILTER_VALIDATE_BOOLEAN);
-    $staffId = normalize_staff_id($input['staff_id'] ?? null);
+    $staffId = resolve_staff_request_id(
+        $input['staff_ref'] ?? null,
+        $input['staff_id'] ?? null,
+        $TENANT_ID,
+        $SUPABASE_URL,
+        $SUPABASE_KEY,
+        $SUPABASE_SCHEMA,
+        $REF_SECRET
+    );
 
     ensure_staff_belongs_to_tenant($staffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
@@ -255,8 +351,15 @@ if ($method === 'POST') {
     json_response(['success' => true]);
 }
 
-$requestedStaffId = normalize_staff_id($_GET['staff_id'] ?? null);
-error_log('blocked.php GET staff_id: ' . json_encode($requestedStaffId));
+$requestedStaffId = resolve_staff_request_id(
+    $_GET['staff_ref'] ?? null,
+    $_GET['staff_id'] ?? null,
+    $TENANT_ID,
+    $SUPABASE_URL,
+    $SUPABASE_KEY,
+    $SUPABASE_SCHEMA,
+    $REF_SECRET
+);
 ensure_staff_belongs_to_tenant($requestedStaffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
 $globalBlockedDates = [];

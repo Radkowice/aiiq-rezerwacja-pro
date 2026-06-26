@@ -551,11 +551,6 @@
     mergeAssignedStaffFromServices();
     renderServiceList();
 
-    console.debug('[services] active service before render', {
-      service_id: updatedService.id,
-      staff_ids: updatedService.staff_ids,
-    });
-
     populateForm(updatedService);
 
     return updatedService;
@@ -573,7 +568,6 @@
         : (Array.isArray(data?.staff_ids) ? data.staff_ids.map(String) : []),
     };
 
-    console.debug('[services] services-updated event', detail);
     window.dispatchEvent(new CustomEvent('aiiq:services-updated', { detail }));
   }
 
@@ -733,7 +727,6 @@
     if (!els.staffList) return;
 
     const selectedSet = new Set((Array.isArray(selectedStaffIds) ? selectedStaffIds : []).map(String));
-    console.debug('[services] rendered staff_ids', Array.from(selectedSet));
     const availableStaff = state.staff.filter((person) => person.is_active || selectedSet.has(person.id));
 
     if (availableStaff.length === 0) {
@@ -902,7 +895,6 @@
       });
 
       state.selectedId = data.service_id || state.selectedId;
-      console.debug('[services] save response staff_ids', data.staff_ids || data.service?.staff_ids || []);
       const updatedService = applySavedServiceResponse(data);
       dispatchServicesUpdatedEvent(updatedService, data);
       setMessage(els.formMessage, 'Usługa została zapisana.', 'success');

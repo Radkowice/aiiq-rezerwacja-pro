@@ -110,7 +110,7 @@ $method = strtoupper($_SERVER['REQUEST_METHOD'] ?? 'GET');
 if ($method === 'GET') {
     $listUrl = $supabaseUrl
         . '/rest/v1/tenant_admin_notifications'
-        . '?select=id,staff_id,type,event_date,event_time,message,is_read,created_at,read_at'
+        . '?select=type,event_date,event_time,message,is_read,created_at,read_at'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&order=created_at.desc'
         . '&limit=20';
@@ -121,11 +121,28 @@ if ($method === 'GET') {
         admin_notifications_fail('Nie udało się pobrać powiadomień administratora', $listResult);
     }
 
-    $notifications = is_array($listResult['data'] ?? null) ? $listResult['data'] : [];
+    $notificationRows = is_array($listResult['data'] ?? null) ? $listResult['data'] : [];
+    $notifications = [];
+
+    foreach ($notificationRows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $notifications[] = [
+            'type' => (string) ($row['type'] ?? ''),
+            'event_date' => $row['event_date'] ?? null,
+            'event_time' => $row['event_time'] ?? null,
+            'message' => (string) ($row['message'] ?? ''),
+            'is_read' => ($row['is_read'] ?? false) === true,
+            'created_at' => $row['created_at'] ?? null,
+            'read_at' => $row['read_at'] ?? null,
+        ];
+    }
 
     $countUrl = $supabaseUrl
         . '/rest/v1/tenant_admin_notifications'
-        . '?select=id'
+        . '?select=is_read'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&is_read=eq.false';
 

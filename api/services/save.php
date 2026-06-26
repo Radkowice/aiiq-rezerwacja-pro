@@ -162,6 +162,158 @@ function services_save_staff_ids($value): array
     return array_keys($staffIds);
 }
 
+function services_save_service_id_from_ref(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $serviceRef,
+    string $refSecret
+): string {
+    $normalizedRef = trim($serviceRef);
+
+    if ($normalizedRef === '') {
+        services_json([
+            'success' => false,
+            'error' => 'Nieprawidłowa usługa.',
+        ], 400);
+    }
+
+    $servicesUrl = $supabaseUrl
+        . '/rest/v1/tenant_services'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $servicesResult = services_request('GET', $servicesUrl, $supabaseKey, $schema);
+
+    if ($servicesResult['response'] === false || $servicesResult['error'] !== '') {
+        services_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($servicesResult['httpCode'] < 200 || $servicesResult['httpCode'] >= 300) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić usługi'
+        ], $servicesResult['httpCode'] > 0 ? $servicesResult['httpCode'] : 500);
+    }
+
+    foreach ((is_array($servicesResult['data'] ?? null) ? $servicesResult['data'] : []) as $serviceRow) {
+        if (!is_array($serviceRow) || empty($serviceRow['id'])) {
+            continue;
+        }
+
+        $serviceId = (string) $serviceRow['id'];
+        $expectedRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
+
+        if (hash_equals($expectedRef, $normalizedRef)) {
+            return $serviceId;
+        }
+    }
+
+    services_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa usługa.',
+    ], 400);
+}
+
+function services_save_staff_ids_from_refs(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    $value,
+    string $refSecret
+): array {
+    if (!is_array($value)) {
+        services_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy pracownik.',
+        ], 400);
+    }
+
+    $staffRefs = [];
+
+    foreach ($value as $staffRef) {
+        if (is_array($staffRef) || is_object($staffRef)) {
+            services_json([
+                'success' => false,
+                'error' => 'Nieprawidłowy pracownik.',
+            ], 400);
+        }
+
+        $normalizedRef = trim((string) $staffRef);
+
+        if ($normalizedRef === '') {
+            services_json([
+                'success' => false,
+                'error' => 'Nieprawidłowy pracownik.',
+            ], 400);
+        }
+
+        $staffRefs[$normalizedRef] = true;
+    }
+
+    if (empty($staffRefs)) {
+        return [];
+    }
+
+    $staffUrl = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $staffResult = services_request('GET', $staffUrl, $supabaseKey, $schema);
+
+    if ($staffResult['response'] === false || $staffResult['error'] !== '') {
+        services_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($staffResult['httpCode'] < 200 || $staffResult['httpCode'] >= 300) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić pracowników'
+        ], $staffResult['httpCode'] > 0 ? $staffResult['httpCode'] : 500);
+    }
+
+    $staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
+    $staffIds = [];
+
+    foreach (array_keys($staffRefs) as $staffRef) {
+        $matchedStaffId = '';
+
+        foreach ($staffRows as $staffRow) {
+            if (!is_array($staffRow) || empty($staffRow['id'])) {
+                continue;
+            }
+
+            $staffId = (string) $staffRow['id'];
+            $expectedRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
+            if (hash_equals($expectedRef, $staffRef)) {
+                $matchedStaffId = $staffId;
+                break;
+            }
+        }
+
+        if ($matchedStaffId === '') {
+            services_json([
+                'success' => false,
+                'error' => 'Nieprawidłowy pracownik.',
+            ], 400);
+        }
+
+        $staffIds[$matchedStaffId] = true;
+    }
+
+    return array_keys($staffIds);
+}
+
 function services_save_fetch_staff(
     string $supabaseUrl,
     string $supabaseKey,
@@ -284,7 +436,8 @@ function services_save_fetch_staff_for_response(
     string $supabaseKey,
     string $schema,
     string $tenantId,
-    array $staffIds
+    array $staffIds,
+    string $refSecret
 ): array {
     if (empty($staffIds)) {
         return [];
@@ -322,7 +475,9 @@ function services_save_fetch_staff_for_response(
         }
 
         $staffById[(string) $staffRow['id']] = [
+            // legacy staff id response kept only until admin-usluga-platnosci.js is migrated to staff_refs. TODO_REMOVE_LEGACY_ID_RESPONSE
             'id' => (string) ($staffRow['id'] ?? ''),
+            'staff_ref' => public_response_staff_ref($tenantId, (string) $staffRow['id'], $refSecret),
             'display_name' => (string) ($staffRow['display_name'] ?? ''),
             'email' => (string) ($staffRow['email'] ?? ''),
             'phone' => (string) ($staffRow['phone'] ?? ''),
@@ -348,7 +503,8 @@ function services_save_fetch_saved_service(
     string $schema,
     string $tenantId,
     string $serviceId,
-    array $staffIds
+    array $staffIds,
+    string $refSecret
 ): array {
     $serviceUrl = $supabaseUrl
         . '/rest/v1/tenant_services'
@@ -387,10 +543,22 @@ function services_save_fetch_saved_service(
         $supabaseKey,
         $schema,
         $tenantId,
-        $staffIds
+        $staffIds,
+        $refSecret
     );
 
-    return services_normalize_record($serviceRows[0], $staffIds, $staff);
+    $staffRefs = [];
+
+    foreach ($staffIds as $staffId) {
+        $staffRefs[] = public_response_staff_ref($tenantId, $staffId, $refSecret);
+    }
+
+    // services_normalize_record still includes legacy service.id and service.staff_ids until admin-usluga-platnosci.js is migrated to refs. TODO_REMOVE_LEGACY_ID_RESPONSE
+    $service = services_normalize_record($serviceRows[0], $staffIds, $staff);
+    $service['service_ref'] = public_response_service_ref($tenantId, $serviceId, $refSecret);
+    $service['staff_refs'] = $staffRefs;
+
+    return $service;
 }
 
 function services_save_sync_staff_assignments(
@@ -570,11 +738,25 @@ $supabaseUrl = $context['supabaseUrl'];
 $supabaseKey = $context['supabaseKey'];
 $schema = $context['schema'];
 $tenantId = $context['tenantId'];
+$refSecret = public_response_ref_secret($supabaseKey);
 
 require_tenant_feature($tenantId, 'multiple_services');
 
 $input = services_read_json_input();
-$serviceId = trim((string) ($input['id'] ?? ''));
+$serviceRefInput = $input['service_ref'] ?? '';
+
+if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
+    services_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa usługa.',
+    ], 400);
+}
+
+$serviceRef = trim((string) $serviceRefInput);
+$serviceId = $serviceRef !== ''
+    ? services_save_service_id_from_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceRef, $refSecret)
+    // legacy id fallback kept only until admin-usluga-platnosci.js is migrated to service_ref/staff_refs. TODO_REMOVE_LEGACY_ID_FALLBACK
+    : trim((string) ($input['id'] ?? ''));
 $isUpdate = $serviceId !== '';
 
 if ($isUpdate && !services_is_uuid($serviceId)) {
@@ -630,10 +812,26 @@ if (!is_bool($sortOrderInput)
 }
 
 $sortOrder = services_save_integer($sortOrderInput, 'sort_order', 0, 1000000);
-$hasStaffIdsPayload = array_key_exists('staff_ids', $input);
-$staffIds = $hasStaffIdsPayload ? services_save_staff_ids($input['staff_ids']) : null;
+$hasStaffRefsPayload = array_key_exists('staff_refs', $input);
+// legacy staff_ids fallback kept only until admin-usluga-platnosci.js is migrated to service_ref/staff_refs. TODO_REMOVE_LEGACY_ID_FALLBACK
+$hasStaffIdsPayload = !$hasStaffRefsPayload && array_key_exists('staff_ids', $input);
+$hasStaffPayload = $hasStaffRefsPayload || $hasStaffIdsPayload;
+$staffIds = null;
 
-if ($hasStaffIdsPayload) {
+if ($hasStaffRefsPayload) {
+    $staffIds = services_save_staff_ids_from_refs(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $input['staff_refs'],
+        $refSecret
+    );
+} elseif ($hasStaffIdsPayload) {
+    $staffIds = services_save_staff_ids($input['staff_ids']);
+}
+
+if ($hasStaffPayload) {
     services_save_fetch_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffIds ?? []);
 }
 
@@ -681,7 +879,7 @@ if ($isActive && (!$isUpdate || !$existingIsActive)) {
 
 $rpcStaffIds = $staffIds;
 
-if (!$hasStaffIdsPayload) {
+if (!$hasStaffPayload) {
     $rpcStaffIds = $isUpdate
         ? services_save_fetch_current_staff_ids($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceId)
         : [];
@@ -744,7 +942,7 @@ if (!is_array($rpcDecoded) || ($rpcDecoded['success'] ?? null) !== true || !serv
     ], 500);
 }
 
-if ($hasStaffIdsPayload) {
+if ($hasStaffPayload) {
     services_save_sync_staff_assignments(
         $supabaseUrl,
         $supabaseKey,
@@ -768,12 +966,23 @@ $freshService = services_save_fetch_saved_service(
     $schema,
     $tenantId,
     $serviceIdFromRpc,
-    $freshStaffIds
+    $freshStaffIds,
+    $refSecret
 );
+
+$freshStaffRefs = [];
+
+foreach ($freshStaffIds as $freshStaffId) {
+    $freshStaffRefs[] = public_response_staff_ref($tenantId, $freshStaffId, $refSecret);
+}
 
 services_json([
     'success' => true,
+    // legacy service_id response kept only until admin-usluga-platnosci.js is migrated to service_ref. TODO_REMOVE_LEGACY_ID_RESPONSE
     'service_id' => $serviceIdFromRpc,
+    'service_ref' => public_response_service_ref($tenantId, $serviceIdFromRpc, $refSecret),
     'service' => $freshService,
-    'staff_ids' => $freshStaffIds
+    // legacy staff_ids response kept only until admin-usluga-platnosci.js is migrated to staff_refs. TODO_REMOVE_LEGACY_ID_RESPONSE
+    'staff_ids' => $freshStaffIds,
+    'staff_refs' => $freshStaffRefs
 ]);

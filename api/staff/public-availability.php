@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function staff_public_availability_json(array $payload, int $statusCode = 200): void
@@ -49,6 +50,160 @@ function staff_public_availability_feature_locked(): void
         'upgrade_required' => true,
         'error' => 'Panel pracownika jest dostępny w planie Pro. Twój abonament Pro wygasł albo konto działa w planie Free. Opłać abonament Pro, aby odzyskać dostęp do funkcji personelu.',
     ], 403);
+}
+
+function staff_public_availability_is_uuid(string $value): bool
+{
+    return preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value) === 1;
+}
+
+function staff_public_availability_resolve_staff_ref(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $staffRef,
+    string $secret
+): ?string {
+    if (preg_match('/^st_[a-f0-9]{32,64}$/', $staffRef) !== 1) {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator personelu'
+        ], 400);
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&limit=500';
+
+    $result = staff_public_availability_request($url, $supabaseKey, $schema);
+
+    if ($result['error'] !== '' || $result['httpCode'] >= 400) {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić personelu'
+        ], 500);
+    }
+
+    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $candidateId = trim((string) ($row['id'] ?? ''));
+
+        if ($candidateId !== '' && hash_equals(public_response_staff_ref($tenantId, $candidateId, $secret), $staffRef)) {
+            return $candidateId;
+        }
+    }
+
+    return null;
+}
+
+function staff_public_availability_resolve_service_ref(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $serviceRef,
+    string $secret
+): ?string {
+    if (preg_match('/^svc_[a-f0-9]{32,64}$/', $serviceRef) !== 1) {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator usługi'
+        ], 400);
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/tenant_services'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&visible_on_front=eq.true'
+        . '&limit=500';
+
+    $result = staff_public_availability_request($url, $supabaseKey, $schema);
+
+    if ($result['error'] !== '' || $result['httpCode'] >= 400) {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić usługi'
+        ], 500);
+    }
+
+    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $candidateId = trim((string) ($row['id'] ?? ''));
+
+        if ($candidateId !== '' && hash_equals(public_response_service_ref($tenantId, $candidateId, $secret), $serviceRef)) {
+            return $candidateId;
+        }
+    }
+
+    return null;
+}
+
+function staff_public_availability_resolve_booking_ref(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $bookingRef,
+    string $date,
+    string $secret
+): ?string {
+    if (preg_match('/^bk_[a-f0-9]{32,64}$/', $bookingRef) !== 1) {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy identyfikator rezerwacji'
+        ], 400);
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/bookings'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&limit=500';
+
+    if ($date !== '') {
+        $url .= '&booking_date=eq.' . rawurlencode($date);
+    }
+
+    $result = staff_public_availability_request($url, $supabaseKey, $schema);
+
+    if ($result['error'] !== '' || $result['httpCode'] >= 400) {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić rezerwacji'
+        ], 500);
+    }
+
+    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $candidateId = trim((string) ($row['id'] ?? ''));
+
+        if ($candidateId !== '' && hash_equals(public_response_booking_ref($tenantId, $candidateId, $secret), $bookingRef)) {
+            return $candidateId;
+        }
+    }
+
+    return null;
 }
 
 function staff_public_availability_time_to_minutes(string $time): int
@@ -333,18 +488,14 @@ if (!tenant_has_feature($tenantId, 'staff_module')) {
     staff_public_availability_feature_locked();
 }
 
+$staffRef = trim((string) ($_GET['staff_ref'] ?? ''));
 $staffId = trim((string) ($_GET['staff_id'] ?? ''));
 $date = trim((string) ($_GET['date'] ?? ''));
+$serviceRef = trim((string) ($_GET['service_ref'] ?? ''));
 $serviceId = trim((string) ($_GET['service_id'] ?? ''));
+$excludeBookingRef = trim((string) ($_GET['exclude_booking_ref'] ?? $_GET['booking_ref'] ?? ''));
 $excludeBookingId = trim((string) ($_GET['exclude_booking_id'] ?? $_GET['reservation_id'] ?? ''));
 $ignoreBookingBuffer = in_array(strtolower(trim((string) ($_GET['ignore_booking_buffer'] ?? ''))), ['1', 'true', 'yes'], true);
-
-if ($staffId === '') {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Brak staff_id'
-    ], 400);
-}
 
 if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     staff_public_availability_json([
@@ -353,14 +504,55 @@ if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     ], 400);
 }
 
-if ($serviceId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $serviceId)) {
+$refSecret = public_response_ref_secret($supabaseKey);
+
+if ($staffRef !== '') {
+    $staffId = staff_public_availability_resolve_staff_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffRef, $refSecret) ?? '';
+
+    if ($staffId === '') {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nie znaleziono osoby'
+        ], 404);
+    }
+} elseif ($staffId === '') {
+    staff_public_availability_json([
+        'success' => false,
+        'error' => 'Brak identyfikatora personelu'
+    ], 400);
+} elseif (!staff_public_availability_is_uuid($staffId)) {
+    staff_public_availability_json([
+        'success' => false,
+        'error' => 'Nieprawidłowy identyfikator personelu'
+    ], 400);
+}
+
+if ($serviceRef !== '') {
+    $serviceId = staff_public_availability_resolve_service_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceRef, $refSecret) ?? '';
+
+    if ($serviceId === '') {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nie znaleziono usługi'
+        ], 404);
+    }
+} elseif ($serviceId !== '' && !staff_public_availability_is_uuid($serviceId)) {
     staff_public_availability_json([
         'success' => false,
         'error' => 'Nieprawidłowa usługa'
     ], 400);
 }
 
-if ($excludeBookingId !== '' && !preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $excludeBookingId)) {
+if ($excludeBookingRef !== '') {
+    $excludeBookingId = staff_public_availability_resolve_booking_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $excludeBookingRef, $date, $refSecret) ?? '';
+
+    if ($excludeBookingId === '') {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => 'Nie znaleziono rezerwacji do wykluczenia'
+        ], 404);
+    }
+} elseif ($excludeBookingId !== '' && !staff_public_availability_is_uuid($excludeBookingId)) {
     staff_public_availability_json([
         'success' => false,
         'error' => 'Nieprawidłowa rezerwacja do wykluczenia'
@@ -392,6 +584,8 @@ if (!is_array($staff) || empty($staff['id'])) {
         'error' => 'Nie znaleziono osoby'
     ], 404);
 }
+
+$staffRefForResponse = public_response_staff_ref($tenantId, (string) $staff['id'], $refSecret);
 
 $selectedService = null;
 
@@ -505,7 +699,7 @@ if ($date !== '') {
         staff_public_availability_json([
             'success' => true,
             'staff' => [
-                'id' => (string) $staff['id'],
+                'staff_ref' => $staffRefForResponse,
                 'display_name' => (string) ($staff['display_name'] ?? ''),
             ],
             'availability' => array_map(static function (array $row): array {
@@ -619,7 +813,7 @@ if ($date !== '') {
 staff_public_availability_json([
     'success' => true,
     'staff' => [
-        'id' => (string) $staff['id'],
+        'staff_ref' => $staffRefForResponse,
         'display_name' => (string) ($staff['display_name'] ?? ''),
     ],
     'availability' => array_map(static function (array $row): array {

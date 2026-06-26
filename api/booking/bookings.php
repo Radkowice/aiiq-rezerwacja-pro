@@ -158,13 +158,27 @@ function booking_admin_int_value(array $row, string $key): int
     return 0;
 }
 
-function booking_admin_map_booking(array $booking, array $staffDisplayNames): array
+function booking_admin_map_booking(array $booking, array $staffDisplayNames, string $tenantId, string $refSecret): array
 {
+    $bookingId = booking_admin_string_value($booking, 'id');
+    $serviceId = booking_admin_string_value($booking, 'service_id');
     $staffId = booking_admin_string_value($booking, 'staff_id');
     $googleEventId = booking_admin_string_value($booking, 'google_event_id');
+    $staffDisplayName = $staffId !== '' && isset($staffDisplayNames[$staffId])
+        ? $staffDisplayNames[$staffId]
+        : null;
 
     return public_response_sanitize([
-        'id' => booking_admin_string_value($booking, 'id'),
+        'booking_ref' => $bookingId !== ''
+            ? public_response_booking_ref($tenantId, $bookingId, $refSecret)
+            : '',
+        'service_ref' => $serviceId !== ''
+            ? public_response_service_ref($tenantId, $serviceId, $refSecret)
+            : null,
+        'staff_ref' => $staffId !== ''
+            ? public_response_staff_ref($tenantId, $staffId, $refSecret)
+            : null,
+        'has_staff' => $staffId !== '' || ($staffDisplayName !== null && trim((string) $staffDisplayName) !== ''),
         'booking_date' => booking_admin_string_value($booking, 'booking_date'),
         'booking_time' => booking_admin_string_value($booking, 'booking_time'),
         'name' => booking_admin_string_value($booking, 'name'),
@@ -172,11 +186,7 @@ function booking_admin_map_booking(array $booking, array $staffDisplayNames): ar
         'phone' => booking_admin_string_value($booking, 'phone'),
         'notes' => booking_admin_nullable_string($booking, 'notes'),
         'status' => booking_admin_string_value($booking, 'status'),
-        'service_id' => booking_admin_string_value($booking, 'service_id'),
-        'staff_id' => $staffId,
-        'staff_display_name' => $staffId !== '' && isset($staffDisplayNames[$staffId])
-            ? $staffDisplayNames[$staffId]
-            : null,
+        'staff_display_name' => $staffDisplayName,
         'service_name_snapshot' => booking_admin_nullable_string($booking, 'service_name_snapshot'),
         'payment_required' => booking_admin_bool_value($booking, 'payment_required'),
         'payment_status' => booking_admin_nullable_string($booking, 'payment_status'),
@@ -362,13 +372,14 @@ if (!empty($staffIds)) {
 }
 
 $bookings = [];
+$refSecret = public_response_ref_secret($SUPABASE_KEY);
 
 foreach ($data as $booking) {
     if (!is_array($booking)) {
         continue;
     }
 
-    $bookings[] = booking_admin_map_booking($booking, $staffDisplayNames);
+    $bookings[] = booking_admin_map_booking($booking, $staffDisplayNames, $TENANT_ID, $refSecret);
 }
 
 echo json_encode(public_response_sanitize($bookings), JSON_UNESCAPED_UNICODE);

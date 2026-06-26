@@ -5,18 +5,89 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/_common.php';
 
+function services_deactivate_service_id_from_ref(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $serviceRef,
+    string $refSecret
+): string {
+    $normalizedRef = trim($serviceRef);
+
+    if ($normalizedRef === '') {
+        services_json([
+            'success' => false,
+            'error' => 'Nieprawidłowa usługa.',
+        ], 400);
+    }
+
+    $servicesUrl = $supabaseUrl
+        . '/rest/v1/tenant_services'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $servicesResult = services_request('GET', $servicesUrl, $supabaseKey, $schema);
+
+    if ($servicesResult['response'] === false || $servicesResult['error'] !== '') {
+        services_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($servicesResult['httpCode'] < 200 || $servicesResult['httpCode'] >= 300) {
+        services_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić usługi'
+        ], $servicesResult['httpCode'] > 0 ? $servicesResult['httpCode'] : 500);
+    }
+
+    foreach ((is_array($servicesResult['data'] ?? null) ? $servicesResult['data'] : []) as $serviceRow) {
+        if (!is_array($serviceRow) || empty($serviceRow['id'])) {
+            continue;
+        }
+
+        $serviceId = (string) $serviceRow['id'];
+        $expectedRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
+
+        if (hash_equals($expectedRef, $normalizedRef)) {
+            return $serviceId;
+        }
+    }
+
+    services_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa usługa.',
+    ], 400);
+}
+
 $context = services_require_context(['POST']);
 
 $supabaseUrl = $context['supabaseUrl'];
 $supabaseKey = $context['supabaseKey'];
 $schema = $context['schema'];
 $tenantId = $context['tenantId'];
+$refSecret = public_response_ref_secret($supabaseKey);
 
 require_tenant_feature($tenantId, 'multiple_services');
 
 $input = services_read_json_input();
 
-$serviceId = trim((string) ($input['id'] ?? ''));
+$serviceRefInput = $input['service_ref'] ?? '';
+
+if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
+    services_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa usługa.',
+    ], 400);
+}
+
+$serviceRef = trim((string) $serviceRefInput);
+$serviceId = $serviceRef !== ''
+    ? services_deactivate_service_id_from_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceRef, $refSecret)
+    // legacy id fallback kept only until admin-usluga-platnosci.js is migrated to service_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
+    : trim((string) ($input['id'] ?? ''));
 
 if (!services_is_uuid($serviceId)) {
     services_json([
@@ -95,7 +166,13 @@ if (empty($savedRows[0]) || !is_array($savedRows[0])) {
     ], 500);
 }
 
+$serviceRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
+// services_normalize_record still includes legacy service.id and service.staff_ids until admin-usluga-platnosci.js is migrated to refs. TODO_REMOVE_LEGACY_ID_RESPONSE
+$service = services_normalize_record($savedRows[0]);
+$service['service_ref'] = $serviceRef;
+
 services_json([
     'success' => true,
-    'service' => services_normalize_record($savedRows[0])
+    'service_ref' => $serviceRef,
+    'service' => $service
 ]);

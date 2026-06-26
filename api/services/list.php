@@ -13,6 +13,7 @@ $supabaseUrl = $context['supabaseUrl'];
 $supabaseKey = $context['supabaseKey'];
 $schema = $context['schema'];
 $tenantId = $context['tenantId'];
+$refSecret = public_response_ref_secret($supabaseKey);
 
 $servicesUrl = $supabaseUrl
     . '/rest/v1/tenant_services'
@@ -131,7 +132,9 @@ if (!empty($allStaffIds)) {
         }
 
         $staffById[(string) $staffRow['id']] = [
+            // legacy id response kept only until admin-usluga-platnosci.js and admin-kalendarz.js are migrated to refs. TODO_REMOVE_LEGACY_ID_RESPONSE
             'id' => (string) ($staffRow['id'] ?? ''),
+            'staff_ref' => public_response_staff_ref($tenantId, (string) $staffRow['id'], $refSecret),
             'display_name' => (string) ($staffRow['display_name'] ?? ''),
             'email' => (string) ($staffRow['email'] ?? ''),
             'phone' => (string) ($staffRow['phone'] ?? ''),
@@ -158,7 +161,17 @@ foreach ($serviceRows as $serviceRow) {
         }
     }
 
-    $services[] = services_normalize_record($serviceRow, $staffIds, $staff);
+    $staffRefs = [];
+
+    foreach ($staffIds as $staffId) {
+        $staffRefs[] = public_response_staff_ref($tenantId, $staffId, $refSecret);
+    }
+
+    $service = services_normalize_record($serviceRow, $staffIds, $staff);
+    $service['service_ref'] = public_response_service_ref($tenantId, $serviceId, $refSecret);
+    $service['staff_refs'] = $staffRefs;
+
+    $services[] = $service;
 }
 
 services_json([

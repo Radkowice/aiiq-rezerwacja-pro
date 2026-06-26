@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -75,6 +76,90 @@ function exception_normalize_staff_id($value): ?string
     }
 
     return $staffId;
+}
+
+function exception_normalize_staff_ref($value): string
+{
+    $staffRef = trim((string)($value ?? ''));
+
+    return in_array($staffRef, ['', 'null', 'undefined'], true) ? '' : $staffRef;
+}
+
+function exception_resolve_staff_ref(
+    $value,
+    string $tenantId,
+    string $supabaseUrl,
+    string $apiKey,
+    string $schema,
+    string $refSecret
+): ?string {
+    $staffRef = exception_normalize_staff_ref($value);
+
+    if ($staffRef === '') {
+        return null;
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true';
+
+    $result = exception_supabase_request('GET', $url, $apiKey, $schema);
+    $rows = is_array($result['data']) ? $result['data'] : [];
+
+    if ($result['error'] !== '' || $result['httpCode'] >= 400) {
+        exception_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy pracownik.',
+        ], 400);
+    }
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $staffId = trim((string)($row['id'] ?? ''));
+
+        if ($staffId === '') {
+            continue;
+        }
+
+        $expectedRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
+        if (hash_equals($expectedRef, $staffRef)) {
+            return $staffId;
+        }
+    }
+
+    exception_json([
+        'success' => false,
+        'error' => 'Nieprawidłowy pracownik.',
+    ], 400);
+}
+
+function exception_resolve_staff_request_id(
+    $staffRefValue,
+    $staffIdValue,
+    string $tenantId,
+    string $supabaseUrl,
+    string $apiKey,
+    string $schema,
+    string $refSecret
+): ?string {
+    if (exception_normalize_staff_ref($staffRefValue) !== '') {
+        return exception_resolve_staff_ref($staffRefValue, $tenantId, $supabaseUrl, $apiKey, $schema, $refSecret);
+    }
+
+    // staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
+    return exception_normalize_staff_id($staffIdValue);
+}
+
+function exception_public_staff_ref(?string $staffId, string $tenantId, string $refSecret): ?string
+{
+    return $staffId !== null && $staffId !== ''
+        ? public_response_staff_ref($tenantId, $staffId, $refSecret)
+        : null;
 }
 
 function exception_staff_filter(?string $staffId): string
@@ -184,7 +269,7 @@ $SUPABASE_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 if ($TENANT_ID === '') {
     exception_json([
         'success' => false,
-        'error' => 'Brak tenant_id w sesji',
+        'error' => 'Nieprawidłowa sesja',
     ], 400);
 }
 
@@ -202,13 +287,24 @@ if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE
     ], 401);
 }
 
+$REF_SECRET = public_response_ref_secret($SUPABASE_KEY);
+
 $input = json_decode(file_get_contents('php://input'), true);
 if (!is_array($input)) {
     $input = [];
 }
 
 $date = trim((string)($input['date'] ?? ''));
-$staffId = exception_normalize_staff_id($input['staff_id'] ?? null);
+// staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
+$staffId = exception_resolve_staff_request_id(
+    $input['staff_ref'] ?? null,
+    $input['staff_id'] ?? null,
+    $TENANT_ID,
+    $SUPABASE_URL,
+    $SUPABASE_KEY,
+    $SUPABASE_SCHEMA,
+    $REF_SECRET
+);
 
 if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     exception_json([
@@ -236,7 +332,7 @@ if ($method === 'DELETE') {
     exception_json([
         'success' => true,
         'date' => $date,
-        'staff_id' => $staffId,
+        'staff_ref' => exception_public_staff_ref($staffId, $TENANT_ID, $REF_SECRET),
     ]);
 }
 
@@ -286,5 +382,5 @@ exception_supabase_request('DELETE', $cleanupUrl, $SUPABASE_KEY, $SUPABASE_SCHEM
 exception_json([
     'success' => true,
     'date' => $date,
-    'staff_id' => $staffId,
+    'staff_ref' => exception_public_staff_ref($staffId, $TENANT_ID, $REF_SECRET),
 ]);

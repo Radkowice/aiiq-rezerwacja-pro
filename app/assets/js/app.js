@@ -134,7 +134,6 @@ async function loadSettings() {
 
     ALL_TIMES = generateTimeSlots();
 
-    console.log('Publiczne ustawienia kalendarza załadowane:', SETTINGS);
   } catch (e) {
     console.error('Błąd publicznych ustawień kalendarza:', e);
     FRONT_CALENDAR_ENABLED = false;
@@ -1636,7 +1635,6 @@ async function loadCalendarSettings() {
     }
 
     ALL_TIMES = generateTimeSlots();
-    console.log('Załadowane settings.php:', calendarSettings, ALL_TIMES);
   } catch (e) {
     console.error('loadCalendarSettings error:', e);
   }

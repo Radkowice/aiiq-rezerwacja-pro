@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -122,8 +123,16 @@ function staff_availability_select_fields(): string
 function staff_availability_safe_record(array $row): array
 {
     $record = [];
+    $publicFields = [
+        'weekday',
+        'start_time',
+        'end_time',
+        'is_active',
+        'created_at',
+        'updated_at',
+    ];
 
-    foreach (explode(',', staff_availability_select_fields()) as $field) {
+    foreach ($publicFields as $field) {
         if (array_key_exists($field, $row)) {
             $record[$field] = $row[$field];
         }
@@ -278,6 +287,100 @@ function staff_availability_ensure_staff_exists(
             'error' => 'Nie znaleziono pracownika'
         ], 404);
     }
+}
+
+function staff_availability_normalize_staff_ref($value): string
+{
+    $staffRef = trim((string) ($value ?? ''));
+
+    return in_array($staffRef, ['', 'null', 'undefined'], true) ? '' : $staffRef;
+}
+
+function staff_availability_resolve_staff_ref(
+    $value,
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $refSecret
+): ?string {
+    $staffRef = staff_availability_normalize_staff_ref($value);
+
+    if ($staffRef === '') {
+        return null;
+    }
+
+    $staffUrl = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $staffResult = staff_availability_request('GET', $staffUrl, $supabaseKey, $schema);
+
+    if ($staffResult['response'] === false || $staffResult['error'] !== ''
+        || $staffResult['httpCode'] < 200 || $staffResult['httpCode'] >= 300
+    ) {
+        staff_availability_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy pracownik.',
+        ], 400);
+    }
+
+    $staffRows = json_decode((string) $staffResult['response'], true);
+
+    if (!is_array($staffRows)) {
+        staff_availability_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy pracownik.',
+        ], 400);
+    }
+
+    foreach ($staffRows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $staffId = trim((string) ($row['id'] ?? ''));
+
+        if ($staffId === '') {
+            continue;
+        }
+
+        $expectedRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
+        if (hash_equals($expectedRef, $staffRef)) {
+            return $staffId;
+        }
+    }
+
+    staff_availability_json([
+        'success' => false,
+        'error' => 'Nieprawidłowy pracownik.',
+    ], 400);
+}
+
+function staff_availability_resolve_staff_request_id(
+    $staffRefValue,
+    $staffIdValue,
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $refSecret
+): string {
+    if (staff_availability_normalize_staff_ref($staffRefValue) !== '') {
+        return (string) staff_availability_resolve_staff_ref(
+            $staffRefValue,
+            $supabaseUrl,
+            $supabaseKey,
+            $schema,
+            $tenantId,
+            $refSecret
+        );
+    }
+
+    // staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
+    return trim((string) ($staffIdValue ?? ''));
 }
 
 function staff_availability_read(
@@ -456,6 +559,7 @@ $adminUser = staff_availability_require_admin_session();
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+$refSecret = public_response_ref_secret($supabaseKey);
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
     staff_availability_json([
@@ -491,14 +595,23 @@ if (!tenant_has_feature($tenantId, 'staff_module')) {
 }
 
 if ($method === 'GET') {
-    $staffId = trim((string) ($_GET['staff_id'] ?? ''));
+    // staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
+    $staffId = staff_availability_resolve_staff_request_id(
+        $_GET['staff_ref'] ?? null,
+        $_GET['staff_id'] ?? null,
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $refSecret
+    );
     $mode = trim((string) ($_GET['mode'] ?? ''));
     $date = trim((string) ($_GET['date'] ?? ''));
 
     if ($staffId === '') {
         staff_availability_json([
             'success' => false,
-            'error' => 'Brak staff_id'
+            'error' => 'Brak pracownika'
         ], 400);
     }
 
@@ -533,7 +646,7 @@ if ($method === 'GET') {
 
         staff_availability_json([
             'success' => true,
-            'staff_id' => $staffId,
+            'staff_ref' => public_response_staff_ref($tenantId, $staffId, $refSecret),
             'date' => $date,
             'weekday' => $weekday,
             'availability' => $availability,
@@ -543,6 +656,7 @@ if ($method === 'GET') {
 
     staff_availability_json([
         'success' => true,
+        'staff_ref' => public_response_staff_ref($tenantId, $staffId, $refSecret),
         'availability' => staff_availability_read($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffId)
     ]);
 }
@@ -556,12 +670,21 @@ if (!is_array($input)) {
     ], 400);
 }
 
-$staffId = trim((string) ($input['staff_id'] ?? ''));
+// staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
+$staffId = staff_availability_resolve_staff_request_id(
+    $input['staff_ref'] ?? null,
+    $input['staff_id'] ?? null,
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    $tenantId,
+    $refSecret
+);
 
 if ($staffId === '') {
     staff_availability_json([
         'success' => false,
-        'error' => 'Brak staff_id'
+        'error' => 'Brak pracownika'
     ], 400);
 }
 
@@ -600,6 +723,7 @@ if ($deleteResult['httpCode'] < 200 || $deleteResult['httpCode'] >= 300) {
 if (empty($availability)) {
     staff_availability_json([
         'success' => true,
+        'staff_ref' => public_response_staff_ref($tenantId, $staffId, $refSecret),
         'availability' => []
     ]);
 }
@@ -646,5 +770,6 @@ if (!is_array($insertedAvailability)) {
 
 staff_availability_json([
     'success' => true,
+    'staff_ref' => public_response_staff_ref($tenantId, $staffId, $refSecret),
     'availability' => array_map('staff_availability_safe_record', $insertedAvailability)
 ]);

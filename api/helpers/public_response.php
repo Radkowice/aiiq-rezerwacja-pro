@@ -20,6 +20,36 @@ function public_response_hidden_fields(): array
     ];
 }
 
+function public_response_ref_secret(string $supabaseKey): string
+{
+    return (string) (
+        getenv('BOOKING_PUBLIC_REF_SECRET')
+        ?: getenv('APP_SECRET')
+        ?: getenv('SUPABASE_SERVICE_ROLE_KEY')
+        ?: $supabaseKey
+    );
+}
+
+function public_response_build_ref(string $prefix, string $kind, string $tenantId, string $recordId, string $secret): string
+{
+    return $prefix . '_' . substr(hash_hmac('sha256', $kind . '|' . $tenantId . '|' . $recordId, $secret), 0, 48);
+}
+
+function public_response_booking_ref(string $tenantId, string $bookingId, string $secret): string
+{
+    return public_response_build_ref('bk', 'booking', $tenantId, $bookingId, $secret);
+}
+
+function public_response_staff_ref(string $tenantId, string $staffId, string $secret): string
+{
+    return public_response_build_ref('st', 'staff', $tenantId, $staffId, $secret);
+}
+
+function public_response_service_ref(string $tenantId, string $serviceId, string $secret): string
+{
+    return public_response_build_ref('svc', 'service', $tenantId, $serviceId, $secret);
+}
+
 function public_response_array_is_list(array $value): bool
 {
     $index = 0;

@@ -8,6 +8,7 @@ header('Pragma: no-cache');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -380,6 +381,7 @@ if (!is_array($staff)) {
 
 $accountsByStaffId = staff_list_index_accounts_by_staff_id($supabaseUrl, $supabaseKey, $schema, $tenantId);
 $invitesByStaffId = staff_list_index_invites_by_staff_id($supabaseUrl, $supabaseKey, $schema, $tenantId);
+$refSecret = public_response_ref_secret($supabaseKey);
 
 foreach ($staff as $index => $person) {
     if (!is_array($person)) {
@@ -387,9 +389,13 @@ foreach ($staff as $index => $person) {
     }
 
     $staffId = trim((string) ($person['id'] ?? ''));
+    $publicPerson = $person;
+    unset($publicPerson['id'], $publicPerson['staff_id']);
 
     if ($staffId === '') {
-        $staff[$index] = array_merge($person, staff_list_default_invite_context());
+        $staff[$index] = array_merge($publicPerson, [
+            'staff_ref' => '',
+        ], staff_list_default_invite_context());
         continue;
     }
 
@@ -398,7 +404,9 @@ foreach ($staff as $index => $person) {
         $invitesByStaffId[$staffId] ?? []
     );
 
-    $staff[$index] = array_merge($person, $inviteContext);
+    $staff[$index] = array_merge($publicPerson, [
+        'staff_ref' => public_response_staff_ref($tenantId, $staffId, $refSecret),
+    ], $inviteContext);
 }
 
 staff_list_json([

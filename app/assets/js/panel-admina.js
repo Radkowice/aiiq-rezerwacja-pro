@@ -3,8 +3,6 @@ window.AdminLoadQueue = window.AdminLoadQueue || (() => {
   let stopped = false;
 
   function log(message, name) {
-    const suffix = name ? ` ${name}` : '';
-    console.log(`[AdminLoadQueue] ${message}${suffix}`);
   }
 
   function enqueue(name, task, options = {}) {
@@ -58,6 +56,9 @@ let adminBlocksModuleQueued = false;
 let adminLegalDocumentsModuleQueued = false;
 let adminInfoModuleQueued = false;
 let adminServicePaymentsModuleQueued = false;
+const bookingActionMap = new Map();
+let bookingActionSeq = 0;
+let currentBookingsData = [];
 
 function enqueueAdminEmailModule() {
   if (adminEmailModuleQueued) return;
@@ -402,19 +403,15 @@ if (!window.__AIIQ_BOOKING_ACTIONS_BOUND) {
     if (!button) return;
 
     const action = button.dataset.bookingAction;
-
-    if (action === 'toggle-technical-details') {
-      toggleBookingTechnicalDetails(button.dataset.targetId, button);
-      return;
-    }
+    const actionRef = button.dataset.actionRef || '';
 
     if (action === 'change-staff') {
-      changeBookingStaff(button.dataset.bookingId);
+      changeBookingStaff(actionRef);
       return;
     }
 
     if (action === 'detach-staff') {
-      detachBookingStaff(button.dataset.bookingId);
+      detachBookingStaff(actionRef);
       return;
     }
 
@@ -425,7 +422,7 @@ if (!window.__AIIQ_BOOKING_ACTIONS_BOUND) {
 
     if (action === 'delete-booking') {
       deleteBooking(
-        button.dataset.bookingId,
+        actionRef,
         button.dataset.bookingDate,
         button.dataset.bookingTime,
         button.dataset.bookingStatus || '',
@@ -1185,7 +1182,7 @@ function initBookingFilters() {
           clearBtn.hidden = bookingSearchQuery === '';
         }
 
-        renderBookingList(window._bookingsData || []);
+        renderBookingList(currentBookingsData);
       }, 280);
     });
   }
@@ -1202,7 +1199,7 @@ function initBookingFilters() {
       }
 
       clearBtn.hidden = true;
-      renderBookingList(window._bookingsData || []);
+      renderBookingList(currentBookingsData);
     });
   }
 }
@@ -1329,6 +1326,126 @@ function sortBookingsForView(bookings, view) {
   });
 }
 
+function resetBookingActionMap() {
+  bookingActionMap.clear();
+  bookingActionSeq = 0;
+}
+
+const BOOKING_SAFE_VIEW_FIELDS = [
+  'booking_ref',
+  'service_ref',
+  'staff_ref',
+  'name',
+  'email',
+  'phone',
+  'booking_date',
+  'date',
+  'booking_time',
+  'time',
+  'status',
+  'payment_status',
+  'payment_required',
+  'payment_amount',
+  'payment_currency',
+  'description',
+  'message',
+  'notes',
+  'opis',
+  'service_name_snapshot',
+  'service_name',
+  'staff_display_name',
+  'source',
+  'created_at',
+  'updated_at',
+  'payment_provider',
+  'payment_expires_at',
+  'reschedule_count',
+  'rescheduled_at'
+];
+
+function buildSafeBookingViewItem(item, actionRef) {
+  const source = item && typeof item === 'object' ? item : {};
+  const safeItem = {
+    __actionRef: actionRef,
+    has_staff: source.has_staff === true
+      || String(source.staff_ref || '').trim() !== ''
+      || String(source.staff_display_name || '').trim() !== ''
+  };
+
+  BOOKING_SAFE_VIEW_FIELDS.forEach(field => {
+    if (Object.prototype.hasOwnProperty.call(source, field)) {
+      safeItem[field] = source[field];
+    }
+  });
+
+  return safeItem;
+}
+
+function prepareBookingViewData(bookings) {
+  if (!Array.isArray(bookings)) {
+    return [];
+  }
+
+  return bookings.map(item => {
+    const actionRef = registerBookingAction(item);
+    return buildSafeBookingViewItem(item, actionRef);
+  });
+}
+
+function buildBookingActionSnapshot(item, bookingRef, staffRef, serviceRef, hasStaff) {
+  return {
+    booking_ref: bookingRef,
+    staff_ref: staffRef,
+    service_ref: serviceRef,
+    has_staff: hasStaff,
+    booking_date: item?.booking_date || '',
+    date: item?.date || '',
+    booking_time: item?.booking_time || '',
+    time: item?.time || '',
+    name: item?.name || '',
+    staff_display_name: item?.staff_display_name || '',
+    service_name_snapshot: item?.service_name_snapshot || '',
+    service_name: item?.service_name || ''
+  };
+}
+
+function registerBookingAction(item) {
+  const ref = `booking-action-${++bookingActionSeq}`;
+  const bookingRef = String(item?.booking_ref || '').trim();
+  const staffRef = String(item?.staff_ref || '').trim();
+  const serviceRef = getBookingServiceRef(item);
+  const hasStaff = item?.has_staff === true || staffRef !== '' || hasValue(item?.staff_display_name);
+
+  bookingActionMap.set(ref, {
+    booking_ref: bookingRef,
+    staff_ref: staffRef,
+    service_ref: serviceRef,
+    has_staff: hasStaff,
+    booking: buildBookingActionSnapshot(item, bookingRef, staffRef, serviceRef, hasStaff)
+  });
+
+  return ref;
+}
+
+function getBookingAction(actionRef) {
+  return bookingActionMap.get(String(actionRef || '').trim()) || null;
+}
+
+function registerBookingStaffAction(actionRef, person) {
+  const source = getBookingAction(actionRef);
+  const ref = `booking-staff-action-${++bookingActionSeq}`;
+
+  bookingActionMap.set(ref, {
+    booking_ref: source?.booking_ref || '',
+    staff_ref: String(person?.staff_ref || '').trim(),
+    service_ref: source?.service_ref || '',
+    has_staff: true,
+    booking: source?.booking || null
+  });
+
+  return ref;
+}
+
 async function fetchBookingsByView(view) {
   const safeView = isValidBookingsView(view) ? view : 'upcoming';
 
@@ -1366,7 +1483,6 @@ function getBookingSearchFields(item) {
     item.service_name_snapshot,
     item.service_name,
     item.staff_display_name,
-    item.staff_id,
     item.booking_date,
     item.booking_time,
     item.status,
@@ -1419,6 +1535,8 @@ async function loadBookings(view = currentBookingsView) {
   const bookingList = document.getElementById('bookingList');
   if (!bookingList) return;
 
+  resetBookingActionMap();
+
   currentBookingsView = isValidBookingsView(view) ? view : 'upcoming';
 
   bookingList.innerHTML = `
@@ -1431,6 +1549,7 @@ async function loadBookings(view = currentBookingsView) {
     const data = await fetchBookingsByView(currentBookingsView);
 
     if (!data || !Array.isArray(data)) {
+      currentBookingsData = [];
       bookingList.innerHTML = `
         <tr>
           <td colspan="6" class="empty">Nie udało się wczytać danych</td>
@@ -1442,7 +1561,7 @@ async function loadBookings(view = currentBookingsView) {
     }
 
     sortBookingsForView(data, currentBookingsView);
-    window._bookingsData = data;
+    currentBookingsData = prepareBookingViewData(data);
 
     let todayData = [];
 
@@ -1464,9 +1583,10 @@ async function loadBookings(view = currentBookingsView) {
     updateTodayBookingsStat(todayData);
     renderTodayBookings(todayData);
 
-    renderBookingList(data);
+    renderBookingList(currentBookingsData);
   } catch (error) {
     console.error('loadBookings error:', error);
+    currentBookingsData = [];
 
     bookingList.innerHTML = `
       <tr>
@@ -1479,8 +1599,11 @@ async function loadBookings(view = currentBookingsView) {
   }
 }
 
-async function deleteBooking(id, date, time, bookingStatus = '', paymentStatus = '') {
-  if (!id) {
+async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentStatus = '') {
+  const actionData = getBookingAction(actionRef);
+  const bookingRef = actionData?.booking_ref || '';
+
+  if (!bookingRef) {
     alert('Brak identyfikatora rezerwacji');
     return;
   }
@@ -1517,7 +1640,7 @@ async function deleteBooking(id, date, time, bookingStatus = '', paymentStatus =
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ id })
+      body: JSON.stringify({ booking_ref: bookingRef })
     });
 
     if (!data?.success) {
@@ -1579,7 +1702,7 @@ function getBookingStaffName(item) {
     return item.staff_display_name;
   }
 
-  if (hasValue(item.staff_id)) {
+  if (item?.has_staff === true || hasValue(item.staff_ref)) {
     return 'przypisany, brak nazwy';
   }
 
@@ -1587,7 +1710,7 @@ function getBookingStaffName(item) {
 }
 
 function getBookingStaffDisplayText(item) {
-  if (hasValue(item.staff_display_name) || hasValue(item.staff_id)) {
+  if (hasValue(item.staff_display_name) || item?.has_staff === true || hasValue(item.staff_ref)) {
     return `Pracownik: ${getBookingStaffName(item)}`;
   }
 
@@ -1770,16 +1893,6 @@ function formatBookingAmount(item) {
   return `${amountText}${currency ? ` ${currency}` : ''}`;
 }
 
-function getSafePaymentUrl(value) {
-  const url = String(value || '').trim();
-
-  if (/^https?:\/\//i.test(url)) {
-    return url;
-  }
-
-  return '';
-}
-
 function buildBookingDetails(item) {
   const details = [];
   const description = getBookingDescription(item);
@@ -1817,15 +1930,10 @@ function buildBookingDetails(item) {
 
 function buildBookingTechnicalDetails(item) {
   const details = [];
-  const paymentUrl = getSafePaymentUrl(item.payment_url);
   const paymentExpiresAt = formatBookingDateTime(item.payment_expires_at);
   const updatedAt = formatBookingDateTime(item.updated_at);
 
-  if (hasValue(item.id)) details.push(['ID rezerwacji', item.id]);
-  if (hasValue(item.staff_id)) details.push(['ID pracownika', item.staff_id]);
   if (hasValue(item.payment_provider)) details.push(['Operator płatności', item.payment_provider]);
-  if (hasValue(item.payment_order_id)) details.push(['ID zamówienia płatności', item.payment_order_id]);
-  if (hasValue(paymentUrl)) details.push(['Link płatności', paymentUrl, paymentUrl]);
   if (hasValue(paymentExpiresAt)) details.push(['Płatność ważna do', paymentExpiresAt]);
   if (hasValue(updatedAt)) details.push(['Zaktualizowano', updatedAt]);
 
@@ -1865,28 +1973,9 @@ function getBookingDetailIcon(label) {
 
 function renderBookingDetails(item, detailsId) {
   const details = buildBookingDetails(item);
-  const technicalDetails = buildBookingTechnicalDetails(item);
-  const technicalId = `${detailsId}-technical`;
 
   return `
     ${details.length ? renderBookingDetailGrid(details) : '<div class="booking-details-empty">Brak dodatkowych informacji.</div>'}
-    ${technicalDetails.length ? `
-      <div class="booking-technical">
-        <button
-          class="booking-technical-btn"
-          type="button"
-          aria-expanded="false"
-          aria-controls="${escapeHtml(technicalId)}"
-          data-booking-action="toggle-technical-details"
-          data-target-id="${escapeHtml(technicalId)}"
-        >
-          Pokaż dane techniczne
-        </button>
-        <div class="booking-technical-panel" id="${escapeHtml(technicalId)}" hidden>
-          ${renderBookingDetailGrid(technicalDetails)}
-        </div>
-      </div>
-    ` : ''}
   `;
 }
 
@@ -1896,8 +1985,8 @@ function clearBookingStaffOptionsCache() {
   bookingStaffOptionsCache = null;
 }
 
-function getBookingServiceId(item) {
-  return String(item?.service_id || item?.tenant_service_id || '').trim();
+function getBookingServiceRef(item) {
+  return String(item?.service_ref || '').trim();
 }
 
 function getBookingDateValue(item) {
@@ -1924,11 +2013,11 @@ async function loadBookingStaffBaseOptions() {
   bookingStaffOptionsCache = staff
     .filter(person => person && person.is_active !== false)
     .map(person => ({
-      id: String(person.id || '').trim(),
+      staff_ref: String(person.staff_ref || '').trim(),
       display_name: String(person.display_name || 'Pracownik bez nazwy').trim(),
       email: String(person.email || '').trim()
     }))
-    .filter(person => person.id !== '');
+    .filter(person => person.staff_ref !== '');
 
   return bookingStaffOptionsCache;
 }
@@ -1936,10 +2025,10 @@ async function loadBookingStaffBaseOptions() {
 async function loadBookingStaffAvailabilityOption(person, booking) {
   const date = getBookingDateValue(booking);
   const time = getBookingTimeValue(booking);
-  const serviceId = getBookingServiceId(booking);
-  const bookingId = String(booking?.id || '').trim();
+  const serviceRef = getBookingServiceRef(booking);
+  const bookingRef = String(booking?.booking_ref || '').trim();
 
-  if (!person?.id || !date || !time) {
+  if (!person?.staff_ref || !date || !time) {
     return {
       ...person,
       is_available: false,
@@ -1948,17 +2037,17 @@ async function loadBookingStaffAvailabilityOption(person, booking) {
   }
 
   const params = new URLSearchParams({
-    staff_id: person.id,
+    staff_ref: person.staff_ref,
     date,
     ignore_booking_buffer: '1'
   });
 
-  if (serviceId) {
-    params.set('service_id', serviceId);
+  if (serviceRef) {
+    params.set('service_ref', serviceRef);
   }
 
-  if (bookingId) {
-    params.set('exclude_booking_id', bookingId);
+  if (bookingRef) {
+    params.set('exclude_booking_ref', bookingRef);
   }
 
   try {
@@ -2004,52 +2093,34 @@ async function loadBookingStaffOptions(booking = null) {
     baseOptions.map(person => loadBookingStaffAvailabilityOption(person, booking))
   );
 
-  console.debug('[change-staff] candidates', {
-    booking_id: booking?.id || '',
-    service_id: getBookingServiceId(booking),
-    date: getBookingDateValue(booking),
-    time: getBookingTimeValue(booking),
-    candidates: options.map(person => ({
-      staff_id: person.id,
-      name: person.display_name,
-      available: person.is_available !== false,
-      reason_code: person.reason_code || '',
-      reason_message: person.unavailable_reason || ''
-    }))
-  });
-
   return options;
 }
 
-function getBookingById(bookingId) {
-  const id = String(bookingId || '').trim();
+function getBookingByActionRef(actionRef) {
+  const actionData = getBookingAction(actionRef);
 
-  if (!id || !Array.isArray(window._bookingsData)) {
-    return null;
-  }
-
-  return window._bookingsData.find(item => String(item?.id || '').trim() === id) || null;
+  return actionData?.booking || null;
 }
 
-function renderBookingStaffActions(item) {
+function renderBookingStaffActions(item, actionRef) {
   if (!aiIqHasFeature('staff_module')) {
     return '';
   }
 
-  const bookingId = String(item?.id || '').trim();
+  const actionData = getBookingAction(actionRef);
 
-  if (!bookingId) {
+  if (!actionData?.booking_ref) {
     return '';
   }
 
-  const hasStaff = hasValue(item?.staff_id);
+  const hasStaff = actionData.has_staff === true || hasValue(actionData.staff_ref);
 
   return `
     <button
       class="booking-details-btn"
       type="button"
       data-booking-action="change-staff"
-      data-booking-id="${escapeHtml(bookingId)}"
+      data-action-ref="${escapeHtml(actionRef)}"
     >
       Zmień personel
     </button>
@@ -2058,7 +2129,7 @@ function renderBookingStaffActions(item) {
         class="delete-btn"
         type="button"
         data-booking-action="detach-staff"
-        data-booking-id="${escapeHtml(bookingId)}"
+        data-action-ref="${escapeHtml(actionRef)}"
       >
         Odłącz personel
       </button>
@@ -2066,19 +2137,20 @@ function renderBookingStaffActions(item) {
   `;
 }
 
-function buildBookingStaffConfirmHtml(booking, staffOptions) {
-  const currentStaffId = String(booking?.staff_id || '').trim();
+function buildBookingStaffConfirmHtml(booking, staffOptions, actionRef) {
+  const currentStaffRef = String(booking?.staff_ref || '').trim();
 
   const optionsHtml = staffOptions
-    .filter(person => person.id !== currentStaffId)
+    .filter(person => person.staff_ref !== currentStaffRef)
     .map(person => {
       const isAvailable = person.is_available !== false;
       const suffix = isAvailable ? '' : ' — niedostępny w tym terminie';
       const reason = String(person.unavailable_reason || '').trim();
+      const staffActionRef = registerBookingStaffAction(actionRef, person);
 
       return `
         <option
-          value="${escapeHtml(person.id)}"
+          value="${escapeHtml(staffActionRef)}"
           ${isAvailable ? '' : 'disabled'}
           ${reason ? `title="${escapeHtml(reason)}"` : ''}
         >
@@ -2113,9 +2185,9 @@ function buildBookingStaffConfirmHtml(booking, staffOptions) {
   `;
 }
 
-async function openBookingStaffConfirmModal(booking, staffOptions) {
-  const currentStaffId = String(booking?.staff_id || '').trim();
-  const candidateStaff = staffOptions.filter(person => person.id !== currentStaffId);
+async function openBookingStaffConfirmModal(booking, staffOptions, actionRef) {
+  const currentStaffRef = String(booking?.staff_ref || '').trim();
+  const candidateStaff = staffOptions.filter(person => person.staff_ref !== currentStaffRef);
   const availableStaff = candidateStaff.filter(person => person.is_available !== false);
 
   if (!candidateStaff.length) {
@@ -2184,7 +2256,7 @@ async function openBookingStaffConfirmModal(booking, staffOptions) {
     const confirmed = await openAdminConfirm({
       title: 'Zmień personel rezerwacji',
       html: `
-        ${buildBookingStaffConfirmHtml(booking, staffOptions)}
+        ${buildBookingStaffConfirmHtml(booking, staffOptions, actionRef)}
         ${validationMessage ? `
           <p class="booking-staff-confirm-error">
             ${escapeHtml(validationMessage)}
@@ -2202,21 +2274,29 @@ async function openBookingStaffConfirmModal(booking, staffOptions) {
     }
 
     const select = document.getElementById('bookingStaffConfirmSelect');
-    const selectedStaffId = String(select?.value || '').trim();
+    const selectedStaffRef = String(select?.value || '').trim();
+    const selectedStaffActionRef = getBookingAction(selectedStaffRef)?.staff_ref || '';
 
-    if (selectedStaffId) {
-      return selectedStaffId;
+    if (selectedStaffActionRef) {
+      return selectedStaffActionRef;
     }
 
     validationMessage = 'Wybierz dostępnego pracownika przed zapisaniem zmiany.';
   }
 }
 
-async function changeBookingStaff(bookingId) {
-  const booking = getBookingById(bookingId);
+async function changeBookingStaff(actionRef) {
+  const actionData = getBookingAction(actionRef);
+  const bookingRef = actionData?.booking_ref || '';
+  const booking = getBookingByActionRef(actionRef);
 
   if (!booking) {
     alert('Nie znaleziono rezerwacji.');
+    return;
+  }
+
+  if (!bookingRef) {
+    alert('Brak identyfikatora rezerwacji.');
     return;
   }
 
@@ -2228,9 +2308,9 @@ async function changeBookingStaff(bookingId) {
       return;
     }
 
-    const selectedStaffId = await openBookingStaffConfirmModal(booking, staffOptions);
+    const selectedStaffRef = await openBookingStaffConfirmModal(booking, staffOptions, actionRef);
 
-    if (!selectedStaffId) {
+    if (!selectedStaffRef) {
       return;
     }
 
@@ -2241,8 +2321,8 @@ async function changeBookingStaff(bookingId) {
       },
       body: JSON.stringify({
         action: 'change_staff',
-        booking_id: bookingId,
-        staff_id: selectedStaffId
+        booking_ref: bookingRef,
+        staff_ref: selectedStaffRef
       })
     });
 
@@ -2281,11 +2361,18 @@ async function refreshBookingsAfterStaffChange() {
   }
 }
 
-async function detachBookingStaff(bookingId) {
-  const booking = getBookingById(bookingId);
+async function detachBookingStaff(actionRef) {
+  const actionData = getBookingAction(actionRef);
+  const bookingRef = actionData?.booking_ref || '';
+  const booking = getBookingByActionRef(actionRef);
 
   if (!booking) {
     alert('Nie znaleziono rezerwacji.');
+    return;
+  }
+
+  if (!bookingRef) {
+    alert('Brak identyfikatora rezerwacji.');
     return;
   }
 
@@ -2320,7 +2407,7 @@ async function detachBookingStaff(bookingId) {
       },
       body: JSON.stringify({
         action: 'detach_staff',
-        booking_id: bookingId
+        booking_ref: bookingRef
       })
     });
 
@@ -2349,15 +2436,15 @@ window.changeBookingStaff = changeBookingStaff;
 window.detachBookingStaff = detachBookingStaff;
 
 function renderBookingRow(item) {
-  const bookingId = String(item.id ?? '');
+  const actionRef = String(item.__actionRef || '').trim() || registerBookingAction(item);
   const bookingDate = item.booking_date || item.date || '';
   const bookingTime = item.booking_time || item.time || '';
-  const detailsId = `booking-details-${bookingId.replace(/[^a-zA-Z0-9_-]/g, '') || Math.random().toString(36).slice(2)}`;
+  const detailsId = `booking-details-${actionRef}`;
   const payment = renderPaymentBadge(item);
   const paymentRowClass = getPaymentRowClass(item);
 
   return `
-    <tr class="booking-row${paymentRowClass}" data-booking-row="${escapeHtml(bookingId)}">
+    <tr class="booking-row${paymentRowClass}">
       <td class="col-name">${escapeHtml(item.name || 'Brak danych')}</td>
       <td class="col-contact">${renderContactCell(item)}</td>
       <td class="col-term">${renderTermCell(item)}</td>
@@ -2375,12 +2462,12 @@ function renderBookingRow(item) {
 >
   Więcej
 </button>
-${renderBookingStaffActions(item)}
+${renderBookingStaffActions(item, actionRef)}
 <button
   class="delete-btn"
   type="button"
   data-booking-action="delete-booking"
-  data-booking-id="${escapeHtml(bookingId)}"
+  data-action-ref="${escapeHtml(actionRef)}"
   data-booking-date="${escapeHtml(bookingDate)}"
   data-booking-time="${escapeHtml(bookingTime)}"
   data-booking-status="${escapeHtml(item.status || '')}"
@@ -2415,21 +2502,6 @@ function toggleBookingDetails(detailsId, button) {
 }
 
 window.toggleBookingDetails = toggleBookingDetails;
-
-function toggleBookingTechnicalDetails(technicalId, button) {
-  const panel = document.getElementById(technicalId);
-  if (!panel) return;
-
-  const shouldShow = panel.hidden;
-  panel.hidden = !shouldShow;
-
-  if (button) {
-    button.textContent = shouldShow ? 'Ukryj dane techniczne' : 'Pokaż dane techniczne';
-    button.setAttribute('aria-expanded', shouldShow ? 'true' : 'false');
-  }
-}
-
-window.toggleBookingTechnicalDetails = toggleBookingTechnicalDetails;
 
 function renderPaymentBadge(item) {
   const status = String(item.payment_status || 'not_required');

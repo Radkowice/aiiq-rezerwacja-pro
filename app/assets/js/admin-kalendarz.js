@@ -257,7 +257,6 @@
 
     if (refreshBtn) {
       refreshBtn.addEventListener('click', async () => {
-        console.debug('[blocks] refresh clicked');
         await refreshAdminBlocksView(refreshBtn);
       });
     }
@@ -668,7 +667,6 @@
 
   function bindServiceUpdateEvents() {
     window.addEventListener('aiiq:services-updated', async (event) => {
-      console.debug('[blocks/staff-services] services-updated event', event.detail || {});
       invalidateAdminServicesCache();
       staffAvailabilityLoadedFor = '';
       staffAvailability = [];
@@ -1581,26 +1579,14 @@
 
     try {
       const services = await getAdminStaffServiceCards(selectedAdminDate);
-      const serviceIds = services.map(service => service.id).filter(Boolean);
 
       if (
         seq !== staffServiceRenderSeq ||
         selectedStaffIdForRender !== selectedBlockStaffId ||
         selectedDateForRender !== selectedAdminDate
       ) {
-        console.debug('[blocks/staff-services] stale render skipped', {
-          selectedStaffId: selectedStaffIdForRender,
-          serviceIds,
-          seq
-        });
         return;
       }
-
-      console.debug('[blocks/staff-services] render source:', 'services-list', {
-        selectedStaffId: selectedStaffIdForRender,
-        serviceIds,
-        seq
-      });
 
       if (!servicesWrap) {
         return;
