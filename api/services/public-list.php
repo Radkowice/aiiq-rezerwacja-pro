@@ -8,6 +8,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function public_services_json(array $payload, int $statusCode = 200): void
@@ -94,6 +95,7 @@ if (!$tenantId) {
 }
 
 $tenantId = (string) $tenantId;
+$refSecret = public_response_ref_secret($supabaseKey);
 
 if (!tenant_has_feature($tenantId, 'multiple_services')) {
     public_services_json([
@@ -284,8 +286,12 @@ if (!empty($allStaffIds)) {
             continue;
         }
 
+        $staffId = (string) $staffRow['id'];
+        $staffRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
         $staffById[(string) $staffRow['id']] = [
-            'id' => (string) ($staffRow['id'] ?? ''),
+            'id' => $staffRef,
+            'staff_ref' => $staffRef,
             'display_name' => (string) ($staffRow['display_name'] ?? ''),
             'description' => (string) ($staffRow['description'] ?? ''),
             'color' => (string) ($staffRow['color'] ?? ''),
@@ -327,9 +333,11 @@ foreach ($serviceRows as $serviceRow) {
         && $servicePaymentsEnabled
         && $priceAmount !== null
         && $priceAmount > 0;
+    $serviceRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
 
     $services[] = [
-        'id' => $serviceId,
+        'id' => $serviceRef,
+        'service_ref' => $serviceRef,
         'name' => (string) ($serviceRow['name'] ?? ''),
         'description' => (string) ($serviceRow['description'] ?? ''),
         'price_amount' => $priceAmount,

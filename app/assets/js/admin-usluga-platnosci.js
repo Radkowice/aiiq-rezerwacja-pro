@@ -5,12 +5,12 @@
     services: [],
     staff: [],
     globalSettings: {},
-    selectedId: null,
+    selectedRef: null,
     loading: false,
     saving: false,
     savingGlobal: false,
-    deactivatingId: null,
-    deletingId: null,
+    deactivatingRef: null,
+    deletingRef: null,
     loadSequence: 0,
     searchQuery: '',
   };
@@ -49,7 +49,7 @@
     els.saveButton = section.querySelector('#service-save-btn');
     els.staffMessage = section.querySelector('#service-staff-message');
     els.staffList = section.querySelector('#service-staff-list');
-    els.id = section.querySelector('#service-id');
+    els.serviceRefField = section.querySelector('#service-id');
     els.name = section.querySelector('#service-name');
     els.description = section.querySelector('#service-description');
     els.durationMinutes = section.querySelector('#service-duration-minutes');
@@ -165,7 +165,7 @@
   }
 
   async function refreshStaffAfterUpdate() {
-    const selectedStaffIds = getCurrentSelectedStaffIds();
+    const selectedStaffRefs = getCurrentSelectedStaffRefs();
     setMessage(els.staffMessage, 'Odświeżanie listy pracowników...', 'muted');
 
     try {
@@ -173,7 +173,7 @@
       state.staff = Array.isArray(data.staff) ? data.staff.map(normalizeStaff) : [];
 
       mergeAssignedStaffFromServices();
-      renderStaffCheckboxes(selectedStaffIds);
+      renderStaffCheckboxes(selectedStaffRefs);
       setMessage(els.staffMessage, '', '');
     } catch (error) {
       setMessage(els.staffMessage, error.message || 'Nie udało się odświeżyć pracowników do przypisania.', 'error');
@@ -401,17 +401,19 @@
   }
 
   function mergeAssignedStaffFromServices() {
-    const staffById = new Map(state.staff.map((person) => [person.id, person]));
+    const staffByRef = new Map(state.staff
+      .filter((person) => person.staffRef)
+      .map((person) => [person.staffRef, person]));
 
     state.services.forEach((service) => {
       service.staff.forEach((person) => {
-        if (person.id && !staffById.has(person.id)) {
-          staffById.set(person.id, normalizeStaff(person));
+        if (person.staffRef && !staffByRef.has(person.staffRef)) {
+          staffByRef.set(person.staffRef, person);
         }
       });
     });
 
-    state.staff = Array.from(staffById.values()).sort((a, b) => {
+    state.staff = Array.from(staffByRef.values()).sort((a, b) => {
       const activeDiff = Number(b.is_active) - Number(a.is_active);
       if (activeDiff !== 0) return activeDiff;
       return a.display_name.localeCompare(b.display_name, 'pl');
@@ -420,7 +422,7 @@
 
   function normalizeService(row) {
     return {
-      id: row?.id ? String(row.id) : (row?.service_id ? String(row.service_id) : ''),
+      serviceRef: row?.service_ref ? String(row.service_ref) : '',
       name: row?.name ? String(row.name) : '',
       description: row?.description ? String(row.description) : '',
       duration_minutes: normalizeInteger(row?.duration_minutes, 60),
@@ -433,14 +435,14 @@
       is_active: row?.is_active === true,
       visible_on_front: row?.visible_on_front === true,
       sort_order: normalizeInteger(row?.sort_order, 0),
-      staff_ids: Array.isArray(row?.staff_ids) ? row.staff_ids.map(String) : [],
+      staffRefs: Array.isArray(row?.staff_refs) ? row.staff_refs.map(String) : [],
       staff: Array.isArray(row?.staff) ? row.staff.map(normalizeStaff) : [],
     };
   }
 
   function normalizeStaff(row) {
     return {
-      id: row?.id ? String(row.id) : '',
+      staffRef: row?.staff_ref ? String(row.staff_ref) : '',
       display_name: row?.display_name ? String(row.display_name) : '',
       email: row?.email ? String(row.email) : '',
       phone: row?.phone ? String(row.phone) : '',
@@ -477,7 +479,7 @@
   }
 
   function findSelectedService() {
-    return state.services.find((service) => service.id === state.selectedId) || null;
+    return state.services.find((service) => service.serviceRef === state.selectedRef) || null;
   }
 
   function updateServiceSearch() {
@@ -504,37 +506,52 @@
   }
 
   function applySavedServiceResponse(data) {
-    const freshStaffIds = Array.isArray(data?.staff_ids)
-      ? data.staff_ids.map(String)
-      : (Array.isArray(data?.service?.staff_ids) ? data.service.staff_ids.map(String) : null);
+    const freshStaffRefs = Array.isArray(data?.staff_refs)
+      ? data.staff_refs.map(String)
+      : (Array.isArray(data?.service?.staff_refs) ? data.service.staff_refs.map(String) : null);
     const responseService = data?.service && typeof data.service === 'object' ? data.service : null;
-    const savedServiceId = String(
-      data?.service_id ||
-      responseService?.id ||
-      responseService?.service_id ||
-      state.selectedId ||
+    const savedServiceRef = String(
+      data?.service_ref ||
+      responseService?.service_ref ||
+      state.selectedRef ||
       ''
     ).trim();
 
-    if (!savedServiceId || (!responseService && freshStaffIds === null)) {
+    if (!savedServiceRef) {
       return null;
     }
 
-    const existingIndex = state.services.findIndex((service) => service.id === savedServiceId);
+    const existingIndex = state.services.findIndex((service) => service.serviceRef === savedServiceRef);
     const existingService = existingIndex >= 0 ? state.services[existingIndex] : null;
+
+    if (!responseService && freshStaffRefs === null && !existingService) {
+      state.selectedRef = savedServiceRef;
+      return null;
+    }
+
+    const existingRaw = existingService
+      ? {
+        ...existingService,
+        service_ref: existingService.serviceRef,
+        staff_refs: existingService.staffRefs,
+        staff: Array.isArray(existingService.staff)
+          ? existingService.staff.map((person) => ({ ...person, staff_ref: person.staffRef }))
+          : [],
+      }
+      : {};
     const mergedRaw = {
-      ...(existingService || {}),
+      ...existingRaw,
       ...(responseService || {}),
-      id: savedServiceId,
+      service_ref: savedServiceRef,
     };
 
-    if (freshStaffIds !== null) {
-      mergedRaw.staff_ids = freshStaffIds;
+    if (freshStaffRefs !== null) {
+      mergedRaw.staff_refs = freshStaffRefs;
 
       if (!Array.isArray(responseService?.staff)) {
-        const freshStaffSet = new Set(freshStaffIds);
+        const freshStaffSet = new Set(freshStaffRefs);
         mergedRaw.staff = Array.isArray(existingService?.staff)
-          ? existingService.staff.filter((person) => freshStaffSet.has(person.id))
+          ? existingService.staff.filter((person) => freshStaffSet.has(person.staffRef))
           : [];
       }
     }
@@ -547,7 +564,7 @@
       state.services.unshift(updatedService);
     }
 
-    state.selectedId = updatedService.id;
+    state.selectedRef = updatedService.serviceRef;
     mergeAssignedStaffFromServices();
     renderServiceList();
 
@@ -562,10 +579,10 @@
     }
 
     const detail = {
-      service_id: service?.id || data?.service_id || '',
-      staff_ids: Array.isArray(service?.staff_ids)
-        ? service.staff_ids
-        : (Array.isArray(data?.staff_ids) ? data.staff_ids.map(String) : []),
+      service_ref: service?.serviceRef || data?.service_ref || '',
+      staff_refs: Array.isArray(service?.staffRefs)
+        ? service.staffRefs
+        : (Array.isArray(data?.staff_refs) ? data.staff_refs.map(String) : []),
     };
 
     window.dispatchEvent(new CustomEvent('aiiq:services-updated', { detail }));
@@ -595,7 +612,7 @@
     }
 
     els.list.innerHTML = visibleServices.map((service) => {
-      const selected = service.id === state.selectedId ? ' is-selected' : '';
+      const selected = service.serviceRef === state.selectedRef ? ' is-selected' : '';
       const inactive = service.is_active ? '' : ' is-inactive';
       const priceLabel = Number(service.price_amount) > 0
         ? `${escapeHtml(formatPrice(service.price_amount))} ${escapeHtml(service.price_currency)}`
@@ -605,14 +622,14 @@
         : 'bez płatności online';
       const visibilityLabel = service.visible_on_front ? 'widoczna' : 'ukryta';
       const activeLabel = service.is_active ? 'aktywna' : 'wyłączona';
-      const staffCount = service.staff_ids.length;
+      const staffCount = service.staffRefs.length;
       const statusAction = service.is_active
-        ? `<button type="button" class="btn btn-secondary service-deactivate-btn" data-action="deactivate" data-service-id="${escapeHtmlAttr(service.id)}">Wyłącz</button>`
+        ? `<button type="button" class="btn btn-secondary service-deactivate-btn" data-action="deactivate" data-service-ref="${escapeHtmlAttr(service.serviceRef)}">Wyłącz</button>`
         : '<button type="button" class="btn btn-secondary service-disabled-btn" disabled>Wyłączona</button>';
-      const deleteAction = `<button type="button" class="btn btn-danger service-delete-btn" data-action="delete" data-service-id="${escapeHtmlAttr(service.id)}">Usuń usługę</button>`;
+      const deleteAction = `<button type="button" class="btn btn-danger service-delete-btn" data-action="delete" data-service-ref="${escapeHtmlAttr(service.serviceRef)}">Usuń usługę</button>`;
 
       return `
-        <div class="service-list-item${selected}${inactive}" data-service-id="${escapeHtmlAttr(service.id)}">
+        <div class="service-list-item${selected}${inactive}" data-service-ref="${escapeHtmlAttr(service.serviceRef)}">
           <div class="service-list-main service-list-content">
             <strong class="service-list-title">${escapeHtml(service.name || 'Bez nazwy')}</strong>
             <div class="service-list-meta">
@@ -625,7 +642,7 @@
             </div>
           </div>
           <div class="service-list-actions">
-            <button type="button" class="btn btn-secondary service-edit-btn" data-action="edit" data-service-id="${escapeHtmlAttr(service.id)}">Edytuj</button>
+            <button type="button" class="btn btn-secondary service-edit-btn" data-action="edit" data-service-ref="${escapeHtmlAttr(service.serviceRef)}">Edytuj</button>
             ${statusAction}
             ${deleteAction}
           </div>
@@ -634,23 +651,23 @@
     }).join('');
 
     els.list.querySelectorAll('[data-action="edit"]').forEach((button) => {
-      button.addEventListener('click', () => selectService(button.dataset.serviceId || ''));
+      button.addEventListener('click', () => selectService(button.dataset.serviceRef || ''));
     });
 
     els.list.querySelectorAll('[data-action="deactivate"]').forEach((button) => {
-      button.addEventListener('click', () => deactivateService(button.dataset.serviceId || '', button));
+      button.addEventListener('click', () => deactivateService(button.dataset.serviceRef || '', button));
     });
 
     els.list.querySelectorAll('[data-action="delete"]').forEach((button) => {
-      button.addEventListener('click', () => deleteService(button.dataset.serviceId || '', button));
+      button.addEventListener('click', () => deleteService(button.dataset.serviceRef || '', button));
     });
   }
 
-  function selectService(serviceId) {
-    const service = state.services.find((item) => item.id === serviceId) || null;
+  function selectService(serviceRef) {
+    const service = state.services.find((item) => item.serviceRef === serviceRef) || null;
     if (!service) return;
 
-    state.selectedId = service.id;
+    state.selectedRef = service.serviceRef;
     populateForm(service);
     setMessage(els.formMessage, '', '');
     renderServiceList();
@@ -696,9 +713,9 @@
 
   function populateForm(service) {
     const selected = service || null;
-    state.selectedId = selected ? selected.id : null;
+    state.selectedRef = selected ? selected.serviceRef : null;
 
-    setFieldValue(els.id, selected?.id || '');
+    setFieldValue(els.serviceRefField, selected?.serviceRef || '');
     setFieldValue(els.name, selected?.name || '');
     setFieldValue(els.description, selected?.description || '');
     setFieldValue(els.durationMinutes, selected?.duration_minutes || 60);
@@ -720,14 +737,14 @@
       els.formTitle.textContent = selected ? 'Edycja usługi' : 'Nowa usługa';
     }
 
-    renderStaffCheckboxes(selected ? selected.staff_ids : []);
+    renderStaffCheckboxes(selected ? selected.staffRefs : []);
   }
 
-  function renderStaffCheckboxes(selectedStaffIds) {
+  function renderStaffCheckboxes(selectedStaffRefs) {
     if (!els.staffList) return;
 
-    const selectedSet = new Set((Array.isArray(selectedStaffIds) ? selectedStaffIds : []).map(String));
-    const availableStaff = state.staff.filter((person) => person.is_active || selectedSet.has(person.id));
+    const selectedSet = new Set((Array.isArray(selectedStaffRefs) ? selectedStaffRefs : []).map(String));
+    const availableStaff = state.staff.filter((person) => person.staffRef && (person.is_active || selectedSet.has(person.staffRef)));
 
     if (availableStaff.length === 0) {
       els.staffList.classList.remove('is-scrollable');
@@ -738,7 +755,7 @@
     els.staffList.classList.toggle('is-scrollable', availableStaff.length > 6);
 
     els.staffList.innerHTML = availableStaff.map((person) => {
-      const isSelected = selectedSet.has(person.id);
+      const isSelected = selectedSet.has(person.staffRef);
       const isInactive = !person.is_active;
       const disabled = isInactive ? 'disabled' : '';
       const checked = isSelected ? 'checked' : '';
@@ -747,7 +764,7 @@
 
       return `
         <label class="service-staff-item ${isInactive ? 'is-inactive' : ''}">
-          <input type="checkbox" value="${escapeHtmlAttr(person.id)}" ${checked} ${disabled}>
+          <input type="checkbox" value="${escapeHtmlAttr(person.staffRef)}" ${checked} ${disabled}>
           <span>
             <strong>${escapeHtml(person.display_name || 'Bez nazwy')}</strong>
             <small>${escapeHtml(description)}</small>
@@ -758,7 +775,7 @@
     }).join('');
   }
 
-  function getCurrentSelectedStaffIds() {
+  function getCurrentSelectedStaffRefs() {
     if (els.staffList) {
       return Array.from(els.staffList.querySelectorAll('input[type="checkbox"]:checked'))
         .map((input) => input.value)
@@ -766,7 +783,7 @@
     }
 
     const selectedService = findSelectedService();
-    return selectedService ? selectedService.staff_ids : [];
+    return selectedService ? selectedService.staffRefs : [];
   }
 
   function readServicePayload() {
@@ -811,12 +828,12 @@
       throw new Error('Podaj cenę usługi, jeśli płatność online jest włączona.');
     }
 
-    const staffIds = Array.from(els.staffList.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)'))
+    const staffRefs = Array.from(els.staffList.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)'))
       .map((input) => input.value)
       .filter(Boolean);
 
     return {
-      id: state.selectedId || null,
+      service_ref: state.selectedRef || null,
       name,
       description,
       duration_minutes: durationMinutes,
@@ -829,7 +846,7 @@
       is_active: Boolean(els.isActive.checked),
       visible_on_front: Boolean(els.visibleOnFront.checked),
       sort_order: sortOrder,
-      staff_ids: staffIds,
+      staff_refs: staffRefs,
     };
   }
 
@@ -889,12 +906,11 @@
     setMessage(els.formMessage, 'Zapisywanie usługi...', 'muted');
 
     try {
-      const data = await requestJson('/api/services/save.php?debug=1', {
+      const data = await requestJson('/api/services/save.php', {
         method: 'POST',
         body: JSON.stringify(payload),
       });
 
-      state.selectedId = data.service_id || state.selectedId;
       const updatedService = applySavedServiceResponse(data);
       dispatchServicesUpdatedEvent(updatedService, data);
       setMessage(els.formMessage, 'Usługa została zapisana.', 'success');
@@ -908,10 +924,10 @@
     }
   }
 
-  async function deactivateService(serviceId, button) {
-    const service = state.services.find((item) => item.id === serviceId) || null;
+  async function deactivateService(serviceRef, button) {
+    const service = state.services.find((item) => item.serviceRef === serviceRef) || null;
 
-    if (!service || state.deactivatingId) return;
+    if (!service || state.deactivatingRef) return;
 
     if (typeof window.openAdminConfirm !== 'function') {
       setMessage(els.listMessage, 'Nie można pokazać okna potwierdzenia.', 'error');
@@ -929,7 +945,7 @@
 
     if (!confirmed) return;
 
-    state.deactivatingId = serviceId;
+    state.deactivatingRef = serviceRef;
     const originalText = button ? button.textContent : '';
 
     if (button) {
@@ -942,7 +958,7 @@
     try {
       await requestJson('/api/services/deactivate.php', {
         method: 'POST',
-        body: JSON.stringify({ id: serviceId }),
+        body: JSON.stringify({ service_ref: serviceRef }),
       });
 
       setMessage(els.listMessage, 'Usługa została wyłączona.', 'success');
@@ -955,7 +971,7 @@
         button.textContent = originalText || 'Wyłącz';
       }
     } finally {
-      state.deactivatingId = null;
+      state.deactivatingRef = null;
     }
   }
 
@@ -1013,12 +1029,12 @@
       || Boolean(data?.has_active_bookings);
   }
 
-  async function deleteService(serviceId, button) {
-    const service = state.services.find((item) => item.id === serviceId) || null;
+  async function deleteService(serviceRef, button) {
+    const service = state.services.find((item) => item.serviceRef === serviceRef) || null;
 
-    if (!service || state.deletingId) return;
+    if (!service || state.deletingRef) return;
 
-    state.deletingId = serviceId;
+    state.deletingRef = serviceRef;
     const originalText = button ? button.textContent : '';
 
     if (button) {
@@ -1031,7 +1047,7 @@
     try {
       await requestJson('/api/services/delete.php', {
         method: 'POST',
-        body: JSON.stringify({ id: serviceId, check_only: true }),
+        body: JSON.stringify({ service_ref: serviceRef, check_only: true }),
       });
 
       const confirmed = await showServiceDeleteConfirm();
@@ -1054,14 +1070,14 @@
 
       const data = await requestJson('/api/services/delete.php', {
         method: 'POST',
-        body: JSON.stringify({ id: serviceId }),
+        body: JSON.stringify({ service_ref: serviceRef }),
       });
 
-      if (state.selectedId === serviceId) {
-        state.selectedId = null;
+      if (state.selectedRef === serviceRef) {
+        state.selectedRef = null;
       }
 
-      dispatchServicesUpdatedEvent(null, { service_id: serviceId, deleted: true });
+      dispatchServicesUpdatedEvent(null, { service_ref: serviceRef, deleted: true });
       setMessage(els.listMessage, data.message || 'Usługa została usunięta.', 'success');
       await loadServicePaymentsData({ forceRefresh: true });
     } catch (error) {
@@ -1078,7 +1094,7 @@
         button.textContent = originalText || 'Usuń usługę';
       }
     } finally {
-      state.deletingId = null;
+      state.deletingRef = null;
     }
   }
 

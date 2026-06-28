@@ -578,6 +578,7 @@ function front_bootstrap_build_services(
     }
 
     $onlinePaymentsEnabled = front_bootstrap_feature($publicPlanContext, 'online_payments') && front_bootstrap_feature($publicPlanContext, 'payu');
+    $refSecret = public_response_ref_secret($serviceRoleKey);
     $serviceSelect = implode(',', [
         'id',
         'name',
@@ -682,8 +683,12 @@ function front_bootstrap_build_services(
                 continue;
             }
 
+            $staffId = (string) $staffRow['id'];
+            $staffRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
             $staffById[(string)$staffRow['id']] = [
-                'id' => (string)($staffRow['id'] ?? ''),
+                'id' => $staffRef,
+                'staff_ref' => $staffRef,
                 'display_name' => (string)($staffRow['display_name'] ?? ''),
                 'description' => (string)($staffRow['description'] ?? ''),
                 'color' => (string)($staffRow['color'] ?? ''),
@@ -725,9 +730,11 @@ function front_bootstrap_build_services(
             && $servicePaymentsEnabled
             && $priceAmount !== null
             && $priceAmount > 0;
+        $serviceRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
 
         $services[] = [
-            'id' => $serviceId,
+            'id' => $serviceRef,
+            'service_ref' => $serviceRef,
             'name' => (string)($serviceRow['name'] ?? ''),
             'description' => (string)($serviceRow['description'] ?? ''),
             'price_amount' => $priceAmount,
@@ -804,14 +811,21 @@ function front_bootstrap_build_staff(
 
     $rows = front_bootstrap_rows($staffResult);
     $staff = [];
+    $refSecret = public_response_ref_secret($serviceRoleKey);
 
     foreach ($rows as $row) {
         if (!is_array($row)) {
             continue;
         }
 
+        $staffId = (string)($row['id'] ?? '');
+        $staffRef = $staffId !== ''
+            ? public_response_staff_ref($tenantId, $staffId, $refSecret)
+            : '';
+
         $staff[] = [
-            'id' => (string)($row['id'] ?? ''),
+            'id' => $staffRef,
+            'staff_ref' => $staffRef,
             'display_name' => (string)($row['display_name'] ?? ''),
             'description' => (string)($row['description'] ?? ''),
             'color' => (string)($row['color'] ?? ''),

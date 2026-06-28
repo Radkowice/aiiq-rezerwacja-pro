@@ -296,9 +296,12 @@ async function loadRescheduleCalendarSettings() {
 async function loadRescheduleBlockData(booking) {
   const staff = booking && booking.staff ? booking.staff : null;
   const params = new URLSearchParams();
+  const staffRef = staff
+    ? String(staff.staff_ref || staff.staffRef || staff.id || '').trim()
+    : '';
 
-  if (staff && staff.id) {
-    params.set('staff_id', staff.id);
+  if (staffRef) {
+    params.set('staff_ref', staffRef);
   }
 
   const url = params.toString() ? `/api/booking/blocked.php?${params.toString()}` : '/api/booking/blocked.php';

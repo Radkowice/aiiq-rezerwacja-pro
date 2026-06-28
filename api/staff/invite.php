@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -124,6 +125,73 @@ function staff_invite_provider_name(string $supabaseUrl, string $supabaseKey, st
     return $fallback;
 }
 
+
+function staff_invite_normalize_staff_ref($value): string
+{
+    $staffRef = trim((string) ($value ?? ''));
+
+    return in_array($staffRef, ['', 'null', 'undefined'], true) ? '' : $staffRef;
+}
+
+function staff_invite_resolve_staff_ref(
+    $value,
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $refSecret
+): ?string {
+    $staffRef = staff_invite_normalize_staff_ref($value);
+
+    if ($staffRef === '') {
+        return null;
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $result = staff_invite_request('GET', $url, $supabaseKey, $schema);
+
+    if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] < 200 || $result['httpCode'] >= 300) {
+        staff_invite_fail_database();
+    }
+
+    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $staffId = trim((string) ($row['id'] ?? ''));
+
+        if ($staffId !== '' && hash_equals(public_response_staff_ref($tenantId, $staffId, $refSecret), $staffRef)) {
+            return $staffId;
+        }
+    }
+
+    return null;
+}
+
+function staff_invite_resolve_staff_request_id(
+    array $input,
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $refSecret
+): string {
+    $staffRef = staff_invite_normalize_staff_ref($input['staff_ref'] ?? null);
+
+    if ($staffRef !== '') {
+        return staff_invite_resolve_staff_ref($staffRef, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret) ?? '';
+    }
+
+    return '';
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     header('Allow: POST');
     staff_invite_json([
@@ -187,19 +255,20 @@ if (!is_array($input)) {
     ], 400);
 }
 
-$staffId = trim((string) ($input['staff_id'] ?? ''));
+$refSecret = public_response_ref_secret($supabaseKey);
+$staffId = staff_invite_resolve_staff_request_id($input, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret);
 
 if ($staffId === '') {
     staff_invite_json([
         'success' => false,
-        'error' => 'Brak staff_id'
+        'error' => 'Brak pracownika'
     ], 400);
 }
 
 if (!preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $staffId)) {
     staff_invite_json([
         'success' => false,
-        'error' => 'Nieprawidłowy staff_id'
+        'error' => 'Nieprawidłowy pracownik'
     ], 400);
 }
 

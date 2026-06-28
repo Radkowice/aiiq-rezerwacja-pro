@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/booking_context_cache.php';
 require_once __DIR__ . '/../helpers/booking_postprocess_queue.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 require __DIR__ . '/../PHPMailer/src/Exception.php';
 require __DIR__ . '/../PHPMailer/src/PHPMailer.php';
@@ -900,6 +901,137 @@ function fetch_public_service_for_booking_result(string $baseUrl, array $headers
         . '&select=id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled';
 
     return fetch_single_record_result($baseUrl, $headers, 'tenant_services', $query, 'service', $tenantId);
+}
+
+function booking_public_ref_is_service_ref(string $value): bool
+{
+    return preg_match('/^svc_[a-f0-9]{32,64}$/', $value) === 1;
+}
+
+function booking_public_ref_is_staff_ref(string $value): bool
+{
+    return preg_match('/^st_[a-f0-9]{32,64}$/', $value) === 1;
+}
+
+function booking_public_service_id_from_ref(
+    string $baseUrl,
+    array $headers,
+    string $tenantId,
+    string $serviceRef,
+    string $refSecret
+): array {
+    if (!booking_public_ref_is_service_ref($serviceRef)) {
+        return [
+            'ok' => false,
+            'found' => false,
+            'id' => '',
+            'temporary' => false,
+        ];
+    }
+
+    $query = 'select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&visible_on_front=eq.true'
+        . '&limit=500';
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/tenant_services?' . $query;
+    $result = supabase_select($url, $headers, 'service_ref_lookup', $tenantId);
+
+    if (supabase_select_is_temporary($result)) {
+        return [
+            'ok' => false,
+            'found' => false,
+            'id' => '',
+            'temporary' => true,
+        ];
+    }
+
+    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $candidateId = trim((string) ($row['id'] ?? ''));
+
+        if ($candidateId !== '' && hash_equals(public_response_service_ref($tenantId, $candidateId, $refSecret), $serviceRef)) {
+            return [
+                'ok' => true,
+                'found' => true,
+                'id' => $candidateId,
+                'temporary' => false,
+            ];
+        }
+    }
+
+    return [
+        'ok' => true,
+        'found' => false,
+        'id' => '',
+        'temporary' => false,
+    ];
+}
+
+function booking_public_staff_id_from_ref(
+    string $baseUrl,
+    array $headers,
+    string $tenantId,
+    string $staffRef,
+    string $refSecret
+): array {
+    if (!booking_public_ref_is_staff_ref($staffRef)) {
+        return [
+            'ok' => false,
+            'found' => false,
+            'id' => '',
+            'temporary' => false,
+        ];
+    }
+
+    $query = 'select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&limit=500';
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/staff_profiles?' . $query;
+    $result = supabase_select($url, $headers, 'staff_ref_lookup', $tenantId);
+
+    if (supabase_select_is_temporary($result)) {
+        return [
+            'ok' => false,
+            'found' => false,
+            'id' => '',
+            'temporary' => true,
+        ];
+    }
+
+    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $candidateId = trim((string) ($row['id'] ?? ''));
+
+        if ($candidateId !== '' && hash_equals(public_response_staff_ref($tenantId, $candidateId, $refSecret), $staffRef)) {
+            return [
+                'ok' => true,
+                'found' => true,
+                'id' => $candidateId,
+                'temporary' => false,
+            ];
+        }
+    }
+
+    return [
+        'ok' => true,
+        'found' => false,
+        'id' => '',
+        'temporary' => false,
+    ];
 }
 
 function fetch_service_staff_ids_for_booking(string $baseUrl, array $headers, string $tenantId, string $serviceId): ?array
@@ -1848,8 +1980,11 @@ $name  = trim((string) ($input['name'] ?? ''));
 $email = trim((string) ($input['email'] ?? ''));
 $phone = trim((string) ($input['phone'] ?? ''));
 $note  = trim((string) ($input['note'] ?? $input['message'] ?? ''));
-$staffId = trim((string) ($input['staff_id'] ?? ''));
-$serviceId = trim((string) ($input['service_id'] ?? ''));
+$bookingInput = is_array($input['booking'] ?? null) ? $input['booking'] : [];
+$staffRef = trim((string) ($input['staff_ref'] ?? $bookingInput['staff_ref'] ?? ''));
+$serviceRef = trim((string) ($input['service_ref'] ?? $bookingInput['service_ref'] ?? ''));
+$staffId = '';
+$serviceId = '';
 
 $website = trim((string) ($input['website'] ?? ''));
 $formStartedAtRaw = trim((string) ($input['form_started_at'] ?? ''));
@@ -2162,6 +2297,48 @@ $bookingContext = [
 
 $headers = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, false);
 $minimalHeaders = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, true);
+$refSecret = public_response_ref_secret($SUPABASE_KEY);
+
+if ($serviceRef === '') {
+    json_response([
+        'success' => false,
+        'error' => 'Wybrana usługa jest niedostępna.',
+    ], 404);
+}
+
+if ($serviceRef !== '') {
+    $serviceRefResult = booking_public_service_id_from_ref($SUPABASE_URL, $headers, $TENANT_ID, $serviceRef, $refSecret);
+
+    if (!empty($serviceRefResult['temporary'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić wybranej usługi. Spróbuj ponownie za moment.');
+    }
+
+    if (empty($serviceRefResult['ok']) || empty($serviceRefResult['found']) || trim((string) ($serviceRefResult['id'] ?? '')) === '') {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana usługa jest niedostępna.',
+        ], 404);
+    }
+
+    $serviceId = (string) $serviceRefResult['id'];
+}
+
+if ($staffRef !== '') {
+    $staffRefResult = booking_public_staff_id_from_ref($SUPABASE_URL, $headers, $TENANT_ID, $staffRef, $refSecret);
+
+    if (!empty($staffRefResult['temporary'])) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić wybranej osoby. Spróbuj ponownie za moment.');
+    }
+
+    if (empty($staffRefResult['ok']) || empty($staffRefResult['found']) || trim((string) ($staffRefResult['id'] ?? '')) === '') {
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana osoba jest niedostępna',
+        ], 404);
+    }
+
+    $staffId = (string) $staffRefResult['id'];
+}
 
 $calendarSettingsUrl = $SUPABASE_URL
     . '/rest/v1/calendar_settings'

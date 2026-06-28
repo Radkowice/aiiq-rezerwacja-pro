@@ -162,6 +162,42 @@ function serviceSettingsSupabaseRequest(
     ];
 }
 
+function serviceSettingsPublicSettings($settings): ?array
+{
+    if (!is_array($settings)) {
+        return null;
+    }
+
+    $allowedFields = [
+        'client_name',
+        'company_name',
+        'company_full_name',
+        'company_owner_name',
+        'company_tax_id',
+        'company_address',
+        'company_email',
+        'company_phone',
+        'service_name',
+        'service_description',
+        'price_amount',
+        'price_currency',
+        'payment_required',
+        'payment_time_limit_value',
+        'payment_time_limit_unit',
+        'payment_message',
+    ];
+
+    $publicSettings = [];
+
+    foreach ($allowedFields as $field) {
+        if (array_key_exists($field, $settings)) {
+            $publicSettings[$field] = $settings[$field];
+        }
+    }
+
+    return $publicSettings;
+}
+
 if ($method === 'GET') {
     $url = $supabaseUrl
         . '/rest/v1/tenant_service_settings'
@@ -187,7 +223,7 @@ if ($method === 'GET') {
 
     sendServiceSettingsJson([
         'success' => true,
-        'settings' => $settings,
+        'settings' => serviceSettingsPublicSettings($settings),
     ]);
 }
 
@@ -268,7 +304,7 @@ if ($method === 'POST') {
         sendServiceSettingsJson([
             'success' => true,
             'message' => 'Dane firmy zostały zapisane.',
-            'settings' => $saved,
+            'settings' => serviceSettingsPublicSettings($saved),
         ]);
     }
 $isCompanyInfoSave = array_key_exists('company_full_name', $input)
@@ -376,7 +412,7 @@ $payload[0] = array_merge($payload[0], $companyPayload);
     sendServiceSettingsJson([
         'success' => true,
         'message' => 'Ustawienia usługi zostały zapisane.',
-        'settings' => $saved,
+        'settings' => serviceSettingsPublicSettings($saved),
     ]);
 }
 

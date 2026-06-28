@@ -19,7 +19,7 @@
   let adminViewDate = new Date();
   let selectedAdminDate = null;
   let blockScope = 'global';
-  let selectedBlockStaffId = '';
+  let selectedBlockStaffRef = '';
   let blockStaff = [];
   let staffWorkingHours = [];
   let staffWorkingHoursDate = '';
@@ -78,6 +78,30 @@
     const error = new Error(message);
     error.status = response?.status || 0;
     return error;
+  }
+
+  function normalizeStaffRef(value) {
+    return String(value || '').trim();
+  }
+
+  function normalizeServiceRef(value) {
+    return String(value || '').trim();
+  }
+
+  function getStaffRef(row) {
+    if (!row || typeof row !== 'object') {
+      return '';
+    }
+
+    return normalizeStaffRef(row.staff_ref || row.staffRef || '');
+  }
+
+  function getServiceRef(row) {
+    if (!row || typeof row !== 'object') {
+      return '';
+    }
+
+    return normalizeServiceRef(row.service_ref || row.serviceRef || '');
   }
 
   function isStartupAuthError(error) {
@@ -220,14 +244,14 @@
         }
 
         if (blockScope === 'global') {
-          selectedBlockStaffId = '';
+          selectedBlockStaffRef = '';
           staffWorkingHours = [];
           staffWorkingHoursDate = '';
           staffAvailability = [];
           staffAvailabilityLoadedFor = '';
           if (blockStaffSelect) blockStaffSelect.value = '';
         } else {
-          selectedBlockStaffId = blockStaffSelect.value || '';
+          selectedBlockStaffRef = blockStaffSelect.value || '';
           staffWorkingHours = [];
           staffWorkingHoursDate = '';
           staffAvailability = [];
@@ -243,7 +267,7 @@
 
     if (blockStaffSelect) {
       blockStaffSelect.addEventListener('change', async () => {
-        selectedBlockStaffId = blockStaffSelect.value || '';
+        selectedBlockStaffRef = blockStaffSelect.value || '';
         staffWorkingHours = [];
         staffWorkingHoursDate = '';
         staffAvailability = [];
@@ -457,19 +481,19 @@
 
       const data = await res.json();
       blockStaff = Array.isArray(data.staff)
-        ? data.staff.filter(person => person && person.is_active !== false)
+        ? data.staff.filter(person => person && person.is_active !== false && getStaffRef(person))
         : [];
 
       select.innerHTML = '<option value="">Wybierz pracownika</option>'
         + blockStaff.map(person => {
           const name = person.display_name || 'Pracownik bez nazwy';
-          return '<option value="' + escapeHtmlAttr(person.id || '') + '">' + escapeHtmlText(name) + '</option>';
+          return '<option value="' + escapeHtmlAttr(getStaffRef(person)) + '">' + escapeHtmlText(name) + '</option>';
         }).join('');
 
-      if (selectedBlockStaffId && blockStaff.some(person => person.id === selectedBlockStaffId)) {
-        select.value = selectedBlockStaffId;
+      if (selectedBlockStaffRef && blockStaff.some(person => getStaffRef(person) === selectedBlockStaffRef)) {
+        select.value = selectedBlockStaffRef;
       } else {
-        selectedBlockStaffId = '';
+        selectedBlockStaffRef = '';
       }
       syncReservationLegendVisibility();
     } catch (error) {
@@ -496,7 +520,7 @@
     const staffScope = document.querySelector('input[name="block-scope"][value="staff"]');
 
     blockScope = 'global';
-    selectedBlockStaffId = '';
+    selectedBlockStaffRef = '';
     blockStaff = [];
     staffWorkingHours = [];
     staffWorkingHoursDate = '';
@@ -546,8 +570,8 @@
   async function loadBlockedData() {
     const params = new URLSearchParams();
 
-    if (blockScope === 'staff' && selectedBlockStaffId) {
-      params.set('staff_id', selectedBlockStaffId);
+    if (blockScope === 'staff' && selectedBlockStaffRef) {
+      params.set('staff_ref', selectedBlockStaffRef);
     }
 
     const url = params.toString()
@@ -615,7 +639,7 @@
   }
 
   async function loadStaffWorkingHoursForDate(date) {
-    if (blockScope !== 'staff' || !selectedBlockStaffId || !date) {
+    if (blockScope !== 'staff' || !selectedBlockStaffRef || !date) {
       staffWorkingHours = [];
       staffWorkingHoursDate = '';
       return;
@@ -630,7 +654,7 @@
 
     try {
       const params = new URLSearchParams({
-        staff_id: selectedBlockStaffId,
+        staff_ref: selectedBlockStaffRef,
         date,
         mode: 'slots'
       });
@@ -725,19 +749,19 @@
   }
 
   async function loadStaffAvailabilityForDate(date) {
-    if (blockScope !== 'staff' || !selectedBlockStaffId || !date) {
+    if (blockScope !== 'staff' || !selectedBlockStaffRef || !date) {
       staffAvailability = [];
       staffAvailabilityLoadedFor = '';
       return;
     }
 
-    const cacheKey = `${selectedBlockStaffId}|${date}`;
+    const cacheKey = `${selectedBlockStaffRef}|${date}`;
     if (staffAvailabilityLoadedFor === cacheKey) {
       return;
     }
 
     const params = new URLSearchParams({
-      staff_id: selectedBlockStaffId
+      staff_ref: selectedBlockStaffRef
     });
 
     const res = await fetch('/api/staff/availability.php?' + params.toString(), {
@@ -760,16 +784,22 @@
     await loadStaffAvailabilityForDate(date);
     await loadAdminCalendarBookings();
 
-    const staffId = normalizeBookingStaffId(selectedBlockStaffId);
+    const staffRef = normalizeBookingStaffRef(selectedBlockStaffRef);
     const staff = getSelectedBlockStaff();
     const assignedServices = adminServices
-      .filter(service => service && Array.isArray(service.staff_ids) && service.staff_ids.some(id => normalizeBookingStaffId(id) === staffId))
+      .filter(service => {
+        const staffRefs = Array.isArray(service?.staff_refs)
+          ? service.staff_refs
+          : (Array.isArray(service?.staffRefs) ? service.staffRefs : []);
+
+        return service && staffRefs.some(ref => normalizeBookingStaffRef(ref) === staffRef);
+      })
       .filter(service => service && service.is_active !== false);
 
     const services = assignedServices.map(service => {
       const settings = getEffectiveServiceSettings(service, staff);
       return {
-        id: String(service.id || ''),
+        serviceRef: getServiceRef(service),
         name: String(service.name || 'Usługa'),
         duration: settings.duration,
         break: settings.break,
@@ -777,10 +807,10 @@
       };
     });
 
-    const settingsByServiceId = new Map();
+    const settingsByServiceRef = new Map();
     services.forEach(service => {
-      if (service.id) {
-        settingsByServiceId.set(normalizeServiceId(service.id), {
+      if (service.serviceRef) {
+        settingsByServiceRef.set(normalizeServiceRef(service.serviceRef), {
           duration: service.duration,
           break: service.break
         });
@@ -788,7 +818,7 @@
     });
 
     const fallbackSettings = getEffectiveServiceSettings(null, staff);
-    const busyIntervals = buildAdminStaffBusyIntervals(date, settingsByServiceId, fallbackSettings);
+    const busyIntervals = buildAdminStaffBusyIntervals(date, settingsByServiceRef, fallbackSettings);
 
     return services.map(service => ({
       ...service,
@@ -817,7 +847,7 @@
   }
 
   function getSelectedBlockStaff() {
-    return blockStaff.find(person => normalizeBookingStaffId(person?.id) === normalizeBookingStaffId(selectedBlockStaffId)) || null;
+    return blockStaff.find(person => normalizeBookingStaffRef(getStaffRef(person)) === normalizeBookingStaffRef(selectedBlockStaffRef)) || null;
   }
 
   function getEffectiveServiceSettings(service, staff) {
@@ -890,16 +920,16 @@
     return Array.from(new Set(slots)).sort();
   }
 
-  function buildAdminStaffBusyIntervals(date, settingsByServiceId, fallbackSettings) {
+  function buildAdminStaffBusyIntervals(date, settingsByServiceRef, fallbackSettings) {
     return getStaffBookingsForDate(date).map(booking => {
       const start = timeToMinutes(normalizeBookingTime(booking.booking_time || booking.time || ''));
       if (!Number.isFinite(start)) {
         return null;
       }
 
-      const serviceId = normalizeServiceId(booking.service_id || booking.serviceId || '');
-      const settings = serviceId && settingsByServiceId.has(serviceId)
-        ? settingsByServiceId.get(serviceId)
+      const serviceRef = normalizeServiceRef(getServiceRef(booking));
+      const settings = serviceRef && settingsByServiceRef.has(serviceRef)
+        ? settingsByServiceRef.get(serviceRef)
         : fallbackSettings;
       const duration = Math.max(1, settings.duration);
       const breakTime = Math.max(0, settings.break);
@@ -911,7 +941,7 @@
         end: activeEnd,
         reservedEnd,
         activeEnd,
-        serviceId,
+        serviceRef,
         booking
       };
     }).filter(Boolean);
@@ -920,7 +950,7 @@
   function getAdminServiceSlot(date, time, service, busyIntervals) {
     const start = timeToMinutes(time);
     const end = start + Math.max(1, service.duration) + Math.max(0, service.break);
-    const serviceId = normalizeServiceId(service.id);
+    const serviceRef = normalizeServiceRef(service.serviceRef);
     let staffBusy = false;
 
     for (const interval of busyIntervals) {
@@ -928,7 +958,7 @@
         continue;
       }
 
-      const sameService = serviceId !== '' && interval.serviceId !== '' && serviceId === interval.serviceId;
+      const sameService = serviceRef !== '' && interval.serviceRef !== '' && serviceRef === interval.serviceRef;
       const sameStart = start === interval.start;
 
       if (sameService && sameStart) {
@@ -1004,15 +1034,15 @@
   function getStaffBookingsForDate(date) {
     const source = adminCalendarBookingsLoaded ? adminCalendarBookings : window._bookingsData;
 
-    if (!Array.isArray(source) || !selectedBlockStaffId) {
+    if (!Array.isArray(source) || !selectedBlockStaffRef) {
       return [];
     }
 
     const targetDate = normalizeBookingDate(date);
-    const targetStaff = normalizeBookingStaffId(selectedBlockStaffId);
+    const targetStaff = normalizeBookingStaffRef(selectedBlockStaffRef);
 
     return source.filter(item =>
-      normalizeBookingStaffId(item?.staff_id) === targetStaff &&
+      normalizeBookingStaffRef(getStaffRef(item)) === targetStaff &&
       normalizeBookingDate(item?.booking_date || item?.date || '') === targetDate
     );
   }
@@ -1039,8 +1069,8 @@
     return startA < endB && endA > startB;
   }
 
-  function normalizeServiceId(value) {
-    return String(value || '').trim().toLowerCase();
+  function normalizeBookingStaffRef(value) {
+    return normalizeStaffRef(value);
   }
 
   function getIsoWeekday(dateStr) {
@@ -1126,7 +1156,7 @@
 
   function shouldShowCalendarDayReservationMarkers() {
     if (blockScope === 'staff') {
-      return !!selectedBlockStaffId;
+      return !!selectedBlockStaffRef;
     }
 
     return true;
@@ -1134,7 +1164,7 @@
 
   function shouldShowBookingsInCurrentBlockScope() {
     if (blockScope === 'staff') {
-      return !!selectedBlockStaffId;
+      return !!selectedBlockStaffRef;
     }
 
     return true;
@@ -1184,7 +1214,7 @@
       }
 
       if (blockScope === 'staff') {
-        return normalizeBookingStaffId(item?.staff_id) === normalizeBookingStaffId(selectedBlockStaffId);
+        return normalizeBookingStaffRef(getStaffRef(item)) === normalizeBookingStaffRef(selectedBlockStaffRef);
       }
 
       return true;
@@ -1453,7 +1483,7 @@
       return;
     }
 
-    if (blockScope === 'staff' && selectedBlockStaffId) {
+    if (blockScope === 'staff' && selectedBlockStaffRef) {
       await renderAdminStaffServiceSlots(container);
       return;
     }
@@ -1552,7 +1582,7 @@
 
   async function renderAdminStaffServiceSlots(container) {
     const seq = ++staffServiceRenderSeq;
-    const selectedStaffIdForRender = selectedBlockStaffId;
+    const selectedStaffRefForRender = selectedBlockStaffRef;
     const selectedDateForRender = selectedAdminDate;
     const dayButtonLabel = getDayToggleLabel(selectedAdminDate);
 
@@ -1582,7 +1612,7 @@
 
       if (
         seq !== staffServiceRenderSeq ||
-        selectedStaffIdForRender !== selectedBlockStaffId ||
+        selectedStaffRefForRender !== selectedBlockStaffRef ||
         selectedDateForRender !== selectedAdminDate
       ) {
         return;
@@ -1756,7 +1786,7 @@
       credentials: 'include',
       body: JSON.stringify({
         date,
-        staff_id: getCurrentBlockStaffId() || null
+        staff_ref: getCurrentBlockStaffRef() || null
       })
     });
 
@@ -1776,7 +1806,7 @@
       credentials: 'include',
       body: JSON.stringify({
         date,
-        staff_id: getCurrentBlockStaffId() || null
+        staff_ref: getCurrentBlockStaffRef() || null
       })
     });
 
@@ -1992,7 +2022,7 @@
         date,
         time: '',
         allDay: true,
-        staff_id: getCurrentBlockStaffId() || null,
+        staff_ref: getCurrentBlockStaffRef() || null,
         csrf: window.CSRF_TOKEN
       })
     });
@@ -2022,7 +2052,7 @@
         date,
         time,
         allDay: false,
-        staff_id: getCurrentBlockStaffId() || null,
+        staff_ref: getCurrentBlockStaffRef() || null,
         csrf: window.CSRF_TOKEN
       })
     });
@@ -2051,7 +2081,7 @@
       body: JSON.stringify({
         date,
         time: null,
-        staff_id: getCurrentBlockStaffId() || null
+        staff_ref: getCurrentBlockStaffRef() || null
       })
     });
 
@@ -2074,7 +2104,7 @@
       body: JSON.stringify({
         date,
         time,
-        staff_id: getCurrentBlockStaffId() || null
+        staff_ref: getCurrentBlockStaffRef() || null
       })
     });
 
@@ -2096,7 +2126,7 @@
       body: JSON.stringify({
         date,
         deleteAllTimes: true,
-        staff_id: getCurrentBlockStaffId() || null
+        staff_ref: getCurrentBlockStaffRef() || null
       })
     });
   }
@@ -2105,12 +2135,12 @@
     return getDateBlockInfo(dateStr).effectiveBlocked;
   }
 
-  function getCurrentBlockStaffId() {
-    return blockScope === 'staff' ? selectedBlockStaffId : '';
+  function getCurrentBlockStaffRef() {
+    return blockScope === 'staff' ? selectedBlockStaffRef : '';
   }
 
   function ensureCanUseBlockScope() {
-    if (blockScope === 'staff' && !selectedBlockStaffId) {
+    if (blockScope === 'staff' && !selectedBlockStaffRef) {
       showMessage('Wybierz pracownika, aby dodać blokadę.', 'error');
       return false;
     }
@@ -2287,18 +2317,14 @@
     }
 
     if (blockScope === 'staff') {
-      if (!selectedBlockStaffId) {
+      if (!selectedBlockStaffRef) {
         return false;
       }
 
-      return normalizeBookingStaffId(item.staff_id) === normalizeBookingStaffId(selectedBlockStaffId);
+      return normalizeBookingStaffRef(getStaffRef(item)) === normalizeBookingStaffRef(selectedBlockStaffRef);
     }
 
     return true;
-  }
-
-  function normalizeBookingStaffId(value) {
-    return String(value || '').trim().toLowerCase();
   }
 
   function normalizeBookingTime(value) {

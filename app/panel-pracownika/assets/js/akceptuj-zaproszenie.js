@@ -136,8 +136,29 @@
 
       if (response.ok && data && data.success === true) {
         clearPasswordFields();
-        setMessage('Hasło zostało ustawione. Możesz przejść do logowania personelu.', 'success');
+        setMessage(data.message || 'Hasło zostało ustawione. Możesz przejść do logowania personelu.', 'success');
         form.classList.add('is-complete');
+
+        if (submitButton) {
+          submitButton.disabled = true;
+          submitButton.textContent = 'Hasło ustawione';
+        }
+
+        const loginLinkWrap = document.createElement('p');
+        loginLinkWrap.className = 'employee-auth-link employee-auth-success-link';
+
+        const loginLink = document.createElement('a');
+        loginLink.href = '/panel-pracownika/logowanie.html';
+        loginLink.className = 'employee-auth-login-link';
+        loginLink.textContent = 'Przejdź do logowania personelu';
+
+        loginLinkWrap.appendChild(loginLink);
+
+        const messageElement = getMessageElement();
+        if (messageElement && !document.querySelector('.employee-auth-success-link')) {
+          messageElement.insertAdjacentElement('afterend', loginLinkWrap);
+        }
+
         return;
       }
 

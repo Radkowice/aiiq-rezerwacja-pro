@@ -203,6 +203,37 @@ function booking_admin_map_booking(array $booking, array $staffDisplayNames, str
     ]);
 }
 
+function booking_admin_map_calendar_booking(array $booking, array $staffDisplayNames, string $tenantId, string $refSecret): array
+{
+    $bookingId = booking_admin_string_value($booking, 'id');
+    $serviceId = booking_admin_string_value($booking, 'service_id');
+    $staffId = booking_admin_string_value($booking, 'staff_id');
+    $staffDisplayName = $staffId !== '' && isset($staffDisplayNames[$staffId])
+        ? $staffDisplayNames[$staffId]
+        : null;
+
+    return public_response_sanitize([
+        'booking_ref' => $bookingId !== ''
+            ? public_response_booking_ref($tenantId, $bookingId, $refSecret)
+            : '',
+        'service_ref' => $serviceId !== ''
+            ? public_response_service_ref($tenantId, $serviceId, $refSecret)
+            : null,
+        'staff_ref' => $staffId !== ''
+            ? public_response_staff_ref($tenantId, $staffId, $refSecret)
+            : null,
+        'has_staff' => $staffId !== '' || ($staffDisplayName !== null && trim((string) $staffDisplayName) !== ''),
+        'booking_date' => booking_admin_string_value($booking, 'booking_date'),
+        'booking_time' => booking_admin_string_value($booking, 'booking_time'),
+        'status' => booking_admin_string_value($booking, 'status'),
+        'name' => booking_admin_string_value($booking, 'name'),
+        'staff_display_name' => $staffDisplayName,
+        'service_name_snapshot' => booking_admin_nullable_string($booking, 'service_name_snapshot'),
+        'reschedule_count' => booking_admin_int_value($booking, 'reschedule_count'),
+        'rescheduled_at' => booking_admin_nullable_string($booking, 'rescheduled_at'),
+    ]);
+}
+
 $allowedViews = ['upcoming', 'today', 'past', 'all'];
 $view = strtolower(trim((string)($_GET['view'] ?? 'upcoming')));
 
@@ -379,7 +410,9 @@ foreach ($data as $booking) {
         continue;
     }
 
-    $bookings[] = booking_admin_map_booking($booking, $staffDisplayNames, $TENANT_ID, $refSecret);
+    $bookings[] = $view === 'all'
+        ? booking_admin_map_calendar_booking($booking, $staffDisplayNames, $TENANT_ID, $refSecret)
+        : booking_admin_map_booking($booking, $staffDisplayNames, $TENANT_ID, $refSecret);
 }
 
 echo json_encode(public_response_sanitize($bookings), JSON_UNESCAPED_UNICODE);

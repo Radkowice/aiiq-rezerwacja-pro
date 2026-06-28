@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -15,10 +16,84 @@ function save_staff_email_json(array $payload, int $statusCode = 200): void
     exit;
 }
 
-function save_staff_email_is_uuid($value): bool
+function save_staff_email_normalize_staff_ref($value): string
 {
-    return is_string($value)
-        && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value) === 1;
+    if (is_array($value) || is_object($value)) {
+        return '';
+    }
+
+    $staffRef = trim((string) ($value ?? ''));
+
+    return in_array($staffRef, ['', 'null', 'undefined'], true) ? '' : $staffRef;
+}
+
+function save_staff_email_resolve_staff_ref(
+    $value,
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $refSecret
+): string {
+    $staffRef = save_staff_email_normalize_staff_ref($value);
+
+    if ($staffRef === '') {
+        return '';
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_HTTPGET => true,
+        CURLOPT_HTTPHEADER => supabaseHeaders($supabaseKey, $schema),
+        CURLOPT_TIMEOUT => 20,
+    ]);
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false || $curlError !== '' || $httpCode < 200 || $httpCode >= 300) {
+        save_staff_email_json(['success' => false, 'error' => 'Nie udało się sprawdzić pracownika.'], 500);
+    }
+
+    $rows = json_decode((string) $response, true);
+
+    if (!is_array($rows)) {
+        save_staff_email_json(['success' => false, 'error' => 'Nieprawidłowa odpowiedź bazy danych.'], 500);
+    }
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $staffId = trim((string) ($row['id'] ?? ''));
+
+        if ($staffId !== '' && hash_equals(public_response_staff_ref($tenantId, $staffId, $refSecret), $staffRef)) {
+            return $staffId;
+        }
+    }
+
+    return '';
+}
+
+function save_staff_email_public_staff(array $row, string $tenantId, string $refSecret): array
+{
+    $staffId = trim((string) ($row['id'] ?? ''));
+    unset($row['id'], $row['staff_id'], $row['tenant_id'], $row['company_id'], $row['user_id']);
+
+    if ($staffId !== '') {
+        $row['staff_ref'] = public_response_staff_ref($tenantId, $staffId, $refSecret);
+    }
+
+    return $row;
 }
 
 function save_staff_email_text($value, int $maxLength, bool $required = false): ?string
@@ -60,9 +135,9 @@ if (!is_array($input)) {
     save_staff_email_json(['success' => false, 'error' => 'Brak danych wejściowych.'], 400);
 }
 
-$staffId = trim((string) ($input['staff_id'] ?? ''));
+$staffRef = save_staff_email_normalize_staff_ref($input['staff_ref'] ?? null);
 
-if (!save_staff_email_is_uuid($staffId)) {
+if ($staffRef === '') {
     save_staff_email_json(['success' => false, 'error' => 'Wybierz pracownika, aby edytować jego szablon e-mail.'], 422);
 }
 
@@ -80,6 +155,13 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
     save_staff_email_json(['success' => false, 'error' => 'Sesja nie pasuje do domeny.'], 403);
+}
+
+$refSecret = public_response_ref_secret($supabaseKey);
+$staffId = save_staff_email_resolve_staff_ref($staffRef, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret);
+
+if ($staffId === '') {
+    save_staff_email_json(['success' => false, 'error' => 'Nie znaleziono pracownika.'], 404);
 }
 
 $url = $supabaseUrl
@@ -122,7 +204,7 @@ if (!is_array($rows) || empty($rows[0])) {
     save_staff_email_json(['success' => false, 'error' => 'Nie znaleziono pracownika.'], 404);
 }
 
-$staff = $rows[0];
+$staff = save_staff_email_public_staff($rows[0], $tenantId, $refSecret);
 $staff['has_custom_template'] = true;
 
 save_staff_email_json([

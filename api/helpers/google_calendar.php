@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/supabase.php';
 require_once __DIR__ . '/crypto.php';
+require_once __DIR__ . '/public_response.php';
 
 /**
  * Google Calendar helper.
@@ -506,6 +507,27 @@ function google_calendar_string_value(array $data, string $key): string
     return trim((string) $value);
 }
 
+function google_calendar_booking_ref(array $booking, string $tenantId): string
+{
+    $existingRef = google_calendar_string_value($booking, 'booking_ref');
+
+    if ($existingRef !== '') {
+        return $existingRef;
+    }
+
+    $bookingId = google_calendar_string_value($booking, 'id');
+
+    if ($tenantId === '' || $bookingId === '') {
+        return '';
+    }
+
+    return public_response_booking_ref(
+        $tenantId,
+        $bookingId,
+        public_response_ref_secret((string) getenv('SUPABASE_SERVICE_ROLE_KEY'))
+    );
+}
+
 function google_calendar_payment_status_label(string $status): string
 {
     return match (strtolower(trim($status))) {
@@ -532,9 +554,9 @@ function google_calendar_format_amount($amount, string $currency): string
     return number_format((float) $amount, 2, ',', ' ') . ' ' . $currency;
 }
 
-function google_calendar_build_event(array $booking, array $settings): array
+function google_calendar_build_event(array $booking, array $settings, string $tenantId = ''): array
 {
-    $bookingId = google_calendar_string_value($booking, 'id');
+    $bookingRef = google_calendar_booking_ref($booking, $tenantId);
     $name = google_calendar_string_value($booking, 'name');
     $email = google_calendar_string_value($booking, 'email');
     $phone = google_calendar_string_value($booking, 'phone');
@@ -631,10 +653,9 @@ function google_calendar_build_event(array $booking, array $settings): array
         'Telefon: ' . ($phone !== '' ? $phone : '-'),
     ]);
 
-    if ($bookingId !== '') {
+    if ($bookingRef !== '') {
         $descriptionLines[] = '';
-        $descriptionLines[] = 'Dane techniczne:';
-        $descriptionLines[] = 'ID rezerwacji: ' . $bookingId;
+        $descriptionLines[] = 'Nr rezerwacji: ' . $bookingRef;
     }
 
     if ($notes !== '') {
@@ -711,7 +732,7 @@ function createGoogleCalendarEventForBooking(
     ]);
 
     try {
-        $event = google_calendar_build_event($booking, $settings);
+        $event = google_calendar_build_event($booking, $settings, $tenantId);
         google_calendar_debug('EVENT_READY', [
             'has_start' => !empty($event['start']['dateTime'] ?? ''),
             'has_end' => !empty($event['end']['dateTime'] ?? ''),
@@ -821,7 +842,7 @@ function updateGoogleCalendarEventForBooking(string $tenantId, string $googleEve
     }
 
     try {
-        $event = google_calendar_build_event($booking, $settings);
+        $event = google_calendar_build_event($booking, $settings, $tenantId);
         google_calendar_debug('UPDATE_EVENT_PAYLOAD', [
             'event_ref' => substr(hash('sha256', $googleEventId), 0, 16),
             'has_start' => !empty($event['start']['dateTime'] ?? ''),

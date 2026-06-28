@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/booking_availability.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 date_default_timezone_set('Europe/Warsaw');
@@ -67,6 +68,50 @@ function availability_month_fetch_single(string $supabaseUrl, string $key, strin
 {
     $rows = availability_month_fetch_rows($supabaseUrl, $key, $schema, $table, array_merge($query, ['limit=1']));
     return is_array($rows[0] ?? null) ? $rows[0] : null;
+}
+
+function availability_month_is_service_ref(string $value): bool
+{
+    return preg_match('/^svc_[a-f0-9]{32,64}$/', $value) === 1;
+}
+
+function availability_month_service_id_from_ref(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $tenantId,
+    string $serviceRef,
+    string $refSecret
+): string {
+    if (!availability_month_is_service_ref($serviceRef)) {
+        availability_month_error('Wybrana usĹ‚uga jest niedostÄ™pna.', 'service_not_found', 404);
+    }
+
+    $serviceRows = availability_month_fetch_rows($supabaseUrl, $key, $schema, 'tenant_services', [
+        'select=id',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'is_active=eq.true',
+        'visible_on_front=eq.true',
+    ]);
+
+    if (!is_array($serviceRows)) {
+        availability_month_error('Nie udaĹ‚o siÄ™ sprawdziÄ‡ usĹ‚ugi.', 'service_lookup_failed', 500);
+    }
+
+    foreach ($serviceRows as $serviceRow) {
+        if (!is_array($serviceRow) || empty($serviceRow['id'])) {
+            continue;
+        }
+
+        $serviceId = (string) $serviceRow['id'];
+        $expectedRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
+
+        if (hash_equals($expectedRef, $serviceRef)) {
+            return $serviceId;
+        }
+    }
+
+    availability_month_error('Wybrana usĹ‚uga jest niedostÄ™pna.', 'service_not_found', 404);
 }
 
 function availability_month_validate_token(string $token): void
@@ -272,8 +317,22 @@ if ($isRescheduleMode) {
     $serviceId = trim((string) ($booking['service_id'] ?? ''));
     $bookingId = (string) ($booking['id'] ?? '');
 } else {
-    $staffId = trim((string) ($_GET['staff_id'] ?? ''));
-    $serviceId = trim((string) ($_GET['service_id'] ?? ''));
+    $staffId = '';
+    $serviceRef = trim((string) ($_GET['service_ref'] ?? ''));
+
+    if ($serviceRef !== '') {
+        $serviceId = availability_month_service_id_from_ref(
+            $supabaseUrl,
+            $supabaseKey,
+            $schema,
+            $tenantId,
+            $serviceRef,
+            public_response_ref_secret($supabaseKey)
+        );
+    } else {
+        availability_month_error('Wybrana usługa jest niedostępna.', 'service_not_found', 404);
+    }
+
     $bookingId = '';
 }
 

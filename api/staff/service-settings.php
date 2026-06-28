@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -258,14 +259,17 @@ function staff_service_settings_slot_respects_min_notice(string $date, string $t
     return $slotDateTime >= $minAllowedDateTime;
 }
 
-function staff_service_settings_reservation_payload(array $booking, string $time): array
+function staff_service_settings_reservation_payload(array $booking, string $time, string $tenantId, string $refSecret): array
 {
+    $serviceId = trim((string) ($booking['service_id'] ?? ''));
+    $serviceRef = $serviceId !== '' ? public_response_service_ref($tenantId, $serviceId, $refSecret) : '';
+
     return [
         'name' => (string) ($booking['name'] ?? ''),
         'email' => (string) ($booking['email'] ?? ''),
         'phone' => (string) ($booking['phone'] ?? ''),
         'time' => $time,
-        'service_id' => (string) ($booking['service_id'] ?? ''),
+        'service_ref' => $serviceRef,
         'service' => (string) ($booking['service_name_snapshot'] ?? ''),
         'reschedule_count' => max(0, (int) ($booking['reschedule_count'] ?? 0)),
         'rescheduled_at' => (string) ($booking['rescheduled_at'] ?? ''),
@@ -295,7 +299,7 @@ function staff_service_settings_fallback_settings(array $staff, array $calendar)
     return staff_service_settings_effective_settings([], $staff, $calendar);
 }
 
-function staff_service_settings_occupied_intervals(array $bookings, array $servicesById, array $fallbackSettings): array
+function staff_service_settings_occupied_intervals(array $bookings, array $servicesById, array $fallbackSettings, string $tenantId, string $refSecret): array
 {
     $intervals = [];
 
@@ -321,7 +325,7 @@ function staff_service_settings_occupied_intervals(array $bookings, array $servi
             'service_id' => $bookingServiceId,
             'start' => $start,
             'end' => staff_service_settings_interval_end($start, $settings),
-            'reservation' => staff_service_settings_reservation_payload($booking, $time),
+            'reservation' => staff_service_settings_reservation_payload($booking, $time, $tenantId, $refSecret),
         ];
     }
 
@@ -553,6 +557,7 @@ if (!is_array($staffSession) || empty($staffSession['account_id']) || empty($sta
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+$refSecret = public_response_ref_secret($supabaseKey);
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
     staff_service_settings_json([
@@ -987,7 +992,7 @@ $globalBlockedTimes = staff_service_settings_time_set($blockedTimeRows, null);
 $staffBlockedTimes = staff_service_settings_time_set($blockedTimeRows, $staffId);
 $servicesById = staff_service_settings_service_map($servicesRows, $staff, $calendarSettings);
 $fallbackBookingSettings = staff_service_settings_fallback_settings($staff, $calendarSettings);
-$occupiedIntervals = staff_service_settings_occupied_intervals($bookingRows, $servicesById, $fallbackBookingSettings);
+$occupiedIntervals = staff_service_settings_occupied_intervals($bookingRows, $servicesById, $fallbackBookingSettings, $tenantId, $refSecret);
 
 $services = [];
 
@@ -997,6 +1002,7 @@ foreach ($servicesRows as $service) {
     }
 
     $serviceId = (string) $service['id'];
+    $serviceRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
     $effective = isset($servicesById[$serviceId]['settings']) && is_array($servicesById[$serviceId]['settings'])
         ? $servicesById[$serviceId]['settings']
         : staff_service_settings_effective_settings($service, $staff, $calendarSettings);
@@ -1024,7 +1030,7 @@ foreach ($servicesRows as $service) {
     }
 
     $services[] = [
-        'service_id' => $serviceId,
+        'service_ref' => $serviceRef,
         'name' => (string) ($service['name'] ?? 'Usługa'),
         'duration' => $effective['duration'],
         'break' => $effective['break'],

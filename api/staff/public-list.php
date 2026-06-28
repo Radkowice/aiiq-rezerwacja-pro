@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function staff_public_list_json(array $payload, int $statusCode = 200): void
@@ -80,6 +81,7 @@ if (!$tenantId) {
 }
 
 $tenantId = (string) $tenantId;
+$refSecret = public_response_ref_secret($supabaseKey);
 
 if (!tenant_has_feature($tenantId, 'staff_module')) {
     staff_public_list_feature_locked();
@@ -126,8 +128,14 @@ foreach ($rows as $row) {
         continue;
     }
 
+    $staffId = (string) ($row['id'] ?? '');
+    $staffRef = $staffId !== ''
+        ? public_response_staff_ref($tenantId, $staffId, $refSecret)
+        : '';
+
     $staff[] = [
-        'id' => (string) ($row['id'] ?? ''),
+        'id' => $staffRef,
+        'staff_ref' => $staffRef,
         'display_name' => (string) ($row['display_name'] ?? ''),
         'description' => (string) ($row['description'] ?? ''),
         'color' => (string) ($row['color'] ?? ''),

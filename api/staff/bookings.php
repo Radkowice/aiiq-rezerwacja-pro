@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -70,6 +71,7 @@ if (!is_array($staffSession) || empty($staffSession['tenant_id']) || empty($staf
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+$refSecret = public_response_ref_secret($supabaseKey);
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
     staff_bookings_json([
@@ -157,6 +159,71 @@ function staff_bookings_latest_change_for_booking(array $changesByBooking, strin
     return $changes[0] ?? null;
 }
 
+
+function staff_bookings_public_booking(array $booking, string $tenantId, string $staffId, string $refSecret): array
+{
+    $bookingId = trim((string) ($booking['id'] ?? ''));
+    $serviceId = trim((string) ($booking['service_id'] ?? ''));
+    $bookingStaffId = trim((string) ($booking['staff_id'] ?? $staffId));
+
+    $bookingRef = $bookingId !== '' ? public_response_booking_ref($tenantId, $bookingId, $refSecret) : '';
+    $serviceRef = $serviceId !== '' ? public_response_service_ref($tenantId, $serviceId, $refSecret) : '';
+    $staffRef = $bookingStaffId !== '' ? public_response_staff_ref($tenantId, $bookingStaffId, $refSecret) : '';
+
+    $payload = [
+        'booking_ref' => $bookingRef,
+        'booking_date' => (string) ($booking['booking_date'] ?? ''),
+        'booking_time' => substr((string) ($booking['booking_time'] ?? ''), 0, 5),
+        'name' => (string) ($booking['name'] ?? ''),
+        'email' => (string) ($booking['email'] ?? ''),
+        'phone' => (string) ($booking['phone'] ?? ''),
+        'notes' => (string) ($booking['notes'] ?? ''),
+        'status' => (string) ($booking['status'] ?? ''),
+        'service_ref' => $serviceRef,
+        'service_name_snapshot' => (string) ($booking['service_name_snapshot'] ?? ''),
+        'staff_ref' => $staffRef,
+        'reschedule_count' => max(0, (int) ($booking['reschedule_count'] ?? 0)),
+        'rescheduled_at' => $booking['rescheduled_at'] ?? null,
+    ];
+
+    $assignmentState = (string) ($booking['employee_assignment_state'] ?? 'current');
+    $assignmentMessage = trim((string) ($booking['employee_assignment_message'] ?? ''));
+
+    if ($assignmentState !== '' && $assignmentState !== 'current') {
+        $payload['employee_assignment_state'] = $assignmentState;
+    }
+
+    if ($assignmentMessage !== '') {
+        $payload['employee_assignment_message'] = $assignmentMessage;
+    }
+
+    if (
+        $assignmentMessage !== ''
+        && array_key_exists('employee_assignment_changed_at', $booking)
+        && $booking['employee_assignment_changed_at'] !== null
+        && $booking['employee_assignment_changed_at'] !== ''
+    ) {
+        $payload['employee_assignment_changed_at'] = $booking['employee_assignment_changed_at'];
+    }
+
+    return $payload;
+}
+
+function staff_bookings_public_bookings(array $bookings, string $tenantId, string $staffId, string $refSecret): array
+{
+    $publicBookings = [];
+
+    foreach ($bookings as $booking) {
+        if (!is_array($booking)) {
+            continue;
+        }
+
+        $publicBookings[] = staff_bookings_public_booking($booking, $tenantId, $staffId, $refSecret);
+    }
+
+    return $publicBookings;
+}
+
 function staff_bookings_filter_active_future_rows(array $rows, string $today): array
 {
     return array_values(array_filter($rows, static function ($row) use ($today): bool {
@@ -195,7 +262,7 @@ function staff_bookings_fetch_by_ids(
 
     $url = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=id,booking_date,booking_time,name,email,phone,notes,status,payment_status,payment_required,service_id,service_name_snapshot,created_at,reschedule_count,rescheduled_at,staff_id'
+        . '?select=id,booking_date,booking_time,name,email,phone,notes,status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&id=in.(' . rawurlencode(implode(',', $quotedIds)) . ')'
         . '&order=booking_date.asc'
@@ -218,7 +285,7 @@ function staff_bookings_fetch_by_ids(
 
 $currentBookingsUrl = $supabaseUrl
     . '/rest/v1/bookings'
-    . '?select=id,booking_date,booking_time,name,email,phone,notes,status,payment_status,payment_required,service_id,service_name_snapshot,created_at,reschedule_count,rescheduled_at,staff_id'
+    . '?select=id,booking_date,booking_time,name,email,phone,notes,status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id'
     . '&tenant_id=eq.' . rawurlencode($sessionTenantId)
     . '&staff_id=eq.' . rawurlencode($sessionStaffId)
     . '&booking_date=gte.' . rawurlencode($today)
@@ -387,5 +454,5 @@ usort($bookings, static function (array $a, array $b): int {
 
 staff_bookings_json([
     'success' => true,
-    'bookings' => $bookings,
+    'bookings' => staff_bookings_public_bookings($bookings, $sessionTenantId, $sessionStaffId, $refSecret),
 ]);

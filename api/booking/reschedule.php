@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/booking_mail.php';
 require_once __DIR__ . '/../helpers/google_calendar.php';
@@ -215,6 +216,64 @@ function reschedule_int_or_null($value): ?int
 
     return is_numeric($value) ? (int) $value : null;
 }
+
+
+function reschedule_service_public_ref(string $tenantId, string $serviceId, string $refSecret): string
+{
+    $serviceId = trim($serviceId);
+
+    if ($serviceId === '') {
+        return '';
+    }
+
+    return public_response_service_ref($tenantId, $serviceId, $refSecret);
+}
+
+function reschedule_staff_public_ref(string $tenantId, string $staffId, string $refSecret): string
+{
+    $staffId = trim($staffId);
+
+    if ($staffId === '') {
+        return '';
+    }
+
+    return public_response_staff_ref($tenantId, $staffId, $refSecret);
+}
+
+function reschedule_public_service_payload(array $service, array $booking, string $tenantId, string $refSecret): array
+{
+    $serviceId = trim((string) ($service['id'] ?? $booking['service_id'] ?? ''));
+    $serviceRef = reschedule_service_public_ref($tenantId, $serviceId, $refSecret);
+
+    return [
+        'service_ref' => $serviceRef,
+        'name' => (string) ($service['name'] ?? ''),
+        'description' => (string) ($service['description'] ?? ''),
+        'duration_minutes' => reschedule_int_or_null($service['duration_minutes'] ?? null),
+        'break_minutes' => reschedule_int_or_null($service['break_minutes'] ?? null),
+        'booking_buffer_minutes' => reschedule_int_or_null($service['booking_buffer_minutes'] ?? null),
+        'price_amount' => reschedule_float_or_null($service['price_amount'] ?? null),
+        'price_currency' => (string) ($service['price_currency'] ?? 'PLN'),
+        'payments_enabled' => array_key_exists('payments_enabled', $service) ? $service['payments_enabled'] : null,
+    ];
+}
+
+function reschedule_public_staff_payload(?array $staff, array $booking, string $tenantId, string $refSecret): ?array
+{
+    if (!is_array($staff)) {
+        return null;
+    }
+
+    $staffId = trim((string) ($staff['id'] ?? $booking['staff_id'] ?? ''));
+    $staffRef = reschedule_staff_public_ref($tenantId, $staffId, $refSecret);
+
+    return [
+        'staff_ref' => $staffRef,
+        'display_name' => (string) ($staff['display_name'] ?? ''),
+        'description' => (string) ($staff['description'] ?? ''),
+    ];
+}
+
 
 function reschedule_time_to_minutes(string $time): int
 {
@@ -488,29 +547,19 @@ function reschedule_load_calendar(string $supabaseUrl, string $key, string $sche
     return is_array($calendar) ? $calendar : [];
 }
 
-function reschedule_booking_response(array $booking, array $service, ?array $staff): array
+function reschedule_booking_response(array $booking, array $service, ?array $staff, string $tenantId, string $refSecret): array
 {
     $currentDate = trim((string) ($booking['booking_date'] ?? ''));
     $currentTime = reschedule_normalize_time((string) ($booking['booking_time'] ?? ''));
     $paymentRequired = filter_var($booking['payment_required'] ?? false, FILTER_VALIDATE_BOOLEAN);
     $paymentStatus = trim((string) ($booking['payment_status'] ?? ''));
 
-    $staffPayload = null;
-
-    if (is_array($staff)) {
-        $staffPayload = [
-            'id' => (string) ($staff['id'] ?? ''),
-            'display_name' => (string) ($staff['display_name'] ?? ''),
-            'description' => (string) ($staff['description'] ?? ''),
-        ];
-    }
-
     return [
         'customer_name' => (string) ($booking['name'] ?? ''),
         'customer_email' => (string) ($booking['email'] ?? ''),
         'customer_phone' => (string) ($booking['phone'] ?? ''),
-        'service' => $service,
-        'staff' => $staffPayload,
+        'service' => reschedule_public_service_payload($service, $booking, $tenantId, $refSecret),
+        'staff' => reschedule_public_staff_payload($staff, $booking, $tenantId, $refSecret),
         'current_date' => $currentDate,
         'current_date_label' => reschedule_format_date_label($currentDate),
         'current_time' => $currentTime,
@@ -1014,6 +1063,7 @@ if (!$tenantId) {
 }
 
 $tenantId = (string) $tenantId;
+$refSecret = public_response_ref_secret($supabaseKey);
 
 if (!tenant_has_feature($tenantId, 'reschedule_booking')) {
     reschedule_error('Funkcja przełożenia rezerwacji jest dostępna w wyższych planach.', 'feature_unavailable', 403);
@@ -1055,7 +1105,7 @@ if ($method === 'GET') {
         'success' => true,
         'can_reschedule' => !$rescheduleLimitReached,
         'message' => $rescheduleLimitReached ? reschedule_limit_message() : '',
-        'booking' => reschedule_booking_response($booking, $service, $staff),
+        'booking' => reschedule_booking_response($booking, $service, $staff, $tenantId, $refSecret),
     ]);
 }
 
@@ -1121,5 +1171,5 @@ reschedule_json([
     'success' => true,
     'can_reschedule' => true,
     'message' => 'Termin rezerwacji został zmieniony.',
-    'booking' => reschedule_booking_response($updatedBooking, $updatedService, $updatedStaff),
+    'booking' => reschedule_booking_response($updatedBooking, $updatedService, $updatedStaff, $tenantId, $refSecret),
 ]);

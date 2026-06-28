@@ -489,10 +489,10 @@ if (!tenant_has_feature($tenantId, 'staff_module')) {
 }
 
 $staffRef = trim((string) ($_GET['staff_ref'] ?? ''));
-$staffId = trim((string) ($_GET['staff_id'] ?? ''));
+$staffId = '';
 $date = trim((string) ($_GET['date'] ?? ''));
 $serviceRef = trim((string) ($_GET['service_ref'] ?? ''));
-$serviceId = trim((string) ($_GET['service_id'] ?? ''));
+$serviceId = '';
 $excludeBookingRef = trim((string) ($_GET['exclude_booking_ref'] ?? $_GET['booking_ref'] ?? ''));
 $excludeBookingId = trim((string) ($_GET['exclude_booking_id'] ?? $_GET['reservation_id'] ?? ''));
 $ignoreBookingBuffer = in_array(strtolower(trim((string) ($_GET['ignore_booking_buffer'] ?? ''))), ['1', 'true', 'yes'], true);
@@ -512,18 +512,13 @@ if ($staffRef !== '') {
     if ($staffId === '') {
         staff_public_availability_json([
             'success' => false,
-            'error' => 'Nie znaleziono osoby'
+            'error' => 'Nieprawidłowy pracownik.'
         ], 404);
     }
-} elseif ($staffId === '') {
+} else {
     staff_public_availability_json([
         'success' => false,
-        'error' => 'Brak identyfikatora personelu'
-    ], 400);
-} elseif (!staff_public_availability_is_uuid($staffId)) {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Nieprawidłowy identyfikator personelu'
+        'error' => 'Wybierz osobę obsługującą.'
     ], 400);
 }
 
@@ -533,13 +528,13 @@ if ($serviceRef !== '') {
     if ($serviceId === '') {
         staff_public_availability_json([
             'success' => false,
-            'error' => 'Nie znaleziono usługi'
+            'error' => 'Nieprawidłowa usługa.'
         ], 404);
     }
-} elseif ($serviceId !== '' && !staff_public_availability_is_uuid($serviceId)) {
+} else {
     staff_public_availability_json([
         'success' => false,
-        'error' => 'Nieprawidłowa usługa'
+        'error' => 'Nieprawidłowa usługa.'
     ], 400);
 }
 

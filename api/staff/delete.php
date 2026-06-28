@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -204,6 +205,77 @@ function staff_delete_related_records(
     }
 }
 
+
+function staff_delete_normalize_staff_ref($value): string
+{
+    $staffRef = trim((string) ($value ?? ''));
+
+    return in_array($staffRef, ['', 'null', 'undefined'], true) ? '' : $staffRef;
+}
+
+function staff_delete_resolve_staff_ref(
+    $value,
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $refSecret
+): ?string {
+    $staffRef = staff_delete_normalize_staff_ref($value);
+
+    if ($staffRef === '') {
+        return null;
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $result = staff_delete_request('GET', $url, $supabaseKey, $schema);
+
+    if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] < 200 || $result['httpCode'] >= 300) {
+        staff_delete_fail();
+    }
+
+    $rows = json_decode((string) $result['response'], true);
+
+    if (!is_array($rows)) {
+        staff_delete_fail();
+    }
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            continue;
+        }
+
+        $staffId = trim((string) ($row['id'] ?? ''));
+
+        if ($staffId !== '' && hash_equals(public_response_staff_ref($tenantId, $staffId, $refSecret), $staffRef)) {
+            return $staffId;
+        }
+    }
+
+    return null;
+}
+
+function staff_delete_resolve_staff_request_id(
+    array $input,
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $refSecret
+): string {
+    $staffRef = staff_delete_normalize_staff_ref($input['staff_ref'] ?? null);
+
+    if ($staffRef !== '') {
+        return staff_delete_resolve_staff_ref($staffRef, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret) ?? '';
+    }
+
+    return '';
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     header('Allow: POST');
     staff_delete_json([
@@ -266,14 +338,13 @@ if (!is_array($input)) {
     ], 400);
 }
 
-$staffId = trim((string) ($input['id'] ?? ''));
+$refSecret = public_response_ref_secret($supabaseKey);
+$staffId = staff_delete_resolve_staff_request_id($input, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret);
 
 if ($staffId === '') {
     staff_delete_json([
         'success' => false,
         'error' => 'Nie udało się usunąć pracownika. Odśwież listę personelu i spróbuj ponownie.',
-        'code' => 'invalid_staff_id',
-        'reason' => 'invalid_staff_id',
     ], 400);
 }
 

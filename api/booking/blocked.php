@@ -182,6 +182,7 @@ function resolve_staff_request_id(
         return resolve_staff_ref($staffRefValue, $tenantId, $supabaseUrl, $apiKey, $schema, $refSecret);
     }
 
+    // Legacy staff_id UUID fallback kept until all callers use staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
     return normalize_staff_id($staffIdValue);
 }
 

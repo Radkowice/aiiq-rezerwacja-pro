@@ -595,13 +595,15 @@
 
   function getEmployeeBookingSearchFields(booking) {
     return [
+      booking.booking_ref,
       booking.name,
       booking.email,
       booking.phone,
+      booking.service_ref,
       booking.service_name_snapshot,
       booking.service_name,
+      booking.staff_ref || booking.staffRef,
       booking.staff_display_name,
-      booking.staff_id,
       booking.booking_date,
       booking.booking_time,
       booking.status,

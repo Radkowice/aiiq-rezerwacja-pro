@@ -48,7 +48,7 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/admin-modal.js" defer></script>
   <script src="/assets/js/admin-kalendarz.js?v=20260615-2" defer></script>
   <script src="/assets/js/panel-admina.js?v=3" defer></script>
-  <script src="/assets/js/admin-personel.js?v=1" defer></script>
+  <script src="/assets/js/admin-personel.js?v=2" defer></script>
   <script src="/assets/js/admin-ustawienia.js" defer></script>
   <script src="/assets/js/admin-integracje.js?v=2"></script>
   <script src="/assets/js/admin-usluga-platnosci.js?v=20260619-1"></script>

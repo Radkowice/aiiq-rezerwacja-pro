@@ -104,7 +104,7 @@ if (!empty($allStaffIds)) {
 
     $staffUrl = $supabaseUrl
         . '/rest/v1/staff_profiles'
-        . '?select=id,display_name,email,phone,is_active,visible_on_front'
+        . '?select=id,display_name,is_active,visible_on_front'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&id=in.(' . $staffIdList . ')';
 
@@ -132,12 +132,8 @@ if (!empty($allStaffIds)) {
         }
 
         $staffById[(string) $staffRow['id']] = [
-            // legacy id response kept only until admin-usluga-platnosci.js and admin-kalendarz.js are migrated to refs. TODO_REMOVE_LEGACY_ID_RESPONSE
-            'id' => (string) ($staffRow['id'] ?? ''),
             'staff_ref' => public_response_staff_ref($tenantId, (string) $staffRow['id'], $refSecret),
             'display_name' => (string) ($staffRow['display_name'] ?? ''),
-            'email' => (string) ($staffRow['email'] ?? ''),
-            'phone' => (string) ($staffRow['phone'] ?? ''),
             'is_active' => (bool) ($staffRow['is_active'] ?? false),
             'visible_on_front' => (bool) ($staffRow['visible_on_front'] ?? false),
         ];

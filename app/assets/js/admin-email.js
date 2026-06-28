@@ -42,7 +42,7 @@
 
   const state = {
     staff: [],
-    selectedStaffId: '',
+    selectedStaffRef: '',
     currentTarget: 'global-body',
     savingSmtp: false,
     savingGlobal: false,
@@ -460,11 +460,11 @@
     }
   }
 
-  async function loadStaffEmailTemplates(selectedId = state.selectedStaffId) {
+  async function loadStaffEmailTemplates(selectedRef = state.selectedStaffRef) {
     try {
       const data = await fetchJson('/api/email/get-staff-email-template.php');
       state.staff = Array.isArray(data.staff) ? data.staff : [];
-      renderStaffOptions(selectedId);
+      renderStaffOptions(selectedRef);
       populateSelectedStaff();
     } catch (error) {
       setMessage(els.staffMessage, 'Nie udało się wczytać listy pracowników.', 'error');
@@ -472,23 +472,24 @@
     }
   }
 
-  function renderStaffOptions(selectedId) {
+  function renderStaffOptions(selectedRef) {
     if (!els.staffSelect) return;
 
     els.staffSelect.innerHTML = '<option value="">Wybierz pracownika</option>'
       + state.staff.map((person) => {
+        const staffRef = getStaffRef(person);
         const status = person.has_custom_template ? 'własny szablon' : 'szablon globalny';
-        const selected = person.id === selectedId ? ' selected' : '';
+        const selected = staffRef === selectedRef ? ' selected' : '';
         const name = person.display_name || 'Pracownik bez nazwy';
-        return '<option value="' + escapeHtmlAttr(person.id) + '"' + selected + '>' + escapeHtml(name) + ' - ' + status + '</option>';
+        return '<option value="' + escapeHtmlAttr(staffRef) + '"' + selected + '>' + escapeHtml(name) + ' - ' + status + '</option>';
       }).join('');
 
-    state.selectedStaffId = selectedId && state.staff.some((person) => person.id === selectedId) ? selectedId : '';
-    els.staffSelect.value = state.selectedStaffId;
+    state.selectedStaffRef = selectedRef && state.staff.some((person) => getStaffRef(person) === selectedRef) ? selectedRef : '';
+    els.staffSelect.value = state.selectedStaffRef;
   }
 
   function handleStaffSelection() {
-    state.selectedStaffId = els.staffSelect?.value || '';
+    state.selectedStaffRef = els.staffSelect?.value || '';
     populateSelectedStaff();
     setMessage(els.staffMessage, '', '');
   }
@@ -525,8 +526,9 @@
       return;
     }
 
+    const staffRef = getStaffRef(staff);
     const payload = {
-      staff_id: staff.id,
+      staff_ref: staffRef,
       email_subject: els.staffSubject?.value.trim() || '',
       email_heading: els.staffHeading?.value.trim() || '',
       email_body: els.staffBody?.value || '',
@@ -549,7 +551,7 @@
       setMessage(els.staffMessage, 'Szablon e-mail pracownika został zapisany.', 'success');
       setStaffStatus('Ten pracownik ma własny szablon e-mail.');
       setButtonState(els.staffSaveButton, 'Zapisano', true);
-      renderStaffOptions(state.selectedStaffId);
+      renderStaffOptions(state.selectedStaffRef);
     } catch (error) {
       setMessage(els.staffMessage, error.message || 'Nie udało się zapisać zmian. Spróbuj ponownie.', 'error');
       setButtonState(els.staffSaveButton, 'Błąd', true);
@@ -570,15 +572,38 @@
     }
 
     state.savingStaff = true;
+
+    const confirmed = await openAdminConfirm({
+      title: 'Przywrócić globalny szablon?',
+      html: `
+        <p>
+          Globalny szablon e-mail zastąpi indywidualny szablon tego pracownika.
+          Obecne ustawienia pracownika zostaną usunięte.
+        </p>
+        <p>
+          Tej operacji nie można cofnąć, ale później możesz ponownie zapisać
+          osobny szablon dla pracownika.
+        </p>
+      `,
+      confirmText: 'Przywróć globalny',
+      cancelText: 'Anuluj',
+      variant: 'danger'
+    });
+
+    if (!confirmed) {
+      state.savingStaff = false;
+      return;
+    }
+
     const originalText = els.staffResetButton.textContent;
 
     try {
       setButtonState(els.staffResetButton, 'Przywracanie...', true);
       setMessage(els.staffMessage, 'Przywracanie globalnego szablonu...', 'muted');
-      const data = await requestJson('/api/email/reset-staff-email-template.php', { staff_id: staff.id });
+      const data = await requestJson('/api/email/reset-staff-email-template.php', { staff_ref: getStaffRef(staff) });
       updateStaffInState(data.staff);
       populateSelectedStaff();
-      renderStaffOptions(state.selectedStaffId);
+      renderStaffOptions(state.selectedStaffRef);
       updateStaffEmailPreview();
       setMessage(els.staffMessage, 'Pracownik ponownie używa globalnego szablonu e-mail.', 'success');
     } catch (error) {
@@ -591,16 +616,23 @@
   }
 
   function updateStaffInState(updatedStaff) {
-    if (!updatedStaff?.id) return;
+    const updatedStaffRef = getStaffRef(updatedStaff);
+    if (!updatedStaffRef) return;
 
-    state.staff = state.staff.map((person) => person.id === updatedStaff.id
+    state.staff = state.staff.map((person) => getStaffRef(person) === updatedStaffRef
       ? { ...person, ...updatedStaff }
       : person);
-    state.selectedStaffId = updatedStaff.id;
+    state.selectedStaffRef = updatedStaffRef;
   }
 
   function findSelectedStaff() {
-    return state.staff.find((person) => person.id === state.selectedStaffId) || null;
+    return state.staff.find((person) => getStaffRef(person) === state.selectedStaffRef) || null;
+  }
+
+  function getStaffRef(person) {
+    return person && (person.staff_ref || person.staffRef)
+      ? String(person.staff_ref || person.staffRef)
+      : '';
   }
 
   function setStaffFieldsEnabled(enabled) {

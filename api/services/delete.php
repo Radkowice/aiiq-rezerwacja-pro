@@ -159,18 +159,14 @@ if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
 $serviceRef = trim((string) $serviceRefInput);
 $serviceId = $serviceRef !== ''
     ? services_delete_service_id_from_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceRef, $refSecret)
-    // legacy id fallback kept only until admin-usluga-platnosci.js is migrated to service_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
-    : trim((string) ($input['id'] ?? ''));
+    : '';
 $checkOnly = !empty($input['check_only']);
 
 if (!services_is_uuid($serviceId)) {
     services_json([
         'success' => false,
-        'error' => 'Nieprawidłowy identyfikator usługi',
-        'field' => 'id',
-        'code' => 'invalid_service_id',
-        'reason' => 'invalid_service_id',
-    ], 422);
+        'error' => 'Nieprawidłowa usługa.',
+    ], 400);
 }
 
 $serviceRows = services_delete_fetch_rows(
@@ -244,8 +240,6 @@ services_json([
     'success' => true,
     'message' => 'Usługa została usunięta.',
     'deleted' => true,
-    // legacy service_id response kept only until admin-usluga-platnosci.js is migrated to service_ref. TODO_REMOVE_LEGACY_ID_RESPONSE
-    'service_id' => $serviceId,
     'service_ref' => public_response_service_ref($tenantId, $serviceId, $refSecret),
     'has_staff' => false,
     'has_active_bookings' => false,

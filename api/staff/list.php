@@ -404,8 +404,10 @@ foreach ($staff as $index => $person) {
         $invitesByStaffId[$staffId] ?? []
     );
 
+    $staffRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
     $staff[$index] = array_merge($publicPerson, [
-        'staff_ref' => public_response_staff_ref($tenantId, $staffId, $refSecret),
+        'staff_ref' => $staffRef,
     ], $inviteContext);
 }
 

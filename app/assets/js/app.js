@@ -529,8 +529,11 @@ function hasFrontValue(value) {
 }
 
 function normalizeFrontPublicStaff(staff = {}) {
+  const staffRef = String(staff.staff_ref || staff.staffRef || staff.id || '').trim();
+
   return {
-    id: String(staff.id || '').trim(),
+    id: staffRef,
+    staff_ref: staffRef,
     display_name: String(staff.display_name || '').trim(),
     description: String(staff.description || '').trim(),
     color: String(staff.color || '').trim(),
@@ -544,9 +547,11 @@ function normalizeFrontPublicService(service = {}) {
         .map(normalizeFrontPublicStaff)
         .filter(staff => staff.id !== '')
     : [];
+  const serviceRef = String(service.service_ref || service.serviceRef || service.id || '').trim();
 
   return {
-    id: String(service.id || '').trim(),
+    id: serviceRef,
+    service_ref: serviceRef,
     service_name: String(service.name || service.service_name || '').trim(),
     service_description: String(service.description || '').trim(),
     price_amount: service.price_amount ?? null,
@@ -801,13 +806,13 @@ function getFrontMonthAvailabilityParams(monthKey) {
   });
 
   if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
-    params.set('service_id', selectedServiceId);
+    params.set('service_ref', selectedServiceId);
   }
 
   const staffId = getSelectedStaffId();
 
   if (staffId) {
-    params.set('staff_id', staffId);
+    params.set('staff_ref', staffId);
   }
 
   return params;
@@ -817,8 +822,8 @@ function getFrontMonthAvailabilityCacheKey(monthKey) {
   const params = getFrontMonthAvailabilityParams(monthKey);
   return [
     monthKey,
-    params.get('service_id') || '',
-    params.get('staff_id') || ''
+    params.get('service_ref') || '',
+    params.get('staff_ref') || ''
   ].join('|');
 }
 
@@ -1553,12 +1558,12 @@ async function renderTimeOptions() {
       }
 
       const availabilityParams = new URLSearchParams({
-        staff_id: staffId,
+        staff_ref: staffId,
         date: selectedDate
       });
 
       if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
-        availabilityParams.set('service_id', selectedServiceId);
+        availabilityParams.set('service_ref', selectedServiceId);
       }
 
       const staffRes = await fetch(`/api/staff/public-availability.php?${availabilityParams.toString()}`, {
@@ -2055,7 +2060,7 @@ const booking = {
 
 // Backend w book.php waliduje usługę, cenę, płatność i przypisanie pracownika.
 if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
-  booking.service_id = selectedServiceId;
+  booking.service_ref = selectedServiceId;
 }
 
 if (FRONT_STAFF_REQUIRED) {
@@ -2068,7 +2073,7 @@ if (FRONT_STAFF_REQUIRED) {
     return;
   }
 
-  booking.staff_id = staffId;
+  booking.staff_ref = staffId;
 }
 
   if (!validatePersonName(booking.name)) {
@@ -2138,7 +2143,7 @@ if (FRONT_STAFF_REQUIRED) {
     let finalAvailable = [];
 
     if (FRONT_STAFF_REQUIRED) {
-      const staffId = booking.staff_id || getSelectedStaffId();
+      const staffId = booking.staff_ref || getSelectedStaffId();
 
       if (!staffId) {
         showError('Wybierz osobę obsługującą rezerwację');
@@ -2148,12 +2153,12 @@ if (FRONT_STAFF_REQUIRED) {
       }
 
       const availabilityParams = new URLSearchParams({
-        staff_id: staffId,
+        staff_ref: staffId,
         date: booking.date
       });
 
       if (FRONT_USING_PUBLIC_SERVICES === true && selectedServiceId) {
-        availabilityParams.set('service_id', selectedServiceId);
+        availabilityParams.set('service_ref', selectedServiceId);
       }
 
       const staffRes = await fetch(`/api/staff/public-availability.php?${availabilityParams.toString()}`, {
@@ -2165,7 +2170,7 @@ if (FRONT_STAFF_REQUIRED) {
       if (isFrontStaffLockedResponse(staffRes)) {
         resetFrontStaffSelectionState();
         renderFrontServiceSelect();
-        delete booking.staff_id;
+        delete booking.staff_ref;
 
         const settings = await getSettings(booking.date, { forceFresh: true });
         finalAvailable = Array.isArray(settings?.availableTimes)

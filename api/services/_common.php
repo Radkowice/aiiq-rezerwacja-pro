@@ -188,9 +188,6 @@ function services_select_fields(): string
 function services_normalize_record(array $row, array $staffIds = [], array $staff = []): array
 {
     return [
-        // legacy id response kept only until admin-usluga-platnosci.js and admin-kalendarz.js are migrated to refs. TODO_REMOVE_LEGACY_ID_RESPONSE
-        'id' => (string) ($row['id'] ?? ''),
-        'tenant_id' => (string) ($row['tenant_id'] ?? ''),
         'name' => (string) ($row['name'] ?? ''),
         'description' => $row['description'] ?? null,
         'duration_minutes' => isset($row['duration_minutes']) ? (int) $row['duration_minutes'] : null,
@@ -205,8 +202,6 @@ function services_normalize_record(array $row, array $staffIds = [], array $staf
         'is_active' => (bool) ($row['is_active'] ?? false),
         'visible_on_front' => (bool) ($row['visible_on_front'] ?? false),
         'sort_order' => isset($row['sort_order']) ? (int) $row['sort_order'] : 0,
-        // legacy id response kept only until admin-usluga-platnosci.js and admin-kalendarz.js are migrated to refs. TODO_REMOVE_LEGACY_ID_RESPONSE
-        'staff_ids' => array_values($staffIds),
         'staff' => array_values($staff),
     ];
 }

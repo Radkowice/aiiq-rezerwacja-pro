@@ -361,7 +361,6 @@ function staff_availability_resolve_staff_ref(
 
 function staff_availability_resolve_staff_request_id(
     $staffRefValue,
-    $staffIdValue,
     string $supabaseUrl,
     string $supabaseKey,
     string $schema,
@@ -379,8 +378,7 @@ function staff_availability_resolve_staff_request_id(
         );
     }
 
-    // staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
-    return trim((string) ($staffIdValue ?? ''));
+    return '';
 }
 
 function staff_availability_read(
@@ -595,10 +593,8 @@ if (!tenant_has_feature($tenantId, 'staff_module')) {
 }
 
 if ($method === 'GET') {
-    // staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
     $staffId = staff_availability_resolve_staff_request_id(
         $_GET['staff_ref'] ?? null,
-        $_GET['staff_id'] ?? null,
         $supabaseUrl,
         $supabaseKey,
         $schema,
@@ -670,10 +666,8 @@ if (!is_array($input)) {
     ], 400);
 }
 
-// staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
 $staffId = staff_availability_resolve_staff_request_id(
     $input['staff_ref'] ?? null,
-    $input['staff_id'] ?? null,
     $supabaseUrl,
     $supabaseKey,
     $schema,

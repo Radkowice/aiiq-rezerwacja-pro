@@ -28,7 +28,7 @@
 
   const state = {
     staff: [],
-    selectedId: null,
+    selectedRef: null,
     searchQuery: '',
   };
 
@@ -571,9 +571,10 @@
     const color = row && typeof row.color === 'string' && /^#[0-9a-f]{6}$/i.test(row.color)
       ? row.color
       : '#2563eb';
+    const staffRef = row && (row.staff_ref || row.staffRef || row.id) ? String(row.staff_ref || row.staffRef || row.id) : '';
 
     return {
-      id: row && row.id ? String(row.id) : '',
+      staff_ref: staffRef,
       display_name: row && row.display_name ? String(row.display_name) : '',
       email: row && row.email ? String(row.email) : '',
       phone: row && row.phone ? String(row.phone) : '',
@@ -592,8 +593,12 @@
     };
   }
 
+  function getStaffRef(person) {
+    return person ? String(person.staff_ref || person.staffRef || '').trim() : '';
+  }
+
   function findSelectedStaff() {
-    return state.staff.find((person) => person.id === state.selectedId) || null;
+    return state.staff.find((person) => getStaffRef(person) === state.selectedRef) || null;
   }
 
   function getStaffListDescription(person) {
@@ -652,11 +657,12 @@
     const fragment = document.createDocumentFragment();
 
     visibleStaff.forEach((person) => {
+      const staffRef = getStaffRef(person);
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'personel-list-item';
-      item.dataset.staffId = person.id;
-      item.setAttribute('aria-pressed', person.id === state.selectedId ? 'true' : 'false');
+      item.dataset.staffRef = staffRef;
+      item.setAttribute('aria-pressed', staffRef === state.selectedRef ? 'true' : 'false');
 
       if (!person.is_active) {
         item.classList.add('is-inactive');
@@ -755,15 +761,16 @@
   function resetAvailability() {
     renderAvailabilityRows(new Map());
     if (els.saveAvailabilityButton) {
-      els.saveAvailabilityButton.disabled = !state.selectedId;
+      els.saveAvailabilityButton.disabled = !state.selectedRef;
     }
   }
 
   function populateForm(person) {
     const selected = person || null;
-    state.selectedId = selected ? selected.id : null;
+    const selectedRef = selected ? getStaffRef(selected) : '';
+    state.selectedRef = selectedRef || null;
 
-    els.id.value = selected ? selected.id : '';
+    els.id.value = selectedRef;
     els.displayName.value = selected ? selected.display_name : '';
     els.email.value = selected ? selected.email : '';
     els.phone.value = selected ? selected.phone : '';
@@ -806,14 +813,14 @@
       const data = await requestJson('/api/staff/list.php', { method: 'GET' });
       state.staff = Array.isArray(data.staff) ? data.staff.map(normalizeStaff) : [];
 
-      if (state.selectedId && !findSelectedStaff()) {
-        state.selectedId = null;
+      if (state.selectedRef && !findSelectedStaff()) {
+        state.selectedRef = null;
       }
 
       renderStaffList();
       populateForm(findSelectedStaff());
 
-      if (!state.selectedId) {
+      if (!state.selectedRef) {
         resetAvailability();
       }
     } catch (error) {
@@ -821,13 +828,13 @@
     }
   }
 
-  async function loadAvailability(staffId) {
-    if (!staffId) return;
+  async function loadAvailability(staffRef) {
+    if (!staffRef) return;
 
     setMessage(els.availabilityMessage, 'Ładowanie grafiku...', 'muted');
 
     try {
-      const data = await requestJson(`/api/staff/availability.php?staff_id=${encodeURIComponent(staffId)}`, {
+      const data = await requestJson(`/api/staff/availability.php?staff_ref=${encodeURIComponent(staffRef)}`, {
         method: 'GET',
       });
 
@@ -853,14 +860,14 @@
     }
   }
 
-  async function selectStaff(staffId) {
-    const person = state.staff.find((item) => item.id === staffId);
+  async function selectStaff(staffRef) {
+    const person = state.staff.find((item) => getStaffRef(item) === staffRef);
 
     if (!person) return;
 
     populateForm(person);
     setMessage(els.formMessage, '', '');
-    await loadAvailability(person.id);
+    await loadAvailability(getStaffRef(person));
   }
 
   function readProfilePayload() {
@@ -891,23 +898,23 @@
       is_active: els.isActive.checked
     };
 
-    if (state.selectedId) {
-      payload.id = state.selectedId;
+    if (state.selectedRef) {
+      payload.staff_ref = state.selectedRef;
     }
 
     return payload;
   }
 
-  async function sendStaffInvite(staffId) {
-    const cleanStaffId = String(staffId || '').trim();
+  async function sendStaffInvite(staffRef) {
+    const cleanStaffRef = String(staffRef || '').trim();
 
-    if (!cleanStaffId) {
+    if (!cleanStaffRef) {
       throw new Error('Brak identyfikatora osoby z personelu.');
     }
 
     return requestJson('/api/staff/invite.php', {
       method: 'POST',
-      body: JSON.stringify({ staff_id: cleanStaffId }),
+      body: JSON.stringify({ staff_ref: cleanStaffRef }),
     });
   }
 
@@ -939,7 +946,7 @@
         els.resendInviteButton.textContent = 'Wysyłanie zaproszenia...';
       }
 
-      await sendStaffInvite(selected.id);
+      await sendStaffInvite(getStaffRef(selected));
 
       setMessage(
         els.formMessage,
@@ -989,14 +996,15 @@
       });
 
       const saved = normalizeStaff(data.staff || {});
-      state.selectedId = saved.id;
+      const savedRef = getStaffRef(saved);
+      state.selectedRef = savedRef || null;
 
       if (shouldSendInvite) {
-        if (!saved.id) {
+        if (!savedRef) {
           setMessage(els.formMessage, 'Osoba została zapisana, ale nie udało się wysłać zaproszenia: brak identyfikatora osoby.', 'error');
         } else {
           try {
-            await sendStaffInvite(saved.id);
+            await sendStaffInvite(savedRef);
 
             setMessage(els.formMessage, 'Zapisano osobę i wysłano zaproszenie do panelu personelu.', 'success');
 
@@ -1018,8 +1026,8 @@
       await loadStaffList();
       populateForm(findSelectedStaff() || saved);
 
-      if (saved.id) {
-        await loadAvailability(saved.id);
+      if (savedRef) {
+        await loadAvailability(savedRef);
       }
     } catch (error) {
       setMessage(els.formMessage, error.message || 'Nie udało się zapisać osoby.', 'error');
@@ -1050,10 +1058,10 @@
     try {
       const data = await requestJson('/api/staff/delete.php', {
         method: 'POST',
-        body: JSON.stringify({ id: selected.id }),
+        body: JSON.stringify({ staff_ref: getStaffRef(selected) }),
       });
 
-      state.selectedId = null;
+      state.selectedRef = null;
       await loadStaffList();
       startNewPerson();
       setMessage(els.formMessage, data.message || 'Pracownik został usunięty.', 'success');
@@ -1065,7 +1073,7 @@
   }
 
   function readAvailabilityPayload() {
-    if (!state.selectedId) {
+    if (!state.selectedRef) {
       throw new Error('Wybierz osobę, aby edytować grafik.');
     }
 
@@ -1097,7 +1105,7 @@
     });
 
     return {
-      staff_id: state.selectedId,
+      staff_ref: state.selectedRef,
       availability,
     };
   }
@@ -1156,7 +1164,7 @@
 
       if (!item) return;
 
-      selectStaff(item.dataset.staffId);
+      selectStaff(item.dataset.staffRef);
     });
   }
 

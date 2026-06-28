@@ -86,14 +86,12 @@ if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
 $serviceRef = trim((string) $serviceRefInput);
 $serviceId = $serviceRef !== ''
     ? services_deactivate_service_id_from_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceRef, $refSecret)
-    // legacy id fallback kept only until admin-usluga-platnosci.js is migrated to service_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
-    : trim((string) ($input['id'] ?? ''));
+    : '';
 
 if (!services_is_uuid($serviceId)) {
     services_json([
         'success' => false,
-        'error' => 'Nieprawidłowy identyfikator usługi',
-        'field' => 'id',
+        'error' => 'Nieprawidłowa usługa.',
     ], 422);
 }
 
@@ -167,9 +165,8 @@ if (empty($savedRows[0]) || !is_array($savedRows[0])) {
 }
 
 $serviceRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
-// services_normalize_record still includes legacy service.id and service.staff_ids until admin-usluga-platnosci.js is migrated to refs. TODO_REMOVE_LEGACY_ID_RESPONSE
 $service = services_normalize_record($savedRows[0]);
-$service['service_ref'] = $serviceRef;
+unset($service['id'], $service['staff_ids'], $service['service_ref']);
 
 services_json([
     'success' => true,

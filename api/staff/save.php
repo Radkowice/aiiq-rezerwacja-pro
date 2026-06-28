@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -200,10 +201,76 @@ function staff_save_select_fields(): string
     ]);
 }
 
-function staff_save_public_record(array $row): array
+function staff_save_is_public_staff_ref(string $value): bool
 {
+    return str_starts_with($value, 'st_');
+}
+
+function staff_save_resolve_staff_ref(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $staffRef,
+    string $refSecret
+): ?string {
+    if ($staffRef === '' || !staff_save_is_public_staff_ref($staffRef)) {
+        return null;
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId);
+
+    $result = staff_save_request('GET', $url, $supabaseKey, $schema);
+
+    if ($result['response'] === false || $result['error'] !== '') {
+        staff_save_json([
+            'success' => false,
+            'error' => 'Błąd połączenia z bazą danych'
+        ], 500);
+    }
+
+    if ($result['httpCode'] < 200 || $result['httpCode'] >= 300) {
+        staff_save_json([
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić pracownika'
+        ], $result['httpCode'] > 0 ? $result['httpCode'] : 500);
+    }
+
+    $rows = json_decode((string) $result['response'], true);
+
+    if (!is_array($rows)) {
+        staff_save_json([
+            'success' => false,
+            'error' => 'Nieprawidłowa odpowiedź bazy danych'
+        ], 500);
+    }
+
+    foreach ($rows as $row) {
+        $candidateId = trim((string) ($row['id'] ?? ''));
+
+        if ($candidateId === '') {
+            continue;
+        }
+
+        if (public_response_staff_ref($tenantId, $candidateId, $refSecret) === $staffRef) {
+            return $candidateId;
+        }
+    }
+
+    return null;
+}
+
+function staff_save_public_record(array $row, string $tenantId, string $refSecret): array
+{
+    $staffId = trim((string) ($row['id'] ?? ''));
+    $staffRef = $staffId !== ''
+        ? public_response_staff_ref($tenantId, $staffId, $refSecret)
+        : '';
+
     $allowedFields = [
-        'id',
         'display_name',
         'email',
         'phone',
@@ -227,6 +294,10 @@ function staff_save_public_record(array $row): array
     ];
 
     $record = [];
+
+    if ($staffRef !== '') {
+        $record['staff_ref'] = $staffRef;
+    }
 
     foreach ($allowedFields as $field) {
         if (array_key_exists($field, $row)) {
@@ -293,6 +364,36 @@ function staff_save_ensure_no_duplicate(
             'success' => false,
             'error' => 'Pracownik o takich danych już istnieje'
         ], 409);
+    }
+}
+
+
+function staff_save_sync_staff_account_email(
+    string $supabaseUrl,
+    string $supabaseKey,
+    string $schema,
+    string $tenantId,
+    string $staffId,
+    ?string $email
+): void {
+    if ($staffId === '' || $email === null || $email === '') {
+        return;
+    }
+
+    $url = $supabaseUrl
+        . '/rest/v1/staff_accounts'
+        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '&staff_id=eq.' . rawurlencode($staffId);
+
+    $result = staff_save_request('PATCH', $url, $supabaseKey, $schema, [
+        'email' => $email,
+    ]);
+
+    if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] >= 400) {
+        staff_save_json([
+            'success' => false,
+            'error' => 'Dane pracownika zostały zapisane, ale nie udało się zaktualizować e-maila logowania pracownika.'
+        ], 500);
     }
 }
 
@@ -408,6 +509,7 @@ if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
 }
 
 $tenantId = (string) ($_SESSION['user']['tenant_id'] ?? '');
+$refSecret = public_response_ref_secret($supabaseKey);
 
 if ($tenantId === '') {
     staff_save_json([
@@ -427,7 +529,20 @@ if (!is_array($input)) {
     ], 400);
 }
 
-$staffId = trim((string) ($input['id'] ?? ''));
+$rawStaffRef = trim((string) ($input['staff_ref'] ?? ''));
+$staffId = '';
+
+if ($rawStaffRef !== '') {
+    $staffId = staff_save_resolve_staff_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $rawStaffRef, $refSecret) ?? '';
+
+    if ($staffId === '') {
+        staff_save_json([
+            'success' => false,
+            'error' => 'Nie znaleziono pracownika'
+        ], 404);
+    }
+}
+
 $isUpdate = $staffId !== '';
 
 $displayName = trim((string) ($input['display_name'] ?? ''));
@@ -675,6 +790,10 @@ if ($result['httpCode'] < 200 || $result['httpCode'] >= 300) {
 
 $savedRows = json_decode((string) $result['response'], true);
 
+if ($isUpdate) {
+    staff_save_sync_staff_account_email($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffId, $email);
+}
+
 if (!is_array($savedRows) || empty($savedRows[0]) || !is_array($savedRows[0])) {
     staff_save_json([
         'success' => false,
@@ -684,5 +803,5 @@ if (!is_array($savedRows) || empty($savedRows[0]) || !is_array($savedRows[0])) {
 
 staff_save_json([
     'success' => true,
-    'staff' => staff_save_public_record($savedRows[0])
+    'staff' => staff_save_public_record($savedRows[0], $tenantId, $refSecret)
 ]);
