@@ -329,6 +329,8 @@ function front_bootstrap_public_plan_context(array $planContext): array
         'legal_documents',
         'branding_logo',
         'branding_favicon',
+        'branding_colors',
+        'calendar_appearance',
         'reschedule_booking',
     ];
     $publicFeatures = [];
@@ -341,6 +343,25 @@ function front_bootstrap_public_plan_context(array $planContext): array
         'plan_code' => $publicPlanCode,
         'is_free' => $publicPlanCode === 'free',
         'features' => $publicFeatures,
+    ];
+}
+
+function front_bootstrap_filter_branding_for_plan(array $branding, array $planContext): array
+{
+    $features = is_array($planContext['features'] ?? null) ? $planContext['features'] : [];
+    $hasCalendarAppearance = !empty($features['calendar_appearance']);
+
+    return [
+        'client_name' => (string)($branding['client_name'] ?? ''),
+        'service_title_front' => $hasCalendarAppearance ? (string)($branding['service_title_front'] ?? '') : '',
+        'logo_url_front' => !empty($features['branding_logo']) ? (string)($branding['logo_url_front'] ?? '') : '',
+        'favicon_url_front' => !empty($features['branding_favicon']) ? (string)($branding['favicon_url_front'] ?? '') : '',
+        'calendar_front_style' => $hasCalendarAppearance && is_array($branding['calendar_front_style'] ?? null)
+            ? $branding['calendar_front_style']
+            : [],
+        'calendar_form_fields' => $hasCalendarAppearance && is_array($branding['calendar_form_fields'] ?? null)
+            ? $branding['calendar_form_fields']
+            : [],
     ];
 }
 
@@ -456,19 +477,26 @@ function front_bootstrap_build_branding(
         front_bootstrap_fail('Nie znaleziono brandingu klienta', 404);
     }
 
-    $publicLogoUrl = branding_asset_public_url((string)($row['logo_url_front'] ?? ''), $tenantId, 'logo');
-    $publicFaviconUrl = branding_asset_public_url((string)($row['favicon_url_front'] ?? ''), $tenantId, 'favicon');
+    $features = is_array($planContext['features'] ?? null) ? $planContext['features'] : [];
+    $hasBrandingLogo = !empty($features['branding_logo']);
+    $hasBrandingFavicon = !empty($features['branding_favicon']);
+    $publicLogoUrl = $hasBrandingLogo
+        ? branding_asset_public_url((string)($row['logo_url_front'] ?? ''), $tenantId, 'logo')
+        : '';
+    $publicFaviconUrl = $hasBrandingFavicon
+        ? branding_asset_public_url((string)($row['favicon_url_front'] ?? ''), $tenantId, 'favicon')
+        : '';
 
     return [
         'plan_context' => front_bootstrap_public_plan_context($planContext),
-        'branding' => [
+        'branding' => front_bootstrap_filter_branding_for_plan([
             'client_name' => (string)($row['client_name'] ?? ''),
             'service_title_front' => (string)($row['service_title_front'] ?? ''),
             'logo_url_front' => $publicLogoUrl,
             'favicon_url_front' => $publicFaviconUrl,
             'calendar_front_style' => is_array($row['calendar_front_style'] ?? null) ? $row['calendar_front_style'] : [],
             'calendar_form_fields' => is_array($row['calendar_form_fields'] ?? null) ? $row['calendar_form_fields'] : [],
-        ],
+        ], $planContext),
     ];
 }
 
@@ -1256,6 +1284,9 @@ try {
         ], 503);
     }
 
+    $currentPlanContext = plan_features_get_context($tenantId);
+    $publicPlanContext = front_bootstrap_public_plan_context($currentPlanContext);
+    $branding = front_bootstrap_filter_branding_for_plan($branding, $publicPlanContext);
     $blocked = front_bootstrap_get_blocked($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $service);
 
     front_bootstrap_json([

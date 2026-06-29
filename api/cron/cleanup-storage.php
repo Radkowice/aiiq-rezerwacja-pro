@@ -52,6 +52,11 @@ function cleanup_env(string $key, string $default = ''): string
     return $value !== '' ? $value : $default;
 }
 
+function cleanup_is_cli(): bool
+{
+    return PHP_SAPI === 'cli';
+}
+
 function cleanup_get_token_from_request(): string
 {
     $authorization = trim((string) ($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
@@ -65,14 +70,129 @@ function cleanup_get_token_from_request(): string
         return trim((string) $matches[1]);
     }
 
+    $headerSecret = trim((string) ($_SERVER['HTTP_X_CRON_SECRET'] ?? ''));
+
+    if ($headerSecret !== '') {
+        return $headerSecret;
+    }
+
+    $secret = trim((string) ($_GET['secret'] ?? ''));
+
+    if ($secret !== '') {
+        return $secret;
+    }
+
     return trim((string) ($_GET['token'] ?? ''));
+}
+
+function cleanup_expected_token(): string
+{
+    $specific = cleanup_env('CLEANUP_STORAGE_CRON_SECRET');
+
+    if ($specific !== '') {
+        return $specific;
+    }
+
+    $legacy = cleanup_env('CLEANUP_CRON_TOKEN');
+
+    if ($legacy !== '') {
+        return $legacy;
+    }
+
+    return cleanup_env('CRON_SECRET');
+}
+
+function cleanup_authorize(): void
+{
+    if (cleanup_is_cli()) {
+        return;
+    }
+
+    $expectedToken = cleanup_expected_token();
+
+    if ($expectedToken === '') {
+        cleanup_response([
+            'success' => false,
+            'error' => 'unauthorized',
+        ], 401);
+    }
+
+    $providedToken = cleanup_get_token_from_request();
+
+    if ($providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
+        cleanup_response([
+            'success' => false,
+            'error' => 'unauthorized',
+        ], 401);
+    }
+}
+
+function cleanup_count_by_key(array $items, string $key): array
+{
+    $summary = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            continue;
+        }
+
+        $value = trim((string) ($item[$key] ?? ''));
+
+        if ($value === '') {
+            $value = 'unknown';
+        }
+
+        $summary[$value] = ($summary[$value] ?? 0) + 1;
+    }
+
+    ksort($summary);
+
+    return $summary;
+}
+
+function cleanup_public_result(array $result): array
+{
+    $public = $result;
+
+    $candidates = is_array($result['candidates'] ?? null) ? $result['candidates'] : [];
+    $deleted = is_array($result['deleted'] ?? null) ? $result['deleted'] : [];
+    $rotated = is_array($result['rotated'] ?? null) ? $result['rotated'] : [];
+    $skipped = is_array($result['skipped'] ?? null) ? $result['skipped'] : [];
+    $errors = is_array($result['errors'] ?? null) ? $result['errors'] : [];
+
+    unset(
+        $public['candidates'],
+        $public['deleted'],
+        $public['rotated'],
+        $public['skipped'],
+        $public['errors']
+    );
+
+    $public['candidates_count'] = count($candidates);
+    $public['deleted_count'] = count($deleted);
+    $public['rotated_count'] = count($rotated);
+    $public['skipped_count'] = count($skipped);
+    $public['errors_count'] = count($errors);
+
+    $public['candidates_summary'] = cleanup_count_by_key($candidates, 'type');
+    $public['deleted_summary'] = cleanup_count_by_key($deleted, 'type');
+    $public['rotated_summary'] = cleanup_count_by_key($rotated, 'type');
+    $public['skipped_summary'] = cleanup_count_by_key($skipped, 'reason');
+    $public['errors_summary'] = cleanup_count_by_key($errors, 'error');
+
+    return $public;
+}
+
+function cleanup_public_response(array $result, int $statusCode = 200): void
+{
+    cleanup_response(cleanup_public_result($result), $statusCode);
 }
 
 function cleanup_is_dry_run(): bool
 {
     $value = strtolower(trim((string) ($_GET['dry_run'] ?? '')));
 
-    return !in_array($value, ['0', 'false'], true);
+    return !in_array($value, ['0', 'false', 'no'], true);
 }
 
 function cleanup_log_run(bool $dryRun, int $candidates, int $deleted, int $errors): void
@@ -483,21 +603,8 @@ function cleanup_scan_log_file(string $path, int $olderThan, bool $dryRun, array
 
 $dryRun = cleanup_is_dry_run();
 $result = cleanup_base_result($dryRun);
-$expectedToken = cleanup_env('CLEANUP_CRON_TOKEN');
 
-if ($expectedToken === '') {
-    cleanup_response($result + [
-        'error' => 'Brak konfiguracji CLEANUP_CRON_TOKEN.',
-    ], 500);
-}
-
-$providedToken = cleanup_get_token_from_request();
-
-if ($providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
-    cleanup_response($result + [
-        'error' => 'Nieprawidłowy token.',
-    ], 403);
-}
+cleanup_authorize();
 
 $supabaseUrl = rtrim(cleanup_env('SUPABASE_URL'), '/');
 $supabaseKey = cleanup_env('SUPABASE_SERVICE_ROLE_KEY');
@@ -505,20 +612,20 @@ $schema = cleanup_env('SUPABASE_DB_SCHEMA', 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
     $result['errors'][] = [
-        'error' => 'Brak konfiguracji SUPABASE_URL lub SUPABASE_SERVICE_ROLE_KEY.',
+        'error' => 'configuration_error',
     ];
     cleanup_log_run($dryRun, 0, 0, count($result['errors']));
-    cleanup_response($result, 500);
+    cleanup_public_response($result, 500);
 }
 
 try {
     $protectedPaths = cleanup_fetch_protected_asset_paths($supabaseUrl, $supabaseKey, $schema);
 } catch (Throwable $e) {
     $result['errors'][] = [
-        'error' => $e->getMessage(),
+        'error' => 'protected_assets_fetch_failed',
     ];
     cleanup_log_run($dryRun, 0, 0, count($result['errors']));
-    cleanup_response($result, 500);
+    cleanup_public_response($result, 500);
 }
 
 $assetOlderThan = time() - (CLEANUP_ASSET_RETENTION_DAYS * 86400);
@@ -567,4 +674,4 @@ cleanup_log_run(
     count($result['errors'])
 );
 
-cleanup_response($result, $result['success'] ? 200 : 500);
+cleanup_public_response($result, $result['success'] ? 200 : 500);

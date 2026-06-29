@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/tenant.php';
 
 header('X-Content-Type-Options: nosniff');
@@ -34,6 +35,10 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
 
 $tenantId = (string) (getTenantIdFromHost($supabaseUrl, $serviceRoleKey, $schema) ?: '');
 if (preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $tenantId) !== 1) {
+    favicon_front_not_found();
+}
+
+if (!tenant_has_feature($tenantId, 'branding_favicon')) {
     favicon_front_not_found();
 }
 

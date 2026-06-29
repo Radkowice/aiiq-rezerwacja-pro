@@ -165,23 +165,20 @@ function cleanup_runtime_add_step(array &$summary, string $step, array $result):
 
 function cleanup_runtime_sanitize_error(array $error): array
 {
-    $allowed = ['category', 'directory', 'path'];
-    $sanitized = [];
+    $category = trim((string)($error['category'] ?? 'unknown'));
+    $category = preg_replace('/[^a-z0-9_\-]/i', '_', $category) ?: 'unknown';
 
-    foreach ($allowed as $key) {
-        if (!array_key_exists($key, $error) || !is_scalar($error[$key])) {
-            continue;
-        }
+    $sanitized = [
+        'category' => substr($category, 0, 80),
+    ];
 
-        $value = trim((string)$error[$key]);
-        $value = str_replace(["\r", "\n"], '', $value);
-
-        if ($value !== '') {
-            $sanitized[$key] = substr($value, 0, 500);
+    foreach (['directory', 'path'] as $key) {
+        if (array_key_exists($key, $error) && trim((string)$error[$key]) !== '') {
+            $sanitized[$key . '_present'] = true;
         }
     }
 
-    return $sanitized !== [] ? $sanitized : ['category' => 'unknown'];
+    return $sanitized;
 }
 
 function cleanup_runtime_data_dir(): string
@@ -208,7 +205,6 @@ function cleanup_runtime_log_run(array $summary): array
     if (!is_dir($logDir)) {
         return [
             'log_written' => false,
-            'log_path' => $logPath,
         ];
     }
 
@@ -224,7 +220,6 @@ function cleanup_runtime_log_run(array $summary): array
 
     return [
         'log_written' => @file_put_contents($logPath, $line, FILE_APPEND | LOCK_EX) !== false,
-        'log_path' => $logPath,
     ];
 }
 

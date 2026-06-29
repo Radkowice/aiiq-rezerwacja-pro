@@ -125,7 +125,6 @@ function subscription_payu_update_payment(
 
         if ($retry['ok']) {
             aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYMENT_UPDATE_RETRIED_WITHOUT_PAYU_STATUS', [
-                'payment_id' => $paymentId,
                 'http_code' => $result['http_code'],
             ]);
 
@@ -134,7 +133,6 @@ function subscription_payu_update_payment(
     }
 
     aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYMENT_UPDATE_ERROR', [
-        'payment_id' => $paymentId,
         'http_code' => $result['http_code'],
         'has_error' => $result['error'] !== null,
     ]);
@@ -221,6 +219,16 @@ function subscription_payu_build_buyer(?string $email, ?string $ownerName): arra
     return [
         'email' => subscription_payu_valid_email($email),
         'language' => 'pl',
+    ];
+}
+
+
+function subscription_payu_store_return_handoff(string $tenantId, string $paymentId): void
+{
+    $_SESSION['subscription_payment_return_handoff'] = [
+        'tenant_id' => $tenantId,
+        'payment_id' => $paymentId,
+        'created_at' => time(),
     ];
 }
 
@@ -477,14 +485,14 @@ try {
     }
 
     $timestamp = (string) time();
-    $extOrderId = 'subscription-' . $paymentId . '-' . $timestamp;
+    $extOrderId = 'subscription-' . $timestamp . '-' . bin2hex(random_bytes(12));
     $amountInMinorUnits = (int) round($amount * 100);
     $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesieczny';
     $description = 'AI-IQ Rezerwacja Pro - plan Pro ' . $periodLabel;
 
     $orderPayload = [
         'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',
-        'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html?payment_id=' . rawurlencode($paymentId),
+        'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html',
         'customerIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
         'merchantPosId' => $payu['pos_id'],
         'description' => $description,
@@ -514,7 +522,6 @@ try {
         subscription_payu_json(500, [
             'success' => false,
             'error' => 'Nie udało się utworzyć płatności PayU za plan Pro.',
-            'payment_id' => $paymentId,
         ]);
     }
 
@@ -534,7 +541,6 @@ try {
         subscription_payu_json(500, [
             'success' => false,
             'error' => 'PayU nie zwróciło linku do płatności.',
-            'payment_id' => $paymentId,
         ]);
     }
 
@@ -550,14 +556,14 @@ try {
         subscription_payu_json(500, [
             'success' => false,
             'error' => 'Zamówienie PayU utworzone, ale nie udało się zapisać danych płatności abonamentu.',
-            'payment_id' => $paymentId,
         ]);
     }
+
+    subscription_payu_store_return_handoff($tenantId, $paymentId);
 
     $responsePayload = [
         'success' => true,
         'payment_url' => $paymentUrl,
-        'payment_id' => $paymentId,
         'amount' => $amount,
         'currency' => $currency,
         'billing_period' => $billingPeriod,

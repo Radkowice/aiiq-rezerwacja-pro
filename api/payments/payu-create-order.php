@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/payu.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../system/tenant.php';
 
@@ -15,17 +16,6 @@ function payu_create_order_response(array $payload, int $statusCode = 200): void
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
-}
-
-function payu_get_json_input(): array
-{
-    $raw = file_get_contents('php://input');
-    if (!$raw) {
-        return [];
-    }
-
-    $data = json_decode($raw, true);
-    return is_array($data) ? $data : [];
 }
 
 function payu_get_session_booking_handoff(string $tenantId): string
@@ -363,15 +353,11 @@ try {
         ], 405);
     }
 
-    $input = payu_get_json_input();
-    $bookingId = trim((string) ($input['booking_id'] ?? ''));
-
-    if ($bookingId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
-        payu_create_order_response([
-            'success' => false,
-            'error' => 'Nieprawidłowy identyfikator rezerwacji.'
-        ], 400);
-    }
+    /*
+     * Utworzenie płatności PayU nie przyjmuje już publicznego booking_id z JSON-a.
+     * Techniczny identyfikator rezerwacji może pochodzić wyłącznie z backendowego handoffu sesyjnego.
+     */
+    $bookingId = '';
 
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
@@ -473,6 +459,14 @@ try {
         $currency = 'PLN';
     }
 
+    if (!tenant_has_feature($tenantId, 'online_payments') || !tenant_has_feature($tenantId, 'payu')) {
+        payu_create_order_response([
+            'success' => false,
+            'error' => 'Płatności online PayU są niedostępne w aktualnym planie.',
+            'upgrade_required' => true,
+        ], 403);
+    }
+
     $payu = payu_get_integration($tenantId);
 
     if (!$payu) {
@@ -505,7 +499,7 @@ try {
         $description .= ' - ' . trim($bookingDate . ' ' . $bookingTime);
     }
 
-    $extOrderId = 'booking-' . $bookingId . '-' . time();
+    $extOrderId = 'booking-' . gmdate('YmdHis') . '-' . bin2hex(random_bytes(8));
 
     $orderPayload = [
         'notifyUrl' => $publicBaseUrl . '/api/payments/payu-notify.php',

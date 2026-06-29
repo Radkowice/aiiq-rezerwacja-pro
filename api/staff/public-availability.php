@@ -494,7 +494,8 @@ $date = trim((string) ($_GET['date'] ?? ''));
 $serviceRef = trim((string) ($_GET['service_ref'] ?? ''));
 $serviceId = '';
 $excludeBookingRef = trim((string) ($_GET['exclude_booking_ref'] ?? $_GET['booking_ref'] ?? ''));
-$excludeBookingId = trim((string) ($_GET['exclude_booking_id'] ?? $_GET['reservation_id'] ?? ''));
+$excludeBookingId = '';
+$legacyExcludeBookingId = trim((string) ($_GET['exclude_booking_id'] ?? $_GET['reservation_id'] ?? ''));
 $ignoreBookingBuffer = in_array(strtolower(trim((string) ($_GET['ignore_booking_buffer'] ?? ''))), ['1', 'true', 'yes'], true);
 
 if ($date !== '' && !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
@@ -538,6 +539,13 @@ if ($serviceRef !== '') {
     ], 400);
 }
 
+if ($legacyExcludeBookingId !== '') {
+    staff_public_availability_json([
+        'success' => false,
+        'error' => 'Nieprawidłowa rezerwacja do wykluczenia'
+    ], 400);
+}
+
 if ($excludeBookingRef !== '') {
     $excludeBookingId = staff_public_availability_resolve_booking_ref($supabaseUrl, $supabaseKey, $schema, $tenantId, $excludeBookingRef, $date, $refSecret) ?? '';
 
@@ -547,11 +555,6 @@ if ($excludeBookingRef !== '') {
             'error' => 'Nie znaleziono rezerwacji do wykluczenia'
         ], 404);
     }
-} elseif ($excludeBookingId !== '' && !staff_public_availability_is_uuid($excludeBookingId)) {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Nieprawidłowa rezerwacja do wykluczenia'
-    ], 400);
 }
 
 $staffUrl = $supabaseUrl

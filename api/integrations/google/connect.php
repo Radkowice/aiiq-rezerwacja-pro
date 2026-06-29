@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../helpers/session.php';
 require_once __DIR__ . '/../../helpers/supabase.php';
+require_once __DIR__ . '/../../helpers/plan_features.php';
 
 start_secure_session();
 
@@ -120,20 +121,29 @@ $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
 $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
-if ($googleClientId === '' || $googleRedirectUri === '') {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Brak konfiguracji Google OAuth'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
 if ($supabaseUrl === '' || $supabaseKey === '') {
     http_response_code(500);
     echo json_encode([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!tenant_has_feature($tenantId, 'google_calendar')) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Funkcja Google Calendar jest niedostępna w aktualnym planie.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if ($googleClientId === '' || $googleRedirectUri === '') {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Brak konfiguracji Google OAuth'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }

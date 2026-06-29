@@ -2,6 +2,7 @@
 
 require_once __DIR__ . '/../../helpers/supabase.php';
 require_once __DIR__ . '/../../helpers/crypto.php';
+require_once __DIR__ . '/../../helpers/plan_features.php';
 
 const GOOGLE_CALLBACK_FALLBACK_HOST = 'rezerwacja-ai-iq.pl';
 const GOOGLE_CALLBACK_RETURN_PATH = '/panel-admina.php';
@@ -255,6 +256,14 @@ if (
     || !google_callback_tenant_owns_host($supabaseUrl, $supabaseKey, $schema, $tenantId, $returnHost)
 ) {
     redirect_with_status('error');
+}
+
+if (!tenant_has_feature($tenantId, 'google_calendar')) {
+    redirect_with_status(
+        'error',
+        'Funkcja Google Calendar jest niedostępna w aktualnym planie.',
+        $returnHost
+    );
 }
 
 if (!google_callback_mark_state_used($supabaseUrl, $supabaseKey, $schema, $stateId, $stateToken)) {

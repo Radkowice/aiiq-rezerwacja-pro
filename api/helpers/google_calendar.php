@@ -13,6 +13,148 @@ require_once __DIR__ . '/public_response.php';
  * - błąd Google nie może przerwać rezerwacji.
  */
  
+
+if (!function_exists('google_calendar_trace_value')) {
+    function google_calendar_trace_value($value): string
+    {
+        $text = trim((string) $value);
+
+        if ($text === '') {
+            return '';
+        }
+
+        return substr(hash('sha256', $text), 0, 16);
+    }
+}
+
+if (!function_exists('google_calendar_is_sensitive_debug_key')) {
+    function google_calendar_is_sensitive_debug_key(string $key): bool
+    {
+        $key = strtolower(trim($key));
+
+        if ($key === '') {
+            return false;
+        }
+
+        if (str_starts_with($key, 'has_') || str_ends_with($key, '_ref') || str_ends_with($key, '_trace')) {
+            return false;
+        }
+
+        return preg_match('/(^|_)(id|tenant_id|booking_id|service_id|staff_id|user_id|company_id|payment_order_id|google_event_id|calendar_id|token|secret|key|authorization|bearer)(_|$)/', $key) === 1
+            || in_array($key, [
+                'id',
+                'tenant_id',
+                'booking_id',
+                'service_id',
+                'staff_id',
+                'user_id',
+                'company_id',
+                'payment_order_id',
+                'google_event_id',
+                'calendar_id',
+                'access_token',
+                'refresh_token',
+                'client_secret',
+                'apikey',
+                'authorization',
+            ], true);
+    }
+}
+
+if (!function_exists('google_calendar_sanitize_debug_data')) {
+    function google_calendar_sanitize_debug_data($data, string $parentKey = '')
+    {
+        if (is_array($data)) {
+            $sanitized = [];
+
+            foreach ($data as $key => $value) {
+                $keyString = is_string($key) ? $key : (string) $key;
+
+                if (google_calendar_is_sensitive_debug_key($keyString)) {
+                    $sanitized[$keyString . '_set'] = !empty($value);
+
+                    if (is_scalar($value) && trim((string) $value) !== '') {
+                        $sanitized[$keyString . '_trace'] = google_calendar_trace_value($value);
+                    }
+
+                    continue;
+                }
+
+                $sanitized[$key] = google_calendar_sanitize_debug_data($value, $keyString);
+            }
+
+            return $sanitized;
+        }
+
+        if (is_object($data)) {
+            return google_calendar_sanitize_debug_data(get_object_vars($data), $parentKey);
+        }
+
+        if (google_calendar_is_sensitive_debug_key($parentKey)) {
+            if (!is_scalar($data) || trim((string) $data) === '') {
+                return null;
+            }
+
+            return [
+                'set' => true,
+                'trace' => google_calendar_trace_value($data),
+            ];
+        }
+
+        return $data;
+    }
+}
+
+if (!function_exists('google_calendar_sanitize_url_for_record')) {
+    function google_calendar_sanitize_url_for_record(string $url): string
+    {
+        $parts = parse_url($url);
+
+        if (!is_array($parts)) {
+            return '[invalid-url]';
+        }
+
+        $safeUrl = '';
+
+        if (!empty($parts['scheme'])) {
+            $safeUrl .= $parts['scheme'] . '://';
+        }
+
+        if (!empty($parts['host'])) {
+            $safeUrl .= $parts['host'];
+        }
+
+        if (!empty($parts['port'])) {
+            $safeUrl .= ':' . $parts['port'];
+        }
+
+        $safeUrl .= $parts['path'] ?? '';
+
+        $query = $parts['query'] ?? '';
+
+        if ($query !== '') {
+            $queryParts = [];
+            parse_str($query, $queryParts);
+
+            foreach ($queryParts as $key => $value) {
+                $keyString = (string) $key;
+
+                if (google_calendar_is_sensitive_debug_key($keyString)) {
+                    $queryParts[$key] = '[redacted]';
+                }
+            }
+
+            $safeQuery = http_build_query($queryParts, '', '&', PHP_QUERY_RFC3986);
+
+            if ($safeQuery !== '') {
+                $safeUrl .= '?' . $safeQuery;
+            }
+        }
+
+        return $safeUrl;
+    }
+}
+
  if (!function_exists('google_calendar_debug')) {
     function google_calendar_debug(string $tag, $data = null): void
     {
@@ -26,10 +168,12 @@ require_once __DIR__ . '/public_response.php';
         $line = date('Y-m-d H:i:s') . ' [' . $tag . ']';
 
         if ($data !== null) {
-            if (is_array($data) || is_object($data)) {
-                $line .= ' ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            $safeData = google_calendar_sanitize_debug_data($data);
+
+            if (is_array($safeData) || is_object($safeData)) {
+                $line .= ' ' . json_encode($safeData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
             } else {
-                $line .= ' ' . (string) $data;
+                $line .= ' ' . (string) $safeData;
             }
         }
 
@@ -75,7 +219,7 @@ function google_calendar_supabase_request(
     curl_close($ch);
 
     if (function_exists('booking_supabase_request_record')) {
-        booking_supabase_request_record($method, $url, 'google_calendar', $httpCode);
+        booking_supabase_request_record($method, google_calendar_sanitize_url_for_record($url), 'google_calendar', $httpCode);
     }
 
     return [

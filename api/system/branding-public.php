@@ -171,26 +171,48 @@ function branding_public_technical_status(array $result): int
     return (int)($result['http_code'] ?? 0) === 429 ? 429 : 503;
 }
 
-$cacheKey = branding_public_cache_key();
-$cachedPayload = branding_public_read_cache($cacheKey);
+function branding_public_features(array $planContext): array
+{
+    $features = is_array($planContext['features'] ?? null) ? $planContext['features'] : [];
 
-if (is_array($cachedPayload)) {
-    branding_public_json($cachedPayload);
+    return [
+        'branding_logo' => !empty($features['branding_logo']),
+        'branding_favicon' => !empty($features['branding_favicon']),
+        'branding_colors' => !empty($features['branding_colors']),
+        'calendar_appearance' => !empty($features['calendar_appearance']),
+        'legal_documents' => !empty($features['legal_documents']),
+        'online_payments' => !empty($features['online_payments']),
+        'reschedule_booking' => !empty($features['reschedule_booking']),
+    ];
 }
 
-$cacheLockHandle = branding_public_lock_cache($cacheKey);
+function branding_public_filter_payload(array $payload, array $planContext): array
+{
+    $publicFeatures = branding_public_features($planContext);
+    $branding = is_array($payload['branding'] ?? null) ? $payload['branding'] : [];
+    $hasCalendarAppearance = !empty($publicFeatures['calendar_appearance']);
+    $publicPlanCode = (string) ($planContext['plan_code'] ?? 'free');
 
-if ($cacheLockHandle) {
-    register_shutdown_function(static function () use ($cacheLockHandle): void {
-        flock($cacheLockHandle, LOCK_UN);
-        fclose($cacheLockHandle);
-    });
-
-    $cachedPayload = branding_public_read_cache($cacheKey);
-
-    if (is_array($cachedPayload)) {
-        branding_public_json($cachedPayload);
-    }
+    return [
+        'success' => true,
+        'plan_context' => [
+            'plan_code' => $publicPlanCode,
+            'is_free' => $publicPlanCode === 'free',
+            'features' => $publicFeatures,
+        ],
+        'branding' => [
+            'client_name' => $branding['client_name'] ?? '',
+            'service_title_front' => $hasCalendarAppearance ? ($branding['service_title_front'] ?? '') : '',
+            'logo_url_front' => !empty($publicFeatures['branding_logo']) ? ($branding['logo_url_front'] ?? '') : '',
+            'favicon_url_front' => !empty($publicFeatures['branding_favicon']) ? ($branding['favicon_url_front'] ?? '') : '',
+            'calendar_front_style' => $hasCalendarAppearance && is_array($branding['calendar_front_style'] ?? null)
+                ? $branding['calendar_front_style']
+                : [],
+            'calendar_form_fields' => $hasCalendarAppearance && is_array($branding['calendar_form_fields'] ?? null)
+                ? $branding['calendar_form_fields']
+                : [],
+        ],
+    ];
 }
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
@@ -226,6 +248,29 @@ if (($tenantLookup['status'] ?? '') !== 'found' || empty($tenantLookup['tenant_i
 }
 
 $tenantId = (string) $tenantLookup['tenant_id'];
+$planContext = plan_features_get_context((string) $tenantId);
+$cacheKey = branding_public_cache_key();
+$cachedPayload = branding_public_read_cache($cacheKey);
+
+if (is_array($cachedPayload)) {
+    branding_public_json(branding_public_filter_payload($cachedPayload, $planContext));
+}
+
+$cacheLockHandle = branding_public_lock_cache($cacheKey);
+
+if ($cacheLockHandle) {
+    register_shutdown_function(static function () use ($cacheLockHandle): void {
+        flock($cacheLockHandle, LOCK_UN);
+        fclose($cacheLockHandle);
+    });
+
+    $cachedPayload = branding_public_read_cache($cacheKey);
+
+    if (is_array($cachedPayload)) {
+        branding_public_json(branding_public_filter_payload($cachedPayload, $planContext));
+    }
+}
+
 $url = $supabaseUrl
     . '/rest/v1/tenant_branding'
     . '?select=tenant_id,client_name,service_title_front,logo_url_front,favicon_url_front,calendar_front_style,calendar_form_fields,updated_at'
@@ -255,26 +300,18 @@ if (!is_array($data) || empty($data[0])) {
 
 $row = $data[0];
 
-$publicLogoUrl = branding_asset_public_url((string)($row['logo_url_front'] ?? ''), $tenantId, 'logo');
-$publicFaviconUrl = branding_asset_public_url((string)($row['favicon_url_front'] ?? ''), $tenantId, 'favicon');
-$planContext = plan_features_get_context((string) $tenantId);
-$features = is_array($planContext['features'] ?? null) ? $planContext['features'] : [];
-$publicFeatures = [
-    'branding_logo' => !empty($features['branding_logo']),
-    'branding_favicon' => !empty($features['branding_favicon']),
-    'legal_documents' => !empty($features['legal_documents']),
-    'online_payments' => !empty($features['online_payments']),
-    'reschedule_booking' => !empty($features['reschedule_booking']),
-];
-$publicPlanCode = (string) ($planContext['plan_code'] ?? 'free');
+$publicFeatures = branding_public_features($planContext);
+$hasBrandingLogo = !empty($publicFeatures['branding_logo']);
+$hasBrandingFavicon = !empty($publicFeatures['branding_favicon']);
+$publicLogoUrl = $hasBrandingLogo
+    ? branding_asset_public_url((string)($row['logo_url_front'] ?? ''), $tenantId, 'logo')
+    : '';
+$publicFaviconUrl = $hasBrandingFavicon
+    ? branding_asset_public_url((string)($row['favicon_url_front'] ?? ''), $tenantId, 'favicon')
+    : '';
 
 $payload = [
     'success' => true,
-    'plan_context' => [
-        'plan_code' => $publicPlanCode,
-        'is_free' => $publicPlanCode === 'free',
-        'features' => $publicFeatures,
-    ],
     'branding' => [
         'client_name' => $row['client_name'] ?? '',
         'service_title_front' => $row['service_title_front'] ?? '',
@@ -288,6 +325,7 @@ $payload = [
             : [],
     ],
 ];
+$payload = branding_public_filter_payload($payload, $planContext);
 
 branding_public_write_cache($cacheKey, $payload);
 branding_public_json($payload);

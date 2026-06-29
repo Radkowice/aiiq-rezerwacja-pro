@@ -41,6 +41,7 @@ let selectedServiceId = '';
 let selectedService = null;
 let FRONT_MONTH_AVAILABILITY_CACHE = {};
 let FRONT_MONTH_AVAILABILITY_LOADING = {};
+let FRONT_MONTH_AVAILABILITY_ERRORS = {};
 let FRONT_MONTH_AVAILABILITY_REQUEST_ID = 0;
 let FRONT_SERVICE_GLOBAL = {
   service_name: '',
@@ -793,6 +794,7 @@ function resetFrontDateAndTimeSelection() {
 function clearFrontMonthAvailabilityCache() {
   FRONT_MONTH_AVAILABILITY_CACHE = {};
   FRONT_MONTH_AVAILABILITY_LOADING = {};
+  FRONT_MONTH_AVAILABILITY_ERRORS = {};
   FRONT_MONTH_AVAILABILITY_REQUEST_ID += 1;
 }
 
@@ -865,15 +867,78 @@ async function loadFrontMonthAvailability(monthKey, expectedCacheKey = '') {
     }
 
     FRONT_MONTH_AVAILABILITY_CACHE[cacheKey] = data.days;
+    delete FRONT_MONTH_AVAILABILITY_ERRORS[cacheKey];
     return true;
   } catch (error) {
     if (requestId === FRONT_MONTH_AVAILABILITY_REQUEST_ID) {
+      FRONT_MONTH_AVAILABILITY_ERRORS[cacheKey] = true;
       console.error('loadFrontMonthAvailability error:', error);
     }
     return false;
   } finally {
     delete FRONT_MONTH_AVAILABILITY_LOADING[cacheKey];
   }
+}
+
+function frontMonthAvailabilityEntryAllowsDay(entry) {
+  return !!entry &&
+    entry.available === true &&
+    Number(entry.times_count || 0) > 0;
+}
+
+function getFrontMonthAvailabilityStateForDate(dateStr) {
+  const value = String(dateStr || '').trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return {
+      ready: false,
+      loading: false,
+      error: false,
+      entry: null
+    };
+  }
+
+  const monthKey = value.slice(0, 7);
+  const cacheKey = getFrontMonthAvailabilityCacheKey(monthKey);
+  const monthAvailability = FRONT_MONTH_AVAILABILITY_CACHE[cacheKey] || null;
+
+  if (!monthAvailability || typeof monthAvailability !== 'object') {
+    return {
+      ready: false,
+      loading: !!FRONT_MONTH_AVAILABILITY_LOADING[cacheKey],
+      error: !!FRONT_MONTH_AVAILABILITY_ERRORS[cacheKey],
+      entry: null
+    };
+  }
+
+  return {
+    ready: true,
+    loading: false,
+    error: false,
+    entry: Object.prototype.hasOwnProperty.call(monthAvailability, value)
+      ? monthAvailability[value]
+      : null
+  };
+}
+
+async function ensureFrontMonthAvailabilityForDate(dateStr) {
+  const value = String(dateStr || '').trim();
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return getFrontMonthAvailabilityStateForDate(value);
+  }
+
+  let state = getFrontMonthAvailabilityStateForDate(value);
+
+  if (state.ready || state.loading || state.error) {
+    return state;
+  }
+
+  const monthKey = value.slice(0, 7);
+  const cacheKey = getFrontMonthAvailabilityCacheKey(monthKey);
+  await loadFrontMonthAvailability(monthKey, cacheKey);
+
+  return getFrontMonthAvailabilityStateForDate(value);
 }
 
 async function refreshFrontCalendarForCurrentSelection() {
@@ -1547,6 +1612,15 @@ async function renderTimeOptions() {
   if (!selectedDate) return;
 
   try {
+    const monthAvailabilityState = await ensureFrontMonthAvailabilityForDate(selectedDate);
+
+    if (
+      !monthAvailabilityState.ready ||
+      !frontMonthAvailabilityEntryAllowsDay(monthAvailabilityState.entry)
+    ) {
+      return;
+    }
+
     let availableTimes = [];
 
     if (FRONT_STAFF_REQUIRED) {
@@ -1806,8 +1880,10 @@ function renderCalendarUI() {
   const monthKey = formatFrontMonthKey(viewDate);
   const monthAvailabilityCacheKey = getFrontMonthAvailabilityCacheKey(monthKey);
   const monthAvailability = FRONT_MONTH_AVAILABILITY_CACHE[monthAvailabilityCacheKey] || null;
+  const monthAvailabilityLoading = !!FRONT_MONTH_AVAILABILITY_LOADING[monthAvailabilityCacheKey];
+  const monthAvailabilityError = !!FRONT_MONTH_AVAILABILITY_ERRORS[monthAvailabilityCacheKey];
 
-  if (!monthAvailability && !FRONT_MONTH_AVAILABILITY_LOADING[monthAvailabilityCacheKey]) {
+  if (!monthAvailability && !monthAvailabilityLoading && !monthAvailabilityError) {
     loadFrontMonthAvailability(monthKey, monthAvailabilityCacheKey).then(loaded => {
       if (
         loaded &&
@@ -1859,58 +1935,24 @@ function renderCalendarUI() {
     const allowed = isDateAllowed(dateStr);
     const isToday = dateStr === formatLocalDate(today);
     const isSelected = dateStr === selectedDate;
-    const monthAvailabilityEntry = monthAvailability &&
-      Object.prototype.hasOwnProperty.call(monthAvailability, dateStr)
+    const hasMonthAvailability = !!monthAvailability && typeof monthAvailability === 'object';
+    const hasMonthAvailabilityEntry = hasMonthAvailability &&
+      Object.prototype.hasOwnProperty.call(monthAvailability, dateStr);
+    const monthAvailabilityEntry = hasMonthAvailabilityEntry
       ? monthAvailability[dateStr]
       : null;
-    const monthAvailabilityBlocksDay = monthAvailabilityEntry !== null && (
-      monthAvailabilityEntry.available !== true ||
-      Number(monthAvailabilityEntry.times_count || 0) <= 0
-    );
+    const dayCanBeBookedFromMonth = frontMonthAvailabilityEntryAllowsDay(monthAvailabilityEntry);
+    const monthAvailabilityTimesCount = Number(monthAvailabilityEntry?.times_count || 0);
 
     const classes = ['day'];
     let dayDisabled = false;
 
-    if (!allowed || monthAvailabilityBlocksDay) {
+    if (!allowed || !hasMonthAvailability || !hasMonthAvailabilityEntry || !dayCanBeBookedFromMonth) {
       dayDisabled = true;
+    } else if (monthAvailabilityTimesCount === 1) {
+      classes.push('medium');
     } else {
-      const blockSettings = availabilityData?.blockSettings || {
-        block_saturdays: false,
-        block_sundays: false,
-        block_holidays: false
-      };
-
-     const isException = (availabilityData?.availabilityExceptions || []).includes(dateStr);
-
-const isFullBlocked =
-  !isException && (
-    isGlobalRuleBlocked(dateStr, blockSettings) ||
-    (availabilityData?.blockedDates || []).includes(dateStr)
-  );
-
-      let available = [];
-
-      if (isFullBlocked) {
-        available = [];
-      } else if (
-        availabilityData &&
-        availabilityData.days &&
-        Object.prototype.hasOwnProperty.call(availabilityData.days, dateStr)
-      ) {
-        available = availabilityData.days[dateStr];
-      } else {
-        available = ALL_TIMES;
-      }
-
-      const availableCount = filterFrontTimesByMinNotice(dateStr, available).length;
-
-      if (availableCount <= 0) {
-        dayDisabled = true;
-      } else if (availableCount === 1) {
-        classes.push('medium');
-      } else {
-        classes.push('available');
-      }
+      classes.push('available');
     }
 
     if (dayDisabled) classes.push('disabled');

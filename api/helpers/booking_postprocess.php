@@ -214,6 +214,8 @@ function booking_postprocess_execute_job(array $job): array
     if (!in_array($tasks['google_calendar'] ?? '', ['done', 'skipped'], true)) {
         if (trim((string)($booking['google_event_id'] ?? '')) !== '') {
             $tasks['google_calendar'] = 'done';
+        } elseif (!tenant_has_feature($tenantId, 'google_calendar')) {
+            $tasks['google_calendar'] = 'skipped';
         } else {
             try {
                 $googleBooking = $booking;

@@ -30,6 +30,11 @@ function retention_env(string $key, string $default = ''): string
     return $value !== '' ? $value : $default;
 }
 
+function retention_is_cli(): bool
+{
+    return PHP_SAPI === 'cli';
+}
+
 function retention_request_token(): string
 {
     $authorization = trim((string) ($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
@@ -43,7 +48,61 @@ function retention_request_token(): string
         return trim((string) $matches[1]);
     }
 
+    $headerSecret = trim((string) ($_SERVER['HTTP_X_CRON_SECRET'] ?? ''));
+
+    if ($headerSecret !== '') {
+        return $headerSecret;
+    }
+
+    $secret = trim((string) ($_GET['secret'] ?? ''));
+
+    if ($secret !== '') {
+        return $secret;
+    }
+
     return trim((string) ($_GET['token'] ?? ''));
+}
+
+function retention_expected_token(): string
+{
+    $specific = retention_env('CLEANUP_SUPABASE_RETENTION_CRON_SECRET');
+
+    if ($specific !== '') {
+        return $specific;
+    }
+
+    $legacy = retention_env('CLEANUP_CRON_TOKEN');
+
+    if ($legacy !== '') {
+        return $legacy;
+    }
+
+    return retention_env('CRON_SECRET');
+}
+
+function retention_authorize(): void
+{
+    if (retention_is_cli()) {
+        return;
+    }
+
+    $expectedToken = retention_expected_token();
+
+    if ($expectedToken === '') {
+        retention_json([
+            'success' => false,
+            'error' => 'unauthorized',
+        ], 401);
+    }
+
+    $providedToken = retention_request_token();
+
+    if ($providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
+        retention_json([
+            'success' => false,
+            'error' => 'unauthorized',
+        ], 401);
+    }
 }
 
 function retention_is_dry_run(): bool
@@ -106,7 +165,7 @@ function retention_count(string $supabaseUrl, string $key, string $schema, strin
     return [
         'ok' => $raw !== false && $error === '' && $httpCode >= 200 && $httpCode < 300,
         'http_code' => $httpCode,
-        'error' => $error,
+        'error_code' => $error !== '' ? 'request_failed' : null,
         'count' => $count,
     ];
 }
@@ -138,7 +197,7 @@ function retention_delete(string $supabaseUrl, string $key, string $schema, stri
     return [
         'ok' => $raw !== false && $error === '' && $httpCode >= 200 && $httpCode < 300,
         'http_code' => $httpCode,
-        'error' => $error,
+        'error_code' => $error !== '' ? 'request_failed' : null,
         'deleted' => $deleted,
     ];
 }
@@ -170,23 +229,7 @@ try {
         ], 405);
     }
 
-    $expectedToken = retention_env('CLEANUP_CRON_TOKEN');
-
-    if ($expectedToken === '') {
-        retention_json([
-            'success' => false,
-            'error' => 'Brak konfiguracji CLEANUP_CRON_TOKEN.',
-        ], 500);
-    }
-
-    $providedToken = retention_request_token();
-
-    if ($providedToken === '' || !hash_equals($expectedToken, $providedToken)) {
-        retention_json([
-            'success' => false,
-            'error' => 'Nieprawidłowy token.',
-        ], 403);
-    }
+    retention_authorize();
 
     $supabaseUrl = rtrim(retention_env('SUPABASE_URL'), '/');
     $supabaseKey = retention_env('SUPABASE_SERVICE_ROLE_KEY');
@@ -195,7 +238,7 @@ try {
     if ($supabaseUrl === '' || $supabaseKey === '') {
         retention_json([
             'success' => false,
-            'error' => 'Brak konfiguracji SUPABASE_URL lub SUPABASE_SERVICE_ROLE_KEY.',
+            'error' => 'Błąd konfiguracji retencji.',
         ], 500);
     }
 
@@ -215,21 +258,21 @@ try {
         [
             'key' => 'bookings_old',
             'table' => 'bookings',
-            'description' => 'Rezerwacje starsze niż 3 miesiące według booking_date.',
+            'description' => 'Rezerwacje starsze niż ustalona retencja.',
             'filters' => 'booking_date=lt.' . rawurlencode($bookingsCutoff),
             'retention' => '3 miesiące',
         ],
         [
             'key' => 'subscription_email_logs_old',
             'table' => 'subscription_email_logs',
-            'description' => 'Logi maili abonamentowych starsze niż 6 miesięcy.',
+            'description' => 'Logi maili abonamentowych starsze niż ustalona retencja.',
             'filters' => 'created_at=lt.' . rawurlencode($subscriptionLogsCutoff),
             'retention' => '6 miesięcy',
         ],
         [
             'key' => 'subscription_failed_payments_old',
             'table' => 'tenant_subscription_payments',
-            'description' => 'Nieudane/anulowane/wygasłe płatności abonamentowe starsze niż 6 miesięcy.',
+            'description' => 'Nieudane/anulowane/wygasłe płatności abonamentowe starsze niż ustalona retencja.',
             'filters' => 'created_at=lt.' . rawurlencode($failedPaymentsCutoff)
                 . '&status=in.(pending,failed,canceled,cancelled,expired)',
             'retention' => '6 miesięcy',
@@ -237,7 +280,7 @@ try {
         [
             'key' => 'subscription_paid_payments_old',
             'table' => 'tenant_subscription_payments',
-            'description' => 'Opłacone płatności abonamentowe starsze niż 24 miesiące.',
+            'description' => 'Opłacone płatności abonamentowe starsze niż ustalona retencja.',
             'filters' => 'created_at=lt.' . rawurlencode($paidPaymentsCutoff)
                 . '&status=eq.paid',
             'retention' => '24 miesiące',
@@ -245,7 +288,7 @@ try {
         [
             'key' => 'activation_tokens_used_old',
             'table' => 'user_activation_tokens',
-            'description' => 'Zużyte tokeny aktywacyjne starsze niż 30 dni.',
+            'description' => 'Zużyte tokeny aktywacyjne starsze niż ustalona retencja.',
             'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
                 . '&used_at=not.is.null',
             'retention' => '30 dni',
@@ -253,7 +296,7 @@ try {
         [
             'key' => 'activation_tokens_expired_old',
             'table' => 'user_activation_tokens',
-            'description' => 'Wygasłe, nieużyte tokeny aktywacyjne starsze niż 30 dni.',
+            'description' => 'Wygasłe, nieużyte tokeny aktywacyjne starsze niż ustalona retencja.',
             'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
                 . '&used_at=is.null'
                 . '&expires_at=lt.' . rawurlencode($nowIso),
@@ -262,7 +305,7 @@ try {
         [
             'key' => 'password_change_codes_used_old',
             'table' => 'password_change_codes',
-            'description' => 'Zużyte kody zmiany hasła starsze niż 30 dni.',
+            'description' => 'Zużyte kody zmiany hasła starsze niż ustalona retencja.',
             'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
                 . '&used_at=not.is.null',
             'retention' => '30 dni',
@@ -270,7 +313,7 @@ try {
         [
             'key' => 'password_change_codes_expired_old',
             'table' => 'password_change_codes',
-            'description' => 'Wygasłe, nieużyte kody zmiany hasła starsze niż 30 dni.',
+            'description' => 'Wygasłe, nieużyte kody zmiany hasła starsze niż ustalona retencja.',
             'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
                 . '&used_at=is.null'
                 . '&expires_at=lt.' . rawurlencode($nowIso),
@@ -281,7 +324,6 @@ try {
     $result = [
         'success' => true,
         'dry_run' => $dryRun,
-        'schema' => $schema,
         'now' => $nowIso,
         'cutoffs' => [
             'bookings_before' => $bookingsCutoff,
@@ -307,7 +349,6 @@ try {
 
         $ruleResult = [
             'key' => $rule['key'],
-            'table' => $rule['table'],
             'description' => $rule['description'],
             'retention' => $rule['retention'],
             'candidates' => $count['count'],
@@ -317,10 +358,9 @@ try {
         ];
 
         if (!$count['ok']) {
-            $ruleResult['error'] = $count['error'] ?: 'count_failed';
+            $ruleResult['error'] = $count['error_code'] ?: 'count_failed';
             $result['errors'][] = [
                 'rule' => $rule['key'],
-                'table' => $rule['table'],
                 'error' => $ruleResult['error'],
                 'http_code' => $count['http_code'],
             ];
@@ -346,10 +386,9 @@ try {
             $ruleResult['deleted'] = is_int($delete['deleted']) ? $delete['deleted'] : 0;
 
             if (!$delete['ok']) {
-                $ruleResult['error'] = $delete['error'] ?: 'delete_failed';
+                $ruleResult['error'] = $delete['error_code'] ?: 'delete_failed';
                 $result['errors'][] = [
                     'rule' => $rule['key'],
-                    'table' => $rule['table'],
                     'error' => $ruleResult['error'],
                     'http_code' => $delete['http_code'],
                 ];
@@ -368,7 +407,6 @@ try {
     $payload = [
         'success' => false,
         'error' => 'Błąd retencji Supabase.',
-        'details' => $e->getMessage(),
     ];
 
     retention_log_run($payload);

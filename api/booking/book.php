@@ -2299,13 +2299,6 @@ $headers = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, false);
 $minimalHeaders = supabase_headers($SUPABASE_KEY, $SUPABASE_DB_SCHEMA, true);
 $refSecret = public_response_ref_secret($SUPABASE_KEY);
 
-if ($serviceRef === '') {
-    json_response([
-        'success' => false,
-        'error' => 'Wybrana usługa jest niedostępna.',
-    ], 404);
-}
-
 if ($serviceRef !== '') {
     $serviceRefResult = booking_public_service_id_from_ref($SUPABASE_URL, $headers, $TENANT_ID, $serviceRef, $refSecret);
 

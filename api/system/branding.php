@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
@@ -85,6 +86,26 @@ if ($tenantId === '' || $userId === '') {
     exit;
 }
 
+function branding_feature_error(): void
+{
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Personalizacja wyglądu jest niedostępna w aktualnym planie.',
+        'upgrade_required' => true,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+function branding_require_feature(string $tenantId, string $featureKey): void
+{
+    if (tenant_has_feature($tenantId, $featureKey)) {
+        return;
+    }
+
+    branding_feature_error();
+}
+
 $url = $supabaseUrl
     . '/rest/v1/tenant_branding'
     . '?tenant_id=eq.' . rawurlencode($tenantId);
@@ -112,14 +133,17 @@ if (array_key_exists('client_number', $input)) {
 }
 
 if (array_key_exists('admin_theme', $input)) {
+    branding_require_feature($tenantId, 'branding_colors');
     $data['admin_theme'] = trim((string) $input['admin_theme']);
 }
 
 if (array_key_exists('service_title_front', $input)) {
+    branding_require_feature($tenantId, 'calendar_appearance');
     $data['service_title_front'] = trim((string) $input['service_title_front']);
 }
 
 if (array_key_exists('reservations_style', $input) && is_array($input['reservations_style'])) {
+    branding_require_feature($tenantId, 'branding_colors');
     $allowedStyleKeys = [
         'bg_color',
         'card_color',
@@ -147,6 +171,7 @@ if (array_key_exists('reservations_style', $input) && is_array($input['reservati
 }
 
 if (array_key_exists('calendar_front_style', $input) && is_array($input['calendar_front_style'])) {
+    branding_require_feature($tenantId, 'calendar_appearance');
     $allowedFrontStyleKeys = [
         'bg_color',
         'card_color',
@@ -173,6 +198,7 @@ if (array_key_exists('calendar_front_style', $input) && is_array($input['calenda
 }
 
 if (array_key_exists('calendar_form_fields', $input) && is_array($input['calendar_form_fields'])) {
+    branding_require_feature($tenantId, 'calendar_appearance');
     $allowedFormFieldKeys = [
         'name_label',
         'email_label',

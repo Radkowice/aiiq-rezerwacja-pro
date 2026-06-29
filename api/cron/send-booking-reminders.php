@@ -51,6 +51,67 @@ function cron_booking_reminders_headers(string $key, string $schema, bool $minim
     ];
 }
 
+function cron_booking_reminders_header(string $name): string
+{
+    $serverKey = 'HTTP_' . strtoupper(str_replace('-', '_', $name));
+
+    return trim((string)($_SERVER[$serverKey] ?? ''));
+}
+
+function cron_booking_reminders_provided_secret(): string
+{
+    $headerSecret = cron_booking_reminders_header('X-Cron-Secret');
+
+    if ($headerSecret !== '') {
+        return $headerSecret;
+    }
+
+    $querySecret = trim((string)($_GET['secret'] ?? ''));
+
+    if ($querySecret !== '') {
+        return $querySecret;
+    }
+
+    return trim((string)($_POST['secret'] ?? ''));
+}
+
+function cron_booking_reminders_authorized(): bool
+{
+    if (PHP_SAPI === 'cli') {
+        return true;
+    }
+
+    $expected = cron_booking_reminders_env('BOOKING_REMINDERS_CRON_SECRET');
+
+    if ($expected === '') {
+        $expected = cron_booking_reminders_env('CRON_SECRET');
+    }
+
+    $provided = cron_booking_reminders_provided_secret();
+
+    return $expected !== '' && $provided !== '' && hash_equals($expected, $provided);
+}
+
+function cron_booking_reminders_public_booking_payload(array $booking): array
+{
+    foreach ([
+        'id',
+        'tenant_id',
+        'company_id',
+        'user_id',
+        'service_id',
+        'staff_id',
+        'payment_order_id',
+        'google_event_id',
+        'google_calendar_id',
+        'google_calendar_synced',
+    ] as $key) {
+        unset($booking[$key]);
+    }
+
+    return $booking;
+}
+
 function cron_booking_reminders_request(string $method, string $url, ?array $payload = null, bool $minimal = false): array
 {
     [, $supabaseKey, $schema] = cron_booking_reminders_config();
@@ -102,7 +163,7 @@ function cron_booking_reminders_fetch_records(string $type, DateTimeImmutable $n
         : 'reminder_same_day_sent_at';
 
     $query = [
-        'select=id,tenant_id,booking_date,booking_time,name,email,service_name_snapshot,staff_id,status,payment_required,payment_status,' . $sentColumn,
+        'select=id,booking_ref,tenant_id,booking_date,booking_time,name,email,service_name_snapshot,staff_id,status,payment_required,payment_status,' . $sentColumn,
         'booking_date=eq.' . rawurlencode($targetDate),
         $sentColumn . '=is.null',
         'status=not.in.(cancelled,canceled,deleted,payment_overdue)',
@@ -151,7 +212,7 @@ function cron_booking_reminders_fetch_staff_display_name(string $tenantId, strin
 
     $staff = cron_booking_reminders_fetch_single(
         'staff_profiles',
-        'select=id,display_name'
+        'select=display_name'
             . '&tenant_id=eq.' . rawurlencode($tenantId)
             . '&id=eq.' . rawurlencode($staffId)
     );
@@ -284,7 +345,7 @@ function cron_booking_reminders_process(string $type, DateTimeImmutable $now): a
             $mailSent = booking_mail_send_booking_reminder_with_fallback(
                 $mailConfig['email_settings'],
                 $mailConfig['tenant_data'],
-                $booking,
+                cron_booking_reminders_public_booking_payload($booking),
                 $type
             );
         } catch (Throwable $e) {
@@ -312,6 +373,13 @@ try {
             'success' => false,
             'error' => 'Metoda niedozwolona.',
         ], 405);
+    }
+
+    if (!cron_booking_reminders_authorized()) {
+        cron_booking_reminders_response([
+            'success' => false,
+            'error' => 'unauthorized',
+        ], 401);
     }
 
     $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));

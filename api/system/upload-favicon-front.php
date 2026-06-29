@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -126,6 +127,14 @@ if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA))
 $tenantId = (string) $sessionUser['tenant_id'];
 if (!favicon_valid_tenant_id($tenantId)) {
     favicon_json(400, ['success' => false, 'error' => 'Nieprawidłowe dane konta.']);
+}
+
+if (!tenant_has_feature($tenantId, 'branding_favicon')) {
+    favicon_json(403, [
+        'success' => false,
+        'error' => 'Personalizacja wyglądu jest niedostępna w aktualnym planie.',
+        'upgrade_required' => true,
+    ]);
 }
 
 if (empty($_FILES['favicon']) || !is_array($_FILES['favicon'])) {

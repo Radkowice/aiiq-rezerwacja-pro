@@ -1,8 +1,12 @@
 <?php
 declare(strict_types=1);
 
+require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
+require_once __DIR__ . '/../system/tenant.php';
+
+start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -141,21 +145,47 @@ function subscription_return_build_url(string $domain, string $path): string
     return 'https://' . $domain . $path;
 }
 
+
+function subscription_return_session_payment_id(string $tenantId): string
+{
+    $handoff = $_SESSION['subscription_payment_return_handoff'] ?? null;
+
+    if (!is_array($handoff)) {
+        return '';
+    }
+
+    $paymentId = trim((string) ($handoff['payment_id'] ?? ''));
+    $handoffTenantId = trim((string) ($handoff['tenant_id'] ?? ''));
+    $createdAt = (int) ($handoff['created_at'] ?? 0);
+
+    if ($paymentId === '' || $handoffTenantId === '' || $createdAt <= 0) {
+        unset($_SESSION['subscription_payment_return_handoff']);
+        return '';
+    }
+
+    if (time() - $createdAt > 7200) {
+        unset($_SESSION['subscription_payment_return_handoff']);
+        return '';
+    }
+
+    if (!hash_equals($tenantId, $handoffTenantId)) {
+        return '';
+    }
+
+    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $paymentId)) {
+        unset($_SESSION['subscription_payment_return_handoff']);
+        return '';
+    }
+
+    return $paymentId;
+}
+
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
         header('Allow: GET');
         subscription_return_json(405, [
             'success' => false,
             'error' => 'Metoda niedozwolona.',
-        ]);
-    }
-
-    $paymentId = trim((string) ($_GET['payment_id'] ?? ''));
-
-    if ($paymentId === '' || !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $paymentId)) {
-        subscription_return_json(400, [
-            'success' => false,
-            'error' => 'Nieprawidłowy identyfikator płatności.',
         ]);
     }
 
@@ -172,10 +202,30 @@ try {
 
     $headers = supabaseHeaders($supabaseKey, $schema);
 
+    $tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+
+    if (!$tenantId) {
+        subscription_return_json(404, [
+            'success' => false,
+            'error' => 'Nie rozpoznano klienta.',
+        ]);
+    }
+
+    $tenantId = (string) $tenantId;
+    $paymentId = subscription_return_session_payment_id($tenantId);
+
+    if ($paymentId === '') {
+        subscription_return_json(400, [
+            'success' => false,
+            'error' => 'Brak aktywnej płatności abonamentu do sprawdzenia.',
+        ]);
+    }
+
     $paymentUrl = $supabaseUrl
         . '/rest/v1/tenant_subscription_payments'
-        . '?select=id,tenant_id,status,plan_code,billing_period,payment_type,subscription_period_start,subscription_period_end,paid_at'
+        . '?select=status,plan_code,billing_period,payment_type,subscription_period_start,subscription_period_end,paid_at'
         . '&id=eq.' . rawurlencode($paymentId)
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&limit=1';
 
     $paymentResult = subscription_return_request($paymentUrl, $headers);
@@ -193,15 +243,6 @@ try {
         subscription_return_json(404, [
             'success' => false,
             'error' => 'Nie znaleziono płatności abonamentu.',
-        ]);
-    }
-
-    $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
-
-    if ($tenantId === '' || strlen($tenantId) > 128) {
-        subscription_return_json(404, [
-            'success' => false,
-            'error' => 'Nie znaleziono danych klienta dla tej płatności.',
         ]);
     }
 

@@ -3,6 +3,7 @@
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/crypto.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -209,6 +210,45 @@ function safe_integration_row(array $row): array
     return $safe;
 }
 
+function integration_feature_available(string $tenantId, string $provider): bool
+{
+    if ($provider === 'payu') {
+        return tenant_has_feature($tenantId, 'online_payments')
+            && tenant_has_feature($tenantId, 'payu');
+    }
+
+    if ($provider === 'google_calendar') {
+        return tenant_has_feature($tenantId, 'google_calendar');
+    }
+
+    return true;
+}
+
+function integration_feature_error_payload(string $provider): array
+{
+    if ($provider === 'payu') {
+        return [
+            'success' => false,
+            'error' => 'Integracja PayU jest niedostępna w aktualnym planie.',
+            'upgrade_required' => true,
+        ];
+    }
+
+    if ($provider === 'google_calendar') {
+        return [
+            'success' => false,
+            'error' => 'Integracja Google Calendar jest niedostępna w aktualnym planie.',
+            'upgrade_required' => true,
+        ];
+    }
+
+    return [
+        'success' => false,
+        'error' => 'Ta integracja jest niedostępna w aktualnym planie.',
+        'upgrade_required' => true,
+    ];
+}
+
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 if ($method === 'GET') {
@@ -294,7 +334,7 @@ $newSecrets = filter_secrets($provider, $secretsInput);
  */
 $existingUrl = $supabaseUrl
     . '/rest/v1/tenant_integrations'
-    . '?select=secrets'
+    . '?select=settings,secrets,mode'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&provider=eq.' . rawurlencode($provider)
     . '&limit=1';
@@ -302,18 +342,43 @@ $existingUrl = $supabaseUrl
 $existingResult = curl_supabase($existingUrl, 'GET', $supabaseKey, $schema);
 
 $existingSecrets = [];
+$existingSettings = [];
+$existingMode = $mode;
 
 if (
     $existingResult['http_code'] === 200
     && is_array($existingResult['data'])
-    && !empty($existingResult['data'][0]['secrets'])
-    && is_array($existingResult['data'][0]['secrets'])
+    && !empty($existingResult['data'][0])
+    && is_array($existingResult['data'][0])
 ) {
-    try {
-        $existingSecrets = decrypt_json_secret($existingResult['data'][0]['secrets']);
-    } catch (Throwable $e) {
-        $existingSecrets = [];
+    $existingRow = $existingResult['data'][0];
+
+    if (is_array($existingRow['settings'] ?? null)) {
+        $existingSettings = $existingRow['settings'];
     }
+
+    $storedMode = trim((string) ($existingRow['mode'] ?? ''));
+    if (in_array($storedMode, $allowedModes, true)) {
+        $existingMode = $storedMode;
+    }
+
+    if (!empty($existingRow['secrets']) && is_array($existingRow['secrets'])) {
+        try {
+            $existingSecrets = decrypt_json_secret($existingRow['secrets']);
+        } catch (Throwable $e) {
+            $existingSecrets = [];
+        }
+    }
+}
+
+if (!integration_feature_available($tenantId, $provider)) {
+    if ($enabled) {
+        json_response(integration_feature_error_payload($provider), 403);
+    }
+
+    $settings = $existingSettings;
+    $mode = $existingMode;
+    $newSecrets = [];
 }
 
 $mergedSecrets = array_merge($existingSecrets, $newSecrets);

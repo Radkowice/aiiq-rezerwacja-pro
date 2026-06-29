@@ -166,6 +166,21 @@ function reschedule_normalize_time(string $time): string
     return preg_match('/^\d{2}:\d{2}$/', $time) ? $time : '';
 }
 
+function reschedule_is_same_booking_slot(array $booking, string $date, string $time): bool
+{
+    $oldDate = trim((string) ($booking['booking_date'] ?? ''));
+    $oldTime = reschedule_normalize_time((string) ($booking['booking_time'] ?? ''));
+    $newDate = trim($date);
+    $newTime = reschedule_normalize_time($time);
+
+    return $oldDate !== ''
+        && $oldTime !== ''
+        && $newDate !== ''
+        && $newTime !== ''
+        && $oldDate === $newDate
+        && $oldTime === $newTime;
+}
+
 function reschedule_booking_start(string $date, string $time): ?DateTimeImmutable
 {
     $time = reschedule_normalize_time($time);
@@ -887,6 +902,15 @@ function reschedule_availability(
         }));
     }
 
+    $oldDate = trim((string) ($booking['booking_date'] ?? ''));
+    $oldTime = reschedule_normalize_time((string) ($booking['booking_time'] ?? ''));
+
+    if ($date === $oldDate && $oldTime !== '') {
+        $slots = array_values(array_filter($slots, static function (string $time) use ($oldTime): bool {
+            return reschedule_normalize_time($time) !== $oldTime;
+        }));
+    }
+
     sort($slots);
     return array_values($slots);
 }
@@ -1118,6 +1142,10 @@ $newTime = reschedule_normalize_time((string) ($input['time'] ?? ''));
 
 reschedule_validate_date($newDate);
 reschedule_validate_time($newTime);
+
+if (reschedule_is_same_booking_slot($booking, $newDate, $newTime)) {
+    reschedule_error('Wybierz inny termin niż obecny. Nie można przełożyć rezerwacji na tę samą datę i godzinę.', 'same_booking_slot', 409);
+}
 
 $newStart = reschedule_booking_start($newDate, $newTime);
 $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));

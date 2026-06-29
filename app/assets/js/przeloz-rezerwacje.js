@@ -210,6 +210,51 @@ function formatLocalDate(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+function normalizeRescheduleDate(value) {
+  const text = String(value || '').trim();
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
+  }
+
+  return '';
+}
+
+function normalizeRescheduleTime(value) {
+  const text = String(value || '').trim();
+  const match = text.match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+
+  if (!match) {
+    return '';
+  }
+
+  return `${String(match[1]).padStart(2, '0')}:${match[2]}`;
+}
+
+function getCurrentBookingDate() {
+  const booking = rescheduleState.booking || {};
+  return normalizeRescheduleDate(booking.current_date || booking.booking_date || '');
+}
+
+function getCurrentBookingTime() {
+  const booking = rescheduleState.booking || {};
+  return normalizeRescheduleTime(booking.current_time || booking.booking_time || '');
+}
+
+function isCurrentBookingSlot(date, time) {
+  const selectedDate = normalizeRescheduleDate(date);
+  const selectedTime = normalizeRescheduleTime(time);
+  const currentDate = getCurrentBookingDate();
+  const currentTime = getCurrentBookingTime();
+
+  return !!selectedDate
+    && !!selectedTime
+    && !!currentDate
+    && !!currentTime
+    && selectedDate === currentDate
+    && selectedTime === currentTime;
+}
+
 function formatMonthKey(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
@@ -551,13 +596,19 @@ async function loadAvailableTimes(date) {
     throw new Error(data.message || 'Nie udało się pobrać dostępnych godzin.');
   }
 
-  if (data.availableTimes.length === 0) {
-    setTimeOptions([], 'Brak dostępnych godzin');
-    showSuccess('W wybranym dniu nie ma dostępnych godzin. Wybierz inną datę.');
+  const availableTimes = data.availableTimes
+    .map((time) => normalizeRescheduleTime(time))
+    .filter((time) => time !== '')
+    .filter((time, index, list) => list.indexOf(time) === index)
+    .filter((time) => !isCurrentBookingSlot(date, time));
+
+  if (availableTimes.length === 0) {
+    setTimeOptions([], 'Brak innych dostępnych godzin');
+    showSuccess('W wybranym dniu nie ma innych dostępnych godzin. Wybierz inną datę.');
     return;
   }
 
-  setTimeOptions(data.availableTimes, 'Wybierz godzinę');
+  setTimeOptions(availableTimes, 'Wybierz godzinę');
 }
 
 async function selectDate(date) {
@@ -649,6 +700,13 @@ async function submitReschedule() {
   }
 
   clearMessages();
+
+  if (isCurrentBookingSlot(rescheduleState.selectedDate, rescheduleState.selectedTime)) {
+    showError('Wybierz inny termin niż obecny. Nie można przełożyć rezerwacji na tę samą datę i godzinę.');
+    updateSubmitState();
+    return;
+  }
+
   rescheduleState.saving = true;
   updateSubmitState();
 

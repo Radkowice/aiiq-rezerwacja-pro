@@ -35,7 +35,7 @@ $tenantId = (string) $_SESSION['user']['tenant_id'];
 if ($tenantId === '') {
     google_disconnect_response([
         'success' => false,
-        'error' => 'Brak tenant_id w sesji.'
+        'error' => 'Brak danych sesji.'
     ], 401);
 }
 

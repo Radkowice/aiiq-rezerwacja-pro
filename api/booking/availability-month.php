@@ -84,7 +84,7 @@ function availability_month_service_id_from_ref(
     string $refSecret
 ): string {
     if (!availability_month_is_service_ref($serviceRef)) {
-        availability_month_error('Wybrana usĹ‚uga jest niedostÄ™pna.', 'service_not_found', 404);
+        availability_month_error('Wybrana usługa jest niedostępna.', 'service_not_found', 404);
     }
 
     $serviceRows = availability_month_fetch_rows($supabaseUrl, $key, $schema, 'tenant_services', [
@@ -95,7 +95,7 @@ function availability_month_service_id_from_ref(
     ]);
 
     if (!is_array($serviceRows)) {
-        availability_month_error('Nie udaĹ‚o siÄ™ sprawdziÄ‡ usĹ‚ugi.', 'service_lookup_failed', 500);
+        availability_month_error('Nie udało się sprawdzić usługi.', 'service_lookup_failed', 500);
     }
 
     foreach ($serviceRows as $serviceRow) {
@@ -111,7 +111,50 @@ function availability_month_service_id_from_ref(
         }
     }
 
-    availability_month_error('Wybrana usĹ‚uga jest niedostÄ™pna.', 'service_not_found', 404);
+    availability_month_error('Wybrana usługa jest niedostępna.', 'service_not_found', 404);
+}
+
+function availability_month_is_staff_ref(string $value): bool
+{
+    return preg_match('/^st_[a-f0-9]{32,64}$/', $value) === 1;
+}
+
+function availability_month_staff_id_from_ref(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $tenantId,
+    string $staffRef,
+    string $refSecret
+): string {
+    if (!availability_month_is_staff_ref($staffRef)) {
+        availability_month_error('Osoba obsługująca tę rezerwację jest niedostępna.', 'staff_not_found', 404);
+    }
+
+    $staffRows = availability_month_fetch_rows($supabaseUrl, $key, $schema, 'staff_profiles', [
+        'select=id',
+        'tenant_id=eq.' . rawurlencode($tenantId),
+        'is_active=eq.true',
+    ]);
+
+    if (!is_array($staffRows)) {
+        availability_month_error('Nie udało się sprawdzić personelu.', 'staff_lookup_failed', 500);
+    }
+
+    foreach ($staffRows as $staffRow) {
+        if (!is_array($staffRow) || empty($staffRow['id'])) {
+            continue;
+        }
+
+        $staffId = (string) $staffRow['id'];
+        $expectedRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
+
+        if (hash_equals($expectedRef, $staffRef)) {
+            return $staffId;
+        }
+    }
+
+    availability_month_error('Osoba obsługująca tę rezerwację jest niedostępna.', 'staff_not_found', 404);
 }
 
 function availability_month_validate_token(string $token): void
@@ -319,6 +362,8 @@ if ($isRescheduleMode) {
 } else {
     $staffId = '';
     $serviceRef = trim((string) ($_GET['service_ref'] ?? ''));
+    $staffRef = trim((string) ($_GET['staff_ref'] ?? ''));
+    $refSecret = public_response_ref_secret($supabaseKey);
 
     if ($serviceRef !== '') {
         $serviceId = availability_month_service_id_from_ref(
@@ -327,10 +372,19 @@ if ($isRescheduleMode) {
             $schema,
             $tenantId,
             $serviceRef,
-            public_response_ref_secret($supabaseKey)
+            $refSecret
         );
-    } else {
-        availability_month_error('Wybrana usługa jest niedostępna.', 'service_not_found', 404);
+    }
+
+    if ($staffRef !== '') {
+        $staffId = availability_month_staff_id_from_ref(
+            $supabaseUrl,
+            $supabaseKey,
+            $schema,
+            $tenantId,
+            $staffRef,
+            $refSecret
+        );
     }
 
     $bookingId = '';
@@ -515,6 +569,18 @@ foreach ($dates as $date) {
         $occupied,
         $ignoredBlockedTimes
     );
+
+    if ($isRescheduleMode) {
+        $currentBookingDate = trim((string) ($booking['booking_date'] ?? ''));
+        $currentBookingTime = availability_month_normalize_time((string) ($booking['booking_time'] ?? ''));
+
+        if ($date === $currentBookingDate && $currentBookingTime !== '') {
+            $times = array_values(array_filter(
+                $times,
+                static fn ($time): bool => availability_month_normalize_time((string) $time) !== $currentBookingTime
+            ));
+        }
+    }
 
     $days[$date] = [
         'available' => count($times) > 0,

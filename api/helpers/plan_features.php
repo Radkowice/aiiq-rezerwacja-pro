@@ -324,7 +324,9 @@ function plan_features_access_state(array $subscription): array
     // opłacony okres kończący się dziś lub później, funkcje Pro zostają aktywne
     // do końca okresu. Rejestracja Pro przed płatnością ma current_period_end=null,
     // więc nie dostaje dostępu Pro przed potwierdzeniem PayU.
-    $basePaidActive = $isPaidPlan && in_array($status, ['active', 'trial'], true);
+    $basePaidActive = $isPaidPlan
+        && in_array($status, ['active', 'trial'], true)
+        && $periodAllowsAccess;
     $paymentAttentionActive = $isPaidPlan
         && in_array($status, ['payment_due', 'overdue'], true)
         && $periodAllowsAccess;

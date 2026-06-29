@@ -94,14 +94,11 @@ try {
         ], 405);
     }
 
-    $bookingId = trim((string)($_GET['booking_id'] ?? ''));
-
-    if ($bookingId !== '' && !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
-        payment_return_response([
-            'success' => false,
-            'error' => 'Nieprawidłowy identyfikator rezerwacji.'
-        ], 400);
-    }
+    /*
+     * Status powrotu z PayU nie przyjmuje już publicznego booking_id z URL.
+     * Techniczny identyfikator rezerwacji może pochodzić wyłącznie z backendowego handoffu sesyjnego.
+     */
+    $bookingId = '';
 
     $supabaseUrl = rtrim((string)getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string)getenv('SUPABASE_SERVICE_ROLE_KEY');

@@ -2,11 +2,6 @@ function getSubscriptionReturnEl(id) {
   return document.getElementById(id);
 }
 
-function getSubscriptionPaymentId() {
-  const params = new URLSearchParams(window.location.search);
-  return String(params.get('payment_id') || '').trim();
-}
-
 function setSubscriptionText(id, value, fallback = '—') {
   const el = getSubscriptionReturnEl(id);
   if (!el) return;
@@ -164,40 +159,34 @@ function applySubscriptionReturnText(payment, company, urls = {}) {
   setSubscriptionPrimaryButton(primaryAction.url, primaryAction.label);
 }
 
-function applyMissingSubscriptionPaymentIdText() {
+function applySubscriptionReturnUnavailableText() {
   const titleEl = getSubscriptionReturnEl('subscriptionReturnTitle');
   const leadEl = getSubscriptionReturnEl('subscriptionReturnLead');
   const messageEl = getSubscriptionReturnEl('subscriptionReturnMessage');
 
   if (titleEl) {
-    titleEl.textContent = 'Nie znaleziono identyfikatora płatności';
+    titleEl.textContent = 'Sprawdzamy status płatności';
   }
 
   if (leadEl) {
-    leadEl.textContent = 'Nie możemy sprawdzić szczegółów tej płatności, ponieważ w adresie brakuje identyfikatora. Wróć do panelu i rozpocznij płatność ponownie albo sprawdź status abonamentu w zakładce Informacje.';
+    leadEl.textContent = 'Płatność została przekazana do PayU. Jeśli została zakończona poprawnie, status abonamentu zaktualizuje się automatycznie po potwierdzeniu przez PayU.';
   }
 
   if (messageEl) {
-    messageEl.textContent = 'Ten ekran nie aktywuje planu Pro i nie potwierdza płatności. Status abonamentu możesz sprawdzić w panelu administracyjnym.';
+    messageEl.textContent = 'Ten ekran nie wymaga już identyfikatora płatności w adresie. Szczegóły płatności są sprawdzane bezpiecznie po stronie systemu. Status abonamentu możesz potwierdzić w panelu administracyjnym, w zakładce Informacje.';
   }
 
   setSubscriptionText('subscriptionReturnCompany', '—');
   setSubscriptionText('subscriptionReturnPeriod', '—');
-  setSubscriptionText('subscriptionReturnType', '—');
+  setSubscriptionText('subscriptionReturnType', 'Plan Pro');
   setSubscriptionPrimaryButton('/logowanie.html', 'Przejdź do logowania');
 }
 
 async function loadSubscriptionReturnData() {
-  const paymentId = getSubscriptionPaymentId();
-
-  if (!paymentId) {
-    applyMissingSubscriptionPaymentIdText();
-    return;
-  }
-
   try {
-    const res = await fetch(`/api/subscriptions/payment-return-status.php?payment_id=${encodeURIComponent(paymentId)}`, {
-      cache: 'no-store'
+    const res = await fetch('/api/subscriptions/payment-return-status.php', {
+      cache: 'no-store',
+      credentials: 'same-origin'
     });
 
     const data = await res.json().catch(() => null);
@@ -208,7 +197,7 @@ async function loadSubscriptionReturnData() {
         success: data?.success,
         error: data?.error || null
       });
-      applySubscriptionReturnText({}, {}, {});
+      applySubscriptionReturnUnavailableText();
       return;
     }
 
@@ -225,7 +214,7 @@ async function loadSubscriptionReturnData() {
     console.warn('Błąd frontu podczas pobierania danych płatności abonamentu.', {
       message: error?.message || String(error)
     });
-    applySubscriptionReturnText({}, {}, {});
+    applySubscriptionReturnUnavailableText();
   }
 }
 

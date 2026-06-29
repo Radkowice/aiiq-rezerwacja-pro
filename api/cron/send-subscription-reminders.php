@@ -33,6 +33,46 @@ function subscription_reminder_header(string $name): string
     return '';
 }
 
+function subscription_reminder_is_cli(): bool
+{
+    return PHP_SAPI === 'cli';
+}
+
+function subscription_reminder_request_secret(): string
+{
+    $headerSecret = subscription_reminder_header('X-Cron-Secret');
+
+    if ($headerSecret !== '') {
+        return $headerSecret;
+    }
+
+    return trim((string) ($_GET['secret'] ?? ''));
+}
+
+function subscription_reminder_configured_secret(): string
+{
+    return trim((string) (
+        getenv('SUBSCRIPTION_REMINDER_CRON_SECRET')
+        ?: getenv('SUBSCRIPTION_REMINDERS_CRON_SECRET')
+        ?: getenv('CRON_SECRET')
+        ?: ''
+    ));
+}
+
+function subscription_reminder_mail_subscription_payload(array $subscription): array
+{
+    return [
+        'plan_code' => trim((string) ($subscription['plan_code'] ?? '')),
+        'plan_name' => trim((string) ($subscription['plan_name'] ?? '')),
+        'billing_period' => trim((string) ($subscription['billing_period'] ?? '')),
+        'status' => trim((string) ($subscription['status'] ?? '')),
+        'amount' => $subscription['amount'] ?? null,
+        'currency' => trim((string) ($subscription['currency'] ?? 'PLN')),
+        'current_period_start' => trim((string) ($subscription['current_period_start'] ?? '')),
+        'current_period_end' => trim((string) ($subscription['current_period_end'] ?? '')),
+    ];
+}
+
 function subscription_reminder_headers(string $key, string $schema, bool $returnRepresentation = true): array
 {
     return [
@@ -292,22 +332,24 @@ try {
         ]);
     }
 
-    $cronSecret = trim((string) getenv('SUBSCRIPTION_REMINDER_CRON_SECRET'));
+    if (!subscription_reminder_is_cli()) {
+        $cronSecret = subscription_reminder_configured_secret();
 
-    if ($cronSecret === '') {
-        subscription_reminder_json(500, [
-            'success' => false,
-            'error' => 'Brak konfiguracji SUBSCRIPTION_REMINDER_CRON_SECRET.',
-        ]);
-    }
+        if ($cronSecret === '') {
+            subscription_reminder_json(500, [
+                'success' => false,
+                'error' => 'Brak konfiguracji crona.',
+            ]);
+        }
 
-    $headerSecret = subscription_reminder_header('X-Cron-Secret');
+        $requestSecret = subscription_reminder_request_secret();
 
-    if ($headerSecret === '' || !hash_equals($cronSecret, $headerSecret)) {
-        subscription_reminder_json(401, [
-            'success' => false,
-            'error' => 'Brak autoryzacji crona.',
-        ]);
+        if ($requestSecret === '' || !hash_equals($cronSecret, $requestSecret)) {
+            subscription_reminder_json(401, [
+                'success' => false,
+                'error' => 'unauthorized',
+            ]);
+        }
     }
 
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
@@ -406,7 +448,7 @@ try {
             continue;
         }
 
-        $html = buildSubscriptionReminderMailHtml($subscription, $context, $daysLeft);
+        $html = buildSubscriptionReminderMailHtml(subscription_reminder_mail_subscription_payload($subscription), $context, $daysLeft);
 
         if (!sendSystemMail($recipientEmail, 'Przypomnienie o abonamencie AI-IQ Rezerwacja Pro', $html)) {
             subscription_reminder_update_log($supabaseUrl, $headers, $logId, [
