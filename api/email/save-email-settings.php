@@ -133,7 +133,7 @@ $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'public';
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
     email_settings_json([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase.'
+        'error' => 'Nie udało się wczytać konfiguracji systemu.'
     ], 500);
 }
 
@@ -143,12 +143,6 @@ if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)
         'error' => 'Sesja nie pasuje do domeny.'
     ], 401);
 }
-
-$saved = [
-    'email_settings' => false,
-    'client_template' => false,
-    'admin_template' => false,
-];
 
 if ($section === 'all' || $section === 'smtp') {
     $smtpHost = email_settings_text($input['smtp_host'] ?? null, 255, true);
@@ -219,8 +213,6 @@ if ($section === 'all' || $section === 'smtp') {
             'error' => 'Nie udało się zapisać ustawień SMTP.'
         ], 500);
     }
-
-    $saved['email_settings'] = true;
 }
 
 if ($section === 'all' || $section === 'global_template') {
@@ -283,17 +275,9 @@ if ($section === 'all' || $section === 'global_template') {
             'error' => 'Nie udało się zapisać globalnego szablonu e-mail.'
         ], 500);
     }
-
-    $saved['client_template'] = true;
-    $saved['admin_template'] = true;
 }
 
 email_settings_json([
     'success' => true,
-    'message' => $section === 'smtp'
-        ? 'Ustawienia SMTP zostały zapisane.'
-        : ($section === 'global_template'
-            ? 'Globalny szablon e-mail został zapisany.'
-            : 'Ustawienia e-mail zostały zapisane.'),
-    'saved' => $saved,
+    'message' => 'Ustawienia e-mail zapisane.',
 ]);

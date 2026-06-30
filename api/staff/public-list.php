@@ -67,7 +67,7 @@ $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 if ($supabaseUrl === '' || $supabaseKey === '') {
     staff_public_list_json([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
+        'error' => 'Nie udało się wczytać konfiguracji systemu.'
     ], 500);
 }
 
@@ -134,7 +134,6 @@ foreach ($rows as $row) {
         : '';
 
     $staff[] = [
-        'id' => $staffRef,
         'staff_ref' => $staffRef,
         'display_name' => (string) ($row['display_name'] ?? ''),
         'description' => (string) ($row['description'] ?? ''),

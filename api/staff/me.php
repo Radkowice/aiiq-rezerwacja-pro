@@ -233,13 +233,13 @@ $_SESSION['staff_user']['email'] = (string) ($account['email'] ?? '');
 $_SESSION['staff_user']['display_name'] = $displayName;
 
 $company = staff_me_fetch_company($supabaseUrl, $supabaseKey, $schema, $sessionTenantId);
+$refSecret = public_response_ref_secret($supabaseKey);
 
 staff_me_json([
     'success' => true,
     'company' => $company,
     'staff' => [
-        'tenant_id' => $sessionTenantId,
-        'staff_id' => $staffId,
+        'staff_ref' => public_response_staff_ref($sessionTenantId, $staffId, $refSecret),
         'email' => (string) ($account['email'] ?? ''),
         'display_name' => $displayName,
     ],

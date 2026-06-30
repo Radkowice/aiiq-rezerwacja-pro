@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../PHPMailer/src/Exception.php';
 require_once __DIR__ . '/../PHPMailer/src/PHPMailer.php';
@@ -21,6 +22,80 @@ function smtp_test_json(int $status, array $payload): void
     http_response_code($status);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function smtp_test_ends_with(string $value, string $suffix): bool
+{
+    if ($suffix === '') {
+        return true;
+    }
+
+    return substr($value, -strlen($suffix)) === $suffix;
+}
+
+function smtp_test_is_private_or_reserved_ip(string $ip): bool
+{
+    return filter_var(
+        $ip,
+        FILTER_VALIDATE_IP,
+        FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+    ) === false;
+}
+
+function smtp_test_is_allowed_host(string $host): bool
+{
+    $normalized = trim($host, " \t\n\r\0\x0B[]");
+    $lower = strtolower(rtrim($normalized, '.'));
+
+    if ($lower === '') {
+        return false;
+    }
+
+    $blockedHosts = [
+        'localhost',
+        'localhost.localdomain',
+    ];
+
+    if (in_array($lower, $blockedHosts, true)) {
+        return false;
+    }
+
+    $blockedSuffixes = [
+        '.localhost',
+        '.local',
+        '.internal',
+        '.lan',
+    ];
+
+    foreach ($blockedSuffixes as $suffix) {
+        if (smtp_test_ends_with($lower, $suffix)) {
+            return false;
+        }
+    }
+
+    if (filter_var($normalized, FILTER_VALIDATE_IP)) {
+        return !smtp_test_is_private_or_reserved_ip($normalized);
+    }
+
+    if (!filter_var($lower, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
+        return false;
+    }
+
+    $records = @dns_get_record($lower, DNS_A + DNS_AAAA);
+
+    if (!is_array($records) || empty($records)) {
+        return false;
+    }
+
+    foreach ($records as $record) {
+        $ip = (string) ($record['ip'] ?? $record['ipv6'] ?? '');
+
+        if ($ip !== '' && smtp_test_is_private_or_reserved_ip($ip)) {
+            return false;
+        }
+    }
+
+    return true;
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -45,14 +120,24 @@ $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 if ($supabaseUrl === '' || $supabaseKey === '') {
     smtp_test_json(500, [
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase.'
+        'error' => 'Nie udało się wczytać konfiguracji systemu.'
     ]);
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
     smtp_test_json(401, [
         'success' => false,
-        'error' => 'Sesja nie pasuje do domeny'
+        'error' => 'Brak autoryzacji.'
+    ]);
+}
+
+$planContext = plan_features_get_context($tenantId);
+
+if (empty($planContext['is_paid_plan_active'])) {
+    smtp_test_json(403, [
+        'success' => false,
+        'error' => 'Test własnego SMTP jest dostępny w wyższym planie.',
+        'upgrade_required' => true,
     ]);
 }
 
@@ -77,6 +162,22 @@ if ($smtpHost === '' || $smtpPort <= 0 || $smtpUsername === '') {
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Uzupełnij host SMTP, port SMTP oraz login SMTP.'
+    ]);
+}
+
+$allowedPorts = [25, 465, 587, 2525];
+
+if (!in_array($smtpPort, $allowedPorts, true)) {
+    smtp_test_json(422, [
+        'success' => false,
+        'error' => 'Dozwolone porty SMTP to 25, 465, 587 albo 2525.'
+    ]);
+}
+
+if (!smtp_test_is_allowed_host($smtpHost)) {
+    smtp_test_json(422, [
+        'success' => false,
+        'error' => 'Host SMTP jest nieprawidłowy albo niedozwolony.'
     ]);
 }
 
@@ -154,6 +255,7 @@ try {
     $mail->Username = $smtpUsername;
     $mail->Password = $smtpPassword;
     $mail->CharSet = 'UTF-8';
+    $mail->Timeout = 12;
 
     if ($smtpPort === 465) {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;

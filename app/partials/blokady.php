@@ -32,7 +32,7 @@
         <label class="block-scope-option">
           <input type="radio" name="block-scope" value="staff">
           <span>
-            <strong>Konkretny pracownik</strong>
+            <strong>Pracownik</strong>
             <small>Blokuje termin tylko dla wybranej osoby.</small>
           </span>
         </label>

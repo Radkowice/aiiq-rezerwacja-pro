@@ -2,13 +2,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function export_history_json(array $payload, int $statusCode): void
 {
     http_response_code($statusCode);
     header('Content-Type: application/json; charset=utf-8');
-    echo json_encode($payload, JSON_UNESCAPED_UNICODE);
+    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -288,7 +289,7 @@ $SUPABASE_DB_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     export_history_json([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
+        'error' => 'Nie udało się wczytać konfiguracji systemu.'
     ], 500);
 }
 
@@ -310,17 +311,26 @@ if ($TENANT_ID === '') {
 
 $timezone = new DateTimeZone('Europe/Warsaw');
 $now = new DateTimeImmutable('now', $timezone);
-$requestedStaffId = csvText($_GET['staff_id'] ?? '');
-$selectedStaff = null;
+$requestedStaffRef = csvText($_GET['staff_ref'] ?? '');
+$legacyStaffId = csvText($_GET['staff_id'] ?? '');
+$selectedStaffId = '';
 
-if ($requestedStaffId !== '') {
-    if (!export_history_is_uuid($requestedStaffId)) {
+if ($legacyStaffId !== '') {
+    export_history_json([
+        'success' => false,
+        'error' => 'Filtr pracownika wymaga aktualnej referencji.'
+    ], 400);
+}
+
+if ($requestedStaffRef !== '') {
+    if (preg_match('/^st_[a-f0-9]{32,64}$/', $requestedStaffRef) !== 1) {
         export_history_json([
             'success' => false,
-            'error' => 'Nieprawidłowy identyfikator pracownika'
+            'error' => 'Nieprawidłowa referencja pracownika'
         ], 400);
     }
 
+    $refSecret = public_response_ref_secret($SUPABASE_KEY);
     $staffCheckResult = export_history_supabase_rows(
         $SUPABASE_URL,
         $SUPABASE_KEY,
@@ -329,8 +339,8 @@ if ($requestedStaffId !== '') {
         [
             'select=id,display_name',
             'tenant_id=eq.' . rawurlencode($TENANT_ID),
-            'id=eq.' . rawurlencode($requestedStaffId),
-            'limit=1',
+            'is_active=eq.true',
+            'limit=1000',
         ],
         20
     );
@@ -339,13 +349,29 @@ if ($requestedStaffId !== '') {
         export_history_json([
             'success' => false,
             'error' => 'Nie udało się sprawdzić pracownika',
-            'response' => $staffCheckResult['response'],
         ], (int) $staffCheckResult['status']);
     }
 
-    $selectedStaff = is_array($staffCheckResult['rows'][0] ?? null) ? $staffCheckResult['rows'][0] : null;
+    foreach ($staffCheckResult['rows'] as $staffRow) {
+        if (!is_array($staffRow)) {
+            continue;
+        }
 
-    if (!$selectedStaff) {
+        $candidateId = csvText($staffRow['id'] ?? '');
+
+        if ($candidateId === '' || !export_history_is_uuid($candidateId)) {
+            continue;
+        }
+
+        $generatedStaffRef = public_response_staff_ref($TENANT_ID, $candidateId, $refSecret);
+
+        if (hash_equals($generatedStaffRef, $requestedStaffRef)) {
+            $selectedStaffId = $candidateId;
+            break;
+        }
+    }
+
+    if ($selectedStaffId === '') {
         export_history_json([
             'success' => false,
             'error' => 'Nie znaleziono pracownika w aktualnym koncie'
@@ -360,8 +386,8 @@ $bookingQuery = [
     'order=booking_time.desc',
 ];
 
-if ($requestedStaffId !== '') {
-    $bookingQuery[] = 'staff_id=eq.' . rawurlencode($requestedStaffId);
+if ($selectedStaffId !== '') {
+    $bookingQuery[] = 'staff_id=eq.' . rawurlencode($selectedStaffId);
 }
 
 $bookingResult = export_history_supabase_rows(
@@ -376,7 +402,6 @@ if (!$bookingResult['success']) {
     export_history_json([
         'success' => false,
         'error' => 'Nie udało się pobrać rezerwacji',
-        'response' => $bookingResult['response'],
     ], (int) $bookingResult['status']);
 }
 
@@ -469,7 +494,7 @@ if (!empty($bookingIds)) {
 }
 
 $fileDate = $now->format('Y-m-d_H-i');
-$filePrefix = $requestedStaffId !== '' ? 'rezerwacje-pracownika' : 'rezerwacje-i-historia';
+$filePrefix = $requestedStaffRef !== '' ? 'rezerwacje-pracownika' : 'rezerwacje-i-historia';
 
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="' . $filePrefix . '-' . $fileDate . '.csv"');

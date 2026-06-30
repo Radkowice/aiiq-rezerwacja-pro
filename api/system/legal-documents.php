@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
@@ -39,7 +40,7 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
+        'error' => 'Nie udało się wczytać konfiguracji systemu.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -75,10 +76,9 @@ function legal_clean_text(mixed $value, int $maxLength = 0): string
     return $text;
 }
 
-function legal_default_payload(string $tenantId): array
+function legal_default_payload(): array
 {
     return [
-        'tenant_id' => $tenantId,
         'terms_title' => 'Regulamin rezerwacji',
         'terms_content' => '',
         'privacy_title' => 'Polityka prywatności',
@@ -92,7 +92,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     $url = $supabaseUrl
         . '/rest/v1/tenant_legal_documents'
         . '?tenant_id=eq.' . rawurlencode($tenantId)
-        . '&select=tenant_id,terms_title,terms_content,privacy_title,privacy_content,is_enabled,updated_at'
+        . '&select=terms_title,terms_content,privacy_title,privacy_content,is_enabled,updated_at'
         . '&limit=1';
 
     $ch = curl_init($url);
@@ -114,7 +114,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         http_response_code(500);
         echo json_encode([
             'success' => false,
-            'error' => 'Błąd połączenia z Supabase',
+            'error' => 'Nie udało się połączyć z bazą danych.',
         ], JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -133,7 +133,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     if (!is_array($rows) || empty($rows[0]) || !is_array($rows[0])) {
         echo json_encode(public_response_sanitize([
             'success' => true,
-            'documents' => legal_default_payload($tenantId)
+            'documents' => legal_default_payload()
         ]), JSON_UNESCAPED_UNICODE);
         exit;
     }
@@ -143,7 +143,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
     echo json_encode(public_response_sanitize([
         'success' => true,
         'documents' => [
-            'tenant_id' => (string) ($row['tenant_id'] ?? $tenantId),
             'terms_title' => (string) ($row['terms_title'] ?? 'Regulamin rezerwacji'),
             'terms_content' => (string) ($row['terms_content'] ?? ''),
             'privacy_title' => (string) ($row['privacy_title'] ?? 'Polityka prywatności'),
@@ -152,6 +151,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             'updated_at' => $row['updated_at'] ?? null,
         ]
     ]), JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!tenant_has_feature($tenantId, 'legal_documents')) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Dokumenty prawne są dostępne w wyższym planie.',
+        'upgrade_required' => true,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -211,7 +220,7 @@ if ($response === false || $curlError) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd połączenia z Supabase',
+        'error' => 'Nie udało się połączyć z bazą danych.',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -227,6 +236,5 @@ if ($httpCode < 200 || $httpCode >= 300) {
 
 echo json_encode(public_response_sanitize([
     'success' => true,
-    'message' => 'Dokumenty prawne zapisane',
-    'saved_fields' => array_keys($data)
+    'message' => 'Dokumenty prawne zapisane'
 ]), JSON_UNESCAPED_UNICODE);

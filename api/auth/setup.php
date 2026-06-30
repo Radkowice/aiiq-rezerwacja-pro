@@ -4,7 +4,7 @@ start_secure_session();
 
 if (!isset($_SESSION['user'])) {
     http_response_code(401);
-    echo json_encode(["error" => "Brak dost�pu"]);
+    echo json_encode(["error" => "Brak dostępu"]);
     exit;
 }
 header('Content-Type: application/json');
@@ -15,7 +15,7 @@ $TENANT_ID = $_SESSION['user']['tenant_id'] ?? null;
 
 if (!$TENANT_ID) {
     http_response_code(400);
-    echo json_encode(["error" => "Brak tenant_id w sesji"], JSON_UNESCAPED_UNICODE);
+    echo json_encode(["error" => "Nieprawidłowa sesja."], JSON_UNESCAPED_UNICODE);
     exit;
 }
 

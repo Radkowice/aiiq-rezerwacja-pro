@@ -108,8 +108,7 @@ function booking_staff_fetch_rows(
     if (!$result['ok']) {
         booking_staff_json([
             'success' => false,
-            'error' => 'Nie udało się pobrać danych',
-            'table' => $table
+            'error' => 'Nie udało się pobrać danych'
         ], $result['httpCode'] > 0 ? $result['httpCode'] : 500);
     }
 
@@ -147,8 +146,7 @@ function booking_staff_patch(
     if (!$result['ok']) {
         booking_staff_json([
             'success' => false,
-            'error' => 'Nie udało się zapisać zmiany',
-            'table' => $table,
+            'error' => 'Nie udało się zapisać zmiany'
         ], $result['httpCode'] > 0 ? $result['httpCode'] : 500);
     }
 
@@ -173,8 +171,7 @@ function booking_staff_insert(
     if (!$result['ok']) {
         booking_staff_json([
             'success' => false,
-            'error' => 'Nie udało się zapisać historii zmiany',
-            'table' => $table,
+            'error' => 'Nie udało się zapisać historii zmiany'
         ], $result['httpCode'] > 0 ? $result['httpCode'] : 500);
     }
 
@@ -824,7 +821,7 @@ $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 if ($supabaseUrl === '' || $supabaseKey === '') {
     booking_staff_json([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
+        'error' => 'Nie udało się wczytać konfiguracji systemu.'
     ], 500);
 }
 
@@ -856,12 +853,11 @@ if (!is_array($input)) {
 }
 
 $action = trim((string) ($input['action'] ?? ''));
-$bookingId = trim((string) ($input['booking_id'] ?? $input['id'] ?? ''));
 $bookingRef = trim((string) ($input['booking_ref'] ?? ''));
 $bookingDateHint = trim((string) ($input['booking_date'] ?? ''));
 $bookingTimeHint = trim((string) ($input['booking_time'] ?? ''));
-$newStaffId = trim((string) ($input['staff_id'] ?? ''));
 $newStaffRef = trim((string) ($input['staff_ref'] ?? ''));
+$newStaffId = '';
 
 if (!in_array($action, ['change_staff', 'detach_staff'], true)) {
     booking_staff_json([
@@ -870,37 +866,22 @@ if (!in_array($action, ['change_staff', 'detach_staff'], true)) {
     ], 400);
 }
 
-$booking = null;
-
-if ($bookingRef !== '') {
-    $booking = booking_staff_resolve_booking_by_ref(
-        $supabaseUrl,
-        $supabaseKey,
-        $schema,
-        $tenantId,
-        $bookingRef,
-        $bookingDateHint,
-        $bookingTimeHint
-    );
-} elseif ($bookingId !== '') {
-    if (!booking_staff_is_uuid($bookingId)) {
-        booking_staff_json([
-            'success' => false,
-            'error' => 'Brak poprawnego identyfikatora rezerwacji'
-        ], 400);
-    }
-
-    $booking = booking_staff_fetch_single($supabaseUrl, $supabaseKey, $schema, 'bookings', [
-        'select=*',
-        'tenant_id=eq.' . rawurlencode($tenantId),
-        'id=eq.' . rawurlencode($bookingId),
-    ]);
-} else {
+if ($bookingRef === '') {
     booking_staff_json([
         'success' => false,
         'error' => 'Brak identyfikatora rezerwacji'
     ], 400);
 }
+
+$booking = booking_staff_resolve_booking_by_ref(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    $tenantId,
+    $bookingRef,
+    $bookingDateHint,
+    $bookingTimeHint
+);
 
 if (!$booking) {
     booking_staff_json([
@@ -921,28 +902,35 @@ if ($bookingId === '' || !booking_staff_is_uuid($bookingId)) {
 $newStaff = null;
 
 if ($action === 'change_staff') {
-    if ($newStaffRef !== '') {
-        $newStaff = booking_staff_resolve_staff_by_ref(
-            $supabaseUrl,
-            $supabaseKey,
-            $schema,
-            $tenantId,
-            $newStaffRef
-        );
-
-        if (!$newStaff) {
-            booking_staff_json([
-                'success' => false,
-                'error' => 'Nie znaleziono wybranego pracownika'
-            ], 404);
-        }
-
-        $newStaffId = trim((string) ($newStaff['id'] ?? ''));
-    } elseif ($newStaffId === '' || !booking_staff_is_uuid($newStaffId)) {
+    if ($newStaffRef === '') {
         booking_staff_json([
             'success' => false,
             'error' => 'Wybierz poprawnego pracownika'
         ], 400);
+    }
+
+    $newStaff = booking_staff_resolve_staff_by_ref(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $newStaffRef
+    );
+
+    if (!$newStaff) {
+        booking_staff_json([
+            'success' => false,
+            'error' => 'Nie znaleziono wybranego pracownika'
+        ], 404);
+    }
+
+    $newStaffId = trim((string) ($newStaff['id'] ?? ''));
+
+    if ($newStaffId === '' || !booking_staff_is_uuid($newStaffId)) {
+        booking_staff_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy pracownik'
+        ], 500);
     }
 }
 

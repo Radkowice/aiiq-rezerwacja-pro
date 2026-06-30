@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -128,6 +129,14 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
     reset_staff_email_json(['success' => false, 'error' => 'Sesja nie pasuje do domeny.'], 403);
+}
+
+if (!tenant_has_feature($tenantId, 'staff_module')) {
+    reset_staff_email_json([
+        'success' => false,
+        'error' => 'Szablony e-mail pracowników są dostępne w wyższym planie.',
+        'upgrade_required' => true,
+    ], 403);
 }
 
 $refSecret = public_response_ref_secret($supabaseKey);

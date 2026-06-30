@@ -246,11 +246,12 @@ staff_login_request('PATCH', $updateUrl, $supabaseKey, $schema, [
     'updated_at' => $now,
 ]);
 
+$refSecret = public_response_ref_secret($supabaseKey);
+
 staff_login_json([
     'success' => true,
     'staff' => [
-        'tenant_id' => (string) $tenantId,
-        'staff_id' => $staffId,
+        'staff_ref' => public_response_staff_ref((string) $tenantId, $staffId, $refSecret),
         'email' => $accountEmail,
         'display_name' => $displayName,
     ],

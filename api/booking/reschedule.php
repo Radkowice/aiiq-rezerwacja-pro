@@ -29,6 +29,17 @@ function reschedule_error(string $message, string $code = 'reschedule_error', in
     ], $statusCode);
 }
 
+function reschedule_trace_hash(?string $value): ?string
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    return '[hash:' . substr(hash('sha256', $value), 0, 12) . ']';
+}
+
 function reschedule_headers(string $key, string $schema, bool $minimal = false): array
 {
     $headers = supabaseHeaders($key, $schema);
@@ -1006,7 +1017,7 @@ function reschedule_sync_google_calendar(
         $bookingId = (string) ($booking['id'] ?? '');
 
         if ($bookingId === '') {
-            google_calendar_debug('RESCHEDULE_GOOGLE_SKIPPED', 'Brak booking_id');
+            google_calendar_debug('RESCHEDULE_GOOGLE_SKIPPED', 'Brak wewnętrznego identyfikatora rezerwacji.');
             return;
         }
 
@@ -1018,15 +1029,15 @@ function reschedule_sync_google_calendar(
 
             if (!empty($updateResult['success'])) {
                 google_calendar_debug('RESCHEDULE_GOOGLE_EVENT_UPDATED', [
-                    'booking_id' => $bookingId,
-                    'google_event_id' => $googleEventId,
+                    'booking_hash' => reschedule_trace_hash($bookingId),
+                    'google_event_hash' => reschedule_trace_hash($googleEventId),
                 ]);
                 $updated = true;
             } elseif (empty($updateResult['not_found'])) {
                 // Miękka synchronizacja: błąd Google nie może cofnąć przełożenia w bazie.
                 google_calendar_debug('RESCHEDULE_GOOGLE_EVENT_UPDATE_FAILED', [
-                    'booking_id' => $bookingId,
-                    'google_event_id' => $googleEventId,
+                    'booking_hash' => reschedule_trace_hash($bookingId),
+                    'google_event_hash' => reschedule_trace_hash($googleEventId),
                     'status_code' => $updateResult['status_code'] ?? null,
                 ]);
                 return;
@@ -1042,21 +1053,21 @@ function reschedule_sync_google_calendar(
         if ($newGoogleEventId) {
             google_calendar_update_booking_event_id($bookingId, $newGoogleEventId, $tenantId);
             google_calendar_debug('RESCHEDULE_GOOGLE_EVENT_CREATED', [
-                'booking_id' => $bookingId,
-                'google_event_id' => $newGoogleEventId,
-                'previous_google_event_id' => $googleEventId !== '' ? $googleEventId : null,
+                'booking_hash' => reschedule_trace_hash($bookingId),
+                'google_event_hash' => reschedule_trace_hash($newGoogleEventId),
+                'previous_google_event_hash' => $googleEventId !== '' ? reschedule_trace_hash($googleEventId) : null,
             ]);
         } else {
             google_calendar_debug('RESCHEDULE_GOOGLE_EVENT_CREATE_FAILED', [
-                'booking_id' => $bookingId,
-                'previous_google_event_id' => $googleEventId !== '' ? $googleEventId : null,
+                'booking_hash' => reschedule_trace_hash($bookingId),
+                'previous_google_event_hash' => $googleEventId !== '' ? reschedule_trace_hash($googleEventId) : null,
             ]);
         }
     } catch (Throwable $e) {
         // Miękka synchronizacja: błąd Google nie może cofnąć przełożenia w bazie.
         google_calendar_debug('RESCHEDULE_GOOGLE_SYNC_ERROR', [
-            'exception_type' => get_class($e),
-            'booking_id' => $booking['id'] ?? null,
+            'error_type' => 'google_sync_error',
+            'booking_hash' => reschedule_trace_hash((string) ($booking['id'] ?? '')),
         ]);
     }
 }

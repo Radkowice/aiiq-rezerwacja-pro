@@ -81,7 +81,7 @@ $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 if ($supabaseUrl === '' || $supabaseKey === '') {
     public_services_json([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase',
+        'error' => 'Nie udało się wczytać konfiguracji systemu.',
     ], 500);
 }
 
@@ -290,7 +290,6 @@ if (!empty($allStaffIds)) {
         $staffRef = public_response_staff_ref($tenantId, $staffId, $refSecret);
 
         $staffById[(string) $staffRow['id']] = [
-            'id' => $staffRef,
             'staff_ref' => $staffRef,
             'display_name' => (string) ($staffRow['display_name'] ?? ''),
             'description' => (string) ($staffRow['description'] ?? ''),
@@ -336,7 +335,6 @@ foreach ($serviceRows as $serviceRow) {
     $serviceRef = public_response_service_ref($tenantId, $serviceId, $refSecret);
 
     $services[] = [
-        'id' => $serviceRef,
         'service_ref' => $serviceRef,
         'name' => (string) ($serviceRow['name'] ?? ''),
         'description' => (string) ($serviceRow['description'] ?? ''),

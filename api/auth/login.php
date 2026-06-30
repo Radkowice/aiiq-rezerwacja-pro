@@ -118,5 +118,8 @@ $_SESSION['user'] = [
 
 echo json_encode([
     'success' => true,
-    'user'    => public_response_sanitize($_SESSION['user'])
-]);
+    'user'    => [
+        'email' => (string) ($user['email'] ?? ''),
+        'role'  => (string) ($user['role'] ?? 'admin'),
+    ],
+], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

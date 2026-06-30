@@ -134,7 +134,7 @@ function payu_fetch_booking(string $bookingId, string $tenantId): ?array
 
     if ($result['error'] || $result['http_code'] !== 200) {
         payu_debug('PAYU_BOOKING_FETCH_ERROR', [
-            'booking_id' => $bookingId,
+            'booking_id_set' => $bookingId !== '',
             'http_code' => $result['http_code'],
             'error' => $result['error'],
         ]);
@@ -170,8 +170,8 @@ function payu_fetch_staff_display_name(string $tenantId, string $staffId): strin
 
     if ($result['error'] || $result['http_code'] !== 200) {
         payu_debug('PAYU_STAFF_FETCH_ERROR', [
-            'tenant_id' => $tenantId,
-            'staff_id' => $staffId,
+            'tenant_id_set' => $tenantId !== '',
+            'staff_id_set' => $staffId !== '',
             'http_code' => $result['http_code'],
             'error' => $result['error'],
         ]);
@@ -208,7 +208,7 @@ function payu_update_booking_payment(string $bookingId, string $tenantId, array 
 
     if ($result['error'] || $result['http_code'] < 200 || $result['http_code'] >= 300) {
         payu_debug('PAYU_BOOKING_PAYMENT_UPDATE_ERROR', [
-            'booking_id' => $bookingId,
+            'booking_id_set' => $bookingId !== '',
             'http_code' => $result['http_code'],
             'error' => $result['error'],
         ]);
@@ -248,7 +248,7 @@ function payu_create_order_send_pending_email(array $booking, string $paymentUrl
 
     if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
         payu_debug('PAYU_CREATE_ORDER_PENDING_EMAIL_SKIPPED_NO_EMAIL', [
-            'booking_id' => $booking['id'] ?? '',
+            'booking_id_set' => trim((string) ($booking['id'] ?? '')) !== '',
         ]);
 
         return false;
@@ -404,7 +404,7 @@ try {
     if ($tenantId === '') {
         payu_create_order_response([
             'success' => false,
-            'error' => 'Rezerwacja nie ma tenant_id.'
+            'error' => 'Nie udało się przygotować płatności dla rezerwacji.'
         ], 422);
     }
 
@@ -527,8 +527,8 @@ try {
     }
 
     payu_debug('PAYU_CREATE_ORDER_PAYLOAD', [
-        'booking_id' => $bookingId,
-        'tenant_id' => $tenantId,
+        'booking_id_set' => $bookingId !== '',
+        'tenant_id_set' => $tenantId !== '',
         'amount' => $amount,
         'currency' => $currency,
         'mode' => $payu['mode'],
@@ -584,7 +584,7 @@ try {
     );
 
     payu_debug('PAYU_CREATE_ORDER_PENDING_EMAIL_RESULT', [
-        'booking_id' => $bookingId,
+        'booking_id_set' => $bookingId !== '',
         'email_sent' => $pendingEmailSent,
     ]);
 

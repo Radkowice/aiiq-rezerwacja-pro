@@ -95,11 +95,159 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
     ], 405);
 }
 
+function booking_debug_hash_value(string $value, string $prefix = 'value'): string
+{
+    $value = trim($value);
+
+    if ($value === '' || in_array($value, ['global', 'BRAK_ID', 'null', 'none'], true)) {
+        return $value;
+    }
+
+    return '[' . $prefix . ':' . substr(hash('sha256', $value), 0, 12) . ']';
+}
+
+function booking_debug_key_category(string $key): string
+{
+    $normalized = strtolower(trim($key));
+
+    if ($normalized === '') {
+        return '';
+    }
+
+    if (in_array($normalized, [
+        'tenant_id',
+        'booking_id',
+        'service_id',
+        'staff_id',
+        'google_event_id',
+        'payment_order_id',
+        'payment_id',
+        'user_id',
+        'company_id',
+        'id',
+    ], true) || str_ends_with($normalized, '_id')) {
+        return 'id';
+    }
+
+    if (
+        str_contains($normalized, 'token')
+        || str_contains($normalized, 'secret')
+        || str_contains($normalized, 'password')
+        || str_contains($normalized, 'service_role_key')
+        || $normalized === 'apikey'
+        || $normalized === 'api_key'
+    ) {
+        return 'secret';
+    }
+
+    if (in_array($normalized, ['target_dir', 'target_path', 'directory', 'path', 'filepath', 'filename'], true)) {
+        return 'path';
+    }
+
+    return '';
+}
+
+function booking_debug_safe_key($key): string
+{
+    if (!is_string($key)) {
+        return (string) $key;
+    }
+
+    $normalized = strtolower(trim($key));
+
+    $map = [
+        'tenant_id' => 'tenant_hash',
+        'booking_id' => 'booking_hash',
+        'service_id' => 'service_hash',
+        'staff_id' => 'staff_hash',
+        'google_event_id' => 'google_event_hash',
+        'payment_order_id' => 'payment_order_hash',
+        'payment_id' => 'payment_hash',
+        'user_id' => 'user_hash',
+        'company_id' => 'company_hash',
+        'id' => 'internal_hash',
+    ];
+
+    if (isset($map[$normalized])) {
+        return $map[$normalized];
+    }
+
+    if (str_ends_with($normalized, '_id')) {
+        return substr($normalized, 0, -3) . '_hash';
+    }
+
+    return $key;
+}
+
+function booking_debug_sanitize_string(string $value): string
+{
+    $value = preg_replace('#https?://\S+#i', '[url]', $value) ?? $value;
+
+    $value = preg_replace_callback(
+        '/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i',
+        static fn(array $matches): string => booking_debug_hash_value($matches[0], 'hash'),
+        $value
+    ) ?? $value;
+
+    $value = preg_replace('#/(?:var|mnt|tmp|home|app|etc)/[^\s,;]+#', '[path]', $value) ?? $value;
+
+    return $value;
+}
+
+function booking_debug_sanitize_value($value, string $key = '')
+{
+    $category = booking_debug_key_category($key);
+
+    if (is_array($value)) {
+        $sanitized = [];
+
+        foreach ($value as $childKey => $childValue) {
+            $safeChildKey = booking_debug_safe_key($childKey);
+            $sanitized[$safeChildKey] = booking_debug_sanitize_value($childValue, is_string($childKey) ? $childKey : '');
+        }
+
+        return $sanitized;
+    }
+
+    if (is_object($value)) {
+        return '[object]';
+    }
+
+    if ($value === null || is_bool($value) || is_int($value) || is_float($value)) {
+        if ($category === 'id' || $category === 'secret') {
+            return booking_debug_hash_value((string) $value, 'hash');
+        }
+
+        return $value;
+    }
+
+    $stringValue = (string) $value;
+
+    if ($category === 'id') {
+        return booking_debug_hash_value($stringValue, 'hash');
+    }
+
+    if ($category === 'secret') {
+        return $stringValue === '' ? '' : '[secret]';
+    }
+
+    if ($category === 'path') {
+        return $stringValue === '' ? '' : '[path]';
+    }
+
+    return booking_debug_sanitize_string($stringValue);
+}
+
 function debug_log(string $label, $data): void
 {
+    $safeData = booking_debug_sanitize_value($data);
+    $encodedData = is_string($safeData)
+        ? $safeData
+        : json_encode($safeData, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
     @file_put_contents(
         '/var/www/data/debug.log',
-        date('Y-m-d H:i:s') . " [{$label}] " . (is_string($data) ? $data : json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) . "\n",
+        date('Y-m-d H:i:s') . " [{$label}] " . ($encodedData !== false ? $encodedData : '[log_encode_error]') . "\n",
         FILE_APPEND
     );
 }
@@ -325,13 +473,15 @@ function booking_debug_log_service(array $data): void
             return;
         }
 
-        $payload = array_merge([
+        $payload = booking_debug_sanitize_value(array_merge([
             'timestamp' => date(DATE_ATOM),
-        ], $data);
+        ], $data));
+
+        $encodedPayload = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
         $written = file_put_contents(
             $dir . '/rezerwacje-service-debug.log',
-            json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n",
+            ($encodedPayload !== false ? $encodedPayload : '[log_encode_error]') . "\n",
             FILE_APPEND | LOCK_EX
         );
 
@@ -339,7 +489,7 @@ function booking_debug_log_service(array $data): void
             error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: nie udało się zapisać wpisu logu');
         }
     } catch (Throwable $e) {
-        error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: ' . $e->getMessage());
+        error_log('BOOK_SERVICE_DEBUG_LOG_ERROR: ' . booking_debug_sanitize_string($e->getMessage()));
         // Debug techniczny nie może przerywać rezerwacji.
     }
 }
@@ -2250,7 +2400,7 @@ $tenantLookupStatus = (string)($tenantLookup['status'] ?? '');
 
 if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
     $TENANT_ID = (string)$tenantLookup['tenant_id'];
-    debug_log('BOOK_TENANT_FINAL', $TENANT_ID);
+    debug_log('BOOK_TENANT_READY', ['tenant_id' => $TENANT_ID]);
 } elseif ($tenantLookupStatus === 'not_found') {
     debug_log('BOOK_TENANT_NOT_FOUND', [
         'host' => $_SERVER['HTTP_HOST'] ?? null,
@@ -2941,7 +3091,7 @@ $createdBooking = is_array($bookingRows) && isset($bookingRows[0]) && is_array($
 
 $bookingId = (string)($createdBooking['id'] ?? '');
 
-debug_log('BOOK_CREATED_ID', $bookingId !== '' ? $bookingId : 'BRAK_ID');
+debug_log('BOOK_CREATED_REF', ['booking_id' => $bookingId !== '' ? $bookingId : 'BRAK_ID']);
 
 // Blokada terminu dla starego trybu globalnego.
 // Rezerwacje personelu blokujemy przez bookings.staff_id, bez założenia kolumny staff_id w blocked_times.

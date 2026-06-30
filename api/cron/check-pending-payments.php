@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/payu.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 
 function cron_payments_response(array $payload, int $statusCode = 200): void
@@ -401,7 +402,7 @@ function cron_payments_process_reminders(DateTimeImmutable $now): array
     $threshold = $now->modify('-30 minutes')->format(DATE_ATOM);
 
     $query = http_build_query([
-        'select' => 'id,name,email,phone,booking_date,booking_time,payment_amount,payment_currency,payment_expires_at,payment_url,payment_started_at,payment_reminder_sent_at',
+        'select' => 'id,tenant_id,name,email,phone,booking_date,booking_time,payment_amount,payment_currency,payment_expires_at,payment_url,payment_started_at,payment_reminder_sent_at',
         'payment_required' => 'eq.true',
         'payment_status' => 'eq.pending',
         'payment_reminder_sent_at' => 'is.null',
@@ -416,13 +417,20 @@ function cron_payments_process_reminders(DateTimeImmutable $now): array
     $checked = count($records);
     $sent = 0;
     $updated = 0;
+    $skipped = 0;
     $failed = 0;
 
     foreach ($records as $booking) {
         $bookingId = (string)($booking['id'] ?? '');
+        $tenantId = (string)($booking['tenant_id'] ?? '');
 
-        if ($bookingId === '') {
+        if ($bookingId === '' || $tenantId === '') {
             $failed++;
+            continue;
+        }
+
+        if (!tenant_has_feature($tenantId, 'payment_reminders')) {
+            $skipped++;
             continue;
         }
 
@@ -449,6 +457,7 @@ function cron_payments_process_reminders(DateTimeImmutable $now): array
         'checked' => $checked,
         'emails_sent' => $sent,
         'updated' => $updated,
+        'skipped' => $skipped,
         'failed' => $failed,
     ];
 }

@@ -33,7 +33,7 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
+        'error' => 'Nie udało się wczytać konfiguracji systemu.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -83,6 +83,7 @@ function supabaseRequest(string $url, string $serviceRoleKey, string $schema): a
 $emailSettingsUrl = $supabaseUrl
     . '/rest/v1/email_settings'
     . '?tenant_id=eq.' . urlencode($tenantId)
+    . '&select=' . rawurlencode('smtp_host,smtp_port,smtp_encryption,smtp_auth,smtp_username,from_email,from_name,reply_to_email,reply_to_name,admin_notify_email,send_client_confirmation,send_admin_notification,is_active,smtp_password')
     . '&is_active=eq.true'
     . '&limit=1';
 
@@ -92,16 +93,31 @@ if (!$emailSettingsRes['ok']) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd pobierania email_settings',
+        'error' => 'Nie udało się pobrać ustawień e-mail.',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 $emailSettings = $emailSettingsRes['json'][0] ?? null;
+$smtp = null;
 
-if ($emailSettings) {
-    $emailSettings['has_smtp_password'] = !empty($emailSettings['smtp_password']);
-    unset($emailSettings['smtp_password']);
+if (is_array($emailSettings)) {
+    $smtp = [
+        'smtp_host' => (string) ($emailSettings['smtp_host'] ?? ''),
+        'smtp_port' => $emailSettings['smtp_port'] ?? null,
+        'smtp_encryption' => (string) ($emailSettings['smtp_encryption'] ?? ''),
+        'smtp_auth' => !empty($emailSettings['smtp_auth']),
+        'smtp_username' => (string) ($emailSettings['smtp_username'] ?? ''),
+        'from_email' => (string) ($emailSettings['from_email'] ?? ''),
+        'from_name' => (string) ($emailSettings['from_name'] ?? ''),
+        'reply_to_email' => (string) ($emailSettings['reply_to_email'] ?? ''),
+        'reply_to_name' => (string) ($emailSettings['reply_to_name'] ?? ''),
+        'admin_notify_email' => (string) ($emailSettings['admin_notify_email'] ?? ''),
+        'send_client_confirmation' => !empty($emailSettings['send_client_confirmation']),
+        'send_admin_notification' => !empty($emailSettings['send_admin_notification']),
+        'is_active' => !empty($emailSettings['is_active']),
+        'has_smtp_password' => !empty($emailSettings['smtp_password']),
+    ];
 }
 
 /**
@@ -109,7 +125,8 @@ if ($emailSettings) {
  */
 $emailTemplatesUrl = $supabaseUrl
     . '/rest/v1/email_templates'
-    . '?tenant_id=eq.' . urlencode($tenantId);
+    . '?tenant_id=eq.' . urlencode($tenantId)
+    . '&select=' . rawurlencode('template_key,subject,body_html,service_name,is_enabled');
 
 $emailTemplatesRes = supabaseRequest($emailTemplatesUrl, $serviceRoleKey, $schema);
 
@@ -117,7 +134,7 @@ if (!$emailTemplatesRes['ok']) {
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd pobierania email_templates',
+        'error' => 'Nie udało się pobrać szablonów e-mail.',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -128,11 +145,23 @@ $clientTemplate = null;
 $adminTemplate = null;
 
 foreach ($templates as $tpl) {
+    if (!is_array($tpl)) {
+        continue;
+    }
+
+    $template = [
+        'template_key' => (string) ($tpl['template_key'] ?? ''),
+        'subject' => (string) ($tpl['subject'] ?? ''),
+        'body_html' => (string) ($tpl['body_html'] ?? ''),
+        'service_name' => (string) ($tpl['service_name'] ?? ''),
+        'is_enabled' => !empty($tpl['is_enabled']),
+    ];
+
     if (($tpl['template_key'] ?? '') === 'booking_client_confirmation') {
-        $clientTemplate = $tpl;
+        $clientTemplate = $template;
     }
     if (($tpl['template_key'] ?? '') === 'booking_admin_notification') {
-        $adminTemplate = $tpl;
+        $adminTemplate = $template;
     }
 }
 
@@ -142,7 +171,7 @@ foreach ($templates as $tpl) {
 echo json_encode([
     'success' => true,
     'data' => [
-        'smtp' => $emailSettings,
+        'smtp' => $smtp,
         'client_template' => $clientTemplate,
         'admin_template' => $adminTemplate,
     ]

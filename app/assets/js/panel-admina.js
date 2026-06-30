@@ -2322,7 +2322,9 @@ async function changeBookingStaff(actionRef) {
       body: JSON.stringify({
         action: 'change_staff',
         booking_ref: bookingRef,
-        staff_ref: selectedStaffRef
+        staff_ref: selectedStaffRef,
+        booking_date: getBookingDateValue(booking),
+        booking_time: getBookingTimeValue(booking)
       })
     });
 
@@ -2407,7 +2409,9 @@ async function detachBookingStaff(actionRef) {
       },
       body: JSON.stringify({
         action: 'detach_staff',
-        booking_ref: bookingRef
+        booking_ref: bookingRef,
+        booking_date: getBookingDateValue(booking),
+        booking_time: getBookingTimeValue(booking)
       })
     });
 

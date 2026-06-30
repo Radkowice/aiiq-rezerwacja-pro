@@ -329,7 +329,7 @@ if (
     || $usedResult['httpCode'] < 200
     || $usedResult['httpCode'] >= 300
 ) {
-    error_log('STAFF_PASSWORD_RESET_TOKEN_MARK_USED_FAILED tenant_id=' . (string) $tenantId . ' token_id=' . $tokenId);
+    error_log('STAFF_PASSWORD_RESET_TOKEN_MARK_USED_FAILED tenant_id_set=' . ($tenantId !== '' ? 'true' : 'false') . ' token_id_set=' . ($tokenId !== '' ? 'true' : 'false'));
 }
 
 $invalidateUrl = $supabaseUrl
@@ -348,7 +348,7 @@ if (
     || $invalidateResult['httpCode'] < 200
     || $invalidateResult['httpCode'] >= 300
 ) {
-    error_log('STAFF_PASSWORD_RESET_OTHER_TOKENS_INVALIDATE_FAILED tenant_id=' . (string) $tenantId . ' staff_account_id=' . $accountId);
+    error_log('STAFF_PASSWORD_RESET_OTHER_TOKENS_INVALIDATE_FAILED tenant_id_set=' . ($tenantId !== '' ? 'true' : 'false') . ' staff_account_id_set=' . ($accountId !== '' ? 'true' : 'false'));
 }
 
 staff_reset_password_json([

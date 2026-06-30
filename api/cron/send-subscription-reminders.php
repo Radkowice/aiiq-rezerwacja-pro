@@ -372,7 +372,7 @@ try {
         subscription_reminder_json(500, [
             'success' => false,
             'sql_required' => true,
-            'error' => 'Brakuje tabeli logów subscription_email_logs albo uprawnień do niej.',
+            'error' => 'Brak konfiguracji logów crona abonamentowego.',
         ]);
     }
 
