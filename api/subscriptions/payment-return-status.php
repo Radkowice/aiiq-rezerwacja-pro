@@ -146,12 +146,12 @@ function subscription_return_build_url(string $domain, string $path): string
 }
 
 
-function subscription_return_session_payment_id(string $tenantId): string
+function subscription_return_session_handoff(): array
 {
     $handoff = $_SESSION['subscription_payment_return_handoff'] ?? null;
 
     if (!is_array($handoff)) {
-        return '';
+        return [];
     }
 
     $paymentId = trim((string) ($handoff['payment_id'] ?? ''));
@@ -160,24 +160,41 @@ function subscription_return_session_payment_id(string $tenantId): string
 
     if ($paymentId === '' || $handoffTenantId === '' || $createdAt <= 0) {
         unset($_SESSION['subscription_payment_return_handoff']);
-        return '';
+        return [];
     }
 
     if (time() - $createdAt > 7200) {
         unset($_SESSION['subscription_payment_return_handoff']);
-        return '';
+        return [];
     }
 
-    if (!hash_equals($tenantId, $handoffTenantId)) {
-        return '';
-    }
-
-    if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $paymentId)) {
+    if (
+        !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $handoffTenantId)
+        || !preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $paymentId)
+    ) {
         unset($_SESSION['subscription_payment_return_handoff']);
+        return [];
+    }
+
+    return [
+        'tenant_id' => $handoffTenantId,
+        'payment_id' => $paymentId,
+    ];
+}
+
+function subscription_return_session_payment_id(string $tenantId): string
+{
+    $handoff = subscription_return_session_handoff();
+
+    if ($handoff === []) {
         return '';
     }
 
-    return $paymentId;
+    if (!hash_equals($tenantId, $handoff['tenant_id'])) {
+        return '';
+    }
+
+    return $handoff['payment_id'];
 }
 
 try {
@@ -201,18 +218,24 @@ try {
     }
 
     $headers = supabaseHeaders($supabaseKey, $schema);
+    $sessionHandoff = subscription_return_session_handoff();
 
-    $tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+    if ($sessionHandoff !== []) {
+        $tenantId = $sessionHandoff['tenant_id'];
+        $paymentId = $sessionHandoff['payment_id'];
+    } else {
+        $tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
 
-    if (!$tenantId) {
-        subscription_return_json(404, [
-            'success' => false,
-            'error' => 'Nie rozpoznano klienta.',
-        ]);
+        if (!$tenantId) {
+            subscription_return_json(404, [
+                'success' => false,
+                'error' => 'Nie rozpoznano klienta.',
+            ]);
+        }
+
+        $tenantId = (string) $tenantId;
+        $paymentId = subscription_return_session_payment_id($tenantId);
     }
-
-    $tenantId = (string) $tenantId;
-    $paymentId = subscription_return_session_payment_id($tenantId);
 
     if ($paymentId === '') {
         subscription_return_json(400, [

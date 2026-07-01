@@ -60,24 +60,6 @@ function exception_supabase_request(
     ];
 }
 
-function exception_normalize_staff_id($value): ?string
-{
-    $staffId = trim((string)($value ?? ''));
-
-    if ($staffId === '' || $staffId === 'null' || $staffId === 'undefined') {
-        return null;
-    }
-
-    if (!preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $staffId)) {
-        exception_json([
-            'success' => false,
-            'error' => 'Nieprawidłowy pracownik',
-        ], 400);
-    }
-
-    return $staffId;
-}
-
 function exception_normalize_staff_ref($value): string
 {
     $staffRef = trim((string)($value ?? ''));
@@ -151,8 +133,14 @@ function exception_resolve_staff_request_id(
         return exception_resolve_staff_ref($staffRefValue, $tenantId, $supabaseUrl, $apiKey, $schema, $refSecret);
     }
 
-    // staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
-    return exception_normalize_staff_id($staffIdValue);
+    if (exception_normalize_staff_ref($staffIdValue) !== '') {
+        exception_json([
+            'success' => false,
+            'error' => 'Nieprawidłowy pracownik.',
+        ], 400);
+    }
+
+    return null;
 }
 
 function exception_public_staff_ref(?string $staffId, string $tenantId, string $refSecret): ?string
@@ -295,7 +283,6 @@ if (!is_array($input)) {
 }
 
 $date = trim((string)($input['date'] ?? ''));
-// staff_id fallback only until admin-kalendarz.js is fully migrated to staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
 $staffId = exception_resolve_staff_request_id(
     $input['staff_ref'] ?? null,
     $input['staff_id'] ?? null,

@@ -34,7 +34,7 @@ $TENANT_ID = $_SESSION['user']['tenant_id'] ?? null;
 if (!$TENANT_ID) {
     json_response([
         'success' => false,
-        'error' => 'Brak tenant_id w sesji'
+        'error' => 'Brak wymaganych danych sesji'
     ], 400);
 }
 
@@ -43,14 +43,14 @@ $SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
     json_response([
         'success' => false,
-        'error' => 'Brak konfiguracji Supabase'
+        'error' => 'Błąd konfiguracji systemu'
     ], 500);
 }
 
 if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA)) {
     json_response([
         'success' => false,
-        'error' => 'Sesja nie pasuje do domeny'
+        'error' => 'Brak autoryzacji dla tej domeny'
     ], 401);
 }
 
@@ -63,10 +63,17 @@ if (!is_array($input)) {
     ], 400);
 }
 
-$id = trim((string)($input['id'] ?? ''));
+$legacyId = trim((string)($input['id'] ?? ''));
 $bookingRef = trim((string)($input['booking_ref'] ?? ''));
 $bookingDateHint = trim((string)($input['booking_date'] ?? ''));
 $bookingTimeHint = trim((string)($input['booking_time'] ?? ''));
+
+if ($legacyId !== '') {
+    json_response([
+        'success' => false,
+        'error' => 'Nieprawidłowy identyfikator rezerwacji'
+    ], 400);
+}
 
 function supabase_request(string $method, string $url, string $key, string $schema, ?array $payload = null): array {
     $ch = curl_init($url);
@@ -109,10 +116,6 @@ function build_booking_public_ref(string $tenantId, string $bookingId, string $s
     return 'bk_' . substr(hash_hmac('sha256', 'booking|' . $tenantId . '|' . $bookingId, $secret), 0, 48);
 }
 
-function is_valid_internal_booking_id(string $id): bool {
-    return $id !== '' && preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $id) === 1;
-}
-
 function is_valid_booking_public_ref(string $ref): bool {
     return preg_match('/^bk_[a-f0-9]{32,64}$/', $ref) === 1;
 }
@@ -123,31 +126,6 @@ function is_valid_booking_date_hint(string $date): bool {
 
 function is_valid_booking_time_hint(string $time): bool {
     return $time === '' || preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $time) === 1;
-}
-
-function fetch_booking_by_id(string $supabaseUrl, string $key, string $schema, string $tenantId, string $id): ?array {
-    $getUrl = $supabaseUrl
-        . '/rest/v1/bookings?select=id,booking_date,booking_time'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&id=eq.' . rawurlencode($id)
-        . '&limit=1';
-
-    [$getRes, $getErr, $getCode] = supabase_request('GET', $getUrl, $key, $schema);
-
-    if ($getErr || $getCode >= 400) {
-        json_response([
-            'success' => false,
-            'error' => 'Błąd pobierania rezerwacji'
-        ], 500);
-    }
-
-    $data = json_decode((string)$getRes, true);
-
-    if (!is_array($data) || empty($data[0]) || !is_array($data[0])) {
-        return null;
-    }
-
-    return $data[0];
 }
 
 function resolve_booking_by_public_ref(
@@ -229,31 +207,22 @@ function resolve_booking_by_public_ref(
 
 $booking = null;
 
-if ($bookingRef !== '') {
-    $booking = resolve_booking_by_public_ref(
-        $SUPABASE_URL,
-        $SUPABASE_KEY,
-        $SCHEMA,
-        (string)$TENANT_ID,
-        $bookingRef,
-        $bookingDateHint,
-        $bookingTimeHint
-    );
-} elseif ($id !== '') {
-    if (!is_valid_internal_booking_id($id)) {
-        json_response([
-            'success' => false,
-            'error' => 'Nieprawidłowe ID rezerwacji'
-        ], 400);
-    }
-
-    $booking = fetch_booking_by_id($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA, (string)$TENANT_ID, $id);
-} else {
+if ($bookingRef === '') {
     json_response([
         'success' => false,
         'error' => 'Brak identyfikatora rezerwacji'
     ], 400);
 }
+
+$booking = resolve_booking_by_public_ref(
+    $SUPABASE_URL,
+    $SUPABASE_KEY,
+    $SCHEMA,
+    (string)$TENANT_ID,
+    $bookingRef,
+    $bookingDateHint,
+    $bookingTimeHint
+);
 
 if (!$booking) {
     json_response([

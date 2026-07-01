@@ -1,6 +1,9 @@
 const loginUrlParams = new URLSearchParams(window.location.search);
 const loginActivatedState = loginUrlParams.get('activated');
 const skipSetupRedirect = loginActivatedState === 'already';
+const activationReissueMessage = 'Jeśli konto wymaga aktywacji, wyślemy nowy link aktywacyjny.';
+const activationReissueErrorMessage = 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.';
+let activationReissueEmail = '';
 
 async function checkSetupBeforeLogin() {
   if (skipSetupRedirect) {
@@ -18,7 +21,6 @@ async function checkSetupBeforeLogin() {
       window.location.href = '/rejestracja.html';
     }
   } catch (e) {
-    console.error('check setup error:', e);
     clearLoginError();
   }
 }
@@ -37,6 +39,48 @@ function setLoginError(message) {
 
 function clearLoginError() {
   setLoginError('');
+}
+
+function getActivationReissueWrap() {
+  return document.getElementById('activationReissueWrap');
+}
+
+function getActivationReissueButton() {
+  return document.getElementById('activationReissueBtn');
+}
+
+function showActivationReissueAction() {
+  const wrap = getActivationReissueWrap();
+  if (!wrap) return;
+
+  wrap.hidden = false;
+}
+
+function hideActivationReissueAction() {
+  const wrap = getActivationReissueWrap();
+  const button = getActivationReissueButton();
+  activationReissueEmail = '';
+
+  if (wrap) {
+    wrap.hidden = true;
+  }
+
+  if (button) {
+    button.disabled = false;
+  }
+}
+
+function handleLoginEmailChange() {
+  if (activationReissueEmail === '') {
+    return;
+  }
+
+  const emailInput = document.getElementById('email');
+  const currentEmail = emailInput ? emailInput.value.trim() : '';
+
+  if (currentEmail !== activationReissueEmail) {
+    hideActivationReissueAction();
+  }
 }
 
 function showActivationMessage() {
@@ -61,6 +105,7 @@ function showActivationMessage() {
 
 async function login() {
   clearLoginError();
+  hideActivationReissueAction();
 
   const emailInput = document.getElementById('email');
   const passwordInput = document.getElementById('password');
@@ -95,10 +140,57 @@ async function login() {
       return;
     }
 
+    if (data?.activation_required === true) {
+      activationReissueEmail = email;
+      showActivationReissueAction();
+    } else {
+      hideActivationReissueAction();
+    }
+
     setLoginError(data?.error || 'Nieprawidłowy e-mail lub hasło');
   } catch (error) {
-    console.error('login error:', error);
+    hideActivationReissueAction();
     setLoginError('Nie udało się zalogować. Spróbuj ponownie za chwilę');
+  }
+}
+
+async function requestActivationReissue() {
+  const button = getActivationReissueButton();
+  const email = activationReissueEmail;
+
+  if (!email) {
+    hideActivationReissueAction();
+    setLoginError(activationReissueErrorMessage);
+    return;
+  }
+
+  if (button) {
+    button.disabled = true;
+  }
+
+  try {
+    const res = await fetch('/api/auth/activation-link-reissue.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ email })
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (res.ok && data?.success === true) {
+      hideActivationReissueAction();
+      setLoginError(activationReissueMessage);
+      return;
+    }
+
+    setLoginError(activationReissueErrorMessage);
+  } catch (error) {
+    setLoginError(activationReissueErrorMessage);
+  } finally {
+    if (button) {
+      button.disabled = false;
+    }
   }
 }
 
@@ -118,7 +210,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   clearLoginError();
 
   const form = document.querySelector('form');
+  const emailInput = document.getElementById('email');
   const togglePasswordButton = document.querySelector('.login-toggle-password');
+  const activationReissueButton = getActivationReissueButton();
 
   if (form) {
     form.addEventListener('submit', function (event) {
@@ -129,6 +223,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (togglePasswordButton) {
     togglePasswordButton.addEventListener('click', togglePassword);
+  }
+
+  if (emailInput) {
+    emailInput.addEventListener('input', handleLoginEmailChange);
+  }
+
+  if (activationReissueButton) {
+    activationReissueButton.addEventListener('click', requestActivationReissue);
   }
 
   if (skipSetupRedirect) {

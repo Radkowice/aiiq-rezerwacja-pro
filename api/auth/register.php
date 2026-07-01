@@ -1,9 +1,12 @@
 <?php
 header('Content-Type: application/json; charset=utf-8');
+require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+
+start_secure_session();
 ini_set('display_errors', '0');
 error_reporting(E_ALL);
 
@@ -21,6 +24,15 @@ function register_debug($label, $data = null): void
     $line .= PHP_EOL;
 
     @file_put_contents('/var/www/data/register-debug.log', $line, FILE_APPEND);
+}
+
+function register_store_subscription_return_handoff(string $tenantId, string $paymentId): void
+{
+    $_SESSION['subscription_payment_return_handoff'] = [
+        'tenant_id' => $tenantId,
+        'payment_id' => $paymentId,
+        'created_at' => time(),
+    ];
 }
 
 function register_debug_result(string $label, array $result): void
@@ -572,7 +584,6 @@ try {
 
     // 7. AKTYWACJA / PŁATNOŚĆ
     $paymentUrl = '';
-    $paymentId = '';
 
     if ($planCode === 'pro') {
         $payment = register_create_initial_pro_payment(
@@ -592,7 +603,6 @@ try {
 
         $createdSubscriptionPayment = true;
         $paymentUrl = (string) $payment['payment_url'];
-        $paymentId = (string) ($payment['payment_id'] ?? '');
     } else {
         $activationToken = bin2hex(random_bytes(32));
         $activationTokenHash = hash('sha256', $activationToken);
@@ -660,7 +670,6 @@ try {
         'domain'        => $domain,
         'plan_code'     => $planCode,
         'billing_period'=> $planCode === 'pro' ? $billingPeriod : null,
-        'payment_id'    => $paymentId,
         'payment_url'   => $paymentUrl
     ], 201);
 
@@ -1192,7 +1201,7 @@ function register_create_initial_pro_payment(string $tenantId, string $billingPe
     }
 
     $timestamp = (string) time();
-    $extOrderId = 'subscription-' . $paymentId . '-' . $timestamp;
+    $extOrderId = 'subscription-' . $timestamp . '-' . bin2hex(random_bytes(12));
     $amountInMinorUnits = (int) round($amount * 100);
     $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
     $description = 'AI-IQ Rezerwacja Pro - rejestracja plan Pro ' . $periodLabel;
@@ -1205,7 +1214,7 @@ function register_create_initial_pro_payment(string $tenantId, string $billingPe
 
     $orderPayload = [
         'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',
-        'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html?payment_id=' . rawurlencode($paymentId),
+        'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html',
         'customerIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
         'merchantPosId' => $payu['pos_id'],
         'description' => $description,
@@ -1264,10 +1273,11 @@ function register_create_initial_pro_payment(string $tenantId, string $billingPe
         return ['success' => false, 'error' => 'Zamówienie PayU utworzone, ale nie udało się zapisać danych płatności.'];
     }
 
+    register_store_subscription_return_handoff($tenantId, $paymentId);
+
     return [
         'success' => true,
         'payment_url' => $paymentUrl,
-        'payment_id' => $paymentId,
     ];
 }
 

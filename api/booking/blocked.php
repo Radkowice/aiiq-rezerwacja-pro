@@ -100,21 +100,6 @@ function supabase_request(string $method, string $url, string $apiKey, string $s
     ];
 }
 
-function normalize_staff_id($value): ?string
-{
-    $staffId = trim((string)($value ?? ''));
-
-    if ($staffId === '' || $staffId === 'null' || $staffId === 'undefined') {
-        return null;
-    }
-
-    if (!preg_match('/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/', $staffId)) {
-        json_response(['success' => false, 'error' => 'Nieprawidłowy pracownik'], 400);
-    }
-
-    return $staffId;
-}
-
 function normalize_staff_ref($value): string
 {
     $staffRef = trim((string)($value ?? ''));
@@ -182,8 +167,14 @@ function resolve_staff_request_id(
         return resolve_staff_ref($staffRefValue, $tenantId, $supabaseUrl, $apiKey, $schema, $refSecret);
     }
 
-    // Legacy staff_id UUID fallback kept until all callers use staff_ref. TODO_REMOVE_LEGACY_ID_FALLBACK
-    return normalize_staff_id($staffIdValue);
+    if (normalize_staff_ref($staffIdValue) !== '') {
+        json_response([
+            'success' => false,
+            'error' => 'Nieprawidłowy pracownik.',
+        ], 400);
+    }
+
+    return null;
 }
 
 function staff_filter(?string $staffId): string

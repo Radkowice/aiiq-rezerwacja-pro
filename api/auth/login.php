@@ -104,6 +104,7 @@ if (!filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
     http_response_code(403);
     echo json_encode([
         'success' => false,
+        'activation_required' => true,
         'error' => 'Konto nie zostało jeszcze aktywowane. Sprawdź e-mail i kliknij link aktywacyjny.'
     ], JSON_UNESCAPED_UNICODE);
     exit;
