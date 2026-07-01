@@ -70,6 +70,139 @@ function buildPasswordChangeCodeHtml(string $code): string
     );
 }
 
+function passwordChangeRateLimit(string $tenantId, string $userId, string $clientIp): string
+{
+    $rateFile = __DIR__ . '/../data/rate_limit_password_change.json';
+    $rateDir = dirname($rateFile);
+
+    if (!is_dir($rateDir)) {
+        @mkdir($rateDir, 0775, true);
+    }
+
+    $handle = @fopen($rateFile, 'c+');
+
+    if ($handle === false) {
+        return 'storage_error';
+    }
+
+    if (!flock($handle, LOCK_EX)) {
+        fclose($handle);
+        return 'storage_error';
+    }
+
+    rewind($handle);
+    $rawData = stream_get_contents($handle);
+    $rateData = json_decode((string) $rawData, true);
+
+    if (!is_array($rateData)) {
+        $rateData = [];
+    }
+
+    $now = time();
+    $windowSeconds = 180;
+    $rateKey = hash('sha256', $tenantId . '|' . $userId . '|' . $clientIp);
+
+    $rateData[$rateKey] = array_values(array_filter(
+        $rateData[$rateKey] ?? [],
+        static function ($timestamp) use ($now, $windowSeconds): bool {
+            return is_numeric($timestamp) && ($now - (int) $timestamp) < $windowSeconds;
+        }
+    ));
+
+    if (count($rateData[$rateKey]) >= 1) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        return 'limited';
+    }
+
+    $rateData[$rateKey][] = $now;
+    $encoded = json_encode($rateData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT);
+
+    if ($encoded === false) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        return 'storage_error';
+    }
+
+    rewind($handle);
+
+    if (!ftruncate($handle, 0)) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        return 'storage_error';
+    }
+
+    $written = fwrite($handle, $encoded);
+
+    if ($written === false || $written < strlen($encoded)) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        return 'storage_error';
+    }
+
+    if (!fflush($handle)) {
+        flock($handle, LOCK_UN);
+        fclose($handle);
+        return 'storage_error';
+    }
+
+    flock($handle, LOCK_UN);
+    fclose($handle);
+
+    return 'allowed';
+}
+
+function markPasswordChangeCodesUsed(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    string $userId,
+    array $filters = []
+): void {
+    $url = $supabaseUrl
+        . '/rest/v1/password_change_codes'
+        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '&user_id=eq.' . rawurlencode($userId)
+        . '&used_at=is.null';
+
+    foreach ($filters as $filter) {
+        $filter = trim((string) $filter);
+
+        if ($filter !== '') {
+            $url .= '&' . $filter;
+        }
+    }
+
+    $payload = json_encode([
+        'used_at' => gmdate('Y-m-d\TH:i:s\Z'),
+    ], JSON_UNESCAPED_UNICODE);
+
+    if ($payload === false) {
+        return;
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST  => 'PATCH',
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'apikey: ' . $serviceRoleKey,
+            'Authorization: Bearer ' . $serviceRoleKey,
+            'Accept-Profile: ' . $schema,
+            'Content-Profile: ' . $schema,
+            'Prefer: return=minimal',
+        ],
+        CURLOPT_TIMEOUT        => 20,
+    ]);
+
+    curl_exec($ch);
+    curl_close($ch);
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
 
 $currentPassword = trim((string) ($input['current_password'] ?? ''));
@@ -225,42 +358,31 @@ if (password_verify($newPassword, $passwordHash)) {
     exit;
 }
 
-$invalidateUrl = $supabaseUrl
-    . '/rest/v1/password_change_codes'
-    . '?tenant_id=eq.' . rawurlencode($tenantId)
-    . '&user_id=eq.' . rawurlencode($userId)
-    . '&used_at=is.null';
+$clientIp = getClientIpAddress();
 
-$invalidatePayload = json_encode([
-    'used_at' => gmdate('Y-m-d\TH:i:s\Z')
-], JSON_UNESCAPED_UNICODE);
+$rateLimitStatus = passwordChangeRateLimit($tenantId, $userId, $clientIp);
 
-$invalidateCh = curl_init($invalidateUrl);
+if ($rateLimitStatus === 'limited') {
+    http_response_code(429);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Zbyt wiele prób. Spróbuj ponownie za kilka minut.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
-curl_setopt_array($invalidateCh, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_CUSTOMREQUEST  => 'PATCH',
-    CURLOPT_POSTFIELDS     => $invalidatePayload,
-    CURLOPT_HTTPHEADER     => [
-        'Content-Type: application/json',
-        'Accept: application/json',
-        'Prefer: return=minimal',
-        'apikey: ' . $serviceRoleKey,
-        'Authorization: Bearer ' . $serviceRoleKey,
-        'Accept-Profile: ' . $schema,
-        'Content-Profile: ' . $schema,
-    ],
-    CURLOPT_TIMEOUT        => 20,
-]);
-
-$invalidateResponse = curl_exec($invalidateCh);
-$invalidateHttpCode = (int) curl_getinfo($invalidateCh, CURLINFO_HTTP_CODE);
-curl_close($invalidateCh);
+if ($rateLimitStatus !== 'allowed') {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 $code = (string) random_int(100000, 999999);
 $codeHash = password_hash($code, PASSWORD_DEFAULT);
 $newPasswordHash = password_hash($newPassword, PASSWORD_DEFAULT);
-$clientIp = getClientIpAddress();
 $expiresAt = gmdate('Y-m-d\TH:i:s\Z', time() + 600);
 
 $insertPayload = json_encode([
@@ -330,6 +452,17 @@ $mailHtml = buildPasswordChangeCodeHtml($code);
 $mailSent = sendSystemMail($email, 'Kod potwierdzenia zmiany hasła', $mailHtml);
 
 if (!$mailSent) {
+    markPasswordChangeCodesUsed(
+        $supabaseUrl,
+        $serviceRoleKey,
+        $schema,
+        $tenantId,
+        $userId,
+        [
+            'code_hash=eq.' . rawurlencode($codeHash),
+        ]
+    );
+
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -337,6 +470,17 @@ if (!$mailSent) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+markPasswordChangeCodesUsed(
+    $supabaseUrl,
+    $serviceRoleKey,
+    $schema,
+    $tenantId,
+    $userId,
+    [
+        'code_hash=neq.' . rawurlencode($codeHash),
+    ]
+);
 
 echo json_encode([
     'success' => true,

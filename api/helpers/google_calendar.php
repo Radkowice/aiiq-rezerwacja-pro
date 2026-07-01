@@ -700,7 +700,6 @@ function google_calendar_format_amount($amount, string $currency): string
 
 function google_calendar_build_event(array $booking, array $settings, string $tenantId = ''): array
 {
-    $bookingRef = google_calendar_booking_ref($booking, $tenantId);
     $name = google_calendar_string_value($booking, 'name');
     $email = google_calendar_string_value($booking, 'email');
     $phone = google_calendar_string_value($booking, 'phone');
@@ -796,11 +795,6 @@ function google_calendar_build_event(array $booking, array $settings, string $te
         'E-mail: ' . ($email !== '' ? $email : '-'),
         'Telefon: ' . ($phone !== '' ? $phone : '-'),
     ]);
-
-    if ($bookingRef !== '') {
-        $descriptionLines[] = '';
-        $descriptionLines[] = 'Nr rezerwacji: ' . $bookingRef;
-    }
 
     if ($notes !== '') {
         $descriptionLines[] = '';

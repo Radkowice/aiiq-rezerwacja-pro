@@ -605,6 +605,193 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
 });
 
 let isChangingPassword = false;
+const passwordChangeRateLimitMessage = 'Kod został już wysłany. Spróbuj ponownie za kilka minut.';
+const passwordChangeFallbackMessage = 'Nie udało się zmienić hasła. Sprawdź dane i spróbuj ponownie.';
+
+function isPasswordChangeRateLimited(status, data) {
+  const message = String(data?.error || data?.message || '');
+
+  return Number(status) === 429 || message.includes('Zbyt wiele prób');
+}
+
+function isControlledPasswordChangeStatus(status) {
+  return [400, 401, 403, 422, 429].includes(Number(status));
+}
+
+function getSafePasswordChangeMessage(data) {
+  const message = String(data?.error || data?.message || '').trim();
+
+  if (!message) {
+    return passwordChangeFallbackMessage;
+  }
+
+  const technicalPattern = /tenant_id|user_id|code_id|subscription_id|payment_id|booking_id|staff_id|password_hash|new_password_hash|supabase|service_role|apikey|authorization|bearer|curl|sql|stack|trace|exception|schema|uuid|brak konfiguracji|nie udało się pobrać użytkownika|nie znaleziono użytkownika|sesja nie pasuje/i;
+  const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+  if (technicalPattern.test(message) || uuidPattern.test(message)) {
+    return passwordChangeFallbackMessage;
+  }
+
+  return message;
+}
+
+async function showPasswordChangeRateLimitMessage() {
+  await window.openAdminConfirm({
+    title: 'Zbyt wiele prób',
+    message: passwordChangeRateLimitMessage,
+    confirmText: 'OK',
+    cancelText: 'Zamknij',
+    icon: '⚠️',
+    variant: 'danger'
+  });
+}
+
+async function fetchPasswordChangeRequest(payload) {
+  const response = await fetch('/api/user/change-password.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload)
+  });
+
+  const rawBody = await response.text();
+  let data = null;
+
+  if (rawBody) {
+    try {
+      data = JSON.parse(rawBody);
+    } catch (e) {
+      if (Number(response.status) === 429) {
+        return { ok: false, rateLimited: true, status: response.status };
+      }
+
+      if (isControlledPasswordChangeStatus(response.status)) {
+        return { ok: false, controlled: true, status: response.status };
+      }
+
+      throw new Error('invalid_json');
+    }
+  }
+
+  if (response.ok && data?.success === true) {
+    return { ok: true, data, status: response.status };
+  }
+
+  if (isPasswordChangeRateLimited(response.status, data)) {
+    return { ok: false, rateLimited: true, status: response.status };
+  }
+
+  if (isControlledPasswordChangeStatus(response.status) && data?.success === false) {
+    return { ok: false, controlled: true, data, status: response.status };
+  }
+
+  if (response.ok && data?.success === false) {
+    return { ok: false, controlled: true, data, status: response.status };
+  }
+
+  if (response.ok) {
+    return { ok: false, data, status: response.status };
+  }
+
+  throw new Error('change_password_failed');
+}
+
+async function requestPasswordChangeCode(successTitle, successMessage) {
+  const current_password = document.getElementById('current-password')?.value || '';
+  const new_password = document.getElementById('new-password')?.value || '';
+  const confirm_password = document.getElementById('confirm-password')?.value || '';
+
+  if (!current_password || !new_password || !confirm_password) {
+    await window.openAdminConfirm({
+      title: 'Brak danych',
+      message: 'Wypełnij wszystkie pola',
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '⚠️',
+      variant: 'danger'
+    });
+    return;
+  }
+
+  const isValid =
+    new_password.length >= 8 &&
+    /[a-z]/.test(new_password) &&
+    /[A-Z]/.test(new_password) &&
+    /[0-9]/.test(new_password) &&
+    /[^A-Za-z0-9]/.test(new_password);
+
+  if (!isValid) {
+    await window.openAdminConfirm({
+      title: 'Za słabe hasło',
+      message: 'Hasło musi zawierać min. 8 znaków, dużą i małą literę, cyfrę oraz znak specjalny.',
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '⚠️',
+      variant: 'danger'
+    });
+    return;
+  }
+
+  const result = await fetchPasswordChangeRequest({
+    current_password,
+    new_password,
+    confirm_password
+  });
+  const data = result.data;
+
+  if (result.rateLimited === true) {
+    await showPasswordChangeRateLimitMessage();
+    return;
+  }
+
+  if (result.controlled === true) {
+    await window.openAdminConfirm({
+      title: 'Błąd',
+      message: getSafePasswordChangeMessage(data),
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✖',
+      variant: 'danger'
+    });
+    return;
+  }
+
+  if (!data) return;
+
+  if (data.success === true) {
+    await window.openAdminConfirm({
+      title: successTitle,
+      message: successMessage,
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✉️',
+      variant: 'primary'
+    });
+
+    const codeSection = document.getElementById('password-code-section');
+
+    if (codeSection) {
+      codeSection.classList.remove('hidden');
+      codeSection.style.display = 'block';
+      codeSection.scrollIntoView({ behavior: 'smooth' });
+      document.getElementById('password-code')?.focus();
+      startPasswordTimer(600);
+    }
+
+    return;
+  }
+
+  if (data.error || data.message) {
+    await window.openAdminConfirm({
+      title: 'Błąd',
+      message: getSafePasswordChangeMessage(data),
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✖',
+      variant: 'danger'
+    });
+  }
+}
 
 document.getElementById('change-password-btn')?.addEventListener('click', async (e) => {
   e.preventDefault();
@@ -616,91 +803,42 @@ document.getElementById('change-password-btn')?.addEventListener('click', async 
   if (btn) btn.disabled = true;
 
   try {
-    const current_password = document.getElementById('current-password')?.value || '';
-    const new_password = document.getElementById('new-password')?.value || '';
-    const confirm_password = document.getElementById('confirm-password')?.value || '';
-
-    if (!current_password || !new_password || !confirm_password) {
-      await window.openAdminConfirm({
-        title: 'Brak danych',
-        message: 'Wypełnij wszystkie pola',
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '⚠️',
-        variant: 'danger'
-      });
-      return;
-    }
-
-    const isValid =
-      new_password.length >= 8 &&
-      /[a-z]/.test(new_password) &&
-      /[A-Z]/.test(new_password) &&
-      /[0-9]/.test(new_password) &&
-      /[^A-Za-z0-9]/.test(new_password);
-
-    if (!isValid) {
-      await window.openAdminConfirm({
-        title: 'Za słabe hasło',
-        message: 'Hasło musi zawierać min. 8 znaków, dużą i małą literę, cyfrę oraz znak specjalny.',
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '⚠️',
-        variant: 'danger'
-      });
-      return;
-    }
-
-    const data = await apiFetch('/api/user/change-password.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        current_password,
-        new_password,
-        confirm_password
-      })
-    });
-
-    if (!data) return;
-
-    if (data.success === true) {
-      await window.openAdminConfirm({
-        title: 'Kod wysłany',
-        message: 'Wysłaliśmy kod na Twój email. Wpisz go poniżej, aby zmienić hasło.',
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '✉️',
-        variant: 'primary'
-      });
-
-      const codeSection = document.getElementById('password-code-section');
-
-      if (codeSection) {
-        codeSection.classList.remove('hidden');
-        codeSection.style.display = 'block';
-        codeSection.scrollIntoView({ behavior: 'smooth' });
-        document.getElementById('password-code')?.focus();
-        startPasswordTimer(600);
-      }
-
-      return;
-    }
-
-    if (data.error) {
-      await window.openAdminConfirm({
-        title: 'Błąd',
-        message: data.error,
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '✖',
-        variant: 'danger'
-      });
-      return;
-    }
+    await requestPasswordChangeCode(
+      'Kod wysłany',
+      'Wysłaliśmy kod na Twój email. Wpisz go poniżej, aby zmienić hasło.'
+    );
 
   } catch (e) {
-    console.error(e);
+    await window.openAdminConfirm({
+      title: 'Błąd połączenia',
+      message: 'Wystąpił problem z odpowiedzią serwera. Jeśli kod został wysłany, sprawdź email i wpisz go poniżej.',
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✖',
+      variant: 'danger'
+    });
+  } finally {
+    isChangingPassword = false;
+    if (btn) btn.disabled = false;
+  }
+});
 
+document.getElementById('resend-password-code-btn')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+
+  if (isChangingPassword) return;
+  isChangingPassword = true;
+
+  const btn = document.getElementById('resend-password-code-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    await requestPasswordChangeCode(
+      'Nowy kod wysłany',
+      'Nowy kod został wysłany. Wpisz go poniżej, aby zmienić hasło.'
+    );
+
+  } catch (e) {
     await window.openAdminConfirm({
       title: 'Błąd połączenia',
       message: 'Wystąpił problem z odpowiedzią serwera. Jeśli kod został wysłany, sprawdź email i wpisz go poniżej.',
@@ -716,6 +854,59 @@ document.getElementById('change-password-btn')?.addEventListener('click', async 
 });
 
 let isConfirmingPassword = false;
+const passwordCodeInvalidMessage = 'Kod jest nieprawidłowy lub nieważny.';
+
+function isControlledPasswordCodeStatus(status) {
+  return [400, 410, 422, 429].includes(Number(status));
+}
+
+async function showPasswordCodeInvalidMessage() {
+  await window.openAdminConfirm({
+    title: 'Błąd',
+    message: passwordCodeInvalidMessage,
+    confirmText: 'OK',
+    cancelText: 'Zamknij',
+    icon: '✖',
+    variant: 'danger'
+  });
+}
+
+async function fetchPasswordCodeConfirmation(code) {
+  const response = await fetch('/api/user/confirm-password-change.php', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ code })
+  });
+
+  const rawBody = await response.text();
+  let data = null;
+
+  if (rawBody) {
+    try {
+      data = JSON.parse(rawBody);
+    } catch (e) {
+      if (isControlledPasswordCodeStatus(response.status)) {
+        return { ok: false, controlled: true, status: response.status };
+      }
+
+      throw new Error('invalid_json');
+    }
+  }
+
+  if (response.ok && data?.success === true) {
+    return { ok: true, data, status: response.status };
+  }
+
+  if (
+    isControlledPasswordCodeStatus(response.status)
+    || ((response.ok || response.status < 500) && data?.success === false)
+  ) {
+    return { ok: false, controlled: true, status: response.status };
+  }
+
+  throw new Error('confirm_failed');
+}
 
 document.getElementById('confirm-password-code-btn')?.addEventListener('click', async (e) => {
   e.preventDefault();
@@ -729,27 +920,14 @@ document.getElementById('confirm-password-code-btn')?.addEventListener('click', 
   try {
     const code = document.getElementById('password-code')?.value.trim();
 
-    if (!code) {
-      await window.openAdminConfirm({
-        title: 'Brak kodu',
-        message: 'Wpisz kod z emaila',
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '⚠️',
-        variant: 'danger'
-      });
+    if (!/^\d{6}$/.test(code || '')) {
+      await showPasswordCodeInvalidMessage();
       return;
     }
 
-    const data = await apiFetch('/api/user/confirm-password-change.php', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code })
-    });
+    const result = await fetchPasswordCodeConfirmation(code);
 
-    if (!data) return;
-
-    if (data.success === true) {
+    if (result.ok === true) {
       await window.openAdminConfirm({
         title: 'Sukces',
         message: 'Hasło zostało zmienione',
@@ -765,21 +943,12 @@ document.getElementById('confirm-password-code-btn')?.addEventListener('click', 
       return;
     }
 
-    if (data.error) {
-      await window.openAdminConfirm({
-        title: 'Błąd',
-        message: data.error,
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '✖',
-        variant: 'danger'
-      });
+    if (result.controlled === true) {
+      await showPasswordCodeInvalidMessage();
       return;
     }
 
   } catch (e) {
-    console.error(e);
-
     await window.openAdminConfirm({
       title: 'Błąd połączenia',
       message: 'Nie udało się połączyć z serwerem',

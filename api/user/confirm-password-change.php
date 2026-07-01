@@ -64,6 +64,68 @@ function buildPasswordChangedHtml(): string
     );
 }
 
+function passwordChangeLogHash(string $value): string
+{
+    $value = trim($value);
+
+    if ($value === '') {
+        return '';
+    }
+
+    return substr(hash('sha256', $value), 0, 16);
+}
+
+function markPasswordChangeCodesUsed(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    string $userId,
+    array $filters = []
+): void {
+    $url = $supabaseUrl
+        . '/rest/v1/password_change_codes'
+        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '&user_id=eq.' . rawurlencode($userId)
+        . '&used_at=is.null';
+
+    foreach ($filters as $filter) {
+        $filter = trim((string) $filter);
+
+        if ($filter !== '') {
+            $url .= '&' . $filter;
+        }
+    }
+
+    $payload = json_encode([
+        'used_at' => gmdate('Y-m-d\TH:i:s\Z'),
+    ], JSON_UNESCAPED_UNICODE);
+
+    if ($payload === false) {
+        return;
+    }
+
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST  => 'PATCH',
+        CURLOPT_POSTFIELDS     => $payload,
+        CURLOPT_HTTPHEADER     => [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'apikey: ' . $serviceRoleKey,
+            'Authorization: Bearer ' . $serviceRoleKey,
+            'Accept-Profile: ' . $schema,
+            'Content-Profile: ' . $schema,
+            'Prefer: return=minimal',
+        ],
+        CURLOPT_TIMEOUT        => 20,
+    ]);
+
+    curl_exec($ch);
+    curl_close($ch);
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
 $code = trim((string) ($input['code'] ?? ''));
 
@@ -72,6 +134,15 @@ if ($code === '') {
     echo json_encode([
         'success' => false,
         'error' => 'Podaj kod potwierdzenia'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!preg_match('/^\d{6}$/', $code)) {
+    http_response_code(400);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nieprawidłowy kod potwierdzenia'
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -172,6 +243,17 @@ $expiresAt = (string) ($row['expires_at'] ?? '');
 $rowEmail = (string) ($row['email'] ?? $email);
 
 if ($expiresAt === '' || strtotime($expiresAt) < time()) {
+    if ($codeId !== '') {
+        markPasswordChangeCodesUsed(
+            $supabaseUrl,
+            $serviceRoleKey,
+            $schema,
+            $tenantId,
+            $userId,
+            ['id=eq.' . rawurlencode($codeId)]
+        );
+    }
+
     http_response_code(410);
     echo json_encode([
         'success' => false,
@@ -311,9 +393,18 @@ curl_setopt_array($usedPatchCh, [
 curl_exec($usedPatchCh);
 curl_close($usedPatchCh);
 
+markPasswordChangeCodesUsed(
+    $supabaseUrl,
+    $serviceRoleKey,
+    $schema,
+    $tenantId,
+    $userId,
+    ['id=neq.' . rawurlencode($codeId)]
+);
+
 $logPayload = json_encode([
-    'tenant_id'  => $tenantId,
-    'user_id'    => $userId,
+    'tenant_hash' => passwordChangeLogHash($tenantId),
+    'user_hash'   => passwordChangeLogHash($userId),
     'email'      => $rowEmail,
     'ip_address' => $clientIp,
 ], JSON_UNESCAPED_UNICODE);

@@ -383,6 +383,12 @@ textarea:focus {
   min-height: 47px;
 }
 
+label[for="time"] {
+  display: block;
+  margin: 12px 0 8px;
+  text-align: center;
+}
+
 @media (max-width: 520px) {
   .front-service-box {
     padding: 12px 13px;
