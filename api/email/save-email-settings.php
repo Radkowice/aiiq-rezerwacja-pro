@@ -128,7 +128,7 @@ if (!in_array($section, ['all', 'smtp', 'global_template'], true)) {
 
 $supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
-$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'public';
+$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
     email_settings_json([
