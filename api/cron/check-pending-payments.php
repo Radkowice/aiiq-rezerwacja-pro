@@ -280,16 +280,19 @@ function cron_payments_booking_summary_html(array $booking): string
         'UTF-8'
     );
     $expires = htmlspecialchars(cron_payments_format_datetime($booking['payment_expires_at'] ?? ''), ENT_QUOTES, 'UTF-8');
+    $row = static function (string $icon, string $label, string $value): string {
+        return '<tr><td style="padding:7px 0;color:#6b7280;"><span style="display:inline-block;width:24px;" aria-hidden="true">' . htmlspecialchars($icon, ENT_QUOTES, 'UTF-8') . '</span>' . $label . ':</td><td style="padding:7px 0;text-align:right;"><strong>' . $value . '</strong></td></tr>';
+    };
 
     return ''
         . '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">'
-        . '<tr><td style="padding:7px 0;color:#6b7280;">Klient:</td><td style="padding:7px 0;text-align:right;"><strong>' . $name . '</strong></td></tr>'
-        . '<tr><td style="padding:7px 0;color:#6b7280;">Email:</td><td style="padding:7px 0;text-align:right;"><strong>' . $email . '</strong></td></tr>'
-        . '<tr><td style="padding:7px 0;color:#6b7280;">Telefon:</td><td style="padding:7px 0;text-align:right;"><strong>' . $phone . '</strong></td></tr>'
-        . '<tr><td style="padding:7px 0;color:#6b7280;">Data:</td><td style="padding:7px 0;text-align:right;"><strong>' . $date . '</strong></td></tr>'
-        . '<tr><td style="padding:7px 0;color:#6b7280;">Godzina:</td><td style="padding:7px 0;text-align:right;"><strong>' . $time . '</strong></td></tr>'
-        . '<tr><td style="padding:7px 0;color:#6b7280;">Kwota:</td><td style="padding:7px 0;text-align:right;"><strong>' . $amount . '</strong></td></tr>'
-        . '<tr><td style="padding:7px 0;color:#6b7280;">Termin płatności:</td><td style="padding:7px 0;text-align:right;"><strong>' . $expires . '</strong></td></tr>'
+        . $row('👤', 'Klient', $name)
+        . $row('✉️', 'Email', $email)
+        . $row('📞', 'Telefon', $phone)
+        . $row('📅', 'Data', $date)
+        . $row('🕒', 'Godzina', $time)
+        . $row('💰', 'Kwota', $amount)
+        . $row('⏰', 'Termin płatności', $expires)
         . '</table>';
 }
 

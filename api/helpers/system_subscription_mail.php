@@ -272,6 +272,11 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
 function buildSubscriptionReminderMailHtml(array $subscription, array $context, int $daysLeft): string
 {
     $panelUrl = system_subscription_mail_panel_url($context);
+
+    if ($panelUrl !== '' && preg_match('#/logowanie\.html$#i', $panelUrl) !== 1) {
+        $panelUrl = rtrim($panelUrl, '/') . '/logowanie.html';
+    }
+
     $companyName = trim((string) ($context['company_name'] ?? ''));
     $planName = trim((string) ($subscription['plan_name'] ?? $subscription['plan_code'] ?? 'Pro'));
     $periodEnd = (string) ($subscription['current_period_end'] ?? '');
