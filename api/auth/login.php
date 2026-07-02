@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -43,10 +44,47 @@ $input = json_decode(file_get_contents('php://input'), true);
 
 $email    = trim((string) ($input['email'] ?? ''));
 $password = (string) ($input['password'] ?? '');
+$securityEmail = function_exists('mb_strtolower')
+    ? mb_strtolower($email, 'UTF-8')
+    : strtolower($email);
+$securityIp = security_client_ip();
+$securityEndpoint = (string) ($_SERVER['SCRIPT_NAME'] ?? '/api/auth/login.php');
+$securityMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'POST'));
 
 if ($email === '' || $password === '') {
     http_response_code(400);
     echo json_encode(['success' => false, 'error' => 'Podaj email i hasło']);
+    exit;
+}
+
+$rateLimitResult = security_rate_limit_check(
+    'auth_login_user',
+    [
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'metadata' => [
+            'reason' => 'login_attempt',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
 }
 
@@ -85,6 +123,22 @@ if ($httpCode < 200 || $httpCode >= 300) {
 $data = json_decode($response, true);
 
 if (!is_array($data) || empty($data)) {
+    security_log_event('login_unknown_email', [
+        'action_key' => 'auth_login_unknown_email',
+        'severity' => 'medium',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 401,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'unknown_email',
+        ],
+    ]);
+
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Błędny login lub hasło']);
     exit;
@@ -94,6 +148,22 @@ $user = $data[0];
 
 // 🔐 weryfikacja hasła
 if (!password_verify($password, $user['password_hash'])) {
+    security_log_event('login_failed', [
+        'action_key' => 'auth_login_user',
+        'severity' => 'high',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 401,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'invalid_credentials',
+        ],
+    ]);
+
     http_response_code(401);
     echo json_encode(['success' => false, 'error' => 'Błędny login lub hasło']);
     exit;
@@ -116,6 +186,23 @@ $_SESSION['user'] = [
     'tenant_id' => $user['tenant_id'],
     'role'      => $user['role'] ?? 'admin'
 ];
+
+security_log_event('login_success', [
+    'action_key' => 'auth_login_user',
+    'severity' => 'low',
+    'actor_type' => 'tenant_user',
+    'tenant_id' => (string) ($user['tenant_id'] ?? $tenantId),
+    'user_id' => (string) ($user['id'] ?? ''),
+    'email' => $securityEmail,
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'response_status' => 200,
+    'result' => 'success',
+    'details' => [
+        'reason' => 'login_success',
+    ],
+]);
 
 echo json_encode([
     'success' => true,

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -130,6 +131,38 @@ if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
     ], 400);
 }
 
+$securityIp = security_client_ip();
+$securityEndpoint = (string) ($_SERVER['SCRIPT_NAME'] ?? '/api/staff/login.php');
+$securityMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'POST'));
+
+$rateLimitResult = security_rate_limit_check(
+    'auth_login_staff',
+    [
+        'tenant_id' => (string) $tenantId,
+        'email' => $email,
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff_user',
+        'tenant_id' => (string) $tenantId,
+        'email' => $email,
+        'metadata' => [
+            'reason' => 'staff_login_attempt',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    staff_login_json($rateLimitPayload, 429);
+}
+
 $accountUrl = $supabaseUrl
     . '/rest/v1/staff_accounts'
     . '?select=id,tenant_id,staff_id,email,password_hash,is_active'
@@ -155,6 +188,22 @@ $accountRows = is_array($accountResult['data'] ?? null) ? $accountResult['data']
 $account = is_array($accountRows[0] ?? null) ? $accountRows[0] : null;
 
 if (!is_array($account)) {
+    security_log_event('staff_login_unknown_email', [
+        'action_key' => 'auth_login_staff',
+        'severity' => 'medium',
+        'actor_type' => 'staff_user',
+        'tenant_id' => (string) $tenantId,
+        'email' => $email,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 401,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'staff_not_found',
+        ],
+    ]);
+
     staff_login_fail();
 }
 
@@ -174,10 +223,46 @@ if (
     || $passwordHash === ''
     || !$isActive
 ) {
+    security_log_event('staff_login_failed', [
+        'action_key' => 'auth_login_staff',
+        'severity' => 'high',
+        'actor_type' => 'staff_user',
+        'tenant_id' => (string) $tenantId,
+        'staff_account_id' => $accountId,
+        'staff_id' => $staffId,
+        'email' => $email,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 401,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'invalid_staff_account',
+        ],
+    ]);
+
     staff_login_fail();
 }
 
 if (!password_verify($password, $passwordHash)) {
+    security_log_event('staff_login_failed', [
+        'action_key' => 'auth_login_staff',
+        'severity' => 'high',
+        'actor_type' => 'staff_user',
+        'tenant_id' => (string) $tenantId,
+        'staff_account_id' => $accountId,
+        'staff_id' => $staffId,
+        'email' => $email,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 401,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'invalid_credentials',
+        ],
+    ]);
+
     staff_login_fail();
 }
 
@@ -206,12 +291,48 @@ $staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
 $staff = is_array($staffRows[0] ?? null) ? $staffRows[0] : null;
 
 if (!is_array($staff) || empty($staff['id'])) {
+    security_log_event('staff_login_failed', [
+        'action_key' => 'auth_login_staff',
+        'severity' => 'high',
+        'actor_type' => 'staff_user',
+        'tenant_id' => (string) $tenantId,
+        'staff_account_id' => $accountId,
+        'staff_id' => $staffId,
+        'email' => $email,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 401,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'staff_profile_not_found',
+        ],
+    ]);
+
     staff_login_fail();
 }
 
 $staffIsActive = filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN);
 
 if (!$staffIsActive) {
+    security_log_event('staff_login_inactive_profile', [
+        'action_key' => 'auth_login_staff',
+        'severity' => 'medium',
+        'actor_type' => 'staff_user',
+        'tenant_id' => (string) $tenantId,
+        'staff_account_id' => $accountId,
+        'staff_id' => $staffId,
+        'email' => $email,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 403,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'staff_profile_inactive',
+        ],
+    ]);
+
     staff_login_json([
         'success' => false,
         'error' => 'Konto pracownika jest nieaktywne.'
@@ -244,6 +365,24 @@ $updateUrl = $supabaseUrl
 staff_login_request('PATCH', $updateUrl, $supabaseKey, $schema, [
     'last_login_at' => $now,
     'updated_at' => $now,
+]);
+
+security_log_event('staff_login_success', [
+    'action_key' => 'auth_login_staff',
+    'severity' => 'low',
+    'actor_type' => 'staff_user',
+    'tenant_id' => (string) $tenantId,
+    'staff_account_id' => $accountId,
+    'staff_id' => $staffId,
+    'email' => $email,
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'response_status' => 200,
+    'result' => 'success',
+    'details' => [
+        'reason' => 'staff_login_success',
+    ],
 ]);
 
 $refSecret = public_response_ref_secret($supabaseKey);
