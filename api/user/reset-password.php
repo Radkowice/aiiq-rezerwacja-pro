@@ -13,6 +13,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 }
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -123,6 +124,53 @@ if (!isStrongResetPassword($newPassword)) {
     ], 400);
 }
 
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/user/reset-password.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+$rateLimitResult = security_rate_limit_check(
+    'user_password_reset_token_probe',
+    [
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'ip_address' => $securityIp,
+        'metadata' => [
+            'reason' => 'user_password_reset_token_probe',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    security_log_event('user_password_reset_token_probe_rate_limited', [
+        'action_key' => 'user_password_reset_token_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'severity' => 'high',
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'user_password_reset_token_probe',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 /*
  * Szukamy tokena po token + tenant.
  */
@@ -150,6 +198,19 @@ if (!$tokenResult['ok']) {
 $tokens = is_array($tokenResult['json']) ? $tokenResult['json'] : [];
 
 if (count($tokens) === 0) {
+    security_log_event('user_password_reset_token_probe_failed', [
+        'action_key' => 'user_password_reset_token_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 400,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'user_password_reset_token_probe_failed',
+        ],
+    ]);
+
     resetPasswordJson([
         'success' => false,
         'message' => 'Token nieprawidłowy.'
@@ -176,6 +237,19 @@ if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
 }
 
 if ($expiresAt === '' || strtotime($expiresAt) === false) {
+    security_log_event('user_password_reset_token_probe_failed', [
+        'action_key' => 'user_password_reset_token_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 400,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'user_password_reset_token_probe_failed',
+        ],
+    ]);
+
     resetPasswordJson([
         'success' => false,
         'message' => 'Nieprawidłowa data ważności tokena.'
@@ -197,6 +271,19 @@ if (strtotime($expiresAt) < time()) {
         $SUPABASE_KEY,
         $SUPABASE_DB_SCHEMA
     );
+
+    security_log_event('user_password_reset_token_probe_failed', [
+        'action_key' => 'user_password_reset_token_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 400,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'user_password_reset_token_probe_failed',
+        ],
+    ]);
 
     resetPasswordJson([
         'success' => false,
@@ -318,6 +405,19 @@ if (!is_dir($logDir)) {
     json_encode($logData, JSON_UNESCAPED_UNICODE) . PHP_EOL,
     FILE_APPEND | LOCK_EX
 );
+
+security_log_event('user_password_reset_success', [
+    'action_key' => 'user_password_reset',
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'tenant_user',
+    'response_status' => 200,
+    'result' => 'success',
+    'details' => [
+        'reason' => 'user_password_reset_success',
+    ],
+]);
 
 resetPasswordJson([
     'success' => true,

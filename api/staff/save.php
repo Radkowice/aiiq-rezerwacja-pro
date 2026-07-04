@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -360,6 +361,19 @@ function staff_save_ensure_no_duplicate(
     }
 
     if (!empty($rows[0]['id'])) {
+        security_log_event('staff_save_duplicate_conflict', [
+            'action_key' => 'staff_save',
+            'endpoint' => '/api/staff/save.php',
+            'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+            'actor_type' => 'tenant_user',
+            'response_status' => 409,
+            'result' => 'failed',
+            'severity' => 'medium',
+            'details' => [
+                'reason' => 'staff_save_duplicate_conflict',
+            ],
+        ]);
+
         staff_save_json([
             'success' => false,
             'error' => 'Pracownik o takich danych już istnieje'
@@ -799,6 +813,21 @@ if (!is_array($savedRows) || empty($savedRows[0]) || !is_array($savedRows[0])) {
         'success' => false,
         'error' => 'Nieprawidłowa odpowiedź bazy danych'
     ], 500);
+}
+
+if ($isUpdate && $existingIsActive && array_key_exists('is_active', $payload) && $payload['is_active'] === false) {
+    security_log_event('staff_save_deactivate_success', [
+        'action_key' => 'staff_save',
+        'endpoint' => '/api/staff/save.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'response_status' => 200,
+        'result' => 'success',
+        'severity' => 'medium',
+        'details' => [
+            'reason' => 'staff_save_deactivate_success',
+        ],
+    ]);
 }
 
 staff_save_json([

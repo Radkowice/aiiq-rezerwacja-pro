@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -62,6 +63,19 @@ function staff_invite_request(
 
 function staff_invite_fail_database(string $stage = 'unknown'): void
 {
+    security_log_event('staff_invite_prepare_failed', [
+        'action_key' => 'staff_invite_send',
+        'endpoint' => '/api/staff/invite.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'response_status' => 500,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'staff_invite_prepare_failed',
+            'stage' => preg_replace('/[^a-z0-9_:-]/i', '_', $stage) ?: 'unknown',
+        ],
+    ]);
+
     staff_invite_json([
         'success' => false,
         'error' => 'Nie udało się przygotować zaproszenia.'
@@ -255,6 +269,55 @@ if (!is_array($input)) {
     ], 400);
 }
 
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/staff/invite.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+$rateLimitResult = security_rate_limit_check(
+    'staff_invite_send',
+    [
+        'tenant_id' => $tenantId,
+        'user_id' => $adminUserId,
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'ip_address' => $securityIp,
+        'metadata' => [
+            'reason' => 'staff_invite_send',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    security_log_event('staff_invite_send_rate_limited', [
+        'action_key' => 'staff_invite_send',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'severity' => 'medium',
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'staff_invite_send',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $refSecret = public_response_ref_secret($supabaseKey);
 $staffId = staff_invite_resolve_staff_request_id($input, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret);
 
@@ -347,6 +410,19 @@ if (!is_array($account)) {
         if ($accountByEmailStaffId !== '' && hash_equals($accountByEmailStaffId, $staffId)) {
             $account = $accountByEmail;
         } else {
+            security_log_event('staff_invite_email_conflict', [
+                'action_key' => 'staff_invite_send',
+                'ip_address' => $securityIp,
+                'endpoint' => $securityEndpoint,
+                'http_method' => $securityMethod,
+                'actor_type' => 'tenant_user',
+                'response_status' => 409,
+                'result' => 'failed',
+                'details' => [
+                    'reason' => 'staff_invite_email_conflict',
+                ],
+            ]);
+
             staff_invite_json([
                 'success' => false,
                 'error' => 'Konto personelu dla tego adresu e-mail już istnieje.'
@@ -360,6 +436,19 @@ $accountHasPassword = is_array($account) && trim((string) ($account['password_ha
 $accountIsActive = is_array($account) && filter_var($account['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
 if ($accountIsActive && $accountHasPassword) {
+    security_log_event('staff_invite_email_conflict', [
+        'action_key' => 'staff_invite_send',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 409,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'staff_invite_account_already_active',
+        ],
+    ]);
+
     staff_invite_json([
         'success' => false,
         'error' => 'Pracownik ma już aktywne konto.'
@@ -367,6 +456,19 @@ if ($accountIsActive && $accountHasPassword) {
 }
 
 if ($accountHasPassword) {
+    security_log_event('staff_invite_email_conflict', [
+        'action_key' => 'staff_invite_send',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 409,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'staff_invite_account_already_exists',
+        ],
+    ]);
+
     staff_invite_json([
         'success' => false,
         'error' => 'Konto pracownika już istnieje.'
@@ -473,11 +575,38 @@ $mailHtml = buildSystemMailLayout(
 );
 
 if (!sendSystemMail($email, 'Zaproszenie do panelu pracownika', $mailHtml)) {
+    security_log_event('staff_invite_prepare_failed', [
+        'action_key' => 'staff_invite_send',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 500,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'staff_invite_prepare_failed',
+            'stage' => 'send_mail',
+        ],
+    ]);
+
     staff_invite_json([
         'success' => false,
         'error' => 'Nie udało się wysłać zaproszenia.'
     ], 500);
 }
+
+security_log_event('staff_invite_send_success', [
+    'action_key' => 'staff_invite_send',
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'tenant_user',
+    'response_status' => 200,
+    'result' => 'success',
+    'details' => [
+        'reason' => 'staff_invite_send_success',
+    ],
+]);
 
 staff_invite_json([
     'success' => true,

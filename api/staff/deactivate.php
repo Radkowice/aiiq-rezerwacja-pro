@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -82,6 +83,28 @@ function staff_deactivate_public_record(array $row): array
     }
 
     return $record;
+}
+
+function staff_deactivate_log_event(string $eventKey, int $responseStatus, string $result, string $reason, ?string $stage = null): void
+{
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'staff_deactivate',
+        'endpoint' => '/api/staff/deactivate.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'severity' => 'medium',
+        'details' => $details,
+    ]);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -188,6 +211,13 @@ if (!is_array($staffRows)) {
 }
 
 if (empty($staffRows[0]['id'])) {
+    staff_deactivate_log_event(
+        'staff_deactivate_not_found_or_forbidden',
+        404,
+        'denied',
+        'staff_deactivate_not_found_or_forbidden'
+    );
+
     staff_deactivate_json([
         'success' => false,
         'error' => 'Nie znaleziono pracownika'
@@ -208,6 +238,14 @@ $url = $supabaseUrl
 $result = staff_deactivate_request('PATCH', $url, $supabaseKey, $schema, $payload, true);
 
 if ($result['response'] === false || $result['error'] !== '') {
+    staff_deactivate_log_event(
+        'staff_deactivate_failed',
+        500,
+        'failed',
+        'staff_deactivate_failed',
+        'update_request'
+    );
+
     staff_deactivate_json([
         'success' => false,
         'error' => 'Błąd połączenia z bazą danych'
@@ -215,6 +253,14 @@ if ($result['response'] === false || $result['error'] !== '') {
 }
 
 if ($result['httpCode'] < 200 || $result['httpCode'] >= 300) {
+    staff_deactivate_log_event(
+        'staff_deactivate_failed',
+        $result['httpCode'] > 0 ? $result['httpCode'] : 500,
+        'failed',
+        'staff_deactivate_failed',
+        'update_response'
+    );
+
     staff_deactivate_json([
         'success' => false,
         'error' => 'Nie udało się dezaktywować pracownika'
@@ -224,11 +270,26 @@ if ($result['httpCode'] < 200 || $result['httpCode'] >= 300) {
 $savedRows = json_decode((string) $result['response'], true);
 
 if (!is_array($savedRows) || empty($savedRows[0]) || !is_array($savedRows[0])) {
+    staff_deactivate_log_event(
+        'staff_deactivate_failed',
+        500,
+        'failed',
+        'staff_deactivate_failed',
+        'update_invalid_response'
+    );
+
     staff_deactivate_json([
         'success' => false,
         'error' => 'Nieprawidłowa odpowiedź bazy danych'
     ], 500);
 }
+
+staff_deactivate_log_event(
+    'staff_deactivate_success',
+    200,
+    'success',
+    'staff_deactivate_success'
+);
 
 staff_deactivate_json([
     'success' => true,
