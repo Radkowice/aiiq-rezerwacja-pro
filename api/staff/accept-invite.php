@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function staff_accept_invite_json(array $payload, int $statusCode = 200): void
@@ -194,6 +195,52 @@ if ($passwordError !== '') {
     ], 400);
 }
 
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/staff/accept-invite.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+$rateLimitResult = security_rate_limit_check(
+    'staff_invite_accept_probe',
+    [
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff',
+        'ip_address' => $securityIp,
+        'metadata' => [
+            'reason' => 'staff_invite_accept_probe',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    security_log_event('staff_invite_accept_probe_rate_limited', [
+        'action_key' => 'staff_invite_accept_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'staff_invite_accept_probe',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $tokenHash = hash('sha256', $token);
 $now = gmdate('c');
 
@@ -221,6 +268,19 @@ $inviteRows = is_array($inviteResult['data'] ?? null) ? $inviteResult['data'] : 
 $invite = is_array($inviteRows[0] ?? null) ? $inviteRows[0] : null;
 
 if (!is_array($invite) || empty($invite['id']) || empty($invite['tenant_id']) || empty($invite['staff_id'])) {
+    security_log_event('staff_invite_accept_probe_failed', [
+        'action_key' => 'staff_invite_accept_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff',
+        'response_status' => 410,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'invalid_or_expired_invite_link',
+        ],
+    ]);
+
     staff_accept_invite_token_error();
 }
 
@@ -306,6 +366,19 @@ $acceptedResult = staff_accept_invite_request('PATCH', $acceptedUrl, $supabaseKe
 if ($acceptedResult['response'] === false || $acceptedResult['error'] !== '' || $acceptedResult['httpCode'] < 200 || $acceptedResult['httpCode'] >= 300) {
     staff_accept_invite_database_error();
 }
+
+security_log_event('staff_invite_accept_success', [
+    'action_key' => 'staff_invite_accept',
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'staff',
+    'response_status' => 200,
+    'result' => 'success',
+    'details' => [
+        'reason' => 'staff_invite_accept_success',
+    ],
+]);
 
 $panelUrl = staff_accept_invite_panel_url();
 $panelButton = '';

@@ -235,6 +235,53 @@ if ($passwordError !== '') {
     ], 422);
 }
 
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/staff/reset-password.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+$rateLimitResult = security_rate_limit_check(
+    'staff_password_reset_token_probe',
+    [
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff',
+        'ip_address' => $securityIp,
+        'metadata' => [
+            'reason' => 'staff_password_reset_token_probe',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    security_log_event('staff_password_reset_token_probe_rate_limited', [
+        'action_key' => 'staff_password_reset_token_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'severity' => 'high',
+        'actor_type' => 'staff',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'staff_password_reset_token_probe',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $tokenHash = hash('sha256', $token);
 $now = gmdate('c');
 
