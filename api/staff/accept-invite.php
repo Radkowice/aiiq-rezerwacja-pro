@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function staff_accept_invite_json(array $payload, int $statusCode = 200): void
@@ -113,6 +114,23 @@ function staff_accept_invite_password_error(string $password, string $passwordCo
     }
 
     return '';
+}
+
+function staff_accept_invite_panel_url(): string
+{
+    $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+
+    if ($host === '' || preg_match('/[\r\n]/', $host)) {
+        return '';
+    }
+
+    $host = preg_replace('/\s+/', '', $host) ?? '';
+
+    if ($host === '' || !preg_match('/^[A-Za-z0-9.-]+(?::[0-9]{1,5})?$/', $host)) {
+        return '';
+    }
+
+    return 'https://' . $host . '/panel-pracownika/panel.html';
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
@@ -288,6 +306,36 @@ $acceptedResult = staff_accept_invite_request('PATCH', $acceptedUrl, $supabaseKe
 if ($acceptedResult['response'] === false || $acceptedResult['error'] !== '' || $acceptedResult['httpCode'] < 200 || $acceptedResult['httpCode'] >= 300) {
     staff_accept_invite_database_error();
 }
+
+$panelUrl = staff_accept_invite_panel_url();
+$panelButton = '';
+
+if ($panelUrl !== '') {
+    $safePanelUrl = htmlspecialchars($panelUrl, ENT_QUOTES, 'UTF-8');
+    $panelButton = ''
+        . '<div style="text-align:center; margin:24px 0;">'
+        . '<a href="' . $safePanelUrl . '" style="background:#212d45;color:#ffffff;padding:13px 22px;'
+        . 'text-decoration:none;border-radius:8px;font-weight:bold;display:inline-block;">'
+        . 'Przejdź do panelu pracownika'
+        . '</a>'
+        . '</div>';
+}
+
+$mailMessage = ''
+    . '<p style="margin:0 0 14px;"><strong>✅ Twoje konto personelu zostało aktywowane.</strong></p>'
+    . '<p style="margin:0 0 10px;">🔐 Hasło zostało ustawione poprawnie.</p>'
+    . '<p style="margin:0 0 10px;">Możesz teraz zalogować się do panelu pracownika i obsługiwać swoje rezerwacje.</p>'
+    . $panelButton
+    . '<p style="margin:0;">Jeśli to nie Ty akceptowałeś zaproszenie, skontaktuj się z administratorem firmy.</p>';
+
+$mailHtml = buildSystemMailLayout(
+    'Konto personelu zostało aktywowane',
+    'To wiadomość systemowa dotycząca dostępu do panelu pracownika.',
+    $mailMessage,
+    'Nie odpowiadaj na tę wiadomość. Skrzynka nie jest monitorowana.'
+);
+
+sendSystemMail($email, 'Konto personelu zostało aktywowane', $mailHtml);
 
 staff_accept_invite_json([
     'success' => true,

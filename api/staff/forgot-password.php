@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 
@@ -269,6 +270,58 @@ if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
     ], 400);
 }
 
+$securityEmail = $email;
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/staff/forgot-password.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+$rateLimitResult = security_rate_limit_check(
+    'staff_password_reset_request',
+    [
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff',
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'metadata' => [
+            'reason' => 'staff_password_reset_request',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    security_log_event('staff_password_reset_rate_limited', [
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'staff_password_reset_request',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 $ipAddress = (string) ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
 $rateLimitSince = gmdate('c', time() - 900);
 $recentEmailTokens = staff_forgot_password_count_recent_tokens(
@@ -294,8 +347,37 @@ if (
     ($recentEmailTokens !== null && $recentEmailTokens >= 3)
     || ($recentIpTokens !== null && $recentIpTokens >= 10)
 ) {
+    security_log_event('staff_password_reset_rate_limited', [
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'staff',
+        'response_status' => 202,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'staff_password_reset_request',
+            'limiter' => 'legacy_token_count',
+        ],
+    ]);
+
     staff_forgot_password_neutral();
 }
+
+security_log_event('staff_password_reset_request', [
+    'tenant_id' => $tenantId,
+    'email' => $securityEmail,
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'staff',
+    'response_status' => 202,
+    'result' => 'accepted',
+    'details' => [
+        'reason' => 'staff_password_reset_request',
+    ],
+]);
 
 $accountUrl = $supabaseUrl
     . '/rest/v1/staff_accounts'

@@ -515,6 +515,32 @@ if (themeSelect) {
 }
 
 let isChangingEmail = false;
+const changeEmailFallbackMessage = 'Nie udało się zmienić emaila. Sprawdź dane i spróbuj ponownie.';
+
+function getSafeChangeEmailMessage(errorOrData) {
+  const status = Number(errorOrData?.status || 0);
+  const data = errorOrData?.data || errorOrData || {};
+  const message = String(data?.error || data?.message || errorOrData?.message || '').trim();
+
+  const invalidEmailPattern = /poprawny adres e-?mail|niepoprawny e-?mail|nieprawidłowy e-?mail/i;
+
+  if (status === 400 && (!message || invalidEmailPattern.test(message))) {
+    return 'Niepoprawny email';
+  }
+
+  if (!message) {
+    return changeEmailFallbackMessage;
+  }
+
+  const technicalPattern = /tenant_id|user_id|subscription_id|payment_id|booking_id|staff_id|password_hash|new_password_hash|supabase|service_role|apikey|authorization|bearer|curl|sql|stack|trace|exception|schema|uuid|brak konfiguracji|nie udało się pobrać użytkownika|nie znaleziono użytkownika|sesja nie pasuje/i;
+  const uuidPattern = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+  if (technicalPattern.test(message) || uuidPattern.test(message)) {
+    return changeEmailFallbackMessage;
+  }
+
+  return message;
+}
 
 document.getElementById('change-email-btn')?.addEventListener('click', async (e) => {
   e.preventDefault();
@@ -590,9 +616,12 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
   } catch (e) {
     console.error(e);
 
+    const status = Number(e?.status || 0);
+    const isControlledError = [400, 401, 403, 409, 422, 429].includes(status);
+
     await window.openAdminConfirm({
-      title: 'Błąd połączenia',
-      message: 'Nie udało się połączyć z serwerem',
+      title: isControlledError ? 'Błąd' : 'Błąd połączenia',
+      message: isControlledError ? getSafeChangeEmailMessage(e) : 'Nie udało się połączyć z serwerem',
       confirmText: 'OK',
       cancelText: 'Zamknij',
       icon: '✖',

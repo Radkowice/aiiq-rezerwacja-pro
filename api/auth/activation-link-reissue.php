@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
+require_once __DIR__ . '/../helpers/security.php';
 
 start_secure_session();
 
@@ -126,6 +127,20 @@ function activation_reissue_rate_limit(string $email): void
     ));
 
     if (count($rateData[$rateKey]) >= $maxAttempts) {
+        security_log_event('activation_reissue_rate_limited', [
+            'email' => $email,
+            'ip_address' => security_client_ip(),
+            'endpoint' => '/api/auth/activation-link-reissue.php',
+            'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+            'actor_type' => 'tenant_user',
+            'response_status' => 429,
+            'result' => 'blocked',
+            'details' => [
+                'reason' => 'activation_reissue',
+                'limiter' => 'legacy_json_rate_limit',
+            ],
+        ]);
+
         activation_reissue_json([
             'success' => false,
             'error' => 'Zbyt wiele prób. Spróbuj ponownie za 10 minut.',
@@ -255,7 +270,69 @@ try {
         ], 400);
     }
 
+    $securityEmail = $email;
+    $securityIp = security_client_ip();
+    $securityEndpoint = '/api/auth/activation-link-reissue.php';
+    $securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+    $rateLimitResult = security_rate_limit_check(
+        'activation_reissue',
+        [
+            'email' => $securityEmail,
+            'ip' => $securityIp,
+        ],
+        [
+            'endpoint' => $securityEndpoint,
+            'http_method' => $securityMethod,
+            'actor_type' => 'tenant_user',
+            'email' => $securityEmail,
+            'ip_address' => $securityIp,
+            'metadata' => [
+                'reason' => 'activation_reissue',
+            ],
+        ]
+    );
+
+    if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+        security_log_event('activation_reissue_rate_limited', [
+            'email' => $securityEmail,
+            'ip_address' => $securityIp,
+            'endpoint' => $securityEndpoint,
+            'http_method' => $securityMethod,
+            'actor_type' => 'tenant_user',
+            'response_status' => 429,
+            'result' => 'blocked',
+            'details' => [
+                'reason' => 'activation_reissue',
+                'limiter' => 'security_rate_limit_check',
+            ],
+        ]);
+
+        http_response_code(429);
+
+        $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+        if (!isset($rateLimitPayload['error'])) {
+            $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+        }
+
+        echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
     activation_reissue_rate_limit($email);
+
+    security_log_event('activation_reissue', [
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 202,
+        'result' => 'accepted',
+        'details' => [
+            'reason' => 'activation_reissue',
+        ],
+    ]);
 
     $userResult = activation_reissue_request(
         'GET',

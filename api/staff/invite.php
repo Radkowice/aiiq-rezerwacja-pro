@@ -60,7 +60,7 @@ function staff_invite_request(
     ];
 }
 
-function staff_invite_fail_database(): void
+function staff_invite_fail_database(string $stage = 'unknown'): void
 {
     staff_invite_json([
         'success' => false,
@@ -155,7 +155,7 @@ function staff_invite_resolve_staff_ref(
     $result = staff_invite_request('GET', $url, $supabaseKey, $schema);
 
     if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] < 200 || $result['httpCode'] >= 300) {
-        staff_invite_fail_database();
+        staff_invite_fail_database('resolve_staff_ref');
     }
 
     $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
@@ -282,11 +282,11 @@ $staffUrl = $supabaseUrl
 $staffResult = staff_invite_request('GET', $staffUrl, $supabaseKey, $schema);
 
 if ($staffResult['response'] === false || $staffResult['error'] !== '' || $staffResult['httpCode'] >= 500) {
-    staff_invite_fail_database();
+    staff_invite_fail_database('load_staff_profile');
 }
 
 if ($staffResult['httpCode'] < 200 || $staffResult['httpCode'] >= 300) {
-    staff_invite_fail_database();
+    staff_invite_fail_database('load_staff_profile');
 }
 
 $staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
@@ -310,7 +310,7 @@ if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
 
 $accountUrl = $supabaseUrl
     . '/rest/v1/staff_accounts'
-    . '?select=id,password_hash,is_active'
+    . '?select=id,staff_id,email,password_hash,is_active'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&staff_id=eq.' . rawurlencode($staffId)
     . '&limit=1';
@@ -318,11 +318,43 @@ $accountUrl = $supabaseUrl
 $accountResult = staff_invite_request('GET', $accountUrl, $supabaseKey, $schema);
 
 if ($accountResult['response'] === false || $accountResult['error'] !== '' || $accountResult['httpCode'] < 200 || $accountResult['httpCode'] >= 300) {
-    staff_invite_fail_database();
+    staff_invite_fail_database('load_staff_account');
 }
 
 $accountRows = is_array($accountResult['data'] ?? null) ? $accountResult['data'] : [];
 $account = is_array($accountRows[0] ?? null) ? $accountRows[0] : null;
+
+if (!is_array($account)) {
+    $accountByEmailUrl = $supabaseUrl
+        . '/rest/v1/staff_accounts'
+        . '?select=id,staff_id,email,password_hash,is_active'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&email=eq.' . rawurlencode($email)
+        . '&limit=1';
+
+    $accountByEmailResult = staff_invite_request('GET', $accountByEmailUrl, $supabaseKey, $schema);
+
+    if ($accountByEmailResult['response'] === false || $accountByEmailResult['error'] !== '' || $accountByEmailResult['httpCode'] < 200 || $accountByEmailResult['httpCode'] >= 300) {
+        staff_invite_fail_database('load_staff_account_by_email');
+    }
+
+    $accountByEmailRows = is_array($accountByEmailResult['data'] ?? null) ? $accountByEmailResult['data'] : [];
+    $accountByEmail = is_array($accountByEmailRows[0] ?? null) ? $accountByEmailRows[0] : null;
+
+    if (is_array($accountByEmail)) {
+        $accountByEmailStaffId = trim((string) ($accountByEmail['staff_id'] ?? ''));
+
+        if ($accountByEmailStaffId !== '' && hash_equals($accountByEmailStaffId, $staffId)) {
+            $account = $accountByEmail;
+        } else {
+            staff_invite_json([
+                'success' => false,
+                'error' => 'Konto personelu dla tego adresu e-mail już istnieje.'
+            ], 409);
+        }
+    }
+}
+
 $accountId = is_array($account) ? trim((string) ($account['id'] ?? '')) : '';
 $accountHasPassword = is_array($account) && trim((string) ($account['password_hash'] ?? '')) !== '';
 $accountIsActive = is_array($account) && filter_var($account['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
@@ -354,7 +386,7 @@ $revokeResult = staff_invite_request('PATCH', $revokeUrl, $supabaseKey, $schema,
 ]);
 
 if ($revokeResult['response'] === false || $revokeResult['error'] !== '' || $revokeResult['httpCode'] < 200 || $revokeResult['httpCode'] >= 300) {
-    staff_invite_fail_database();
+    staff_invite_fail_database('revoke_existing_invites');
 }
 
 $token = bin2hex(random_bytes(32));
@@ -374,10 +406,11 @@ $inviteUrl = $supabaseUrl . '/rest/v1/staff_invites';
 $inviteResult = staff_invite_request('POST', $inviteUrl, $supabaseKey, $schema, $invitePayload);
 
 if ($inviteResult['response'] === false || $inviteResult['error'] !== '' || $inviteResult['httpCode'] < 200 || $inviteResult['httpCode'] >= 300) {
-    staff_invite_fail_database();
+    staff_invite_fail_database('insert_invite');
 }
 
 if ($accountId === '') {
+    $accountWriteStage = 'create_staff_account';
     $accountPayload = [
         'tenant_id' => $tenantId,
         'staff_id' => $staffId,
@@ -388,6 +421,7 @@ if ($accountId === '') {
 
     $accountWriteResult = staff_invite_request('POST', $supabaseUrl . '/rest/v1/staff_accounts', $supabaseKey, $schema, $accountPayload);
 } else {
+    $accountWriteStage = 'update_staff_account';
     $accountPatchUrl = $supabaseUrl
         . '/rest/v1/staff_accounts'
         . '?tenant_id=eq.' . rawurlencode($tenantId)
@@ -400,7 +434,7 @@ if ($accountId === '') {
 }
 
 if ($accountWriteResult['response'] === false || $accountWriteResult['error'] !== '' || $accountWriteResult['httpCode'] < 200 || $accountWriteResult['httpCode'] >= 300) {
-    staff_invite_fail_database();
+    staff_invite_fail_database($accountWriteStage);
 }
 
 $inviteLink = staff_invite_current_origin()

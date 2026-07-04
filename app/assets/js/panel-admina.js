@@ -59,6 +59,55 @@ let adminServicePaymentsModuleQueued = false;
 const bookingActionMap = new Map();
 let bookingActionSeq = 0;
 let currentBookingsData = [];
+let sidebarAccountSummaryLoaded = false;
+
+function sidebarAccountText(value) {
+  return String(value || '').trim();
+}
+
+function setSidebarAccountSummary(companyName, adminName) {
+  const companyEl = document.getElementById('sidebarCompanyName');
+  const adminEl = document.getElementById('sidebarAdminName');
+
+  if (companyEl) {
+    companyEl.textContent = sidebarAccountText(companyName) || 'Firma nieuzupełniona';
+  }
+
+  if (adminEl) {
+    adminEl.textContent = sidebarAccountText(adminName) || 'Administrator';
+  }
+}
+
+async function loadSidebarAccountSummary() {
+  if (sidebarAccountSummaryLoaded) return;
+  sidebarAccountSummaryLoaded = true;
+
+  try {
+    const response = await fetch('/api/system/account-info.php', {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store'
+    });
+
+    const data = await response.json();
+
+    if (!response.ok || data?.success !== true) {
+      throw new Error(data?.error || 'Nie udało się pobrać danych konta.');
+    }
+
+    const companyName = sidebarAccountText(data?.company?.company_full_name)
+      || sidebarAccountText(data?.branding?.client_name)
+      || 'Firma nieuzupełniona';
+    const adminName = sidebarAccountText(data?.company?.company_owner_name)
+      || sidebarAccountText(data?.user?.email)
+      || 'Administrator';
+
+    setSidebarAccountSummary(companyName, adminName);
+  } catch (error) {
+    console.warn('Sidebar account summary unavailable:', error);
+    setSidebarAccountSummary('Firma nieuzupełniona', 'Administrator');
+  }
+}
 
 function enqueueAdminEmailModule() {
   if (adminEmailModuleQueued) return;
@@ -378,6 +427,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       return data;
     });
+
+    loadSidebarAccountSummary();
 
     initMenu();
 

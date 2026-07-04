@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/security.php';
 
 start_secure_session();
 
@@ -279,6 +280,11 @@ if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)
     exit;
 }
 
+$securityEmail = $email;
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/user/change-password.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
 $userUrl = $supabaseUrl
     . '/rest/v1/users'
     . '?select=id,password_hash,email,tenant_id'
@@ -358,11 +364,73 @@ if (password_verify($newPassword, $passwordHash)) {
     exit;
 }
 
-$clientIp = getClientIpAddress();
+$clientIp = $securityIp ?? getClientIpAddress();
+
+$rateLimitResult = security_rate_limit_check(
+    'password_change_request',
+    [
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'metadata' => [
+            'reason' => 'password_change_request',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    security_log_event('password_change_rate_limited', [
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'password_change_request',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
 
 $rateLimitStatus = passwordChangeRateLimit($tenantId, $userId, $clientIp);
 
 if ($rateLimitStatus === 'limited') {
+    security_log_event('password_change_rate_limited', [
+        'tenant_id' => $tenantId,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'password_change_request',
+            'limiter' => 'legacy_json_rate_limit',
+        ],
+    ]);
+
     http_response_code(429);
     echo json_encode([
         'success' => false,
@@ -379,6 +447,20 @@ if ($rateLimitStatus !== 'allowed') {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+security_log_event('password_change_request', [
+    'tenant_id' => $tenantId,
+    'email' => $securityEmail,
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'tenant_user',
+    'response_status' => 202,
+    'result' => 'accepted',
+    'details' => [
+        'reason' => 'password_change_request',
+    ],
+]);
 
 $code = (string) random_int(100000, 999999);
 $codeHash = password_hash($code, PASSWORD_DEFAULT);

@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/security.php';
 
 start_secure_session();
 
@@ -99,6 +100,11 @@ $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $serviceRoleKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
 $supabaseSchema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
+$securityEmail = $userEmail;
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/user/delete-account.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
 function deleteDirectoryRecursive(string $dir): void
 {
     if ($dir === '' || !is_dir($dir)) {
@@ -155,24 +161,15 @@ function deleteTenantFiles(string $tenantId): void
 
 function accountDeleteClientIpAddress(): string
 {
-    $candidates = [
-        $_SERVER['HTTP_CF_CONNECTING_IP'] ?? null,
-        $_SERVER['HTTP_X_FORWARDED_FOR'] ?? null,
-        $_SERVER['REMOTE_ADDR'] ?? null,
-    ];
+    $trustedIp = security_client_ip();
 
-    foreach ($candidates as $value) {
-        if (!$value) {
-            continue;
-        }
-
-        $ip = trim(explode(',', $value)[0]);
-        if ($ip !== '') {
-            return $ip;
-        }
+    if (is_string($trustedIp) && $trustedIp !== '') {
+        return $trustedIp;
     }
 
-    return 'unknown';
+    $remoteIp = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
+
+    return $remoteIp !== '' ? $remoteIp : 'unknown';
 }
 
 function accountDeleteRequest(
@@ -235,6 +232,181 @@ function accountDeleteRequest(
         'data' => $data,
         'error' => $curlError,
     ];
+}
+
+
+function accountDeleteSecurityActionKey(string $eventKey): string
+{
+    return match ($eventKey) {
+        'account_delete_rate_limited',
+        'account_delete_invalid_password',
+        'account_delete_code_sent',
+        'account_delete_code_send_failed' => 'account_delete_request',
+        'account_delete_confirm_invalid_code',
+        'account_delete_confirm_rate_limited' => 'account_delete_confirm_invalid_code',
+        default => $eventKey,
+    };
+}
+
+function accountDeleteLogSecurityEvent(
+    string $eventKey,
+    string $tenantId,
+    string $userId,
+    string $email,
+    ?string $ipAddress,
+    string $endpoint,
+    string $method,
+    int $responseStatus,
+    string $result,
+    string $reason,
+    array $extraDetails = []
+): void {
+    security_log_event($eventKey, [
+        'action_key' => accountDeleteSecurityActionKey($eventKey),
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $email,
+        'ip_address' => $ipAddress,
+        'endpoint' => $endpoint,
+        'http_method' => $method,
+        'actor_type' => 'tenant_user',
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => array_merge([
+            'reason' => $reason,
+        ], $extraDetails),
+    ]);
+}
+
+function accountDeleteCheckRequestRateLimit(
+    string $tenantId,
+    string $userId,
+    string $email,
+    ?string $ipAddress,
+    string $endpoint,
+    string $method
+): void {
+    $rateLimitResult = security_rate_limit_check(
+        'account_delete_request',
+        [
+            'tenant_id' => $tenantId,
+            'email' => $email,
+            'ip' => $ipAddress,
+        ],
+        [
+            'endpoint' => $endpoint,
+            'http_method' => $method,
+            'actor_type' => 'tenant_user',
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $email,
+            'ip_address' => $ipAddress,
+            'metadata' => [
+                'reason' => 'account_delete_request',
+            ],
+        ]
+    );
+
+    if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+        accountDeleteLogSecurityEvent(
+            'account_delete_rate_limited',
+            $tenantId,
+            $userId,
+            $email,
+            $ipAddress,
+            $endpoint,
+            $method,
+            429,
+            'blocked',
+            'account_delete_request',
+            [
+                'limiter' => 'security_rate_limit_check',
+            ]
+        );
+
+        http_response_code(429);
+
+        $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+        if (!isset($rateLimitPayload['error'])) {
+            $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+        }
+
+        echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+}
+
+function accountDeleteRegisterInvalidCodeAttempt(
+    string $tenantId,
+    string $userId,
+    string $email,
+    ?string $ipAddress,
+    string $endpoint,
+    string $method,
+    int $responseStatus,
+    string $reason
+): void {
+    $rateLimitResult = security_rate_limit_check(
+        'account_delete_confirm_invalid_code',
+        [
+            'tenant_id' => $tenantId,
+            'email' => $email,
+            'ip' => $ipAddress,
+        ],
+        [
+            'endpoint' => $endpoint,
+            'http_method' => $method,
+            'actor_type' => 'tenant_user',
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $email,
+            'ip_address' => $ipAddress,
+            'metadata' => [
+                'reason' => 'account_delete_confirm_invalid_code',
+            ],
+        ]
+    );
+
+    if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+        accountDeleteLogSecurityEvent(
+            'account_delete_confirm_rate_limited',
+            $tenantId,
+            $userId,
+            $email,
+            $ipAddress,
+            $endpoint,
+            $method,
+            429,
+            'blocked',
+            'account_delete_confirm_invalid_code',
+            [
+                'limiter' => 'security_rate_limit_check',
+            ]
+        );
+
+        http_response_code(429);
+
+        $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+        if (!isset($rateLimitPayload['error'])) {
+            $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+        }
+
+        echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        exit;
+    }
+
+    accountDeleteLogSecurityEvent(
+        'account_delete_confirm_invalid_code',
+        $tenantId,
+        $userId,
+        $email,
+        $ipAddress,
+        $endpoint,
+        $method,
+        $responseStatus,
+        'failed',
+        $reason
+    );
 }
 
 function buildAccountDeleteCodeHtml(string $code): string
@@ -314,6 +486,10 @@ function verifyAccountDeleteCode(
     string $schema,
     string $tenantId,
     string $userId,
+    string $email,
+    ?string $securityIp,
+    string $securityEndpoint,
+    string $securityMethod,
     string $code
 ): bool {
     $result = accountDeleteRequest(
@@ -345,6 +521,17 @@ function verifyAccountDeleteCode(
     $row = isset($rows[0]) && is_array($rows[0]) ? $rows[0] : null;
 
     if (!$row) {
+        accountDeleteRegisterInvalidCodeAttempt(
+            $tenantId,
+            $userId,
+            $email,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod,
+            404,
+            'account_delete_confirm_no_active_code'
+        );
+
         http_response_code(404);
         echo json_encode([
             'success' => false,
@@ -359,6 +546,17 @@ function verifyAccountDeleteCode(
     $attempts = (int) ($row['attempts'] ?? 0);
 
     if ($expiresAt === '' || strtotime($expiresAt) < time()) {
+        accountDeleteRegisterInvalidCodeAttempt(
+            $tenantId,
+            $userId,
+            $email,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod,
+            410,
+            'account_delete_confirm_expired_code'
+        );
+
         http_response_code(410);
         echo json_encode([
             'success' => false,
@@ -368,6 +566,22 @@ function verifyAccountDeleteCode(
     }
 
     if ($attempts >= 5) {
+        accountDeleteLogSecurityEvent(
+            'account_delete_confirm_rate_limited',
+            $tenantId,
+            $userId,
+            $email,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod,
+            429,
+            'blocked',
+            'account_delete_confirm_invalid_code',
+            [
+                'limiter' => 'legacy_code_attempts',
+            ]
+        );
+
         http_response_code(429);
         echo json_encode([
             'success' => false,
@@ -387,6 +601,17 @@ function verifyAccountDeleteCode(
             $serviceRoleKey,
             $schema,
             ['attempts' => $attempts + 1]
+        );
+
+        accountDeleteRegisterInvalidCodeAttempt(
+            $tenantId,
+            $userId,
+            $email,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod,
+            422,
+            'account_delete_confirm_invalid_code'
         );
 
         http_response_code(422);
@@ -431,6 +656,17 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
         'error' => 'Brak konfiguracji Supabase'
     ], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+if ($action === 'request_code') {
+    accountDeleteCheckRequestRateLimit(
+        $tenantId,
+        $userId,
+        $securityEmail,
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod
+    );
 }
 
 $userUrl = $supabaseUrl
@@ -483,6 +719,30 @@ $userRow = $userData[0];
 $passwordHash = (string) ($userRow['password_hash'] ?? '');
 
 if ($passwordHash === '' || !password_verify($password, $passwordHash)) {
+    if ($action === 'confirm_delete') {
+        accountDeleteCheckRequestRateLimit(
+            $tenantId,
+            $userId,
+            $securityEmail,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod
+        );
+    }
+
+    accountDeleteLogSecurityEvent(
+        'account_delete_invalid_password',
+        $tenantId,
+        $userId,
+        $securityEmail,
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod,
+        422,
+        'failed',
+        'account_delete_invalid_password'
+    );
+
     http_response_code(422);
     echo json_encode([
         'success' => false,
@@ -492,7 +752,33 @@ if ($passwordHash === '' || !password_verify($password, $passwordHash)) {
 }
 
 if ($action === 'request_code') {
+    accountDeleteLogSecurityEvent(
+        'account_delete_request',
+        $tenantId,
+        $userId,
+        $securityEmail,
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod,
+        202,
+        'accepted',
+        'account_delete_request'
+    );
+
     if (!sendAccountDeleteCode($supabaseUrl, $serviceRoleKey, $supabaseSchema, $tenantId, $userId, $userEmail)) {
+        accountDeleteLogSecurityEvent(
+            'account_delete_code_send_failed',
+            $tenantId,
+            $userId,
+            $securityEmail,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod,
+            500,
+            'failed',
+            'account_delete_code_send_failed'
+        );
+
         http_response_code(500);
         echo json_encode([
             'success' => false,
@@ -501,6 +787,19 @@ if ($action === 'request_code') {
         exit;
     }
 
+    accountDeleteLogSecurityEvent(
+        'account_delete_code_sent',
+        $tenantId,
+        $userId,
+        $securityEmail,
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod,
+        200,
+        'success',
+        'account_delete_code_sent'
+    );
+
     echo json_encode([
         'success' => true,
         'message' => 'Wysłaliśmy kod potwierdzający na adres e-mail administratora'
@@ -508,7 +807,31 @@ if ($action === 'request_code') {
     exit;
 }
 
-verifyAccountDeleteCode($supabaseUrl, $serviceRoleKey, $supabaseSchema, $tenantId, $userId, $code);
+verifyAccountDeleteCode(
+    $supabaseUrl,
+    $serviceRoleKey,
+    $supabaseSchema,
+    $tenantId,
+    $userId,
+    $securityEmail,
+    $securityIp,
+    $securityEndpoint,
+    $securityMethod,
+    $code
+);
+
+accountDeleteLogSecurityEvent(
+    'account_delete_confirm_success',
+    $tenantId,
+    $userId,
+    $securityEmail,
+    $securityIp,
+    $securityEndpoint,
+    $securityMethod,
+    202,
+    'success',
+    'account_delete_confirm_success'
+);
 
 $countUsersUrl = $supabaseUrl
     . '/rest/v1/users?tenant_id=eq.' . rawurlencode($tenantId)
@@ -535,6 +858,19 @@ $countUsersCurlError = curl_error($countUsersCh);
 curl_close($countUsersCh);
 
 if ($countUsersCurlError || $countUsersHttpCode >= 400) {
+    accountDeleteLogSecurityEvent(
+        'account_delete_failed',
+        $tenantId,
+        $userId,
+        $securityEmail,
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod,
+        500,
+        'failed',
+        'account_delete_count_users_failed'
+    );
+
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -574,6 +910,19 @@ if ($isLastUser) {
     curl_close($deleteTenantCh);
 
       if ($deleteTenantCurlError || $deleteTenantHttpCode >= 400) {
+        accountDeleteLogSecurityEvent(
+            'account_delete_failed',
+            $tenantId,
+            $userId,
+            $securityEmail,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod,
+            500,
+            'failed',
+            'account_delete_tenant_delete_failed'
+        );
+
         http_response_code(500);
         echo json_encode([
             'success' => false,
@@ -611,6 +960,19 @@ if ($isLastUser) {
     curl_close($deleteUserCh);
 
     if ($deleteUserCurlError || $deleteUserHttpCode >= 400) {
+        accountDeleteLogSecurityEvent(
+            'account_delete_failed',
+            $tenantId,
+            $userId,
+            $securityEmail,
+            $securityIp,
+            $securityEndpoint,
+            $securityMethod,
+            500,
+            'failed',
+            'account_delete_user_delete_failed'
+        );
+
         http_response_code(500);
         echo json_encode([
             'success' => false,
@@ -661,6 +1023,19 @@ sendSystemMail(
     $userEmail,
     'Potwierdzenie usunięcia konta',
     buildAccountDeletedHtml($userEmail, $isLastUser)
+);
+
+accountDeleteLogSecurityEvent(
+    'account_delete_success',
+    $tenantId,
+    $userId,
+    $securityEmail,
+    $securityIp,
+    $securityEndpoint,
+    $securityMethod,
+    200,
+    'success',
+    'account_delete_success'
 );
 
 $_SESSION = [];

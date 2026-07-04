@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -206,6 +207,8 @@ if (!is_array($account) || empty($account['id']) || !filter_var($account['is_act
     ], 401);
 }
 
+$accountEmail = strtolower(trim((string) ($account['email'] ?? '')));
+
 $staffUrl = $supabaseUrl
     . '/rest/v1/staff_profiles'
     . '?select=id,is_active'
@@ -278,6 +281,22 @@ if (
         'success' => false,
         'error' => 'Nie udało się zapisać nowego hasła.'
     ], 500);
+}
+
+if ($accountEmail !== '' && filter_var($accountEmail, FILTER_VALIDATE_EMAIL)) {
+    $mailMessage = ''
+        . '<p style="margin:0 0 14px;"><strong>🔐 Hasło do panelu personelu zostało zmienione.</strong></p>'
+        . '<p style="margin:0 0 10px;">Jeśli to Ty wykonałeś tę zmianę, nie musisz nic robić.</p>'
+        . '<p style="margin:0;">Jeśli to nie Ty, skontaktuj się z administratorem firmy.</p>';
+
+    $mailHtml = buildSystemMailLayout(
+        'Hasło personelu zostało zmienione',
+        'To wiadomość systemowa dotycząca bezpieczeństwa konta personelu.',
+        $mailMessage,
+        'Nie odpowiadaj na tę wiadomość. Skrzynka nie jest monitorowana.'
+    );
+
+    sendSystemMail($accountEmail, 'Hasło personelu zostało zmienione', $mailHtml);
 }
 
 session_regenerate_id(true);

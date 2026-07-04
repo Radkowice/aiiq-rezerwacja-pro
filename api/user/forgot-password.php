@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 
@@ -71,6 +72,58 @@ if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
     ], 400);
 }
 
+$securityEmail = $email;
+$securityIp = security_client_ip();
+$securityEndpoint = '/api/user/forgot-password.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+
+$rateLimitResult = security_rate_limit_check(
+    'password_reset_request',
+    [
+        'tenant_id' => $TENANT_ID,
+        'email' => $securityEmail,
+        'ip' => $securityIp,
+    ],
+    [
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $TENANT_ID,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'metadata' => [
+            'reason' => 'password_reset_request',
+        ],
+    ]
+);
+
+if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+    security_log_event('password_reset_rate_limited', [
+        'tenant_id' => $TENANT_ID,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'password_reset_request',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    http_response_code(429);
+
+    $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
+    if (!isset($rateLimitPayload['error'])) {
+        $rateLimitPayload['error'] = (string) ($rateLimitPayload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
+    }
+
+    echo json_encode($rateLimitPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 /*
  * Rate limit resetu hasła.
  * Limitujemy po IP + e-mail, ale nie ujawniamy, czy konto istnieje.
@@ -109,6 +162,21 @@ $rateData[$rateKey] = array_values(array_filter(
 ));
 
 if (count($rateData[$rateKey]) >= $maxAttempts) {
+    security_log_event('password_reset_rate_limited', [
+        'tenant_id' => $TENANT_ID,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'password_reset_request',
+            'limiter' => 'legacy_json_rate_limit',
+        ],
+    ]);
+
     forgotPasswordJson([
         'success' => false,
         'error' => 'Zbyt wiele prób. Spróbuj ponownie za 10 minut.'
@@ -122,6 +190,20 @@ $rateData[$rateKey][] = $nowTs;
     json_encode($rateData, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT),
     LOCK_EX
 );
+
+security_log_event('password_reset_request', [
+    'tenant_id' => $TENANT_ID,
+    'email' => $securityEmail,
+    'ip_address' => $securityIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'tenant_user',
+    'response_status' => 202,
+    'result' => 'accepted',
+    'details' => [
+        'reason' => 'password_reset_request',
+    ],
+]);
 
 /*
  * Szukamy użytkownika.

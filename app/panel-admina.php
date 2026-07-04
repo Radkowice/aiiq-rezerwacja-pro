@@ -127,6 +127,18 @@ if (empty($_SESSION['csrf'])) {
          
  
         </nav>
+
+        <div class="sidebar-account-summary" aria-label="Informacje o zalogowanym koncie">
+          <div class="sidebar-account-row">
+            <div class="sidebar-account-label">Firma:</div>
+            <div id="sidebarCompanyName" class="sidebar-account-value">Ładowanie...</div>
+          </div>
+
+          <div class="sidebar-account-row">
+            <div class="sidebar-account-label">Zalogowany administrator:</div>
+            <div id="sidebarAdminName" class="sidebar-account-value">Ładowanie...</div>
+          </div>
+        </div>
       </aside>
 
       <div class="main-content">

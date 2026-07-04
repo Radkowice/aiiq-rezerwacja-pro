@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
+require_once __DIR__ . '/../helpers/security.php';
 
 function staff_reset_password_json(array $payload, int $statusCode = 200): void
 {
@@ -92,6 +93,42 @@ function staff_reset_password_validation_error(string $password): string
     return '';
 }
 
+function staff_reset_password_security_context(
+    ?string $tenantId = null,
+    ?string $email = null,
+    ?int $responseStatus = null,
+    ?string $result = null,
+    string $reason = ''
+): array {
+    $context = [
+        'endpoint' => '/api/staff/reset-password.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'staff',
+        'ip_address' => security_client_ip(),
+        'details' => [
+            'reason' => $reason,
+        ],
+    ];
+
+    if ($tenantId !== null && $tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    if ($email !== null && $email !== '') {
+        $context['email'] = $email;
+    }
+
+    if ($responseStatus !== null) {
+        $context['response_status'] = $responseStatus;
+    }
+
+    if ($result !== null && $result !== '') {
+        $context['result'] = $result;
+    }
+
+    return $context;
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     header('Allow: POST');
     staff_reset_password_json([
@@ -127,6 +164,14 @@ if (!tenant_has_feature((string) $tenantId, 'staff_module')) {
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
+    security_log_event('staff_password_reset_invalid_json', staff_reset_password_security_context(
+        (string) $tenantId,
+        null,
+        400,
+        'failed',
+        'staff_password_reset_invalid_json'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Nieprawidłowy JSON.'
@@ -138,6 +183,14 @@ $password = (string) ($input['password'] ?? '');
 $passwordConfirm = (string) ($input['password_confirm'] ?? '');
 
 if ($token === '') {
+    security_log_event('staff_password_reset_invalid_token', staff_reset_password_security_context(
+        (string) $tenantId,
+        null,
+        400,
+        'failed',
+        'staff_password_reset_missing_token'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Brak tokenu resetu hasła.'
@@ -145,6 +198,14 @@ if ($token === '') {
 }
 
 if (!preg_match('/^[a-f0-9]{64}$/i', $token)) {
+    security_log_event('staff_password_reset_invalid_token', staff_reset_password_security_context(
+        (string) $tenantId,
+        null,
+        410,
+        'failed',
+        'staff_password_reset_invalid_token_format'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Link resetu hasła jest nieprawidłowy albo wygasł.'
@@ -194,6 +255,14 @@ if (
     || $tokenResult['httpCode'] < 200
     || $tokenResult['httpCode'] >= 300
 ) {
+    security_log_event('staff_password_reset_failed', staff_reset_password_security_context(
+        (string) $tenantId,
+        null,
+        500,
+        'error',
+        'staff_password_reset_token_lookup_failed'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Nie udało się sprawdzić tokenu resetu hasła.'
@@ -204,6 +273,14 @@ $tokenRows = is_array($tokenResult['data'] ?? null) ? $tokenResult['data'] : [];
 $tokenRow = is_array($tokenRows[0] ?? null) ? $tokenRows[0] : null;
 
 if (!is_array($tokenRow) || empty($tokenRow['id']) || empty($tokenRow['staff_account_id']) || empty($tokenRow['staff_id'])) {
+    security_log_event('staff_password_reset_invalid_or_expired_token', staff_reset_password_security_context(
+        (string) $tenantId,
+        null,
+        410,
+        'failed',
+        'staff_password_reset_invalid_or_expired_token'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Link resetu hasła jest nieprawidłowy albo wygasł.'
@@ -231,6 +308,14 @@ if (
     || $accountResult['httpCode'] < 200
     || $accountResult['httpCode'] >= 300
 ) {
+    security_log_event('staff_password_reset_failed', staff_reset_password_security_context(
+        (string) $tenantId,
+        $email,
+        500,
+        'error',
+        'staff_password_reset_account_lookup_failed'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Nie udało się sprawdzić konta personelu.'
@@ -241,6 +326,14 @@ $accountRows = is_array($accountResult['data'] ?? null) ? $accountResult['data']
 $account = is_array($accountRows[0] ?? null) ? $accountRows[0] : null;
 
 if (!is_array($account) || empty($account['id']) || !filter_var($account['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+    security_log_event('staff_password_reset_inactive_account', staff_reset_password_security_context(
+        (string) $tenantId,
+        $email,
+        403,
+        'failed',
+        'staff_password_reset_inactive_account'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Konto personelu jest nieaktywne.'
@@ -250,6 +343,14 @@ if (!is_array($account) || empty($account['id']) || !filter_var($account['is_act
 $accountEmail = strtolower(trim((string) ($account['email'] ?? '')));
 
 if ($email !== '' && $accountEmail !== '' && !hash_equals($email, $accountEmail)) {
+    security_log_event('staff_password_reset_token_account_mismatch', staff_reset_password_security_context(
+        (string) $tenantId,
+        $email,
+        400,
+        'failed',
+        'staff_password_reset_token_account_mismatch'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Token resetu hasła nie pasuje do konta personelu.'
@@ -271,6 +372,14 @@ if (
     || $staffResult['httpCode'] < 200
     || $staffResult['httpCode'] >= 300
 ) {
+    security_log_event('staff_password_reset_failed', staff_reset_password_security_context(
+        (string) $tenantId,
+        $accountEmail !== '' ? $accountEmail : $email,
+        500,
+        'error',
+        'staff_password_reset_profile_lookup_failed'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Nie udało się sprawdzić profilu personelu.'
@@ -281,6 +390,14 @@ $staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
 $staff = is_array($staffRows[0] ?? null) ? $staffRows[0] : null;
 
 if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN)) {
+    security_log_event('staff_password_reset_inactive_profile', staff_reset_password_security_context(
+        (string) $tenantId,
+        $accountEmail !== '' ? $accountEmail : $email,
+        403,
+        'failed',
+        'staff_password_reset_inactive_profile'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Profil personelu jest nieaktywny.'
@@ -307,6 +424,14 @@ if (
     || $updateResult['httpCode'] < 200
     || $updateResult['httpCode'] >= 300
 ) {
+    security_log_event('staff_password_reset_failed', staff_reset_password_security_context(
+        (string) $tenantId,
+        $accountEmail !== '' ? $accountEmail : $email,
+        500,
+        'error',
+        'staff_password_reset_password_update_failed'
+    ));
+
     staff_reset_password_json([
         'success' => false,
         'error' => 'Nie udało się zapisać nowego hasła.'
@@ -329,6 +454,14 @@ if (
     || $usedResult['httpCode'] < 200
     || $usedResult['httpCode'] >= 300
 ) {
+    security_log_event('staff_password_reset_token_mark_used_failed', staff_reset_password_security_context(
+        (string) $tenantId,
+        $accountEmail !== '' ? $accountEmail : $email,
+        500,
+        'error',
+        'staff_password_reset_token_mark_used_failed'
+    ));
+
     error_log('STAFF_PASSWORD_RESET_TOKEN_MARK_USED_FAILED tenant_id_set=' . ($tenantId !== '' ? 'true' : 'false') . ' token_id_set=' . ($tokenId !== '' ? 'true' : 'false'));
 }
 
@@ -348,8 +481,24 @@ if (
     || $invalidateResult['httpCode'] < 200
     || $invalidateResult['httpCode'] >= 300
 ) {
+    security_log_event('staff_password_reset_other_tokens_invalidate_failed', staff_reset_password_security_context(
+        (string) $tenantId,
+        $accountEmail !== '' ? $accountEmail : $email,
+        500,
+        'error',
+        'staff_password_reset_other_tokens_invalidate_failed'
+    ));
+
     error_log('STAFF_PASSWORD_RESET_OTHER_TOKENS_INVALIDATE_FAILED tenant_id_set=' . ($tenantId !== '' ? 'true' : 'false') . ' staff_account_id_set=' . ($accountId !== '' ? 'true' : 'false'));
 }
+
+security_log_event('staff_password_reset_success', staff_reset_password_security_context(
+    (string) $tenantId,
+    $accountEmail !== '' ? $accountEmail : $email,
+    200,
+    'success',
+    'staff_password_reset_success'
+));
 
 staff_reset_password_json([
     'success' => true,

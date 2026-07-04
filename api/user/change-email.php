@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function getClientIpAddress(): string
@@ -101,7 +102,11 @@ if ($tenantId === '') {
     exit;
 }
 
-$clientIp = getClientIpAddress();
+$securityIp = security_client_ip();
+$clientIp = $securityIp ?: getClientIpAddress();
+$securityEndpoint = '/api/user/change-email.php';
+$securityMethod = $_SERVER['REQUEST_METHOD'] ?? 'POST';
+$securityEmail = $currentEmail !== '' ? $currentEmail : $newEmail;
 
 $rateCheckUrl = $supabaseUrl
     . '/rest/v1/email_change_attempts'
@@ -156,6 +161,22 @@ if (!is_array($recentAttempts)) {
 }
 
 if (count($recentAttempts) >= 3) {
+    security_log_event('email_change_rate_limited', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $securityEmail,
+        'ip_address' => $clientIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'email_change_request',
+            'limiter' => 'email_change_attempts',
+        ],
+    ]);
+
     http_response_code(429);
     echo json_encode([
         'success' => false,
@@ -224,6 +245,21 @@ if ($attemptHttpCode < 200 || $attemptHttpCode >= 300) {
     exit;
 }
 
+security_log_event('email_change_request', [
+    'tenant_id' => $tenantId,
+    'user_id' => $userId,
+    'email' => $securityEmail,
+    'ip_address' => $clientIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'tenant_user',
+    'response_status' => 202,
+    'result' => 'accepted',
+    'details' => [
+        'reason' => 'email_change_request',
+    ],
+]);
+
 $url = $supabaseUrl
     . '/rest/v1/users'
     . '?id=eq.' . rawurlencode($userId)
@@ -281,6 +317,21 @@ if ($httpCode >= 200 && $httpCode < 300) {
     $oldEmail = $_SESSION['user']['email'] ?? '';
     $_SESSION['user']['email'] = $newEmail;
     
+    security_log_event('email_change_success', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $securityEmail,
+        'ip_address' => $clientIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 200,
+        'result' => 'success',
+        'details' => [
+            'reason' => 'email_change_success',
+        ],
+    ]);
+
     $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
 
 $logPayload = json_encode([
@@ -399,6 +450,21 @@ if ($checkHttpCode < 200 || $checkHttpCode >= 300) {
 $existingUsers = json_decode($checkResponse, true);
 
 if (is_array($existingUsers) && !empty($existingUsers)) {
+    security_log_event('email_change_conflict', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $securityEmail,
+        'ip_address' => $clientIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 409,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'email_change_conflict',
+        ],
+    ]);
+
     http_response_code(409);
     echo json_encode([
         'success' => false,
@@ -406,3 +472,25 @@ if (is_array($existingUsers) && !empty($existingUsers)) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+security_log_event('email_change_failed', [
+    'tenant_id' => $tenantId,
+    'user_id' => $userId,
+    'email' => $securityEmail,
+    'ip_address' => $clientIp,
+    'endpoint' => $securityEndpoint,
+    'http_method' => $securityMethod,
+    'actor_type' => 'tenant_user',
+    'response_status' => $httpCode > 0 ? $httpCode : 500,
+    'result' => 'failed',
+    'details' => [
+        'reason' => 'email_change_failed',
+    ],
+]);
+
+http_response_code(500);
+echo json_encode([
+    'success' => false,
+    'error' => 'Nie udało się zmienić emaila. Spróbuj ponownie później.'
+], JSON_UNESCAPED_UNICODE);
+exit;
