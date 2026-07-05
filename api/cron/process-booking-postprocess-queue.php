@@ -4,6 +4,36 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/booking_postprocess_queue.php';
 require_once __DIR__ . '/../helpers/booking_context_cache.php';
 require_once __DIR__ . '/../helpers/booking_postprocess.php';
+require_once __DIR__ . '/../helpers/security.php';
+
+
+function booking_postprocess_worker_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result,
+    string $severity = 'medium',
+    string $stage = ''
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'booking_postprocess_worker',
+        'endpoint' => '/api/cron/process-booking-postprocess-queue.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? (PHP_SAPI === 'cli' ? 'CLI' : ''),
+        'actor_type' => 'system',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 function booking_postprocess_worker_log(string $event, array $context = []): void
 {
@@ -77,10 +107,28 @@ function booking_postprocess_worker_mark_unfinished_failed(array $job): array
 }
 
 if (!booking_postprocess_worker_authorized()) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_unauthorized',
+        'unauthorized',
+        401,
+        'denied',
+        'high',
+        'auth'
+    );
+
     booking_postprocess_worker_response(['success' => false, 'error' => 'unauthorized'], 401);
 }
 
 if (!booking_postprocess_queue_ensure_directories()) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_queue_unavailable',
+        'queue_unavailable',
+        500,
+        'error',
+        'high',
+        'queue'
+    );
+
     booking_postprocess_worker_response([
         'success' => false,
         'error' => 'queue_unavailable',
@@ -91,6 +139,15 @@ if (!booking_postprocess_queue_ensure_directories()) {
 $workerLock = booking_postprocess_queue_acquire_worker_lock();
 
 if (!is_resource($workerLock)) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_already_running',
+        'worker_already_running',
+        200,
+        'skipped',
+        'low',
+        'lock'
+    );
+
     booking_postprocess_worker_response([
         'success' => true,
         'message' => 'worker_already_running',
@@ -202,6 +259,15 @@ booking_postprocess_worker_log('WORKER_DONE', [
     'processed' => $processed,
     'recovered' => $recovered,
 ]);
+
+booking_postprocess_worker_security_event(
+    'booking_postprocess_worker_run_success',
+    'worker_run_success',
+    200,
+    'success',
+    'low',
+    'run'
+);
 
 booking_postprocess_worker_response([
     'success' => true,

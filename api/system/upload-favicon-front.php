@@ -3,11 +3,33 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+
+function favicon_security_event(string $eventKey, string $reason, int $responseStatus = 200, string $result = 'success', string $severity = 'medium', string $stage = ''): void
+{
+    $details = ['reason' => $reason];
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'system_favicon_upload',
+        'endpoint' => '/api/system/upload-favicon-front.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($_SESSION['user']['tenant_id'] ?? ''),
+        'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -315,6 +337,7 @@ curl_close($ch);
 
 if ($response === false || $curlError || $httpCode < 200 || $httpCode >= 300) {
     favicon_log('branding_patch_failed');
+    favicon_security_event('system_favicon_upload_failed', 'branding_patch_failed', 500, 'failed', 'medium', 'supabase_patch');
     favicon_json(500, ['success' => false, 'error' => 'Nie udało się zapisać ścieżki pliku w ustawieniach brandingu.']);
 }
 
@@ -350,6 +373,8 @@ foreach ($allowedOldNames as $oldName) {
         @unlink($oldPath);
     }
 }
+
+favicon_security_event('system_favicon_upload_success', 'system_favicon_upload_success', 200, 'success', 'medium');
 
 favicon_json(200, [
     'success' => true,

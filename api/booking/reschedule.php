@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/booking_mail.php';
 require_once __DIR__ . '/../helpers/google_calendar.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 date_default_timezone_set('Europe/Warsaw');
@@ -27,6 +28,44 @@ function reschedule_error(string $message, string $code = 'reschedule_error', in
         'message' => $message,
         'code' => $code,
     ], $statusCode);
+}
+
+function reschedule_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result,
+    ?array $booking = null,
+    ?string $tenantId = null
+): void {
+    $context = [
+        'action_key' => 'booking_reschedule',
+        'actor_type' => 'public',
+        'severity' => 'medium',
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'endpoint' => '/api/booking/reschedule.php',
+        'details' => [
+            'reason' => $reason,
+        ],
+    ];
+
+    $bookingTenantId = is_array($booking) ? trim((string) ($booking['tenant_id'] ?? '')) : '';
+    $contextTenantId = trim((string) ($tenantId ?? $bookingTenantId));
+
+    if ($contextTenantId !== '') {
+        $context['tenant_id'] = $contextTenantId;
+    }
+
+    if (is_array($booking)) {
+        $email = trim((string) ($booking['email'] ?? ''));
+
+        if ($email !== '') {
+            $context['email'] = $email;
+        }
+    }
+
+    security_log_event($eventKey, $context);
 }
 
 function reschedule_trace_hash(?string $value): ?string
@@ -104,10 +143,22 @@ function reschedule_read_json_input(): array
 function reschedule_validate_token(string $token): void
 {
     if ($token === '') {
+        reschedule_security_event(
+            'booking_reschedule_token_invalid',
+            'invalid_token_format',
+            400,
+            'failed'
+        );
         reschedule_error('Brak linku do przełożenia rezerwacji.', 'missing_token', 400);
     }
 
     if (!preg_match('/^[a-f0-9]{64}$/i', $token)) {
+        reschedule_security_event(
+            'booking_reschedule_token_invalid',
+            'invalid_token_format',
+            400,
+            'failed'
+        );
         reschedule_error('Link do przełożenia rezerwacji jest nieprawidłowy.', 'invalid_token', 400);
     }
 }
@@ -476,6 +527,13 @@ function reschedule_assert_booking_can_change(array $booking): void
     $tokenExpiresAt = trim((string) ($booking['manage_token_expires_at'] ?? ''));
 
     if (!reschedule_timestamp_is_future($tokenExpiresAt)) {
+        reschedule_security_event(
+            'booking_reschedule_token_expired',
+            'token_expired',
+            410,
+            'failed',
+            $booking
+        );
         reschedule_error('Nie można już przełożyć tej rezerwacji, ponieważ termin już się rozpoczął lub minął.', 'token_expired', 410);
     }
 
@@ -486,6 +544,13 @@ function reschedule_assert_booking_can_change(array $booking): void
     $now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));
 
     if (!$bookingStart || $bookingStart <= $now) {
+        reschedule_security_event(
+            'booking_reschedule_token_expired',
+            'token_expired',
+            410,
+            'failed',
+            $booking
+        );
         reschedule_error('Nie można już przełożyć tej rezerwacji, ponieważ termin już się rozpoczął lub minął.', 'booking_already_started', 410);
     }
 }
@@ -1012,13 +1077,13 @@ function reschedule_sync_google_calendar(
     string $schema,
     string $tenantId,
     array $booking
-): void {
+): bool {
     try {
         $bookingId = (string) ($booking['id'] ?? '');
 
         if ($bookingId === '') {
             google_calendar_debug('RESCHEDULE_GOOGLE_SKIPPED', 'Brak wewnętrznego identyfikatora rezerwacji.');
-            return;
+            return false;
         }
 
         $googleEventId = trim((string) ($booking['google_event_id'] ?? ''));
@@ -1040,15 +1105,16 @@ function reschedule_sync_google_calendar(
                     'google_event_hash' => reschedule_trace_hash($googleEventId),
                     'status_code' => $updateResult['status_code'] ?? null,
                 ]);
-                return;
+                return false;
             }
         }
 
         if ($updated) {
-            return;
+            return true;
         }
 
-        $newGoogleEventId = createGoogleCalendarEventForBooking($tenantId, $booking);
+        $googleExecution = null;
+        $newGoogleEventId = createGoogleCalendarEventForBooking($tenantId, $booking, $googleExecution);
 
         if ($newGoogleEventId) {
             google_calendar_update_booking_event_id($bookingId, $newGoogleEventId, $tenantId);
@@ -1057,11 +1123,13 @@ function reschedule_sync_google_calendar(
                 'google_event_hash' => reschedule_trace_hash($newGoogleEventId),
                 'previous_google_event_hash' => $googleEventId !== '' ? reschedule_trace_hash($googleEventId) : null,
             ]);
+            return true;
         } else {
             google_calendar_debug('RESCHEDULE_GOOGLE_EVENT_CREATE_FAILED', [
                 'booking_hash' => reschedule_trace_hash($bookingId),
                 'previous_google_event_hash' => $googleEventId !== '' ? reschedule_trace_hash($googleEventId) : null,
             ]);
+            return is_array($googleExecution) && ($googleExecution['status'] ?? '') === 'skipped';
         }
     } catch (Throwable $e) {
         // Miękka synchronizacja: błąd Google nie może cofnąć przełożenia w bazie.
@@ -1069,6 +1137,7 @@ function reschedule_sync_google_calendar(
             'error_type' => 'google_sync_error',
             'booking_hash' => reschedule_trace_hash((string) ($booking['id'] ?? '')),
         ]);
+        return false;
     }
 }
 
@@ -1107,6 +1176,14 @@ if (!tenant_has_feature($tenantId, 'reschedule_booking')) {
 $booking = reschedule_load_booking($supabaseUrl, $supabaseKey, $schema, $tenantId, $token);
 
 if (!$booking) {
+    reschedule_security_event(
+        'booking_reschedule_token_not_found',
+        'token_not_found',
+        404,
+        'failed',
+        null,
+        $tenantId
+    );
     reschedule_error('Nie znaleziono rezerwacji albo link jest nieprawidłowy.', 'booking_not_found', 404);
 }
 
@@ -1155,6 +1232,14 @@ reschedule_validate_date($newDate);
 reschedule_validate_time($newTime);
 
 if (reschedule_is_same_booking_slot($booking, $newDate, $newTime)) {
+    reschedule_security_event(
+        'booking_reschedule_slot_conflict',
+        'slot_conflict',
+        409,
+        'failed',
+        $booking,
+        $tenantId
+    );
     reschedule_error('Wybierz inny termin niż obecny. Nie można przełożyć rezerwacji na tę samą datę i godzinę.', 'same_booking_slot', 409);
 }
 
@@ -1168,6 +1253,14 @@ if (!$newStart || $newStart <= $now) {
 $availableTimes = reschedule_availability($supabaseUrl, $supabaseKey, $schema, $tenantId, $booking, $service, $newDate);
 
 if (!in_array($newTime, $availableTimes, true)) {
+    reschedule_security_event(
+        'booking_reschedule_slot_conflict',
+        'slot_conflict',
+        409,
+        'failed',
+        $booking,
+        $tenantId
+    );
     reschedule_error('Wybrany termin jest już niedostępny. Wybierz inną godzinę.', 'slot_unavailable', 409);
 }
 
@@ -1199,12 +1292,32 @@ $googleBooking = array_merge($mailBooking, [
     'reschedule_limit' => reschedule_max_changes(),
 ]);
 
-reschedule_sync_google_calendar($supabaseUrl, $supabaseKey, $schema, $tenantId, $googleBooking);
+$googleSyncOk = reschedule_sync_google_calendar($supabaseUrl, $supabaseKey, $schema, $tenantId, $googleBooking);
+
+if (!$googleSyncOk) {
+    reschedule_security_event(
+        'booking_reschedule_google_sync_failed',
+        'google_sync_failed',
+        200,
+        'warning',
+        $googleBooking,
+        $tenantId
+    );
+}
 
 reschedule_send_mail($supabaseUrl, $supabaseKey, $schema, $tenantId, $mailBooking);
 
 $updatedService = reschedule_load_service($supabaseUrl, $supabaseKey, $schema, $tenantId, $updatedBooking);
 $updatedStaff = reschedule_load_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $updatedBooking);
+
+reschedule_security_event(
+    'booking_reschedule_success',
+    'booking_reschedule_success',
+    200,
+    'success',
+    $updatedBooking,
+    $tenantId
+);
 
 reschedule_json([
     'success' => true,

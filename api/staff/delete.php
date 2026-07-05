@@ -7,9 +7,49 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+
+
+function staff_delete_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus = 400,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $staffId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    $context = [
+        'action_key' => 'staff_delete',
+        'endpoint' => '/api/staff/delete.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    if ($tenantId !== null && $tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    if ($staffId !== null && $staffId !== '') {
+        $context['staff_id'] = $staffId;
+    }
+
+    security_log_event($eventKey, $context);
+}
 
 function staff_delete_json(array $payload, int $statusCode = 200): void
 {
@@ -64,6 +104,19 @@ function staff_delete_fail(
     int $statusCode = 500
 ): void
 {
+    global $tenantId, $staffId;
+
+    staff_delete_security_event(
+        'staff_delete_failed',
+        $code,
+        $statusCode,
+        'failed',
+        'high',
+        is_string($tenantId ?? null) ? $tenantId : null,
+        is_string($staffId ?? null) ? $staffId : null,
+        'technical'
+    );
+
     staff_delete_json([
         'success' => false,
         'error' => $message,
@@ -278,6 +331,7 @@ function staff_delete_resolve_staff_request_id(
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     header('Allow: POST');
+    staff_delete_security_event('staff_delete_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     staff_delete_json([
         'success' => false,
         'error' => 'Metoda niedozwolona'
@@ -285,6 +339,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+    staff_delete_security_event('staff_delete_unauthorized', 'unauthorized', 401, 'denied', 'medium');
     staff_delete_json([
         'success' => false,
         'error' => 'Brak autoryzacji'
@@ -294,6 +349,7 @@ if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
 $role = (string) ($_SESSION['user']['role'] ?? '');
 
 if ($role !== 'administrator') {
+    staff_delete_security_event('staff_delete_forbidden', 'forbidden', 403, 'denied', 'medium');
     staff_delete_json([
         'success' => false,
         'error' => 'Brak uprawnień'
@@ -305,6 +361,7 @@ $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    staff_delete_security_event('staff_delete_env_missing', 'env_missing', 500, 'failed', 'high');
     staff_delete_json([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase'
@@ -312,6 +369,7 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    staff_delete_security_event('staff_delete_tenant_denied', 'tenant_mismatch', 403, 'denied', 'medium');
     staff_delete_json([
         'success' => false,
         'error' => 'Sesja nie pasuje do domeny'
@@ -321,6 +379,7 @@ if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
 $tenantId = (string) ($_SESSION['user']['tenant_id'] ?? '');
 
 if ($tenantId === '') {
+    staff_delete_security_event('staff_delete_session_invalid', 'session_invalid', 401, 'denied', 'medium');
     staff_delete_json([
         'success' => false,
         'error' => 'Nieprawidłowa sesja'
@@ -332,6 +391,7 @@ require_tenant_feature($tenantId, 'staff_module');
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
+    staff_delete_security_event('staff_delete_invalid_json', 'invalid_json', 400, 'failed', 'medium', $tenantId);
     staff_delete_json([
         'success' => false,
         'error' => 'Nieprawidłowy JSON'
@@ -342,6 +402,7 @@ $refSecret = public_response_ref_secret($supabaseKey);
 $staffId = staff_delete_resolve_staff_request_id($input, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret);
 
 if ($staffId === '') {
+    staff_delete_security_event('staff_delete_ref_missing_or_invalid', 'staff_ref_missing_or_invalid', 400, 'failed', 'medium', $tenantId);
     staff_delete_json([
         'success' => false,
         'error' => 'Nie udało się usunąć pracownika. Odśwież listę personelu i spróbuj ponownie.',
@@ -368,6 +429,7 @@ if ($staffResult['httpCode'] < 200 || $staffResult['httpCode'] >= 300) {
 $staffRows = json_decode((string) $staffResult['response'], true);
 
 if (!is_array($staffRows) || empty($staffRows[0]) || !is_array($staffRows[0])) {
+    staff_delete_security_event('staff_delete_not_found', 'staff_not_found', 404, 'failed', 'medium', $tenantId, $staffId);
     staff_delete_json([
         'success' => false,
         'error' => 'Nie udało się usunąć pracownika. Odśwież listę personelu i spróbuj ponownie.',
@@ -379,6 +441,7 @@ if (!is_array($staffRows) || empty($staffRows[0]) || !is_array($staffRows[0])) {
 $staff = $staffRows[0];
 
 if (!empty($staff['is_active'])) {
+    staff_delete_security_event('staff_delete_active_blocked', 'staff_active', 409, 'failed', 'medium', $tenantId, $staffId);
     staff_delete_json([
         'success' => false,
         'error' => 'Ten pracownik jest aktywny. Najpierw odznacz opcję „Aktywny”, zapisz zmiany i spróbuj ponownie.',
@@ -388,6 +451,7 @@ if (!empty($staff['is_active'])) {
 }
 
 if (staff_delete_has_service_assignments($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffId)) {
+    staff_delete_security_event('staff_delete_has_services', 'staff_has_services', 409, 'failed', 'medium', $tenantId, $staffId);
     staff_delete_json([
         'success' => false,
         'error' => 'Ten pracownik ma przypisane usługi. Najpierw odłącz go od usług, a potem spróbuj ponownie.',
@@ -398,6 +462,7 @@ if (staff_delete_has_service_assignments($supabaseUrl, $supabaseKey, $schema, $t
 }
 
 if (staff_delete_has_future_bookings($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffId)) {
+    staff_delete_security_event('staff_delete_has_future_bookings', 'staff_has_future_bookings', 409, 'failed', 'medium', $tenantId, $staffId);
     staff_delete_json([
         'success' => false,
         'error' => 'Ten pracownik ma zaplanowane rezerwacje. Najpierw zmień obsługę tych terminów albo anuluj rezerwacje.',
@@ -424,6 +489,8 @@ if ($deleteResult['response'] === false || $deleteResult['error'] !== '' || $del
         'delete_failed_related_data'
     );
 }
+
+staff_delete_security_event('staff_delete_success', 'staff_delete_success', 200, 'success', 'medium', $tenantId, $staffId);
 
 staff_delete_json([
     'success' => true,

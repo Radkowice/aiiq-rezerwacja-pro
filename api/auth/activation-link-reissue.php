@@ -31,6 +31,31 @@ function activation_reissue_neutral_success(): void
     ]);
 }
 
+
+function activation_reissue_security_event(string $eventKey, string $reason, int $statusCode, string $result = 'failed', string $severity = 'medium', array $context = []): void
+{
+    $details = ['reason' => $reason];
+
+    if (isset($context['stage']) && is_scalar($context['stage'])) {
+        $details['stage'] = (string) $context['stage'];
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'activation_reissue',
+        'severity' => $severity,
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($context['tenant_id'] ?? ''),
+        'user_id' => (string) ($context['user_id'] ?? ''),
+        'email' => (string) ($context['email'] ?? ''),
+        'ip_address' => security_client_ip(),
+        'endpoint' => '/api/auth/activation-link-reissue.php',
+        'http_method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'POST')),
+        'response_status' => $statusCode,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
+
 function activation_reissue_request(string $method, string $path, ?array $payload = null): array
 {
     global $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA;
@@ -127,18 +152,9 @@ function activation_reissue_rate_limit(string $email): void
     ));
 
     if (count($rateData[$rateKey]) >= $maxAttempts) {
-        security_log_event('activation_reissue_rate_limited', [
+        activation_reissue_security_event('activation_reissue_rate_limited', 'activation_reissue', 429, 'blocked', 'high', [
             'email' => $email,
-            'ip_address' => security_client_ip(),
-            'endpoint' => '/api/auth/activation-link-reissue.php',
-            'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
-            'actor_type' => 'tenant_user',
-            'response_status' => 429,
-            'result' => 'blocked',
-            'details' => [
-                'reason' => 'activation_reissue',
-                'limiter' => 'legacy_json_rate_limit',
-            ],
+            'stage' => 'legacy_json_rate_limit',
         ]);
 
         activation_reissue_json([
@@ -238,6 +254,7 @@ function activation_reissue_plan_label(string $tenantId): string
 
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
+        activation_reissue_security_event('activation_reissue_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
         header('Allow: POST');
         activation_reissue_json([
             'success' => false,
@@ -246,6 +263,7 @@ try {
     }
 
     if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+        activation_reissue_security_event('activation_reissue_env_missing', 'env_missing', 500, 'failed', 'high');
         activation_reissue_json([
             'success' => false,
             'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.',
@@ -255,6 +273,7 @@ try {
     $input = json_decode((string) file_get_contents('php://input'), true);
 
     if (!is_array($input)) {
+        activation_reissue_security_event('activation_reissue_invalid_json', 'invalid_json', 400, 'failed', 'low');
         activation_reissue_json([
             'success' => false,
             'error' => 'Podaj poprawny adres e-mail.',
@@ -264,6 +283,7 @@ try {
     $email = activation_reissue_normalize_email((string) ($input['email'] ?? ''));
 
     if ($email === '') {
+        activation_reissue_security_event('activation_reissue_invalid_email', 'invalid_email', 400, 'failed', 'low');
         activation_reissue_json([
             'success' => false,
             'error' => 'Podaj poprawny adres e-mail.',
@@ -294,18 +314,9 @@ try {
     );
 
     if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
-        security_log_event('activation_reissue_rate_limited', [
+        activation_reissue_security_event('activation_reissue_rate_limited', 'activation_reissue', 429, 'blocked', 'high', [
             'email' => $securityEmail,
-            'ip_address' => $securityIp,
-            'endpoint' => $securityEndpoint,
-            'http_method' => $securityMethod,
-            'actor_type' => 'tenant_user',
-            'response_status' => 429,
-            'result' => 'blocked',
-            'details' => [
-                'reason' => 'activation_reissue',
-                'limiter' => 'security_rate_limit_check',
-            ],
+            'stage' => 'security_rate_limit_check',
         ]);
 
         http_response_code(429);
@@ -321,17 +332,8 @@ try {
 
     activation_reissue_rate_limit($email);
 
-    security_log_event('activation_reissue', [
+    activation_reissue_security_event('activation_reissue_request_accepted', 'activation_reissue', 202, 'accepted', 'low', [
         'email' => $securityEmail,
-        'ip_address' => $securityIp,
-        'endpoint' => $securityEndpoint,
-        'http_method' => $securityMethod,
-        'actor_type' => 'tenant_user',
-        'response_status' => 202,
-        'result' => 'accepted',
-        'details' => [
-            'reason' => 'activation_reissue',
-        ],
     ]);
 
     $userResult = activation_reissue_request(
@@ -342,6 +344,9 @@ try {
     );
 
     if (!$userResult['ok'] || count($userResult['data']) !== 1 || !is_array($userResult['data'][0] ?? null)) {
+        activation_reissue_security_event('activation_reissue_user_lookup_neutral', 'user_lookup_neutral', 202, 'accepted', 'low', [
+            'email' => $securityEmail,
+        ]);
         activation_reissue_neutral_success();
     }
 
@@ -351,6 +356,11 @@ try {
     $isActive = filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
     if ($isActive || !activation_reissue_is_uuid($userId) || !activation_reissue_is_uuid($tenantId)) {
+        activation_reissue_security_event('activation_reissue_already_active_or_invalid', 'already_active_or_invalid_context', 202, 'accepted', 'low', [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $securityEmail,
+        ]);
         activation_reissue_neutral_success();
     }
 
@@ -361,6 +371,11 @@ try {
     $activationRef = activation_link_build_ref($activationToken, $tenantId, $userId);
 
     if ($activationRef === '') {
+        activation_reissue_security_event('activation_reissue_ref_failed', 'ref_failed', 500, 'failed', 'high', [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $securityEmail,
+        ]);
         activation_reissue_json([
             'success' => false,
             'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.',
@@ -385,6 +400,11 @@ try {
     );
 
     if (!$insertResult['ok']) {
+        activation_reissue_security_event('activation_reissue_token_insert_failed', 'token_insert_failed', 500, 'failed', 'high', [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $securityEmail,
+        ]);
         activation_reissue_json([
             'success' => false,
             'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.',
@@ -405,6 +425,11 @@ try {
     unset($activationToken, $activationRef, $activationUrl);
 
     if (!sendSystemMail($email, 'Nowy link aktywacyjny w AI-IQ Rezerwacja Pro', $mailHtml)) {
+        activation_reissue_security_event('activation_reissue_mail_send_failed', 'mail_send_failed', 500, 'failed', 'high', [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => $securityEmail,
+        ]);
         activation_reissue_request(
             'PATCH',
             '/rest/v1/user_activation_tokens'
@@ -433,8 +458,15 @@ try {
         ['revoked_at' => gmdate('c')]
     );
 
+    activation_reissue_security_event('activation_reissue_success', 'activation_link_reissued', 200, 'success', 'low', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $securityEmail,
+    ]);
+
     activation_reissue_neutral_success();
 } catch (Throwable $e) {
+    activation_reissue_security_event('activation_reissue_fatal', 'fatal', 500, 'failed', 'critical');
     activation_reissue_json([
         'success' => false,
         'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.',

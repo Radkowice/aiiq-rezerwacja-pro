@@ -5,9 +5,31 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/tenant.php';
 
 start_secure_session();
+
+function admin_notifications_security_event(string $eventKey, string $reason, int $responseStatus = 200, string $result = 'success', string $severity = 'medium', string $stage = ''): void
+{
+    $details = ['reason' => $reason];
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'system_admin_notifications',
+        'endpoint' => '/api/system/admin-notifications.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($_SESSION['user']['tenant_id'] ?? ''),
+        'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 function admin_notifications_json(array $payload, int $statusCode = 200): void
 {
@@ -198,8 +220,11 @@ if ($method === 'POST') {
     );
 
     if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] >= 400) {
+        admin_notifications_security_event('system_admin_notifications_mark_read_failed', 'mark_read_failed', 500, 'failed', 'low', 'supabase_patch');
         admin_notifications_fail('Nie udało się oznaczyć powiadomień jako przeczytane', $result);
     }
+
+    admin_notifications_security_event('system_admin_notifications_mark_read_success', 'mark_read_success', 200, 'success', 'low');
 
     admin_notifications_json([
         'success' => true,

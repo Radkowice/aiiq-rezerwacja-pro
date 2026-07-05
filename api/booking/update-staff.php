@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -18,11 +19,65 @@ function booking_staff_json(array $payload, int $statusCode = 200): void
     exit;
 }
 
+function booking_staff_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $staffId = null,
+    ?string $stage = null
+): void {
+    if (!function_exists('security_log_event')) {
+        return;
+    }
+
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    $context = [
+        'action_key' => 'booking_staff_update',
+        'endpoint' => '/api/booking/update-staff.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    if ($tenantId !== null && $tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    if ($staffId !== null && $staffId !== '') {
+        $context['staff_id'] = $staffId;
+    }
+
+    try {
+        security_log_event($eventKey, $context);
+    } catch (Throwable $exception) {
+        // Audyt bezpieczeństwa nie może blokować operacji biznesowej.
+    }
+}
+
 function booking_staff_require_admin_session(): array
 {
     $user = $_SESSION['user'] ?? null;
 
     if (!is_array($user) || empty($user['id']) || empty($user['tenant_id'])) {
+        booking_staff_security_event(
+            'booking_staff_update_unauthorized',
+            'unauthorized',
+            401
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Brak autoryzacji'
@@ -32,6 +87,15 @@ function booking_staff_require_admin_session(): array
     $role = strtolower(trim((string) ($user['role'] ?? '')));
 
     if (!in_array($role, ['admin', 'administrator'], true)) {
+        booking_staff_security_event(
+            'booking_staff_update_forbidden',
+            'forbidden',
+            403,
+            'denied',
+            'medium',
+            (string) ($user['tenant_id'] ?? '')
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Brak uprawnień administratora'
@@ -144,6 +208,17 @@ function booking_staff_patch(
     $result = booking_staff_request('PATCH', $url, $key, $schema, $payload);
 
     if (!$result['ok']) {
+        booking_staff_security_event(
+            'booking_staff_update_failed',
+            'booking_update_failed',
+            $result['httpCode'] > 0 ? $result['httpCode'] : 500,
+            'error',
+            'high',
+            null,
+            null,
+            'booking_patch'
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nie udało się zapisać zmiany'
@@ -169,6 +244,17 @@ function booking_staff_insert(
     $result = booking_staff_request('POST', $url, $key, $schema, $payload);
 
     if (!$result['ok']) {
+        booking_staff_security_event(
+            'booking_staff_update_history_failed',
+            'history_insert_failed',
+            $result['httpCode'] > 0 ? $result['httpCode'] : 500,
+            'warning',
+            'medium',
+            null,
+            null,
+            'history_insert'
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nie udało się zapisać historii zmiany'
@@ -238,6 +324,15 @@ function booking_staff_resolve_booking_by_ref(
     string $timeHint
 ): ?array {
     if (!booking_staff_is_valid_booking_ref($bookingRef)) {
+        booking_staff_security_event(
+            'booking_staff_update_booking_ref_invalid',
+            'booking_ref_invalid',
+            400,
+            'failed',
+            'medium',
+            $tenantId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nieprawidłowy identyfikator rezerwacji'
@@ -245,6 +340,15 @@ function booking_staff_resolve_booking_by_ref(
     }
 
     if (!booking_staff_is_valid_date_hint($dateHint) || !booking_staff_is_valid_time_hint($timeHint)) {
+        booking_staff_security_event(
+            'booking_staff_update_hint_invalid',
+            'hint_invalid',
+            400,
+            'failed',
+            'medium',
+            $tenantId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nieprawidłowe dane rezerwacji'
@@ -297,6 +401,15 @@ function booking_staff_resolve_staff_by_ref(
     string $staffRef
 ): ?array {
     if (!booking_staff_is_valid_staff_ref($staffRef)) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_ref_invalid',
+            'staff_ref_invalid',
+            400,
+            'failed',
+            'medium',
+            $tenantId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nieprawidłowy identyfikator pracownika'
@@ -672,6 +785,16 @@ function booking_staff_assert_staff_available_for_booking(
         ]) ?? [];
 
         if (!booking_staff_service_relation_exists($supabaseUrl, $key, $schema, $tenantId, $serviceId, $staffId)) {
+            booking_staff_security_event(
+                'booking_staff_update_staff_service_denied',
+                'staff_not_assigned_to_service',
+                409,
+                'failed',
+                'medium',
+                $tenantId,
+                $staffId
+            );
+
             booking_staff_json([
                 'success' => false,
                 'code' => 'staff_not_assigned_to_service',
@@ -703,6 +826,16 @@ function booking_staff_assert_staff_available_for_booking(
     $slots = booking_staff_slots_from_availability($availability, $settings, $date);
 
     if (!in_array($time, $slots, true)) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_unavailable',
+            'staff_outside_schedule',
+            409,
+            'failed',
+            'medium',
+            $tenantId,
+            $staffId
+        );
+
         booking_staff_json([
             'success' => false,
             'code' => 'staff_outside_schedule',
@@ -719,6 +852,16 @@ function booking_staff_assert_staff_available_for_booking(
     ]);
 
     if (is_array($blockedDate)) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_unavailable',
+            'staff_date_blocked',
+            409,
+            'failed',
+            'medium',
+            $tenantId,
+            $staffId
+        );
+
         booking_staff_json([
             'success' => false,
             'code' => 'staff_date_blocked',
@@ -743,6 +886,16 @@ function booking_staff_assert_staff_available_for_booking(
         $blockedTime = booking_staff_normalize_time((string) $row['time']);
 
         if (trim((string) $row['time']) === 'all') {
+            booking_staff_security_event(
+                'booking_staff_update_staff_unavailable',
+                'staff_time_blocked',
+                409,
+                'failed',
+                'medium',
+                $tenantId,
+                $staffId
+            );
+
             booking_staff_json([
                 'success' => false,
                 'code' => 'staff_time_blocked',
@@ -764,6 +917,16 @@ function booking_staff_assert_staff_available_for_booking(
     if (booking_staff_blocked_time_overlaps($time, $settings, $globalBlockedTimes)
         || booking_staff_blocked_time_overlaps($time, $settings, $staffBlockedTimes)
     ) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_unavailable',
+            'staff_time_blocked',
+            409,
+            'failed',
+            'medium',
+            $tenantId,
+            $staffId
+        );
+
         booking_staff_json([
             'success' => false,
             'code' => 'staff_time_blocked',
@@ -795,6 +958,16 @@ function booking_staff_assert_staff_available_for_booking(
     $occupiedIntervals = booking_staff_occupied_intervals($bookings, $settingsByService, $settings);
 
     if (!booking_staff_slot_is_free($time, $settings, $occupiedIntervals)) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_conflict',
+            'staff_booking_conflict',
+            409,
+            'failed',
+            'medium',
+            $tenantId,
+            $staffId
+        );
+
         booking_staff_json([
             'success' => false,
             'code' => 'staff_booking_conflict',
@@ -806,6 +979,12 @@ function booking_staff_assert_staff_available_for_booking(
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     header('Allow: POST');
+    booking_staff_security_event(
+        'booking_staff_update_method_not_allowed',
+        'method_not_allowed',
+        405
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Metoda niedozwolona'
@@ -819,6 +998,14 @@ $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    booking_staff_security_event(
+        'booking_staff_update_env_missing',
+        'env_missing',
+        500,
+        'error',
+        'high'
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Nie udało się wczytać konfiguracji systemu.'
@@ -826,6 +1013,14 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    booking_staff_security_event(
+        'booking_staff_update_tenant_denied',
+        'tenant_mismatch',
+        403,
+        'denied',
+        'high'
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Sesja nie pasuje do domeny'
@@ -836,6 +1031,12 @@ $tenantId = (string) ($adminUser['tenant_id'] ?? '');
 $adminUserId = (string) ($adminUser['id'] ?? '');
 
 if ($tenantId === '') {
+    booking_staff_security_event(
+        'booking_staff_update_session_invalid',
+        'invalid_session',
+        401
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Nieprawidłowa sesja'
@@ -846,6 +1047,15 @@ $rawInput = file_get_contents('php://input');
 $input = json_decode((string) $rawInput, true);
 
 if (!is_array($input)) {
+    booking_staff_security_event(
+        'booking_staff_update_invalid_json',
+        'invalid_json',
+        400,
+        'failed',
+        'medium',
+        $tenantId
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Nieprawidłowe dane wejściowe'
@@ -860,6 +1070,15 @@ $newStaffRef = trim((string) ($input['staff_ref'] ?? ''));
 $newStaffId = '';
 
 if (!in_array($action, ['change_staff', 'detach_staff'], true)) {
+    booking_staff_security_event(
+        'booking_staff_update_action_invalid',
+        'action_invalid',
+        400,
+        'failed',
+        'medium',
+        $tenantId
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Nieprawidłowa akcja'
@@ -867,6 +1086,15 @@ if (!in_array($action, ['change_staff', 'detach_staff'], true)) {
 }
 
 if ($bookingRef === '') {
+    booking_staff_security_event(
+        'booking_staff_update_booking_ref_missing',
+        'booking_ref_missing',
+        400,
+        'failed',
+        'medium',
+        $tenantId
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Brak identyfikatora rezerwacji'
@@ -884,6 +1112,15 @@ $booking = booking_staff_resolve_booking_by_ref(
 );
 
 if (!$booking) {
+    booking_staff_security_event(
+        'booking_staff_update_booking_not_found',
+        'booking_not_found',
+        404,
+        'failed',
+        'medium',
+        $tenantId
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Nie znaleziono rezerwacji'
@@ -893,6 +1130,15 @@ if (!$booking) {
 $bookingId = trim((string) ($booking['id'] ?? ''));
 
 if ($bookingId === '' || !booking_staff_is_uuid($bookingId)) {
+    booking_staff_security_event(
+        'booking_staff_update_booking_invalid',
+        'booking_invalid',
+        500,
+        'error',
+        'high',
+        $tenantId
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Nieprawidłowa rezerwacja'
@@ -903,6 +1149,15 @@ $newStaff = null;
 
 if ($action === 'change_staff') {
     if ($newStaffRef === '') {
+        booking_staff_security_event(
+            'booking_staff_update_staff_ref_missing',
+            'staff_ref_missing',
+            400,
+            'failed',
+            'medium',
+            $tenantId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Wybierz poprawnego pracownika'
@@ -918,6 +1173,15 @@ if ($action === 'change_staff') {
     );
 
     if (!$newStaff) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_not_found',
+            'staff_not_found',
+            404,
+            'failed',
+            'medium',
+            $tenantId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nie znaleziono wybranego pracownika'
@@ -927,6 +1191,15 @@ if ($action === 'change_staff') {
     $newStaffId = trim((string) ($newStaff['id'] ?? ''));
 
     if ($newStaffId === '' || !booking_staff_is_uuid($newStaffId)) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_invalid',
+            'staff_invalid',
+            500,
+            'error',
+            'high',
+            $tenantId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nieprawidłowy pracownik'
@@ -954,6 +1227,16 @@ $newStaffName = '';
 
 if ($action === 'change_staff') {
     if ($oldStaffId !== '' && strtolower($oldStaffId) === strtolower($newStaffId)) {
+        booking_staff_security_event(
+            'booking_staff_update_noop_conflict',
+            'same_staff',
+            409,
+            'failed',
+            'medium',
+            $tenantId,
+            $newStaffId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Ten pracownik jest już przypisany do tej rezerwacji'
@@ -969,6 +1252,16 @@ if ($action === 'change_staff') {
     }
 
     if (!$newStaff) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_not_found',
+            'staff_not_found',
+            404,
+            'failed',
+            'medium',
+            $tenantId,
+            $newStaffId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nie znaleziono wybranego pracownika'
@@ -976,6 +1269,16 @@ if ($action === 'change_staff') {
     }
 
     if (($newStaff['is_active'] ?? false) !== true) {
+        booking_staff_security_event(
+            'booking_staff_update_staff_inactive',
+            'staff_inactive',
+            409,
+            'failed',
+            'medium',
+            $tenantId,
+            $newStaffId
+        );
+
         booking_staff_json([
             'success' => false,
             'error' => 'Nie można przypisać nieaktywnego pracownika'
@@ -996,6 +1299,15 @@ if ($action === 'change_staff') {
 }
 
 if ($action === 'detach_staff' && $oldStaffId === '') {
+    booking_staff_security_event(
+        'booking_staff_update_noop_conflict',
+        'no_staff_to_detach',
+        409,
+        'failed',
+        'medium',
+        $tenantId
+    );
+
     booking_staff_json([
         'success' => false,
         'error' => 'Ta rezerwacja nie ma przypisanego pracownika'
@@ -1039,6 +1351,16 @@ $changeRow = booking_staff_insert($supabaseUrl, $supabaseKey, $schema, 'booking_
         ? 'Administrator zmienił personel przypisany do rezerwacji.'
         : 'Administrator odłączył personel od rezerwacji.',
 ]);
+
+booking_staff_security_event(
+    $action === 'change_staff' ? 'booking_staff_update_success' : 'booking_staff_detach_success',
+    $action === 'change_staff' ? 'booking_staff_update_success' : 'booking_staff_detach_success',
+    200,
+    'success',
+    'medium',
+    $tenantId,
+    $action === 'change_staff' ? $newStaffId : $oldStaffId
+);
 
 booking_staff_json([
     'success' => true,

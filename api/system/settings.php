@@ -5,10 +5,32 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+
+function system_settings_security_event(string $eventKey, string $reason, int $responseStatus = 200, string $result = 'success', string $severity = 'medium', string $stage = ''): void
+{
+    $details = ['reason' => $reason];
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'system_settings',
+        'endpoint' => '/api/system/settings.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($_SESSION['user']['tenant_id'] ?? ''),
+        'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 $SUPABASE_URL = rtrim((string) getenv('SUPABASE_URL'), '/');
 $SUPABASE_KEY = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
@@ -359,6 +381,7 @@ if ($method === 'POST' || $method === 'PATCH') {
     }
 
     if ($saveError !== null) {
+        system_settings_security_event('system_settings_save_failed', 'save_failed', $saveStatus, 'failed', 'medium', 'supabase_save');
         http_response_code($saveStatus);
         echo json_encode([
             'success' => false,
@@ -384,6 +407,8 @@ if ($method === 'POST' || $method === 'PATCH') {
             exit;
         }
     }
+
+    system_settings_security_event('system_settings_save_success', 'system_settings_save_success', 200, 'success', 'medium');
 
     echo json_encode(public_response_sanitize([
     'success'  => true,

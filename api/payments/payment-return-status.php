@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -15,6 +16,36 @@ function payment_return_response(array $payload, int $statusCode = 200): void
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function payment_return_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result,
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $stage = null
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== null && trim($stage) !== '') {
+        $details['stage'] = trim($stage);
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'payment_return_status',
+        'endpoint' => '/api/payments/payment-return-status.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'public',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'tenant_id' => $tenantId,
+        'details' => $details,
+    ]);
 }
 
 function payment_return_supabase_get(string $url, string $key, string $schema): array
@@ -51,11 +82,13 @@ function payment_return_supabase_get(string $url, string $key, string $schema): 
     ];
 }
 
-function payment_return_session_booking_id(string $tenantId): string
+function payment_return_session_booking_id(string $tenantId, ?string &$failureReason = null): string
 {
+    $failureReason = null;
     $handoff = $_SESSION['booking_payment_return_handoff'] ?? null;
 
     if (!is_array($handoff)) {
+        $failureReason = 'handoff_missing';
         return '';
     }
 
@@ -65,29 +98,42 @@ function payment_return_session_booking_id(string $tenantId): string
 
     if ($bookingId === '' || $handoffTenantId === '' || $createdAt <= 0) {
         unset($_SESSION['booking_payment_return_handoff']);
+        $failureReason = 'handoff_invalid';
         return '';
     }
 
     if (time() - $createdAt > 7200) {
         unset($_SESSION['booking_payment_return_handoff']);
+        $failureReason = 'handoff_expired';
         return '';
     }
 
     if (!hash_equals($tenantId, $handoffTenantId)) {
+        $failureReason = 'handoff_tenant_mismatch';
         return '';
     }
 
     if (!preg_match('/^[a-zA-Z0-9_-]{1,128}$/', $bookingId)) {
         unset($_SESSION['booking_payment_return_handoff']);
+        $failureReason = 'handoff_booking_ref_invalid';
         return '';
     }
 
     return $bookingId;
 }
 
+$tenantId = null;
+
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
         header('Allow: GET');
+        payment_return_security_event(
+            'payment_return_status_method_not_allowed',
+            'method_not_allowed',
+            405,
+            'failed',
+            'low'
+        );
         payment_return_response([
             'success' => false,
             'error' => 'Metoda niedozwolona.'
@@ -105,6 +151,15 @@ try {
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
+        payment_return_security_event(
+            'payment_return_status_env_missing',
+            'env_missing',
+            500,
+            'error',
+            'high',
+            null,
+            'config'
+        );
         payment_return_response([
             'success' => false,
             'error' => 'Nie udało się pobrać danych płatności.'
@@ -114,6 +169,13 @@ try {
     $tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
 
     if (!$tenantId) {
+        payment_return_security_event(
+            'payment_return_status_tenant_denied',
+            'tenant_denied',
+            404,
+            'failed',
+            'medium'
+        );
         payment_return_response([
             'success' => false,
             'error' => 'Nie rozpoznano klienta.'
@@ -121,10 +183,20 @@ try {
     }
 
     if ($bookingId === '') {
-        $bookingId = payment_return_session_booking_id((string)$tenantId);
+        $handoffFailureReason = null;
+        $bookingId = payment_return_session_booking_id((string)$tenantId, $handoffFailureReason);
     }
 
     if ($bookingId === '') {
+        payment_return_security_event(
+            'payment_return_status_handoff_missing',
+            $handoffFailureReason ?: 'handoff_missing',
+            400,
+            'failed',
+            'medium',
+            (string)$tenantId,
+            'handoff'
+        );
         payment_return_response([
             'success' => false,
             'error' => 'Brak aktywnej rezerwacji do sprawdzenia płatności.'
@@ -141,6 +213,15 @@ try {
     $bookingResult = payment_return_supabase_get($bookingUrl, $supabaseKey, $schema);
 
     if ($bookingResult['error'] || $bookingResult['http_code'] !== 200) {
+        payment_return_security_event(
+            'payment_return_status_booking_fetch_failed',
+            'booking_fetch_failed',
+            500,
+            'error',
+            'medium',
+            (string)$tenantId,
+            'booking_fetch'
+        );
         payment_return_response([
             'success' => false,
             'error' => 'Nie udało się pobrać rezerwacji.'
@@ -150,6 +231,15 @@ try {
     $booking = $bookingResult['data'][0] ?? null;
 
     if (!$booking) {
+        payment_return_security_event(
+            'payment_return_status_booking_not_found',
+            'booking_not_found',
+            404,
+            'failed',
+            'medium',
+            (string)$tenantId,
+            'booking_fetch'
+        );
         payment_return_response([
             'success' => false,
             'error' => 'Nie znaleziono rezerwacji.'
@@ -206,6 +296,15 @@ try {
     ]);
 
 } catch (Throwable $e) {
+    payment_return_security_event(
+        'payment_return_status_fatal',
+        'fatal_error',
+        500,
+        'error',
+        'high',
+        is_string($tenantId) && $tenantId !== '' ? $tenantId : null,
+        'fatal'
+    );
     payment_return_response([
         'success' => false,
         'error' => 'Błąd pobierania statusu płatności.',

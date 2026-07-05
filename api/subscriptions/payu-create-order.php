@@ -4,12 +4,46 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+
+function subscription_payu_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $userId = null,
+    ?string $email = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'subscription_payu_create_order',
+        'endpoint' => '/api/subscriptions/payu-create-order.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $email,
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 function subscription_payu_json(int $status, array $payload): void
 {
@@ -235,6 +269,7 @@ function subscription_payu_store_return_handoff(string $tenantId, string $paymen
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
         header('Allow: POST');
+        subscription_payu_security_event('subscription_payu_create_order_method_not_allowed', 'method_not_allowed', 405);
         subscription_payu_json(405, [
             'success' => false,
             'error' => 'Metoda niedozwolona.',
@@ -242,6 +277,7 @@ try {
     }
 
     if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+        subscription_payu_security_event('subscription_payu_create_order_unauthorized', 'unauthorized', 401);
         subscription_payu_json(401, [
             'success' => false,
             'error' => 'Brak autoryzacji.',
@@ -253,6 +289,7 @@ try {
     $sessionRole = strtolower(trim((string) ($_SESSION['user']['role'] ?? '')));
 
     if (!in_array($sessionRole, ['admin', 'administrator'], true)) {
+        subscription_payu_security_event('subscription_payu_create_order_forbidden', 'forbidden', 403, 'denied', 'medium', $tenantId, $userId);
         subscription_payu_json(403, [
             'success' => false,
             'error' => 'Brak uprawnień administratora.',
@@ -264,6 +301,7 @@ try {
     $paymentType = strtolower(trim((string) ($input['payment_type'] ?? '')));
 
     if (!in_array($billingPeriod, ['monthly', 'yearly'], true)) {
+        subscription_payu_security_event('subscription_payu_create_order_validation_failed', 'invalid_billing_period', 400, 'failed', 'medium', $tenantId, $userId);
         subscription_payu_json(400, [
             'success' => false,
             'error' => 'Nieprawidłowy okres rozliczeniowy.',
@@ -271,6 +309,7 @@ try {
     }
 
     if (!in_array($paymentType, ['subscription_upgrade', 'subscription_renewal'], true)) {
+        subscription_payu_security_event('subscription_payu_create_order_validation_failed', 'invalid_payment_type', 400, 'failed', 'medium', $tenantId, $userId);
         subscription_payu_json(400, [
             'success' => false,
             'error' => 'Nieprawidłowy typ płatności abonamentu.',
@@ -282,6 +321,7 @@ try {
     $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
+        subscription_payu_security_event('subscription_payu_create_order_env_missing', 'env_missing', 500, 'error', 'high', $tenantId ?? null, $userId ?? null);
         subscription_payu_json(500, [
             'success' => false,
             'error' => 'Brak konfiguracji Supabase.',
@@ -289,6 +329,7 @@ try {
     }
 
     if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+        subscription_payu_security_event('subscription_payu_create_order_tenant_denied', 'tenant_denied', 401, 'denied', 'high', $tenantId, $userId);
         subscription_payu_json(401, [
             'success' => false,
             'error' => 'Sesja nie pasuje do domeny.',
@@ -308,6 +349,7 @@ try {
     );
 
     if (!is_array($user)) {
+        subscription_payu_security_event('subscription_payu_create_order_user_invalid', 'user_invalid', 401, 'denied', 'medium', $tenantId, $userId);
         subscription_payu_json(401, [
             'success' => false,
             'error' => 'Konto administratora jest nieaktywne albo nie istnieje.',
@@ -317,6 +359,7 @@ try {
     $userIsActive = filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
     if (!$userIsActive) {
+        subscription_payu_security_event('subscription_payu_create_order_user_inactive', 'user_inactive', 401, 'denied', 'medium', $tenantId, $userId);
         subscription_payu_json(401, [
             'success' => false,
             'error' => 'Konto administratora jest nieaktywne albo nie istnieje.',
@@ -326,6 +369,7 @@ try {
     $dbRole = strtolower(trim((string) ($user['role'] ?? $sessionRole)));
 
     if (!in_array($dbRole, ['admin', 'administrator'], true)) {
+        subscription_payu_security_event('subscription_payu_create_order_forbidden', 'forbidden', 403, 'denied', 'medium', $tenantId, $userId);
         subscription_payu_json(403, [
             'success' => false,
             'error' => 'Brak uprawnień administratora.',
@@ -349,6 +393,7 @@ try {
     );
 
     if (!is_array($subscription)) {
+        subscription_payu_security_event('subscription_payu_create_order_subscription_not_found', 'subscription_not_found', 404, 'failed', 'medium', $tenantId, $userId);
         subscription_payu_json(404, [
             'success' => false,
             'error' => 'Nie znaleziono abonamentu klienta.',
@@ -358,6 +403,7 @@ try {
     $currentPlanCode = subscription_payu_normalize_plan_code((string) ($subscription['plan_code'] ?? 'free'));
 
     if ($paymentType === 'subscription_upgrade' && $currentPlanCode !== 'free') {
+        subscription_payu_security_event('subscription_payu_create_order_plan_conflict', 'upgrade_not_allowed', 409, 'failed', 'medium', $tenantId, $userId);
         subscription_payu_json(409, [
             'success' => false,
             'error' => 'Upgrade do planu Pro jest dostępny tylko z planu Free.',
@@ -365,6 +411,7 @@ try {
     }
 
     if ($paymentType === 'subscription_renewal' && $currentPlanCode !== 'pro') {
+        subscription_payu_security_event('subscription_payu_create_order_plan_conflict', 'renewal_not_allowed', 409, 'failed', 'medium', $tenantId, $userId);
         subscription_payu_json(409, [
             'success' => false,
             'error' => 'Przedłużenie jest dostępne tylko dla planu Pro.',
@@ -382,6 +429,7 @@ try {
     );
 
     if (!is_array($price) || !isset($price['amount']) || $price['amount'] === null || $price['amount'] === '') {
+        subscription_payu_security_event('subscription_payu_create_order_price_unavailable', 'price_unavailable', 503, 'error', 'medium', $tenantId, $userId);
         subscription_payu_json(503, [
             'success' => false,
             'error' => 'Nie udało się pobrać aktualnej ceny planu Pro. Spróbuj ponownie później.',
@@ -391,6 +439,7 @@ try {
     $amount = (float) $price['amount'];
 
     if ($amount <= 0) {
+        subscription_payu_security_event('subscription_payu_create_order_price_invalid', 'price_invalid', 503, 'error', 'medium', $tenantId, $userId);
         subscription_payu_json(503, [
             'success' => false,
             'error' => 'Nie udało się pobrać aktualnej ceny planu Pro. Spróbuj ponownie później.',
@@ -400,6 +449,7 @@ try {
     $payuConfigResult = aiiq_payu_config();
 
     if (empty($payuConfigResult['success'])) {
+        subscription_payu_security_event('subscription_payu_create_order_integration_missing', 'integration_missing', 503, 'error', 'medium', $tenantId, $userId);
         subscription_payu_json(503, [
             'success' => false,
             'error' => 'Płatność za plan Pro jest chwilowo niedostępna. Spróbuj ponownie później.',
@@ -414,6 +464,7 @@ try {
     }
 
     if (!preg_match('/^[A-Z]{3}$/', $currency)) {
+        subscription_payu_security_event('subscription_payu_create_order_currency_invalid', 'currency_invalid', 503, 'error', 'medium', $tenantId, $userId);
         subscription_payu_json(503, [
             'success' => false,
             'error' => 'Nie udało się pobrać aktualnej ceny planu Pro. Spróbuj ponownie później.',
@@ -428,6 +479,7 @@ try {
             'payu_currency' => $payuCurrency,
         ]);
 
+        subscription_payu_security_event('subscription_payu_create_order_currency_mismatch', 'currency_mismatch', 503, 'error', 'medium', $tenantId, $userId);
         subscription_payu_json(503, [
             'success' => false,
             'error' => 'Konfiguracja ceny planu Pro jest chwilowo niedostępna. Spróbuj ponownie później.',
@@ -437,6 +489,7 @@ try {
     $publicBaseUrl = subscription_payu_public_base_url();
 
     if ($publicBaseUrl === '') {
+        subscription_payu_security_event('subscription_payu_create_order_base_url_missing', 'base_url_missing', 500, 'error', 'medium', $tenantId, $userId);
         subscription_payu_json(500, [
             'success' => false,
             'error' => 'Nie udało się ustalić publicznego adresu aplikacji.',
@@ -454,6 +507,7 @@ try {
     }
 
     if ($buyerEmail === '') {
+        subscription_payu_security_event('subscription_payu_create_order_buyer_email_missing', 'buyer_email_missing', 422, 'failed', 'medium', $tenantId, $userId);
         subscription_payu_json(422, [
             'success' => false,
             'error' => 'Nie udało się ustalić adresu e-mail kupującego. Uzupełnij dane administratora albo e-mail firmowy i spróbuj ponownie.',
@@ -478,6 +532,7 @@ try {
     $paymentId = subscription_payu_extract_id($paymentRow);
 
     if ($paymentId === '') {
+        subscription_payu_security_event('subscription_payu_create_order_payment_insert_failed', 'payment_insert_failed', 500, 'error', 'high', $tenantId, $userId, $buyerEmail, 'payment_insert');
         subscription_payu_json(500, [
             'success' => false,
             'error' => 'Nie udało się przygotować płatności abonamentu.',
@@ -512,6 +567,7 @@ try {
     $created = aiiq_payu_create_order($payu, $orderPayload);
 
     if (empty($created['success'])) {
+        subscription_payu_security_event('subscription_payu_create_order_provider_failed', 'provider_failed', 500, 'error', 'high', $tenantId, $userId, $buyerEmail, 'payu_create');
         subscription_payu_update_payment($supabaseUrl, $headers, $tenantId, $paymentId, [
             'status' => 'failed',
             'payu_ext_order_id' => $extOrderId,
@@ -530,6 +586,7 @@ try {
     $payuStatus = (string) ($created['payu_status'] ?? '');
 
     if ($paymentUrl === '') {
+        subscription_payu_security_event('subscription_payu_create_order_redirect_missing', 'redirect_missing', 500, 'error', 'high', $tenantId, $userId, $buyerEmail, 'payu_create');
         subscription_payu_update_payment($supabaseUrl, $headers, $tenantId, $paymentId, [
             'status' => 'failed',
             'payu_order_id' => $payuOrderId,
@@ -553,6 +610,7 @@ try {
     ]);
 
     if (!$updated) {
+        subscription_payu_security_event('subscription_payu_create_order_payment_update_failed', 'payment_update_failed', 500, 'error', 'high', $tenantId, $userId, $buyerEmail, 'payment_update');
         subscription_payu_json(500, [
             'success' => false,
             'error' => 'Zamówienie PayU utworzone, ale nie udało się zapisać danych płatności abonamentu.',
@@ -560,6 +618,7 @@ try {
     }
 
     subscription_payu_store_return_handoff($tenantId, $paymentId);
+    subscription_payu_security_event('subscription_payu_create_order_success', 'subscription_payu_create_order_success', 200, 'success', 'medium', $tenantId, $userId, $buyerEmail);
 
     $responsePayload = [
         'success' => true,
@@ -571,6 +630,7 @@ try {
 
     subscription_payu_json(200, $responsePayload);
 } catch (Throwable $e) {
+    subscription_payu_security_event('subscription_payu_create_order_fatal', 'fatal', 500, 'error', 'critical', $tenantId ?? null, $userId ?? null, $buyerEmail ?? null);
     aiiq_payu_debug('AI_IQ_SUBSCRIPTION_CREATE_ORDER_FATAL', [
         'exception_type' => get_class($e),
     ]);

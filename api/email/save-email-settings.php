@@ -2,11 +2,52 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
 start_secure_session();
+
+function email_settings_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus = 400,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $userId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && trim($stage) !== '') {
+        $details['stage'] = trim($stage);
+    }
+
+    $context = [
+        'action_key' => 'email_settings_save',
+        'endpoint' => '/api/email/save-email-settings.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    $tenantId = trim((string) ($tenantId ?? ($_SESSION['user']['tenant_id'] ?? '')));
+    if ($tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    $userId = trim((string) ($userId ?? ($_SESSION['user']['id'] ?? '')));
+    if ($userId !== '') {
+        $context['user_id'] = $userId;
+    }
+
+    security_log_event($eventKey, $context);
+}
 
 function email_settings_json(array $payload, int $statusCode = 200): void
 {
@@ -18,6 +59,7 @@ function email_settings_json(array $payload, int $statusCode = 200): void
 function email_settings_text($value, int $maxLength, bool $required = false): ?string
 {
     if (is_array($value) || is_object($value)) {
+        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'text_type');
         email_settings_json([
             'success' => false,
             'error' => 'Nieprawidłowe dane wejściowe.'
@@ -28,6 +70,7 @@ function email_settings_text($value, int $maxLength, bool $required = false): ?s
 
     if ($text === '') {
         if ($required) {
+            email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'required_field');
             email_settings_json([
                 'success' => false,
                 'error' => 'Uzupełnij wymagane pola.'
@@ -38,6 +81,7 @@ function email_settings_text($value, int $maxLength, bool $required = false): ?s
     }
 
     if (mb_strlen($text, 'UTF-8') > $maxLength) {
+        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'text_length');
         email_settings_json([
             'success' => false,
             'error' => 'Wpisany tekst jest zbyt długi.'
@@ -93,6 +137,7 @@ function email_settings_request(
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    email_settings_security_event('email_settings_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     header('Allow: POST');
     email_settings_json([
         'success' => false,
@@ -101,6 +146,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 if (empty($_SESSION['user']['tenant_id'])) {
+    email_settings_security_event('email_settings_unauthorized', 'unauthorized', 401, 'denied', 'medium');
     email_settings_json([
         'success' => false,
         'error' => 'Brak autoryzacji.'
@@ -108,9 +154,11 @@ if (empty($_SESSION['user']['tenant_id'])) {
 }
 
 $tenantId = (string) $_SESSION['user']['tenant_id'];
+$userId = (string) ($_SESSION['user']['id'] ?? '');
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
+    email_settings_security_event('email_settings_invalid_json', 'invalid_json', 400, 'failed', 'low', $tenantId, $userId);
     email_settings_json([
         'success' => false,
         'error' => 'Brak danych wejściowych.'
@@ -120,6 +168,7 @@ if (!is_array($input)) {
 $section = (string) ($input['section'] ?? 'all');
 
 if (!in_array($section, ['all', 'smtp', 'global_template'], true)) {
+    email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'section');
     email_settings_json([
         'success' => false,
         'error' => 'Nieprawidłowa sekcja zapisu.'
@@ -128,9 +177,10 @@ if (!in_array($section, ['all', 'smtp', 'global_template'], true)) {
 
 $supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
-$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
+$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'public';
 
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
+    email_settings_security_event('email_settings_env_missing', 'env_missing', 500, 'error', 'high', $tenantId, $userId, 'supabase_config');
     email_settings_json([
         'success' => false,
         'error' => 'Nie udało się wczytać konfiguracji systemu.'
@@ -138,6 +188,7 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    email_settings_security_event('email_settings_tenant_denied', 'tenant_denied', 401, 'denied', 'high', $tenantId, $userId);
     email_settings_json([
         'success' => false,
         'error' => 'Sesja nie pasuje do domeny.'
@@ -152,6 +203,7 @@ if ($section === 'all' || $section === 'smtp') {
     $fromName = email_settings_text($input['smtp_name'] ?? null, 255, true);
 
     if ($smtpPort <= 0 || $smtpPort > 65535) {
+        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'smtp_port');
         email_settings_json([
             'success' => false,
             'error' => 'Podaj poprawny port SMTP.'
@@ -159,6 +211,7 @@ if ($section === 'all' || $section === 'smtp') {
     }
 
     if (!filter_var($fromEmail, FILTER_VALIDATE_EMAIL) || !filter_var($smtpUsername, FILTER_VALIDATE_EMAIL)) {
+        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'smtp_email');
         email_settings_json([
             'success' => false,
             'error' => 'Podaj poprawny adres e-mail.'
@@ -174,6 +227,7 @@ if ($section === 'all' || $section === 'smtp') {
     $emailSettingsReadResult = email_settings_request('GET', $emailSettingsReadUrl, $serviceRoleKey, $schema);
 
     if (!$emailSettingsReadResult['ok']) {
+        email_settings_security_event('email_settings_current_fetch_failed', 'current_settings_fetch_failed', 500, 'error', 'medium', $tenantId, $userId, 'smtp');
         email_settings_json([
             'success' => false,
             'error' => 'Nie udało się odczytać obecnych ustawień SMTP.'
@@ -208,6 +262,7 @@ if ($section === 'all' || $section === 'smtp') {
     $emailSettingsResult = email_settings_request('POST', $emailSettingsUrl, $serviceRoleKey, $schema, $emailSettingsPayload);
 
     if (!$emailSettingsResult['ok']) {
+        email_settings_security_event('email_settings_smtp_save_failed', 'smtp_save_failed', 500, 'error', 'medium', $tenantId, $userId, 'smtp');
         email_settings_json([
             'success' => false,
             'error' => 'Nie udało się zapisać ustawień SMTP.'
@@ -248,6 +303,7 @@ if ($section === 'all' || $section === 'global_template') {
     );
 
     if (!$emailClientTemplateResult['ok']) {
+        email_settings_security_event('email_settings_template_save_failed', 'template_save_failed', 500, 'error', 'medium', $tenantId, $userId, 'client_template');
         email_settings_json([
             'success' => false,
             'error' => 'Nie udało się zapisać globalnego szablonu e-mail.'
@@ -270,12 +326,15 @@ if ($section === 'all' || $section === 'global_template') {
     );
 
     if (!$emailAdminTemplateResult['ok']) {
+        email_settings_security_event('email_settings_template_save_failed', 'template_save_failed', 500, 'error', 'medium', $tenantId, $userId, 'admin_template');
         email_settings_json([
             'success' => false,
             'error' => 'Nie udało się zapisać globalnego szablonu e-mail.'
         ], 500);
     }
 }
+
+email_settings_security_event('email_settings_save_success', 'email_settings_save_success', 200, 'success', 'low', $tenantId, $userId, $section);
 
 email_settings_json([
     'success' => true,

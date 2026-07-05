@@ -3,10 +3,42 @@
 require_once __DIR__ . '/../../helpers/supabase.php';
 require_once __DIR__ . '/../../helpers/crypto.php';
 require_once __DIR__ . '/../../helpers/plan_features.php';
+require_once __DIR__ . '/../../helpers/security.php';
 
 const GOOGLE_CALLBACK_FALLBACK_HOST = 'rezerwacja-ai-iq.pl';
 const GOOGLE_CALLBACK_RETURN_PATH = '/panel-admina.php';
 const GOOGLE_CALLBACK_RETURN_HOST_ERROR = 'Nie udało się ustalić domeny powrotu';
+
+
+function google_callback_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    array $context = []
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if (isset($context['stage']) && is_scalar($context['stage']) && trim((string) $context['stage']) !== '') {
+        $details['stage'] = trim((string) $context['stage']);
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'google_calendar_callback',
+        'endpoint' => '/api/integrations/google/callback.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => $context['actor_type'] ?? 'public',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'tenant_id' => $context['tenant_id'] ?? null,
+        'user_id' => $context['user_id'] ?? null,
+        'details' => $details,
+    ]);
+}
 
 function google_callback_normalize_return_host(?string $rawHost): string
 {
@@ -197,6 +229,7 @@ $stateToken = trim((string) ($_GET['state'] ?? ''));
 $error = trim((string) ($_GET['error'] ?? ''));
 
 if ($stateToken === '') {
+    google_callback_security_event('google_calendar_callback_state_missing', 'state_missing', 400);
     redirect_with_status('error');
 }
 
@@ -205,6 +238,7 @@ $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
 $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    google_callback_security_event('google_calendar_callback_env_missing', 'env_missing', 500, 'error', 'high');
     redirect_with_status('error');
 }
 
@@ -226,27 +260,42 @@ $stateResult = google_callback_supabase_request(
 );
 
 if ($stateResult['error'] || $stateResult['http_code'] !== 200) {
+    google_callback_security_event('google_calendar_callback_state_lookup_failed', 'state_lookup_failed', 500, 'error', 'high');
     redirect_with_status('error', 'Nie udało się sprawdzić tokenu state.');
 }
 
 $stateRow = $stateResult['data'][0] ?? null;
 
 if (!$stateRow) {
+    google_callback_security_event('google_calendar_callback_state_not_found', 'state_not_found', 400);
     redirect_with_status('error', 'Nieprawidłowy token state.');
 }
 
 if (!empty($stateRow['used_at'])) {
+    google_callback_security_event('google_calendar_callback_state_used', 'state_used', 409, 'failed', 'medium', [
+        'tenant_id' => (string) ($stateRow['tenant_id'] ?? ''),
+        'user_id' => (string) ($stateRow['user_id'] ?? ''),
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Ten token Google został już użyty.');
 }
 
 $expiresAt = strtotime((string) ($stateRow['expires_at'] ?? ''));
 
 if (!$expiresAt || $expiresAt < time()) {
+    google_callback_security_event('google_calendar_callback_state_expired', 'state_expired', 410, 'failed', 'medium', [
+        'tenant_id' => (string) ($stateRow['tenant_id'] ?? ''),
+        'user_id' => (string) ($stateRow['user_id'] ?? ''),
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Token Google wygasł. Spróbuj połączyć konto ponownie.');
 }
 
 $stateId = trim((string) ($stateRow['id'] ?? ''));
 $tenantId = trim((string) ($stateRow['tenant_id'] ?? ''));
+$userId = trim((string) ($stateRow['user_id'] ?? ''));
 $returnHost = google_callback_normalize_return_host((string) ($stateRow['return_host'] ?? ''));
 
 if (
@@ -255,10 +304,22 @@ if (
     || $returnHost === ''
     || !google_callback_tenant_owns_host($supabaseUrl, $supabaseKey, $schema, $tenantId, $returnHost)
 ) {
+    google_callback_security_event('google_calendar_callback_tenant_denied', 'tenant_denied', 403, 'denied', 'medium', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error');
 }
 
 if (!tenant_has_feature($tenantId, 'google_calendar')) {
+    google_callback_security_event('google_calendar_callback_feature_denied', 'feature_denied', 403, 'denied', 'medium', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status(
         'error',
         'Funkcja Google Calendar jest niedostępna w aktualnym planie.',
@@ -267,6 +328,12 @@ if (!tenant_has_feature($tenantId, 'google_calendar')) {
 }
 
 if (!google_callback_mark_state_used($supabaseUrl, $supabaseKey, $schema, $stateId, $stateToken)) {
+    google_callback_security_event('google_calendar_callback_state_mark_failed', 'state_mark_failed', 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status(
         'error',
         'Nie udało się bezpiecznie zakończyć autoryzacji Google.',
@@ -275,10 +342,22 @@ if (!google_callback_mark_state_used($supabaseUrl, $supabaseKey, $schema, $state
 }
 
 if ($error !== '') {
+    google_callback_security_event('google_calendar_callback_google_error', 'google_error', 400, 'failed', 'medium', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Autoryzacja Google została przerwana.', $returnHost);
 }
 
 if ($code === '') {
+    google_callback_security_event('google_calendar_callback_code_missing', 'code_missing', 400, 'failed', 'medium', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Brak kodu autoryzacji Google.', $returnHost);
 }
 
@@ -287,6 +366,12 @@ $googleClientSecret = trim((string) getenv('GOOGLE_CLIENT_SECRET'));
 $googleRedirectUri = trim((string) getenv('GOOGLE_REDIRECT_URI'));
 
 if ($googleClientId === '' || $googleClientSecret === '' || $googleRedirectUri === '') {
+    google_callback_security_event('google_calendar_callback_oauth_env_missing', 'oauth_env_missing', 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Brak konfiguracji Google OAuth.', $returnHost);
 }
 
@@ -316,11 +401,18 @@ curl_setopt_array($tokenCh, [
 
 $tokenResponse = curl_exec($tokenCh);
 $tokenHttpCode = (int) curl_getinfo($tokenCh, CURLINFO_HTTP_CODE);
+$tokenCurlErrno = (int) curl_errno($tokenCh);
 $tokenCurlError = curl_error($tokenCh);
 
 curl_close($tokenCh);
 
 if ($tokenCurlError || $tokenHttpCode < 200 || $tokenHttpCode >= 300) {
+    google_callback_security_event('google_calendar_callback_token_exchange_failed', 'token_exchange_failed', $tokenHttpCode ?: 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     $logDir = __DIR__ . '/../../data';
     $logFile = $logDir . '/google-calendar.log';
 
@@ -328,14 +420,31 @@ if ($tokenCurlError || $tokenHttpCode < 200 || $tokenHttpCode >= 300) {
         @mkdir($logDir, 0775, true);
     }
 
+    $tokenErrorData = json_decode((string) $tokenResponse, true);
+    $tokenErrorType = '';
+
+    if (is_array($tokenErrorData) && is_scalar($tokenErrorData['error'] ?? null)) {
+        $candidateError = trim((string) $tokenErrorData['error']);
+
+        if (preg_match('/^[a-zA-Z0-9_.-]{1,80}$/', $candidateError) === 1) {
+            $tokenErrorType = $candidateError;
+        }
+    }
+
     @file_put_contents(
         $logFile,
         '[' . date('Y-m-d H:i:s') . '] TOKEN_ERROR ' . json_encode([
             'http_code' => $tokenHttpCode,
-            'curl_error' => $tokenCurlError,
-            'response' => $tokenResponse,
-            'redirect_uri' => $googleRedirectUri,
-            'client_id' => $googleClientId,
+            'curl_errno' => $tokenCurlErrno,
+            'has_curl_error' => $tokenCurlError !== '',
+            'has_response' => is_string($tokenResponse) && $tokenResponse !== '',
+            'response_length' => is_string($tokenResponse) ? strlen($tokenResponse) : 0,
+            'error_type' => $tokenErrorType !== '' ? $tokenErrorType : null,
+            'has_error_description' => is_array($tokenErrorData)
+                && is_scalar($tokenErrorData['error_description'] ?? null)
+                && trim((string) $tokenErrorData['error_description']) !== '',
+            'has_redirect_uri' => $googleRedirectUri !== '',
+            'has_client_id' => $googleClientId !== '',
         ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL,
         FILE_APPEND
     );
@@ -346,6 +455,12 @@ if ($tokenCurlError || $tokenHttpCode < 200 || $tokenHttpCode >= 300) {
 $tokenData = json_decode((string) $tokenResponse, true);
 
 if (!is_array($tokenData) || empty($tokenData['access_token'])) {
+    google_callback_security_event('google_calendar_callback_token_invalid', 'token_invalid', 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Google nie zwrócił poprawnych tokenów.', $returnHost);
 }
 
@@ -408,6 +523,12 @@ $mergedSecrets = array_merge($existingSecrets, $newSecrets);
 try {
     $encryptedSecrets = encrypt_json_secret($mergedSecrets);
 } catch (Throwable $e) {
+    google_callback_security_event('google_calendar_callback_encrypt_failed', 'encrypt_failed', 500, 'error', 'critical', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Nie udało się zaszyfrować tokenów Google.', $returnHost);
 }
 
@@ -447,7 +568,19 @@ $saveResult = google_callback_supabase_request(
 );
 
 if ($saveResult['error'] || $saveResult['http_code'] < 200 || $saveResult['http_code'] >= 300) {
+    google_callback_security_event('google_calendar_callback_save_failed', 'save_failed', 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'actor_type' => 'tenant_user',
+    ]);
+
     redirect_with_status('error', 'Nie udało się zapisać integracji Google.', $returnHost);
 }
+
+google_callback_security_event('google_calendar_callback_success', 'google_calendar_callback_success', 200, 'success', 'medium', [
+    'tenant_id' => $tenantId,
+    'user_id' => $userId,
+    'actor_type' => 'tenant_user',
+]);
 
 redirect_with_status('success', 'Google Calendar połączony.', $returnHost);

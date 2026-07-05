@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/payu.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
@@ -16,6 +17,48 @@ function payu_create_order_response(array $payload, int $statusCode = 200): void
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function payu_create_order_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result,
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $email = null,
+    ?string $stage = null
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== null && trim($stage) !== '') {
+        $details['stage'] = trim($stage);
+    }
+
+    $context = [
+        'action_key' => 'payu_create_order',
+        'endpoint' => '/api/payments/payu-create-order.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'public',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    $tenantId = trim((string) $tenantId);
+    if ($tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    $email = trim((string) $email);
+    if ($email !== '' && filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $context['email'] = $email;
+    }
+
+    security_log_event($eventKey, $context);
 }
 
 function payu_get_session_booking_handoff(string $tenantId): string
@@ -347,6 +390,13 @@ $amountText = number_format((float)$amount, 2, ',', ' ') . ' ' . $displayCurrenc
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
         header('Allow: POST');
+        payu_create_order_security_event(
+            'payu_create_order_method_not_allowed',
+            'method_not_allowed',
+            405,
+            'failed',
+            'low'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Metoda niedozwolona.'
@@ -364,6 +414,16 @@ try {
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
+        payu_create_order_security_event(
+            'payu_create_order_env_missing',
+            'supabase_env_missing',
+            500,
+            'error',
+            'high',
+            null,
+            null,
+            'configuration'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Brak konfiguracji Supabase.'
@@ -373,6 +433,16 @@ try {
     $hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
 
     if (!$hostTenantId) {
+        payu_create_order_security_event(
+            'payu_create_order_tenant_denied',
+            'tenant_not_found',
+            404,
+            'failed',
+            'medium',
+            null,
+            null,
+            'tenant_lookup'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Nie rozpoznano klienta.'
@@ -384,6 +454,16 @@ try {
     }
 
     if ($bookingId === '') {
+        payu_create_order_security_event(
+            'payu_create_order_handoff_missing',
+            'booking_payment_handoff_missing',
+            400,
+            'failed',
+            'medium',
+            (string) $hostTenantId,
+            null,
+            'handoff'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Brak aktywnej rezerwacji do płatności.'
@@ -393,6 +473,16 @@ try {
     $booking = payu_fetch_booking($bookingId, (string) $hostTenantId);
 
     if (!$booking) {
+        payu_create_order_security_event(
+            'payu_create_order_booking_not_found',
+            'booking_not_found',
+            404,
+            'failed',
+            'medium',
+            (string) $hostTenantId,
+            null,
+            'booking_lookup'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Nie znaleziono rezerwacji.'
@@ -402,6 +492,16 @@ try {
     $tenantId = (string) ($booking['tenant_id'] ?? '');
 
     if ($tenantId === '') {
+        payu_create_order_security_event(
+            'payu_create_order_booking_invalid',
+            'booking_tenant_missing',
+            422,
+            'failed',
+            'medium',
+            (string) $hostTenantId,
+            null,
+            'booking_validation'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Nie udało się przygotować płatności dla rezerwacji.'
@@ -409,6 +509,16 @@ try {
     }
 
     if (!hash_equals((string) $hostTenantId, $tenantId)) {
+        payu_create_order_security_event(
+            'payu_create_order_tenant_mismatch',
+            'tenant_mismatch',
+            404,
+            'failed',
+            'high',
+            (string) $hostTenantId,
+            null,
+            'booking_validation'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Nie znaleziono rezerwacji.'
@@ -428,6 +538,16 @@ try {
     $paymentRequired = $booking['payment_required'] === true || $booking['payment_required'] === 'true';
 
     if (!$paymentRequired) {
+        payu_create_order_security_event(
+            'payu_create_order_payment_not_required',
+            'payment_not_required',
+            422,
+            'failed',
+            'low',
+            $tenantId,
+            (string) ($booking['email'] ?? ''),
+            'booking_validation'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Ta rezerwacja nie wymaga płatności.'
@@ -437,6 +557,16 @@ try {
     $paymentStatus = (string) ($booking['payment_status'] ?? 'not_required');
 
     if ($paymentStatus === 'paid') {
+        payu_create_order_security_event(
+            'payu_create_order_already_paid',
+            'booking_already_paid',
+            422,
+            'failed',
+            'low',
+            $tenantId,
+            (string) ($booking['email'] ?? ''),
+            'booking_validation'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Ta rezerwacja jest już opłacona.'
@@ -448,6 +578,16 @@ try {
         : 0.0;
 
     if ($amount <= 0) {
+        payu_create_order_security_event(
+            'payu_create_order_invalid_amount',
+            'invalid_payment_amount',
+            422,
+            'failed',
+            'medium',
+            $tenantId,
+            (string) ($booking['email'] ?? ''),
+            'booking_validation'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Brak poprawnej kwoty płatności.'
@@ -460,6 +600,16 @@ try {
     }
 
     if (!tenant_has_feature($tenantId, 'online_payments') || !tenant_has_feature($tenantId, 'payu')) {
+        payu_create_order_security_event(
+            'payu_create_order_feature_denied',
+            'payu_feature_denied',
+            403,
+            'denied',
+            'medium',
+            $tenantId,
+            (string) ($booking['email'] ?? ''),
+            'feature_check'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Płatności online PayU są niedostępne w aktualnym planie.',
@@ -470,6 +620,16 @@ try {
     $payu = payu_get_integration($tenantId);
 
     if (!$payu) {
+        payu_create_order_security_event(
+            'payu_create_order_integration_missing',
+            'payu_integration_missing',
+            422,
+            'failed',
+            'medium',
+            $tenantId,
+            (string) ($booking['email'] ?? ''),
+            'integration_lookup'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Integracja PayU nie jest skonfigurowana albo jest wyłączona.'
@@ -479,6 +639,16 @@ try {
     $publicBaseUrl = payu_get_public_base_url();
 
     if ($publicBaseUrl === '') {
+        payu_create_order_security_event(
+            'payu_create_order_base_url_missing',
+            'public_base_url_missing',
+            500,
+            'error',
+            'medium',
+            $tenantId,
+            (string) ($booking['email'] ?? ''),
+            'configuration'
+        );
         payu_create_order_response([
             'success' => false,
             'error' => 'Nie udało się ustalić publicznego adresu aplikacji.'
@@ -543,6 +713,17 @@ try {
             'updated_at' => gmdate('c'),
         ]);
 
+        payu_create_order_security_event(
+            'payu_create_order_provider_failed',
+            'payu_provider_create_failed',
+            500,
+            'failed',
+            'high',
+            $tenantId,
+            $customerEmail,
+            'provider_create'
+        );
+
         payu_create_order_response([
             'success' => false,
             'error' => 'Nie udało się utworzyć płatności PayU.',
@@ -565,6 +746,17 @@ try {
     ]);
 
     if (!$updated) {
+        payu_create_order_security_event(
+            'payu_create_order_booking_update_failed',
+            'booking_payment_update_failed',
+            500,
+            'error',
+            'high',
+            $tenantId,
+            $customerEmail,
+            'booking_update'
+        );
+
         payu_create_order_response([
             'success' => false,
             'error' => 'Zamówienie PayU utworzone, ale nie udało się zapisać danych płatności w rezerwacji.',
@@ -591,6 +783,17 @@ try {
     payu_store_session_payment_return_handoff((string) $hostTenantId, $bookingId);
     payu_clear_session_booking_handoff((string) $hostTenantId, $bookingId);
 
+    payu_create_order_security_event(
+        'payu_create_order_success',
+        'payu_create_order_success',
+        200,
+        'success',
+        'medium',
+        $tenantId,
+        $customerEmail,
+        'success'
+    );
+
     payu_create_order_response([
         'success' => true,
         'payment_url' => $redirectUri,
@@ -601,6 +804,17 @@ try {
     payu_debug('PAYU_CREATE_ORDER_FATAL', [
         'exception_type' => get_class($e),
     ]);
+
+    payu_create_order_security_event(
+        'payu_create_order_fatal',
+        'payu_create_order_fatal',
+        500,
+        'error',
+        'high',
+        isset($tenantId) ? (string) $tenantId : (isset($hostTenantId) ? (string) $hostTenantId : null),
+        isset($customerEmail) ? (string) $customerEmail : null,
+        'fatal'
+    );
 
     payu_create_order_response([
         'success' => false,

@@ -708,6 +708,10 @@ $supabaseKey = $context['supabaseKey'];
 $schema = $context['schema'];
 $tenantId = $context['tenantId'];
 $refSecret = public_response_ref_secret($supabaseKey);
+$serviceSecurityContext = services_security_context($context, [
+    'action_key' => 'service_save',
+    'endpoint' => '/api/services/save.php',
+]);
 
 require_tenant_feature($tenantId, 'multiple_services');
 
@@ -715,6 +719,12 @@ $input = services_read_json_input();
 $serviceRefInput = $input['service_ref'] ?? '';
 
 if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
+    services_security_event('service_save_ref_invalid', array_merge($serviceSecurityContext, [
+        'severity' => 'medium',
+        'response_status' => 400,
+        'result' => 'failed',
+        'reason' => 'service_ref_invalid',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nieprawidłowa usługa.',
@@ -728,6 +738,12 @@ $serviceId = $serviceRef !== ''
 $isUpdate = $serviceId !== '';
 
 if ($isUpdate && !services_is_uuid($serviceId)) {
+    services_security_event('service_save_ref_invalid', array_merge($serviceSecurityContext, [
+        'severity' => 'medium',
+        'response_status' => 422,
+        'result' => 'failed',
+        'reason' => 'service_ref_invalid',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nieprawidłowa usługa.',
@@ -827,6 +843,12 @@ if ($isUpdate) {
     $existingRows = is_array($existingResult['data'] ?? null) ? $existingResult['data'] : [];
 
     if (empty($existingRows[0]['id'])) {
+        services_security_event('service_save_not_found', array_merge($serviceSecurityContext, [
+            'severity' => 'medium',
+            'response_status' => 404,
+            'result' => 'failed',
+            'reason' => 'service_not_found',
+        ]));
         services_json([
             'success' => false,
             'error' => 'Nie znaleziono usługi'
@@ -881,6 +903,13 @@ $rpcResult = services_request(
 );
 
 if ($rpcResult['response'] === false || $rpcResult['error'] !== '') {
+    services_security_event('service_save_failed', array_merge($serviceSecurityContext, [
+        'severity' => 'high',
+        'response_status' => 500,
+        'result' => 'error',
+        'reason' => 'supabase_error',
+        'stage' => $isUpdate ? 'update_service' : 'create_service',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Błąd połączenia z bazą danych'
@@ -888,6 +917,13 @@ if ($rpcResult['response'] === false || $rpcResult['error'] !== '') {
 }
 
 if ($rpcResult['httpCode'] < 200 || $rpcResult['httpCode'] >= 300) {
+    services_security_event('service_save_failed', array_merge($serviceSecurityContext, [
+        'severity' => 'high',
+        'response_status' => $rpcResult['httpCode'] > 0 ? $rpcResult['httpCode'] : 500,
+        'result' => 'failed',
+        'reason' => 'supabase_rejected',
+        'stage' => $isUpdate ? 'update_service' : 'create_service',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nie udało się zapisać usługi',
@@ -899,6 +935,13 @@ $rpcDecoded = services_save_decode_rpc_result($rpcData);
 $serviceIdFromRpc = is_array($rpcDecoded) ? (string) ($rpcDecoded['service_id'] ?? '') : '';
 
 if (!is_array($rpcDecoded) || ($rpcDecoded['success'] ?? null) !== true || !services_is_uuid($serviceIdFromRpc)) {
+    services_security_event('service_save_failed', array_merge($serviceSecurityContext, [
+        'severity' => 'high',
+        'response_status' => 500,
+        'result' => 'error',
+        'reason' => 'invalid_rpc_response',
+        'stage' => $isUpdate ? 'update_service' : 'create_service',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nie udało się zapisać usługi',
@@ -940,6 +983,14 @@ foreach ($freshStaffIds as $freshStaffId) {
 }
 
 unset($freshService['service_ref'], $freshService['staff_refs']);
+
+services_security_event($isUpdate ? 'service_update_success' : 'service_create_success', array_merge($serviceSecurityContext, [
+    'severity' => 'medium',
+    'response_status' => 200,
+    'result' => 'success',
+    'reason' => $isUpdate ? 'service_update_success' : 'service_create_success',
+    'stage' => $isUpdate ? 'update_service' : 'create_service',
+]));
 
 services_json([
     'success' => true,

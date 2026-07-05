@@ -5,7 +5,66 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
+
+
+function services_security_event(string $eventKey, array $context = []): void
+{
+    $details = [];
+
+    if (isset($context['reason']) && is_scalar($context['reason'])) {
+        $reason = trim((string) $context['reason']);
+
+        if ($reason !== '') {
+            $details['reason'] = $reason;
+        }
+    }
+
+    if (isset($context['stage']) && is_scalar($context['stage'])) {
+        $stage = trim((string) $context['stage']);
+
+        if ($stage !== '') {
+            $details['stage'] = $stage;
+        }
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => isset($context['action_key']) && is_scalar($context['action_key']) && trim((string) $context['action_key']) !== ''
+            ? trim((string) $context['action_key'])
+            : 'services_manage',
+        'endpoint' => isset($context['endpoint']) && is_scalar($context['endpoint']) && trim((string) $context['endpoint']) !== ''
+            ? trim((string) $context['endpoint'])
+            : ($_SERVER['SCRIPT_NAME'] ?? '/api/services'),
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+        'actor_type' => isset($context['actor_type']) && is_scalar($context['actor_type']) && trim((string) $context['actor_type']) !== ''
+            ? trim((string) $context['actor_type'])
+            : 'tenant_user',
+        'tenant_id' => isset($context['tenant_id']) && is_scalar($context['tenant_id'])
+            ? trim((string) $context['tenant_id'])
+            : null,
+        'user_id' => isset($context['user_id']) && is_scalar($context['user_id'])
+            ? trim((string) $context['user_id'])
+            : null,
+        'severity' => isset($context['severity']) && is_scalar($context['severity']) && trim((string) $context['severity']) !== ''
+            ? trim((string) $context['severity'])
+            : 'medium',
+        'response_status' => isset($context['response_status']) ? (int) $context['response_status'] : null,
+        'result' => isset($context['result']) && is_scalar($context['result']) && trim((string) $context['result']) !== ''
+            ? trim((string) $context['result'])
+            : null,
+        'details' => $details,
+    ]);
+}
+
+function services_security_context(array $context, array $extra = []): array
+{
+    return array_merge([
+        'tenant_id' => (string) ($context['tenantId'] ?? ($_SESSION['user']['tenant_id'] ?? '')),
+        'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+        'actor_type' => 'tenant_user',
+    ], $extra);
+}
 
 function services_json(array $payload, int $statusCode = 200): void
 {
@@ -83,6 +142,12 @@ function services_require_context(array $allowedMethods): array
 
     if (!in_array($method, $allowedMethods, true)) {
         header('Allow: ' . implode(', ', $allowedMethods));
+        services_security_event('services_manage_method_not_allowed', [
+            'severity' => 'low',
+            'response_status' => 405,
+            'result' => 'failed',
+            'reason' => 'method_not_allowed',
+        ]);
         services_json([
             'success' => false,
             'error' => 'Metoda niedozwolona'
@@ -92,6 +157,12 @@ function services_require_context(array $allowedMethods): array
     start_secure_session();
 
     if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+        services_security_event('services_manage_unauthorized', [
+            'severity' => 'medium',
+            'response_status' => 401,
+            'result' => 'denied',
+            'reason' => 'unauthorized',
+        ]);
         services_json([
             'success' => false,
             'error' => 'Brak autoryzacji'
@@ -101,6 +172,12 @@ function services_require_context(array $allowedMethods): array
     $role = (string) ($_SESSION['user']['role'] ?? '');
 
     if (!in_array($role, ['admin', 'administrator'], true)) {
+        services_security_event('services_manage_forbidden', [
+            'severity' => 'medium',
+            'response_status' => 403,
+            'result' => 'denied',
+            'reason' => 'forbidden',
+        ]);
         services_json([
             'success' => false,
             'error' => 'Brak uprawnień'
@@ -112,6 +189,12 @@ function services_require_context(array $allowedMethods): array
     $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
+        services_security_event('services_manage_env_missing', [
+            'severity' => 'high',
+            'response_status' => 500,
+            'result' => 'error',
+            'reason' => 'env_missing',
+        ]);
         services_json([
             'success' => false,
             'error' => 'Brak konfiguracji Supabase'
@@ -119,6 +202,14 @@ function services_require_context(array $allowedMethods): array
     }
 
     if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+        services_security_event('services_manage_tenant_denied', [
+            'tenant_id' => (string) ($_SESSION['user']['tenant_id'] ?? ''),
+            'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+            'severity' => 'medium',
+            'response_status' => 403,
+            'result' => 'denied',
+            'reason' => 'tenant_denied',
+        ]);
         services_json([
             'success' => false,
             'error' => 'Sesja nie pasuje do domeny'
@@ -128,6 +219,13 @@ function services_require_context(array $allowedMethods): array
     $tenantId = (string) ($_SESSION['user']['tenant_id'] ?? '');
 
     if ($tenantId === '') {
+        services_security_event('services_manage_session_invalid', [
+            'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+            'severity' => 'medium',
+            'response_status' => 401,
+            'result' => 'denied',
+            'reason' => 'session_invalid',
+        ]);
         services_json([
             'success' => false,
             'error' => 'Nieprawidłowa sesja'

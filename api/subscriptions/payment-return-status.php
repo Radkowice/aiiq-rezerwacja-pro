@@ -4,12 +4,42 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+
+function subscription_return_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'subscription_payment_return_status',
+        'endpoint' => '/api/subscriptions/payment-return-status.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 function subscription_return_json(int $status, array $payload): void
 {
@@ -200,6 +230,7 @@ function subscription_return_session_payment_id(string $tenantId): string
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
         header('Allow: GET');
+        subscription_return_security_event('subscription_payment_return_method_not_allowed', 'method_not_allowed', 405);
         subscription_return_json(405, [
             'success' => false,
             'error' => 'Metoda niedozwolona.',
@@ -211,6 +242,7 @@ try {
     $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
+        subscription_return_security_event('subscription_payment_return_env_missing', 'env_missing', 500, 'error', 'high');
         subscription_return_json(500, [
             'success' => false,
             'error' => 'Nie udało się pobrać danych płatności abonamentu.',
@@ -227,6 +259,7 @@ try {
         $tenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
 
         if (!$tenantId) {
+            subscription_return_security_event('subscription_payment_return_tenant_denied', 'tenant_denied', 404);
             subscription_return_json(404, [
                 'success' => false,
                 'error' => 'Nie rozpoznano klienta.',
@@ -238,6 +271,7 @@ try {
     }
 
     if ($paymentId === '') {
+        subscription_return_security_event('subscription_payment_return_handoff_missing', 'handoff_missing', 400, 'failed', 'medium', $tenantId ?? null);
         subscription_return_json(400, [
             'success' => false,
             'error' => 'Brak aktywnej płatności abonamentu do sprawdzenia.',
@@ -254,6 +288,7 @@ try {
     $paymentResult = subscription_return_request($paymentUrl, $headers);
 
     if (!$paymentResult['ok']) {
+        subscription_return_security_event('subscription_payment_return_fetch_failed', 'payment_fetch_failed', 500, 'error', 'medium', $tenantId ?? null, 'payment_fetch');
         subscription_return_json(500, [
             'success' => false,
             'error' => 'Nie udało się pobrać danych płatności abonamentu.',
@@ -263,6 +298,7 @@ try {
     $payment = $paymentResult['data'][0] ?? null;
 
     if (!is_array($payment)) {
+        subscription_return_security_event('subscription_payment_return_not_found', 'payment_not_found', 404, 'failed', 'medium', $tenantId ?? null);
         subscription_return_json(404, [
             'success' => false,
             'error' => 'Nie znaleziono płatności abonamentu.',
@@ -374,6 +410,7 @@ try {
         ],
     ]);
 } catch (Throwable $e) {
+    subscription_return_security_event('subscription_payment_return_fatal', 'fatal', 500, 'error', 'high', $tenantId ?? null);
     subscription_return_json(500, [
         'success' => false,
         'error' => 'Błąd pobierania statusu płatności abonamentu.',

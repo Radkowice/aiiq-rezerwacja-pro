@@ -38,6 +38,38 @@ function booking_postprocess_queue_last_error_store(?array $error = null): array
     return $lastError;
 }
 
+function booking_postprocess_queue_trace_value($value, string $prefix = 'ref'): ?string
+{
+    if (!is_scalar($value)) {
+        return null;
+    }
+
+    $value = trim((string)$value);
+    $value = str_replace(["\r", "\n"], '', $value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    return substr(hash('sha256', 'booking-postprocess-queue|' . $prefix . '|' . $value), 0, 16);
+}
+
+function booking_postprocess_queue_safe_directory($value): ?string
+{
+    if (!is_scalar($value)) {
+        return null;
+    }
+
+    $value = trim((string)$value);
+    $value = str_replace(["\r", "\n"], '', $value);
+
+    if ($value === '' || preg_match('/^[a-zA-Z0-9_-]{1,40}$/', $value) !== 1) {
+        return null;
+    }
+
+    return $value;
+}
+
 function booking_postprocess_queue_set_last_error(string $reason, array $context = []): void
 {
     $allowedReasons = [
@@ -52,21 +84,39 @@ function booking_postprocess_queue_set_last_error(string $reason, array $context
         'chmod_failed',
         'unknown',
     ];
-    $allowedContextKeys = ['booking_id', 'tenant_id', 'job_id', 'target_dir', 'target_path', 'directory'];
     $reason = in_array($reason, $allowedReasons, true) ? $reason : 'unknown';
     $error = ['reason' => $reason];
 
-    foreach ($allowedContextKeys as $key) {
-        if (!array_key_exists($key, $context) || !is_scalar($context[$key])) {
-            continue;
-        }
+    $bookingRef = booking_postprocess_queue_trace_value($context['booking_id'] ?? null, 'booking');
+    if ($bookingRef !== null) {
+        $error['booking_ref'] = $bookingRef;
+    }
 
-        $value = trim((string)$context[$key]);
-        $value = str_replace(["\r", "\n"], '', $value);
+    $tenantRef = booking_postprocess_queue_trace_value($context['tenant_id'] ?? null, 'tenant');
+    if ($tenantRef !== null) {
+        $error['tenant_ref'] = $tenantRef;
+    }
 
-        if ($value !== '') {
-            $error[$key] = substr($value, 0, 500);
-        }
+    $jobRef = booking_postprocess_queue_trace_value($context['job_id'] ?? null, 'job');
+    if ($jobRef !== null) {
+        $error['job_ref'] = $jobRef;
+    }
+
+    $directory = booking_postprocess_queue_safe_directory($context['directory'] ?? null);
+    if ($directory !== null) {
+        $error['directory'] = $directory;
+    }
+
+    if (isset($context['target_dir'])) {
+        $error['target_dir_set'] = true;
+    }
+
+    $targetPathRef = booking_postprocess_queue_trace_value(
+        isset($context['target_path']) ? basename((string)$context['target_path']) : null,
+        'path'
+    );
+    if ($targetPathRef !== null) {
+        $error['target_path_ref'] = $targetPathRef;
     }
 
     booking_postprocess_queue_last_error_store($error);
@@ -696,11 +746,12 @@ function booking_postprocess_queue_fail_stale_pending(int $olderThanSeconds, boo
         if ($written && @unlink($file)) {
             $result['moved_to_failed']++;
         } else {
-            $result['errors'][] = [
+            $fileRef = booking_postprocess_queue_trace_value(basename($file), 'cleanup_file');
+            $result['errors'][] = array_filter([
                 'category' => 'move_to_failed_failed',
                 'directory' => 'pending',
-                'path' => $file,
-            ];
+                'file_ref' => $fileRef,
+            ], static fn($value) => $value !== null && $value !== '');
         }
     }
 
@@ -745,11 +796,12 @@ function booking_postprocess_queue_cleanup_tmp(int $olderThanSeconds, bool $dryR
             if (@unlink($file)) {
                 $result['deleted']++;
             } else {
-                $result['errors'][] = [
+                $fileRef = booking_postprocess_queue_trace_value(basename($file), 'cleanup_file');
+                $result['errors'][] = array_filter([
                     'category' => 'delete_failed',
                     'directory' => $directory,
-                    'path' => $file,
-                ];
+                    'file_ref' => $fileRef,
+                ], static fn($value) => $value !== null && $value !== '');
             }
         }
     }

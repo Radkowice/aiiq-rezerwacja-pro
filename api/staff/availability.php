@@ -7,9 +7,49 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+
+
+function staff_availability_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus = 400,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $staffId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    $context = [
+        'action_key' => 'staff_availability',
+        'endpoint' => '/api/staff/availability.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    if ($tenantId !== null && $tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    if ($staffId !== null && $staffId !== '') {
+        $context['staff_id'] = $staffId;
+    }
+
+    security_log_event($eventKey, $context);
+}
 
 function staff_availability_json(array $payload, int $statusCode = 200): void
 {
@@ -34,6 +74,7 @@ function staff_availability_require_admin_session(): array
         || empty($user['id'])
         || empty($user['tenant_id'])
     ) {
+        staff_availability_security_event('staff_availability_unauthorized', 'unauthorized', 401, 'denied', 'medium');
         staff_availability_json([
             'success' => false,
             'error' => 'Brak autoryzacji'
@@ -43,6 +84,7 @@ function staff_availability_require_admin_session(): array
     $role = strtolower(trim((string) ($user['role'] ?? '')));
 
     if (!in_array($role, ['admin', 'administrator'], true)) {
+        staff_availability_security_event('staff_availability_forbidden', 'forbidden', 401, 'denied', 'medium');
         staff_availability_json([
             'success' => false,
             'error' => 'Brak autoryzacji'
@@ -320,6 +362,8 @@ function staff_availability_resolve_staff_ref(
     if ($staffResult['response'] === false || $staffResult['error'] !== ''
         || $staffResult['httpCode'] < 200 || $staffResult['httpCode'] >= 300
     ) {
+        staff_availability_security_event('staff_availability_staff_ref_invalid', 'staff_ref_invalid', 400, 'failed', 'medium', $tenantId);
+        staff_availability_security_event('staff_availability_staff_ref_invalid', 'staff_ref_invalid', 400, 'failed', 'medium', $tenantId);
         staff_availability_json([
             'success' => false,
             'error' => 'Nieprawidłowy pracownik.',
@@ -353,6 +397,7 @@ function staff_availability_resolve_staff_ref(
         }
     }
 
+    staff_availability_security_event('staff_availability_staff_ref_invalid', 'staff_ref_invalid', 400, 'failed', 'medium', $tenantId);
     staff_availability_json([
         'success' => false,
         'error' => 'Nieprawidłowy pracownik.',
@@ -545,6 +590,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? '';
 
 if (!in_array($method, ['GET', 'POST'], true)) {
     header('Allow: GET, POST');
+    staff_availability_security_event('staff_availability_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     staff_availability_json([
         'success' => false,
         'error' => 'Metoda niedozwolona'
@@ -560,6 +606,7 @@ $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 $refSecret = public_response_ref_secret($supabaseKey);
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    staff_availability_security_event('staff_availability_env_missing', 'env_missing', 500, 'failed', 'high');
     staff_availability_json([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase'
@@ -567,6 +614,7 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    staff_availability_security_event('staff_availability_tenant_denied', 'tenant_mismatch', 403, 'denied', 'medium');
     staff_availability_json([
         'success' => false,
         'error' => 'Sesja nie pasuje do domeny'
@@ -576,6 +624,7 @@ if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
 $tenantId = (string) ($adminUser['tenant_id'] ?? '');
 
 if ($tenantId === '') {
+    staff_availability_security_event('staff_availability_session_invalid', 'session_invalid', 401, 'denied', 'medium');
     staff_availability_json([
         'success' => false,
         'error' => 'Nieprawidłowa sesja'
@@ -583,6 +632,7 @@ if ($tenantId === '') {
 }
 
 if (!tenant_has_feature($tenantId, 'staff_module')) {
+    staff_availability_security_event('staff_availability_feature_denied', 'staff_module_denied', 403, 'denied', 'medium', $tenantId);
     staff_availability_json([
         'success' => false,
         'code' => 'staff_panel_requires_pro',
@@ -660,6 +710,7 @@ if ($method === 'GET') {
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
+    staff_availability_security_event('staff_availability_invalid_json', 'invalid_json', 400, 'failed', 'medium', $tenantId);
     staff_availability_json([
         'success' => false,
         'error' => 'Nieprawidłowy JSON'
@@ -676,6 +727,7 @@ $staffId = staff_availability_resolve_staff_request_id(
 );
 
 if ($staffId === '') {
+    staff_availability_security_event('staff_availability_staff_ref_missing', 'staff_ref_missing', 400, 'failed', 'medium', $tenantId);
     staff_availability_json([
         'success' => false,
         'error' => 'Brak pracownika'
@@ -683,6 +735,7 @@ if ($staffId === '') {
 }
 
 if (!array_key_exists('availability', $input) || !is_array($input['availability'])) {
+    staff_availability_security_event('staff_availability_validation_failed', 'availability_invalid', 422, 'failed', 'medium', $tenantId, $staffId);
     staff_availability_json([
         'success' => false,
         'error' => 'Availability musi być tablicą'
@@ -701,6 +754,7 @@ $deleteUrl = $supabaseUrl
 $deleteResult = staff_availability_request('DELETE', $deleteUrl, $supabaseKey, $schema);
 
 if ($deleteResult['response'] === false || $deleteResult['error'] !== '') {
+    staff_availability_security_event('staff_availability_save_failed', 'delete_old_failed', 500, 'failed', 'high', $tenantId, $staffId, 'delete_old');
     staff_availability_json([
         'success' => false,
         'error' => 'Błąd połączenia z bazą danych'
@@ -708,6 +762,7 @@ if ($deleteResult['response'] === false || $deleteResult['error'] !== '') {
 }
 
 if ($deleteResult['httpCode'] < 200 || $deleteResult['httpCode'] >= 300) {
+    staff_availability_security_event('staff_availability_save_failed', 'delete_old_failed', $deleteResult['httpCode'] > 0 ? $deleteResult['httpCode'] : 500, 'failed', 'high', $tenantId, $staffId, 'delete_old');
     staff_availability_json([
         'success' => false,
         'error' => 'Nie udało się usunąć starego grafiku'
@@ -715,6 +770,7 @@ if ($deleteResult['httpCode'] < 200 || $deleteResult['httpCode'] >= 300) {
 }
 
 if (empty($availability)) {
+    staff_availability_security_event('staff_availability_clear_success', 'staff_availability_clear_success', 200, 'success', 'medium', $tenantId, $staffId);
     staff_availability_json([
         'success' => true,
         'staff_ref' => public_response_staff_ref($tenantId, $staffId, $refSecret),
@@ -740,6 +796,7 @@ $insertUrl = $supabaseUrl
 $insertResult = staff_availability_request('POST', $insertUrl, $supabaseKey, $schema, $rowsToInsert, true);
 
 if ($insertResult['response'] === false || $insertResult['error'] !== '') {
+    staff_availability_security_event('staff_availability_save_failed', 'insert_failed', 500, 'failed', 'high', $tenantId, $staffId, 'insert');
     staff_availability_json([
         'success' => false,
         'error' => 'Błąd połączenia z bazą danych'
@@ -747,6 +804,7 @@ if ($insertResult['response'] === false || $insertResult['error'] !== '') {
 }
 
 if ($insertResult['httpCode'] < 200 || $insertResult['httpCode'] >= 300) {
+    staff_availability_security_event('staff_availability_save_failed', 'insert_failed', $insertResult['httpCode'] > 0 ? $insertResult['httpCode'] : 500, 'failed', 'high', $tenantId, $staffId, 'insert');
     staff_availability_json([
         'success' => false,
         'error' => 'Nie udało się zapisać grafiku pracownika'
@@ -756,11 +814,14 @@ if ($insertResult['httpCode'] < 200 || $insertResult['httpCode'] >= 300) {
 $insertedAvailability = json_decode((string) $insertResult['response'], true);
 
 if (!is_array($insertedAvailability)) {
+    staff_availability_security_event('staff_availability_save_failed', 'invalid_db_response', 500, 'failed', 'high', $tenantId, $staffId, 'insert_response');
     staff_availability_json([
         'success' => false,
         'error' => 'Nieprawidłowa odpowiedź bazy danych'
     ], 500);
 }
+
+staff_availability_security_event('staff_availability_save_success', 'staff_availability_save_success', 200, 'success', 'medium', $tenantId, $staffId);
 
 staff_availability_json([
     'success' => true,

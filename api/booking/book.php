@@ -9,6 +9,7 @@ require_once __DIR__ . '/../helpers/booking_context_cache.php';
 require_once __DIR__ . '/../helpers/booking_postprocess_queue.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 require __DIR__ . '/../PHPMailer/src/Exception.php';
 require __DIR__ . '/../PHPMailer/src/PHPMailer.php';
@@ -250,6 +251,42 @@ function debug_log(string $label, $data): void
         date('Y-m-d H:i:s') . " [{$label}] " . ($encodedData !== false ? $encodedData : '[log_encode_error]') . "\n",
         FILE_APPEND
     );
+}
+
+function booking_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    array $context = []
+): void {
+    global $TENANT_ID, $email;
+
+    $details = [
+        'reason' => $reason,
+    ];
+
+    $stage = trim((string) ($context['stage'] ?? ''));
+    if ($stage !== '') {
+        $details['stage'] = substr($stage, 0, 80);
+    }
+
+    $tenantId = trim((string) ($context['tenant_id'] ?? ($TENANT_ID ?? '')));
+    $emailValue = trim((string) ($context['email'] ?? ($email ?? '')));
+
+    security_log_event($eventKey, [
+        'action_key' => 'booking_create',
+        'endpoint' => '/api/booking/book.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'public',
+        'severity' => $severity,
+        'tenant_id' => $tenantId,
+        'email' => $emailValue,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
 }
 
 function booking_supabase_endpoint_label(string $url): string
@@ -906,6 +943,10 @@ function booking_insert_error_response(array $result): void
     $httpCode = (int)($result['httpCode'] ?? 0);
 
     if (booking_insert_error_is_conflict($result)) {
+        booking_security_event('booking_create_slot_conflict', 'insert_conflict', 409, 'failed', 'medium', [
+            'stage' => 'bookings_insert',
+        ]);
+
         json_response([
             'success' => false,
             'error' => 'Wybrana godzina jest już niedostępna',
@@ -913,6 +954,10 @@ function booking_insert_error_response(array $result): void
     }
 
     if ($httpCode === 429) {
+        booking_security_event('booking_create_rate_limited', 'supabase_rate_limited', 429, 'blocked', 'medium', [
+            'stage' => 'bookings_insert',
+        ]);
+
         json_response([
             'success' => false,
             'error' => 'temporary_unavailable',
@@ -921,12 +966,20 @@ function booking_insert_error_response(array $result): void
     }
 
     if (booking_insert_error_is_temporary($result)) {
+        booking_security_event('booking_create_insert_failed', 'insert_temporary_failed', 503, 'failed', 'medium', [
+            'stage' => 'bookings_insert',
+        ]);
+
         json_response([
             'success' => false,
             'error' => 'temporary_unavailable',
             'message' => 'W tym momencie system obsługuje dużo rezerwacji. Spróbuj ponownie za chwilę.',
         ], 503);
     }
+
+    booking_security_event('booking_create_insert_failed', 'insert_failed', 500, 'failed', 'medium', [
+        'stage' => 'bookings_insert',
+    ]);
 
     json_response([
         'success' => false,
@@ -1695,6 +1748,8 @@ function booking_release_slot_lock($lockHandle): void
 
 function booking_slot_taken_response(): void
 {
+    booking_security_event('booking_create_slot_conflict', 'slot_conflict', 409, 'failed', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'slot_taken',
@@ -2157,6 +2212,8 @@ if (!is_array($blacklist)) {
 }
 
 if (in_array($ip, $blacklist, true)) {
+    booking_security_event('booking_create_rate_limited', 'blacklisted_ip', 403, 'blocked', 'high');
+
     json_response([
         'success' => false,
         'error' => 'Dostęp zablokowany',
@@ -2212,6 +2269,8 @@ if (count($rateData[$ip]) >= $limit) {
         );
     }
 
+    booking_security_event('booking_create_rate_limited', 'ip_rate_limited', 429, 'blocked', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'Za dużo prób. Spróbuj za chwilę.',
@@ -2227,6 +2286,8 @@ if (!isset($_SESSION['last_booking_time'])) {
 }
 
 if (time() - (int) $_SESSION['last_booking_time'] < 10) {
+    booking_security_event('booking_create_rate_limited', 'session_throttle', 429, 'blocked', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'Poczekaj chwilę przed kolejną próbą',
@@ -2242,6 +2303,8 @@ if ($website !== '') {
         'tenant_id' => $TENANT_ID,
         'honeypot_triggered' => true,
     ]);
+
+    booking_security_event('booking_create_bot_blocked', 'honeypot_triggered', 400, 'blocked', 'medium');
 
     json_response([
         'success' => false,
@@ -2271,6 +2334,8 @@ if ($formStartedAt <= 0) {
         'tenant_id' => $TENANT_ID,
     ]);
 
+    booking_security_event('booking_create_bot_blocked', 'missing_form_started_at', 400, 'blocked', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'Odśwież stronę i spróbuj ponownie.',
@@ -2293,6 +2358,8 @@ if ($formFillTimeMs < 3000) {
         'source' => $formFillTimeSource,
     ]);
 
+    booking_security_event('booking_create_bot_blocked', 'form_too_fast', 400, 'blocked', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'Formularz został wysłany zbyt szybko. Spróbuj ponownie.',
@@ -2305,6 +2372,8 @@ if ($formFillTimeMs > 1000 * 60 * 60 * 6) {
         'tenant_id' => $TENANT_ID,
         'form_fill_time_ms' => $formFillTimeMs,
     ]);
+
+    booking_security_event('booking_create_bot_blocked', 'form_too_old', 400, 'blocked', 'medium');
 
     json_response([
         'success' => false,
@@ -2380,6 +2449,8 @@ try {
 $bookingGlobalSemaphoreHandle = booking_acquire_global_semaphore(3, 40000, 150000);
 
 if (!is_resource($bookingGlobalSemaphoreHandle)) {
+    booking_security_event('booking_create_rate_limited', 'global_semaphore_unavailable', 503, 'blocked', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'temporary_unavailable',
@@ -2407,6 +2478,8 @@ if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
         'server_name' => $_SERVER['SERVER_NAME'] ?? null,
     ]);
 
+    booking_security_event('booking_create_tenant_denied', 'tenant_not_found', 404, 'failed', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'tenant_not_found',
@@ -2422,6 +2495,8 @@ if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
         'lookup_status' => $tenantLookupStatus,
         'http_code' => $tenantLookupHttpCode,
     ]);
+
+    booking_security_event('booking_create_tenant_denied', 'tenant_lookup_failed', $tenantLookupResponseCode, 'failed', 'medium');
 
     json_response([
         'success' => false,
@@ -2972,6 +3047,8 @@ $bookingSlotLockKey = booking_slot_lock_key($TENANT_ID, $serviceId, $staffId, $d
 $bookingSlotLockHandle = booking_acquire_slot_lock($bookingSlotLockKey, 6000);
 
 if (!is_resource($bookingSlotLockHandle)) {
+    booking_security_event('booking_create_slot_conflict', 'slot_lock_unavailable', 503, 'failed', 'medium');
+
     json_response([
         'success' => false,
         'error' => 'temporary_unavailable',
@@ -3178,6 +3255,8 @@ if ($paymentRequired) {
 } else {
     unset($_SESSION['booking_payment_handoff']);
 }
+
+booking_security_event('booking_create_success', 'booking_create_success', 200, 'success', 'medium');
 
 // Finalna odpowiedź
 json_response([

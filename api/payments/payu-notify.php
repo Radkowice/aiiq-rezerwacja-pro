@@ -5,6 +5,75 @@ require_once __DIR__ . '/../helpers/payu.php';
 require_once __DIR__ . '/../helpers/booking_mail.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 
+function payu_notify_debug_sensitive_key(string $key): bool
+{
+    $key = strtolower(trim($key));
+
+    if ($key === '') {
+        return false;
+    }
+
+    if (str_starts_with($key, 'has_') || str_ends_with($key, '_set') || str_ends_with($key, '_present')) {
+        return false;
+    }
+
+    return in_array($key, [
+        'booking_id',
+        'tenant_id',
+        'order_id',
+        'ext_order_id',
+        'payment_order_id',
+        'payload',
+        'raw_payload',
+        'raw_body',
+        'body',
+        'request',
+        'response',
+        'headers',
+        'authorization',
+        'cookie',
+        'session_id',
+    ], true);
+}
+
+function payu_notify_debug_sanitize($data)
+{
+    if (is_array($data)) {
+        $safe = [];
+
+        foreach ($data as $key => $value) {
+            $keyString = is_string($key) ? $key : (string)$key;
+
+            if (payu_notify_debug_sensitive_key($keyString)) {
+                $safe[$keyString . '_set'] = is_scalar($value) ? trim((string)$value) !== '' : !empty($value);
+                continue;
+            }
+
+            $safe[$key] = payu_notify_debug_sanitize($value);
+        }
+
+        return $safe;
+    }
+
+    if (is_object($data)) {
+        return '[object]';
+    }
+
+    if (!is_string($data)) {
+        return $data;
+    }
+
+    $data = preg_replace('/\b[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\b/i', '[uuid]', $data) ?? $data;
+    $data = preg_replace('/\bBearer\s+[A-Za-z0-9._~+\/=-]+\b/i', 'Bearer [redacted]', $data) ?? $data;
+
+    return mb_substr($data, 0, 240);
+}
+
+function payu_notify_debug(string $tag, $data = null): void
+{
+    payu_debug($tag, $data === null ? null : payu_notify_debug_sanitize($data));
+}
+
 function payu_notify_response(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
@@ -74,7 +143,7 @@ function payu_notify_verify_signature(string $rawBody, string $secondKey, string
     }
 
     if ($algorithm !== 'md5') {
-        payu_debug('PAYU_NOTIFY_UNSUPPORTED_SIGNATURE_ALGORITHM', [
+        payu_notify_debug('PAYU_NOTIFY_UNSUPPORTED_SIGNATURE_ALGORITHM', [
             'algorithm' => $algorithm,
         ]);
 
@@ -93,7 +162,7 @@ function payu_notify_fetch_booking_by_order(string $orderId, string $extOrderId 
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
-        payu_debug('PAYU_NOTIFY_ENV_MISSING');
+        payu_notify_debug('PAYU_NOTIFY_ENV_MISSING');
         return null;
     }
 
@@ -120,11 +189,11 @@ function payu_notify_fetch_booking_by_order(string $orderId, string $extOrderId 
     $result = payu_supabase_request($url, 'GET', $supabaseKey, $schema);
 
     if ($result['error'] || $result['http_code'] !== 200) {
-        payu_debug('PAYU_NOTIFY_BOOKING_FETCH_ERROR', [
+        payu_notify_debug('PAYU_NOTIFY_BOOKING_FETCH_ERROR', [
             'http_code' => $result['http_code'],
             'has_error' => !empty($result['error']),
-            'order_id' => $orderId,
-            'ext_order_id' => $extOrderId,
+            'has_order_id' => $orderId !== '',
+            'has_ext_order_id' => $extOrderId !== '',
         ]);
 
         return null;
@@ -140,7 +209,7 @@ function payu_notify_update_booking(string $bookingId, string $tenantId, array $
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
-        payu_debug('PAYU_NOTIFY_UPDATE_ENV_MISSING');
+        payu_notify_debug('PAYU_NOTIFY_UPDATE_ENV_MISSING');
         return false;
     }
 
@@ -159,8 +228,8 @@ function payu_notify_update_booking(string $bookingId, string $tenantId, array $
     );
 
     if ($result['error'] || $result['http_code'] < 200 || $result['http_code'] >= 300) {
-        payu_debug('PAYU_NOTIFY_BOOKING_UPDATE_ERROR', [
-            'booking_id' => $bookingId,
+        payu_notify_debug('PAYU_NOTIFY_BOOKING_UPDATE_ERROR', [
+            'has_booking_id' => $bookingId !== '',
             'http_code' => $result['http_code'],
             'has_error' => !empty($result['error']),
         ]);
@@ -257,7 +326,7 @@ function payu_notify_fetch_single_record(string $table, string $query): ?array
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
-        payu_debug('PAYU_NOTIFY_FETCH_SINGLE_ENV_MISSING', [
+        payu_notify_debug('PAYU_NOTIFY_FETCH_SINGLE_ENV_MISSING', [
             'table' => $table,
         ]);
 
@@ -273,7 +342,7 @@ function payu_notify_fetch_single_record(string $table, string $query): ?array
     $result = payu_supabase_request($url, 'GET', $supabaseKey, $schema);
 
     if ($result['error'] || $result['http_code'] !== 200) {
-        payu_debug('PAYU_NOTIFY_FETCH_SINGLE_ERROR', [
+        payu_notify_debug('PAYU_NOTIFY_FETCH_SINGLE_ERROR', [
             'table' => $table,
             'http_code' => $result['http_code'],
             'has_error' => !empty($result['error']),
@@ -356,8 +425,8 @@ function payu_notify_send_paid_email(string $tenantId, array $booking): bool
     );
 
     if (!$emailSettings || !$emailTemplate || !$tenantData) {
-        payu_debug('PAYU_NOTIFY_EMAIL_FALLBACK_NEEDED', [
-            'tenant_id' => $tenantId,
+        payu_notify_debug('PAYU_NOTIFY_EMAIL_FALLBACK_NEEDED', [
+            'has_tenant_id' => $tenantId !== '',
             'email_settings' => (bool)$emailSettings,
             'email_template' => (bool)$emailTemplate,
             'tenant_data' => (bool)$tenantData,
@@ -415,7 +484,7 @@ try {
     $data = json_decode($rawBody, true);
 
     if (!is_array($data)) {
-        payu_debug('PAYU_NOTIFY_INVALID_JSON', [
+        payu_notify_debug('PAYU_NOTIFY_INVALID_JSON', [
             'body_length' => strlen($rawBody),
             'json_error' => json_last_error_msg(),
         ]);
@@ -447,7 +516,7 @@ try {
     }
 
     if ($orderId === '' && $extOrderId === '') {
-        payu_debug('PAYU_NOTIFY_ORDER_ID_MISSING', [
+        payu_notify_debug('PAYU_NOTIFY_ORDER_ID_MISSING', [
             'body_length' => strlen($rawBody),
             'has_order' => is_array($data['order'] ?? null),
         ]);
@@ -461,9 +530,9 @@ try {
     $booking = payu_notify_fetch_booking_by_order($orderId, $extOrderId);
 
    if (!$booking) {
-    payu_debug('PAYU_NOTIFY_BOOKING_NOT_FOUND', [
-        'order_id' => $orderId,
-        'ext_order_id' => $extOrderId,
+    payu_notify_debug('PAYU_NOTIFY_BOOKING_NOT_FOUND', [
+        'has_order_id' => $orderId !== '',
+        'has_ext_order_id' => $extOrderId !== '',
         'status' => $payuStatus,
     ]);
 
@@ -477,7 +546,7 @@ try {
     $tenantId = (string)($booking['tenant_id'] ?? '');
 
     if ($bookingId === '' || $tenantId === '') {
-        payu_debug('PAYU_NOTIFY_BOOKING_INVALID', [
+        payu_notify_debug('PAYU_NOTIFY_BOOKING_INVALID', [
             'order_id_present' => $orderId !== '',
             'ext_order_id_present' => $extOrderId !== '',
             'booking_id_present' => $bookingId !== '',
@@ -493,8 +562,8 @@ try {
     $payu = payu_get_integration($tenantId);
 
     if (!$payu || empty($payu['second_key'])) {
-        payu_debug('PAYU_NOTIFY_INTEGRATION_MISSING', [
-            'tenant_id' => $tenantId,
+        payu_notify_debug('PAYU_NOTIFY_INTEGRATION_MISSING', [
+            'has_tenant_id' => $tenantId !== '',
             'second_key_set' => !empty($payu['second_key'] ?? ''),
         ]);
 
@@ -507,11 +576,11 @@ try {
     $signatureHeader = payu_notify_get_header('OpenPayu-Signature');
 
     if (!payu_notify_verify_signature($rawBody, (string)$payu['second_key'], $signatureHeader)) {
-        payu_debug('PAYU_NOTIFY_SIGNATURE_INVALID', [
-            'tenant_id' => $tenantId,
-            'booking_id' => $bookingId,
-            'order_id' => $orderId,
-            'ext_order_id' => $extOrderId,
+        payu_notify_debug('PAYU_NOTIFY_SIGNATURE_INVALID', [
+            'has_tenant_id' => $tenantId !== '',
+            'has_booking_id' => $bookingId !== '',
+            'has_order_id' => $orderId !== '',
+            'has_ext_order_id' => $extOrderId !== '',
             'signature_header_set' => $signatureHeader !== '',
         ]);
 
@@ -557,17 +626,17 @@ $updated = payu_notify_update_booking($bookingId, $tenantId, $payload);
 
         $paidEmailSent = payu_notify_send_paid_email($tenantId, $bookingForEmail);
 
-        payu_debug('PAYU_NOTIFY_PAID_EMAIL_RESULT', [
-            'booking_id' => $bookingId,
+        payu_notify_debug('PAYU_NOTIFY_PAID_EMAIL_RESULT', [
+            'has_booking_id' => $bookingId !== '',
             'email_sent' => $paidEmailSent,
         ]);
     }
 
-    payu_debug('PAYU_NOTIFY_SUCCESS', [
-        'booking_id' => $bookingId,
-        'tenant_id' => $tenantId,
-        'order_id' => $orderId,
-        'ext_order_id' => $extOrderId,
+    payu_notify_debug('PAYU_NOTIFY_SUCCESS', [
+        'has_booking_id' => $bookingId !== '',
+        'has_tenant_id' => $tenantId !== '',
+        'has_order_id' => $orderId !== '',
+        'has_ext_order_id' => $extOrderId !== '',
         'payu_status' => $payuStatus,
         'payment_status' => $newStatus,
     ]);
@@ -579,7 +648,7 @@ $updated = payu_notify_update_booking($bookingId, $tenantId, $payload);
     ]);
 
 } catch (Throwable $e) {
-    payu_debug('PAYU_NOTIFY_FATAL', [
+    payu_notify_debug('PAYU_NOTIFY_FATAL', [
         'exception_type' => get_class($e),
     ]);
 

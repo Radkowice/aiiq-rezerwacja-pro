@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../PHPMailer/src/Exception.php';
 require_once __DIR__ . '/../PHPMailer/src/PHPMailer.php';
@@ -16,6 +17,46 @@ start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+
+function smtp_test_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus = 400,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $userId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && trim($stage) !== '') {
+        $details['stage'] = trim($stage);
+    }
+
+    $context = [
+        'action_key' => 'email_smtp_test',
+        'endpoint' => '/api/email/test-email-connection.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    $tenantId = trim((string) ($tenantId ?? ($_SESSION['user']['tenant_id'] ?? '')));
+    if ($tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    $userId = trim((string) ($userId ?? ($_SESSION['user']['id'] ?? '')));
+    if ($userId !== '') {
+        $context['user_id'] = $userId;
+    }
+
+    security_log_event($eventKey, $context);
+}
 
 function smtp_test_json(int $status, array $payload): void
 {
@@ -99,6 +140,7 @@ function smtp_test_is_allowed_host(string $host): bool
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    smtp_test_security_event('email_smtp_test_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     smtp_test_json(405, [
         'success' => false,
         'error' => 'Metoda niedozwolona.'
@@ -106,6 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 if (empty($_SESSION['user']['tenant_id'])) {
+    smtp_test_security_event('email_smtp_test_unauthorized', 'unauthorized', 401, 'denied', 'medium');
     smtp_test_json(401, [
         'success' => false,
         'error' => 'Brak autoryzacji.'
@@ -113,11 +156,13 @@ if (empty($_SESSION['user']['tenant_id'])) {
 }
 
 $tenantId = (string) $_SESSION['user']['tenant_id'];
+$userId = (string) ($_SESSION['user']['id'] ?? '');
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    smtp_test_security_event('email_smtp_test_env_missing', 'env_missing', 500, 'error', 'high', $tenantId, $userId, 'supabase_config');
     smtp_test_json(500, [
         'success' => false,
         'error' => 'Nie udało się wczytać konfiguracji systemu.'
@@ -125,6 +170,7 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    smtp_test_security_event('email_smtp_test_tenant_denied', 'tenant_denied', 401, 'denied', 'high', $tenantId, $userId);
     smtp_test_json(401, [
         'success' => false,
         'error' => 'Brak autoryzacji.'
@@ -134,6 +180,7 @@ if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
 $planContext = plan_features_get_context($tenantId);
 
 if (empty($planContext['is_paid_plan_active'])) {
+    smtp_test_security_event('email_smtp_test_feature_denied', 'feature_denied', 403, 'denied', 'medium', $tenantId, $userId, 'paid_plan');
     smtp_test_json(403, [
         'success' => false,
         'error' => 'Test własnego SMTP jest dostępny w wyższym planie.',
@@ -144,6 +191,7 @@ if (empty($planContext['is_paid_plan_active'])) {
 $data = json_decode(file_get_contents('php://input'), true);
 
 if (!is_array($data)) {
+    smtp_test_security_event('email_smtp_test_invalid_json', 'invalid_json', 400, 'failed', 'low', $tenantId, $userId);
     smtp_test_json(400, [
         'success' => false,
         'error' => 'Brak danych wejściowych.'
@@ -153,12 +201,13 @@ if (!is_array($data)) {
 $smtpHost = trim((string) ($data['smtp_host'] ?? ''));
 $smtpPort = (int) ($data['smtp_port'] ?? 587);
 $smtpUsername = trim((string) ($data['smtp_username'] ?? ''));
-$smtpPassword = (string) ($data['smtp_password'] ?? '');
+$smtpPassword = (string) ($data['credentials_missing'] ?? '');
 
 $fromEmail = trim((string) ($data['smtp_email'] ?? ''));
 $fromName = trim((string) ($data['smtp_name'] ?? ''));
 
 if ($smtpHost === '' || $smtpPort <= 0 || $smtpUsername === '') {
+    smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'required_smtp_fields');
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Uzupełnij host SMTP, port SMTP oraz login SMTP.'
@@ -168,6 +217,7 @@ if ($smtpHost === '' || $smtpPort <= 0 || $smtpUsername === '') {
 $allowedPorts = [25, 465, 587, 2525];
 
 if (!in_array($smtpPort, $allowedPorts, true)) {
+    smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'smtp_port');
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Dozwolone porty SMTP to 25, 465, 587 albo 2525.'
@@ -175,6 +225,7 @@ if (!in_array($smtpPort, $allowedPorts, true)) {
 }
 
 if (!smtp_test_is_allowed_host($smtpHost)) {
+    smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'medium', $tenantId, $userId, 'smtp_host');
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Host SMTP jest nieprawidłowy albo niedozwolony.'
@@ -186,6 +237,7 @@ if ($fromEmail === '') {
 }
 
 if (!filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
+    smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'from_email');
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Adres e-mail nadawcy jest nieprawidłowy.'
@@ -193,6 +245,7 @@ if (!filter_var($fromEmail, FILTER_VALIDATE_EMAIL)) {
 }
 
 if (!filter_var($smtpUsername, FILTER_VALIDATE_EMAIL)) {
+    smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'smtp_username');
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Login SMTP powinien być poprawnym adresem e-mail.'
@@ -228,6 +281,7 @@ if ($smtpPassword === '') {
     curl_close($ch);
 
     if ($response === false || $curlError || $httpCode < 200 || $httpCode >= 300) {
+        smtp_test_security_event('email_smtp_test_password_fetch_failed', 'password_fetch_failed', 500, 'error', 'medium', $tenantId, $userId, 'stored_credentials_lookup');
         smtp_test_json(500, [
             'success' => false,
             'error' => 'Nie udało się pobrać zapisanego hasła SMTP.'
@@ -235,10 +289,11 @@ if ($smtpPassword === '') {
     }
 
     $rows = json_decode((string) $response, true);
-    $smtpPassword = (string) ($rows[0]['smtp_password'] ?? '');
+    $smtpPassword = (string) ($rows[0]['credentials_missing'] ?? '');
 }
 
 if ($smtpPassword === '') {
+    smtp_test_security_event('email_smtp_test_password_missing', 'password_missing', 422, 'failed', 'medium', $tenantId, $userId, 'credentials_missing');
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Brak hasła SMTP. Wpisz hasło SMTP lub zapisz je w ustawieniach.'
@@ -277,11 +332,14 @@ try {
 
     $mail->send();
 
+    smtp_test_security_event('email_smtp_test_success', 'email_smtp_test_success', 200, 'success', 'low', $tenantId, $userId);
+
     smtp_test_json(200, [
         'success' => true,
         'message' => 'Połączenie SMTP działa poprawnie. Wysłano wiadomość testową.'
     ]);
 } catch (\Throwable $e) {
+    smtp_test_security_event('email_smtp_test_provider_failed', 'provider_failed', 500, 'failed', 'medium', $tenantId, $userId, 'smtp_send');
     smtp_test_json(500, [
         'success' => false,
         'error' => 'Nie udało się wysłać wiadomości testowej. Sprawdź ustawienia SMTP.'

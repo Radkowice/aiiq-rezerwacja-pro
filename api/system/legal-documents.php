@@ -5,11 +5,33 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+
+function legal_documents_security_event(string $eventKey, string $reason, int $responseStatus = 200, string $result = 'success', string $severity = 'medium', string $stage = ''): void
+{
+    $details = ['reason' => $reason];
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'system_legal_documents',
+        'endpoint' => '/api/system/legal-documents.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($_SESSION['user']['tenant_id'] ?? ''),
+        'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 if (!in_array($_SERVER['REQUEST_METHOD'], ['GET', 'POST'], true)) {
     http_response_code(405);
@@ -217,6 +239,9 @@ $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
 if ($response === false || $curlError) {
+    if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
+        legal_documents_security_event('system_legal_documents_save_failed', 'supabase_request_failed', 500, 'failed', 'medium', 'supabase_save');
+    }
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -233,6 +258,8 @@ if ($httpCode < 200 || $httpCode >= 300) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+legal_documents_security_event('system_legal_documents_save_success', 'system_legal_documents_save_success', 200, 'success', 'medium');
 
 echo json_encode(public_response_sanitize([
     'success' => true,

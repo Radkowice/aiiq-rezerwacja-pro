@@ -4,11 +4,52 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
+require_once __DIR__ . '/../helpers/security.php';
 
 $SUPABASE_URL = rtrim((string) getenv('SUPABASE_URL'), '/');
 $SUPABASE_KEY = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
 $SCHEMA = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 $CENTRAL_LOGIN_URL = 'https://rezerwacja-ai-iq.pl/logowanie.html';
+$ACTIVATION_SECURITY_CONTEXT = [];
+
+function activation_security_context(array $context): void
+{
+    global $ACTIVATION_SECURITY_CONTEXT;
+
+    foreach (['tenant_id', 'user_id', 'email'] as $key) {
+        $value = trim((string) ($context[$key] ?? ''));
+        if ($value !== '') {
+            $ACTIVATION_SECURITY_CONTEXT[$key] = $value;
+        }
+    }
+}
+
+function activation_security_event(string $eventKey, string $reason, int $statusCode, string $result = 'failed', string $severity = 'medium', array $context = []): void
+{
+    global $ACTIVATION_SECURITY_CONTEXT;
+
+    $merged = array_merge($ACTIVATION_SECURITY_CONTEXT, $context);
+    $details = ['reason' => $reason];
+
+    if (isset($context['stage']) && is_scalar($context['stage'])) {
+        $details['stage'] = (string) $context['stage'];
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'auth_activate_account',
+        'severity' => $severity,
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($merged['tenant_id'] ?? ''),
+        'user_id' => (string) ($merged['user_id'] ?? ''),
+        'email' => (string) ($merged['email'] ?? ''),
+        'ip_address' => security_client_ip(),
+        'endpoint' => '/api/auth/activate.php',
+        'http_method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET')),
+        'response_status' => $statusCode,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 function activation_redirect(string $url): void
 {
@@ -16,8 +57,9 @@ function activation_redirect(string $url): void
     exit;
 }
 
-function activation_redirect_error(string $reason = 'invalid'): void
+function activation_redirect_error(string $reason = 'invalid', array $context = [], string $eventKey = 'auth_activation_failed', int $statusCode = 400): void
 {
+    activation_security_event($eventKey, $reason, $statusCode, 'failed', $statusCode >= 500 ? 'high' : 'medium', $context);
     activation_redirect('https://rezerwacja-ai-iq.pl/aktywacja-link.html');
 }
 
@@ -355,14 +397,18 @@ function activation_send_account_activated_mail(string $tenantId, string $adminE
     }
 }
 
-if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET' || $SUPABASE_URL === '' || $SUPABASE_KEY === '') {
-    activation_redirect_error();
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'GET') {
+    activation_redirect_error('method_not_allowed', [], 'auth_activation_method_not_allowed', 405);
+}
+
+if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    activation_redirect_error('env_missing', [], 'auth_activation_env_missing', 500);
 }
 
 $token = trim((string) ($_GET['token'] ?? ''));
 $activationRef = trim((string) ($_GET['ref'] ?? ''));
 if (preg_match('/^[a-f0-9]{64}$/i', $token) !== 1) {
-    activation_redirect_error();
+    activation_redirect_error('token_format_invalid', [], 'auth_activation_token_format_invalid', 400);
 }
 
 $tokenHash = hash('sha256', $token);
@@ -388,6 +434,10 @@ if (!$tokenResult['ok'] || empty($tokenResult['data'][0])) {
         $historicalTokenId = trim((string) ($historicalTokenState['id'] ?? ''));
         $historicalTenantId = trim((string) ($historicalTokenState['tenant_id'] ?? ''));
         $historicalUserId = trim((string) ($historicalTokenState['user_id'] ?? ''));
+        activation_security_context([
+            'tenant_id' => $historicalTenantId,
+            'user_id' => $historicalUserId,
+        ]);
 
         if (
             $historicalTokenId !== ''
@@ -412,7 +462,7 @@ if (!$tokenResult['ok'] || empty($tokenResult['data'][0])) {
         activation_redirect_already_active($refTenantId);
     }
 
-    activation_redirect_error();
+    activation_redirect_error('token_not_found_or_expired', [], 'auth_activation_token_not_found_or_expired', 400);
 }
 
 unset($token, $tokenHash, $activationRef);
@@ -421,21 +471,26 @@ $activationState = $tokenResult['data'][0];
 $stateId = trim((string) ($activationState['id'] ?? ''));
 $tenantId = trim((string) ($activationState['tenant_id'] ?? ''));
 $userId = trim((string) ($activationState['user_id'] ?? ''));
+activation_security_context([
+    'tenant_id' => $tenantId,
+    'user_id' => $userId,
+]);
 
 if (
     $stateId === ''
     || $tenantId === ''
     || !activation_is_uuid($userId)
 ) {
-    activation_redirect_error();
+    activation_redirect_error('token_state_invalid', [], 'auth_activation_token_state_invalid', 400);
 }
 
 $user = activation_fetch_user($tenantId, $userId);
 if (!is_array($user)) {
-    activation_redirect_error();
+    activation_redirect_error('user_not_found', [], 'auth_activation_user_not_found', 404);
 }
 
 $adminEmail = trim((string) ($user['email'] ?? ''));
+activation_security_context(['email' => $adminEmail]);
 $wasActive = filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
 if ($wasActive) {
@@ -448,7 +503,7 @@ $activateUserResult = activation_request(
     ['is_active' => true]
 );
 if (!$activateUserResult['ok']) {
-    activation_redirect_error();
+    activation_redirect_error('user_activation_update_failed', [], 'auth_activation_user_update_failed', 500);
 }
 
 $markUsedResult = activation_request(
@@ -460,7 +515,7 @@ $markUsedResult = activation_request(
     ['used_at' => $now]
 );
 if (!$markUsedResult['ok'] || empty($markUsedResult['data'])) {
-    activation_redirect_error();
+    activation_redirect_error('token_mark_used_failed', [], 'auth_activation_token_mark_used_failed', 500);
 }
 
 $revokeOtherTokensResult = activation_request(
@@ -471,17 +526,23 @@ $revokeOtherTokensResult = activation_request(
     ['revoked_at' => $now]
 );
 if (!$revokeOtherTokensResult['ok']) {
-    activation_redirect_error();
+    activation_redirect_error('token_revoke_others_failed', [], 'auth_activation_token_revoke_failed', 500);
 }
 
 $domain = activation_fetch_active_domain($tenantId);
 
 if ($domain === '') {
-    activation_redirect_error('domain_unavailable');
+    activation_redirect_error('domain_unavailable', [], 'auth_activation_domain_unavailable', 500);
 }
 
 if (!$wasActive) {
     activation_send_account_activated_mail($tenantId, $adminEmail, $domain);
 }
+
+activation_security_event('auth_activation_success', 'account_activated', 302, 'success', 'low', [
+    'tenant_id' => $tenantId,
+    'user_id' => $userId,
+    'email' => $adminEmail,
+]);
 
 activation_redirect('https://' . $domain . '/logowanie.html?activated=1');

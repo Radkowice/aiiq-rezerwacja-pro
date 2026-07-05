@@ -143,6 +143,10 @@ $supabaseKey = $context['supabaseKey'];
 $schema = $context['schema'];
 $tenantId = $context['tenantId'];
 $refSecret = public_response_ref_secret($supabaseKey);
+$serviceSecurityContext = services_security_context($context, [
+    'action_key' => 'service_delete',
+    'endpoint' => '/api/services/delete.php',
+]);
 
 require_tenant_feature($tenantId, 'multiple_services');
 
@@ -150,6 +154,12 @@ $input = services_read_json_input();
 $serviceRefInput = $input['service_ref'] ?? '';
 
 if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
+    services_security_event('service_delete_ref_invalid', array_merge($serviceSecurityContext, [
+        'severity' => 'medium',
+        'response_status' => 400,
+        'result' => 'failed',
+        'reason' => 'service_ref_invalid',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nieprawidłowa usługa.',
@@ -163,6 +173,12 @@ $serviceId = $serviceRef !== ''
 $checkOnly = !empty($input['check_only']);
 
 if (!services_is_uuid($serviceId)) {
+    services_security_event('service_delete_ref_invalid', array_merge($serviceSecurityContext, [
+        'severity' => 'medium',
+        'response_status' => 400,
+        'result' => 'failed',
+        'reason' => 'service_ref_invalid',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nieprawidłowa usługa.',
@@ -181,6 +197,12 @@ $serviceRows = services_delete_fetch_rows(
 );
 
 if (empty($serviceRows[0]['id'])) {
+    services_security_event('service_delete_not_found', array_merge($serviceSecurityContext, [
+        'severity' => 'medium',
+        'response_status' => 404,
+        'result' => 'failed',
+        'reason' => 'service_not_found',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nie znaleziono usługi',
@@ -190,6 +212,12 @@ if (empty($serviceRows[0]['id'])) {
 }
 
 if (services_delete_has_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceId)) {
+    services_security_event('service_delete_blocked', array_merge($serviceSecurityContext, [
+        'severity' => 'medium',
+        'response_status' => 409,
+        'result' => 'denied',
+        'reason' => 'service_has_staff',
+    ]));
     services_delete_fail(services_delete_block_message(), 'service_has_staff', 409, [
         'has_staff' => true,
         'has_active_bookings' => false,
@@ -197,6 +225,12 @@ if (services_delete_has_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $s
 }
 
 if (services_delete_has_active_bookings($supabaseUrl, $supabaseKey, $schema, $tenantId, $serviceId)) {
+    services_security_event('service_delete_blocked', array_merge($serviceSecurityContext, [
+        'severity' => 'medium',
+        'response_status' => 409,
+        'result' => 'denied',
+        'reason' => 'service_has_active_bookings',
+    ]));
     services_delete_fail(services_delete_block_message(), 'service_has_active_bookings', 409, [
         'has_staff' => false,
         'has_active_bookings' => true,
@@ -221,6 +255,13 @@ $deleteUrl = $supabaseUrl
 $deleteResult = services_request('DELETE', $deleteUrl, $supabaseKey, $schema);
 
 if ($deleteResult['response'] === false || $deleteResult['error'] !== '') {
+    services_security_event('service_delete_failed', array_merge($serviceSecurityContext, [
+        'severity' => 'high',
+        'response_status' => 500,
+        'result' => 'error',
+        'reason' => 'supabase_error',
+        'stage' => 'delete_service',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Błąd połączenia z bazą danych'
@@ -228,6 +269,13 @@ if ($deleteResult['response'] === false || $deleteResult['error'] !== '') {
 }
 
 if ($deleteResult['httpCode'] < 200 || $deleteResult['httpCode'] >= 300) {
+    services_security_event('service_delete_failed', array_merge($serviceSecurityContext, [
+        'severity' => 'high',
+        'response_status' => $deleteResult['httpCode'] > 0 ? $deleteResult['httpCode'] : 500,
+        'result' => 'failed',
+        'reason' => 'supabase_rejected',
+        'stage' => 'delete_service',
+    ]));
     services_json([
         'success' => false,
         'error' => 'Nie udało się usunąć usługi. Sprawdź, czy usługa nie ma powiązanych rezerwacji lub pracowników.',
@@ -235,6 +283,13 @@ if ($deleteResult['httpCode'] < 200 || $deleteResult['httpCode'] >= 300) {
         'reason' => 'service_delete_failed',
     ], $deleteResult['httpCode'] > 0 ? $deleteResult['httpCode'] : 500);
 }
+
+services_security_event('service_delete_success', array_merge($serviceSecurityContext, [
+    'severity' => 'high',
+    'response_status' => 200,
+    'result' => 'success',
+    'reason' => 'service_delete_success',
+]));
 
 services_json([
     'success' => true,

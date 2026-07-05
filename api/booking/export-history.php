@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 function export_history_json(array $payload, int $statusCode): void
@@ -11,6 +12,42 @@ function export_history_json(array $payload, int $statusCode): void
     header('Content-Type: application/json; charset=utf-8');
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+
+function export_history_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $stage = null
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    $context = [
+        'action_key' => 'booking_export_history',
+        'endpoint' => '/api/booking/export-history.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    if ($tenantId !== null && $tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    security_log_event($eventKey, $context);
 }
 
 function export_history_supabase_rows(
@@ -276,6 +313,14 @@ function csvStaffName(array $item, array $staffDisplayNames): string
 start_secure_session();
 
 if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+    export_history_security_event(
+        'booking_export_history_unauthorized',
+        'unauthorized',
+        401,
+        'denied',
+        'medium'
+    );
+
     export_history_json([
         'success' => false,
         'error' => 'Brak autoryzacji'
@@ -287,6 +332,14 @@ $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
 $SUPABASE_DB_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    export_history_security_event(
+        'booking_export_history_env_missing',
+        'env_missing',
+        500,
+        'error',
+        'high'
+    );
+
     export_history_json([
         'success' => false,
         'error' => 'Nie udało się wczytać konfiguracji systemu.'
@@ -294,6 +347,15 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
 }
 
 if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA)) {
+    export_history_security_event(
+        'booking_export_history_tenant_denied',
+        'tenant_mismatch',
+        401,
+        'denied',
+        'medium',
+        (string) ($_SESSION['user']['tenant_id'] ?? '')
+    );
+
     export_history_json([
         'success' => false,
         'error' => 'Sesja nie pasuje do domeny'
@@ -303,6 +365,14 @@ if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE
 $TENANT_ID = (string) $_SESSION['user']['tenant_id'];
 
 if ($TENANT_ID === '') {
+    export_history_security_event(
+        'booking_export_history_session_invalid',
+        'invalid_session',
+        401,
+        'denied',
+        'medium'
+    );
+
     export_history_json([
         'success' => false,
         'error' => 'Nieprawidłowa sesja'
@@ -316,6 +386,16 @@ $legacyStaffId = csvText($_GET['staff_id'] ?? '');
 $selectedStaffId = '';
 
 if ($legacyStaffId !== '') {
+    export_history_security_event(
+        'booking_export_history_legacy_id_rejected',
+        'legacy_staff_id_rejected',
+        400,
+        'failed',
+        'medium',
+        $TENANT_ID,
+        'staff_filter'
+    );
+
     export_history_json([
         'success' => false,
         'error' => 'Filtr pracownika wymaga aktualnej referencji.'
@@ -324,6 +404,16 @@ if ($legacyStaffId !== '') {
 
 if ($requestedStaffRef !== '') {
     if (preg_match('/^st_[a-f0-9]{32,64}$/', $requestedStaffRef) !== 1) {
+        export_history_security_event(
+            'booking_export_history_staff_ref_invalid',
+            'staff_ref_invalid',
+            400,
+            'failed',
+            'medium',
+            $TENANT_ID,
+            'staff_filter'
+        );
+
         export_history_json([
             'success' => false,
             'error' => 'Nieprawidłowa referencja pracownika'
@@ -346,6 +436,16 @@ if ($requestedStaffRef !== '') {
     );
 
     if (!$staffCheckResult['success']) {
+        export_history_security_event(
+            'booking_export_history_staff_lookup_failed',
+            'staff_lookup_failed',
+            (int) $staffCheckResult['status'],
+            'error',
+            'medium',
+            $TENANT_ID,
+            'staff_filter'
+        );
+
         export_history_json([
             'success' => false,
             'error' => 'Nie udało się sprawdzić pracownika',
@@ -372,6 +472,16 @@ if ($requestedStaffRef !== '') {
     }
 
     if ($selectedStaffId === '') {
+        export_history_security_event(
+            'booking_export_history_staff_not_found',
+            'staff_not_found',
+            404,
+            'failed',
+            'medium',
+            $TENANT_ID,
+            'staff_filter'
+        );
+
         export_history_json([
             'success' => false,
             'error' => 'Nie znaleziono pracownika w aktualnym koncie'
@@ -399,6 +509,15 @@ $bookingResult = export_history_supabase_rows(
 );
 
 if (!$bookingResult['success']) {
+    export_history_security_event(
+        'booking_export_history_fetch_failed',
+        'booking_fetch_failed',
+        (int) $bookingResult['status'],
+        'error',
+        'medium',
+        $TENANT_ID
+    );
+
     export_history_json([
         'success' => false,
         'error' => 'Nie udało się pobrać rezerwacji',
@@ -496,6 +615,16 @@ if (!empty($bookingIds)) {
 $fileDate = $now->format('Y-m-d_H-i');
 $filePrefix = $requestedStaffRef !== '' ? 'rezerwacje-pracownika' : 'rezerwacje-i-historia';
 
+export_history_security_event(
+    'booking_export_history_success',
+    'booking_export_history_success',
+    200,
+    'success',
+    'high',
+    $TENANT_ID,
+    $requestedStaffRef !== '' ? 'staff_filter' : 'full_export'
+);
+
 header('Content-Type: text/csv; charset=UTF-8');
 header('Content-Disposition: attachment; filename="' . $filePrefix . '-' . $fileDate . '.csv"');
 header('Pragma: no-cache');
@@ -504,6 +633,15 @@ header('Expires: 0');
 $output = fopen('php://output', 'w');
 
 if ($output === false) {
+    export_history_security_event(
+        'booking_export_history_output_failed',
+        'output_failed',
+        500,
+        'error',
+        'medium',
+        $TENANT_ID
+    );
+
     exit;
 }
 

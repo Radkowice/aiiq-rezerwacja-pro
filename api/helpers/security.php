@@ -37,6 +37,7 @@ function security_supabase_rpc(string $functionName, array $payload): array
     $allowedFunctions = [
         'security_rate_limit_check',
         'security_log_event',
+        'security_log_ip_evidence',
     ];
 
     if (!in_array($functionName, $allowedFunctions, true)) {
@@ -462,63 +463,6 @@ function security_context_value(array $context, string $key): ?string
     return $value !== '' ? $value : null;
 }
 
-function security_session_context_record(string $sessionKey): array
-{
-    if (session_status() !== PHP_SESSION_ACTIVE) {
-        return [];
-    }
-
-    $record = $_SESSION[$sessionKey] ?? null;
-
-    return is_array($record) ? $record : [];
-}
-
-function security_session_context_value(array $record, string $key): ?string
-{
-    if (!array_key_exists($key, $record) || !is_scalar($record[$key])) {
-        return null;
-    }
-
-    $value = trim((string) $record[$key]);
-
-    return $value !== '' ? $value : null;
-}
-
-function security_log_event_session_context(?string $actorType): array
-{
-    $actorType = strtolower(trim((string) $actorType));
-    $userSession = security_session_context_record('user');
-    $staffSession = security_session_context_record('staff_user');
-    $useStaffSession = $actorType !== ''
-        && (strpos($actorType, 'staff') !== false || strpos($actorType, 'personel') !== false || strpos($actorType, 'personnel') !== false);
-    $useUserSession = !$useStaffSession
-        && $actorType !== ''
-        && (strpos($actorType, 'tenant') !== false
-            || strpos($actorType, 'admin') !== false
-            || $actorType === 'user'
-            || strpos($actorType, 'user') !== false);
-
-    if ($actorType === '') {
-        $useStaffSession = !empty($staffSession) && empty($userSession);
-        $useUserSession = !empty($userSession) && empty($staffSession);
-    }
-
-    $context = [];
-
-    if ($useStaffSession && !empty($staffSession)) {
-        $context['tenant_id'] = security_session_context_value($staffSession, 'tenant_id');
-        $context['staff_account_id'] = security_session_context_value($staffSession, 'account_id');
-        $context['staff_id'] = security_session_context_value($staffSession, 'staff_id');
-    }
-
-    if ($useUserSession && !empty($userSession)) {
-        $context['tenant_id'] = $context['tenant_id'] ?? security_session_context_value($userSession, 'tenant_id');
-        $context['user_id'] = security_session_context_value($userSession, 'id');
-    }
-
-    return $context;
-}
-
 function security_default_endpoint(): string
 {
     $script = trim((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
@@ -528,6 +472,119 @@ function security_default_endpoint(): string
     }
 
     return trim((string) ($_SERVER['REQUEST_URI'] ?? ''));
+}
+
+
+function security_raw_ip_evidence_enabled(): bool
+{
+    $value = trim((string) getenv('SECURITY_RAW_IP_EVIDENCE_ENABLED'));
+
+    if ($value === '') {
+        return false;
+    }
+
+    $value = function_exists('mb_strtolower')
+        ? mb_strtolower($value, 'UTF-8')
+        : strtolower($value);
+
+    return in_array($value, ['1', 'true', 'yes', 'on'], true);
+}
+
+function security_extract_event_id_from_rpc(array $rpcResult): ?string
+{
+    $data = $rpcResult['data'] ?? null;
+
+    if (is_array($data)) {
+        foreach (['event_id', 'id'] as $key) {
+            if (isset($data[$key]) && is_scalar($data[$key])) {
+                return security_uuid_or_null((string) $data[$key]);
+            }
+        }
+
+        if (isset($data[0]) && is_array($data[0])) {
+            foreach (['event_id', 'id'] as $key) {
+                if (isset($data[0][$key]) && is_scalar($data[0][$key])) {
+                    return security_uuid_or_null((string) $data[0][$key]);
+                }
+            }
+
+            foreach ($data[0] as $value) {
+                if (!is_array($value)) {
+                    continue;
+                }
+
+                foreach (['event_id', 'id'] as $key) {
+                    if (isset($value[$key]) && is_scalar($value[$key])) {
+                        return security_uuid_or_null((string) $value[$key]);
+                    }
+                }
+            }
+        }
+    }
+
+    return null;
+}
+
+function security_log_raw_ip_evidence(array $eventRpcResult, array $eventPayload, ?string $ipAddress): void
+{
+    if (!security_raw_ip_evidence_enabled()) {
+        return;
+    }
+
+    $ipAddress = security_normalize_ip($ipAddress);
+    if ($ipAddress === null) {
+        return;
+    }
+
+    if (empty($eventRpcResult['ok'])) {
+        return;
+    }
+
+    $eventId = security_extract_event_id_from_rpc($eventRpcResult);
+    $ipHash = isset($eventPayload['p_ip_hash']) && is_scalar($eventPayload['p_ip_hash'])
+        ? trim((string) $eventPayload['p_ip_hash'])
+        : '';
+
+    $eventKey = isset($eventPayload['p_event_key']) && is_scalar($eventPayload['p_event_key'])
+        ? trim((string) $eventPayload['p_event_key'])
+        : '';
+
+    if ($ipHash === '' || $eventKey === '') {
+        return;
+    }
+
+    $payload = [
+        'p_security_event_id' => $eventId,
+        'p_event_key' => $eventKey,
+        'p_action_key' => isset($eventPayload['p_action_key']) && is_scalar($eventPayload['p_action_key']) ? (string) $eventPayload['p_action_key'] : null,
+        'p_severity' => isset($eventPayload['p_severity']) && is_scalar($eventPayload['p_severity']) ? (string) $eventPayload['p_severity'] : null,
+        'p_actor_type' => isset($eventPayload['p_actor_type']) && is_scalar($eventPayload['p_actor_type']) ? (string) $eventPayload['p_actor_type'] : null,
+        'p_ip_address' => $ipAddress,
+        'p_ip_hash' => $ipHash,
+        'p_tenant_hash' => isset($eventPayload['p_tenant_hash']) && is_scalar($eventPayload['p_tenant_hash']) ? (string) $eventPayload['p_tenant_hash'] : null,
+        'p_user_hash' => isset($eventPayload['p_user_hash']) && is_scalar($eventPayload['p_user_hash']) ? (string) $eventPayload['p_user_hash'] : null,
+        'p_staff_account_hash' => isset($eventPayload['p_staff_account_hash']) && is_scalar($eventPayload['p_staff_account_hash']) ? (string) $eventPayload['p_staff_account_hash'] : null,
+        'p_staff_hash' => isset($eventPayload['p_staff_hash']) && is_scalar($eventPayload['p_staff_hash']) ? (string) $eventPayload['p_staff_hash'] : null,
+        'p_email_hash' => isset($eventPayload['p_email_hash']) && is_scalar($eventPayload['p_email_hash']) ? (string) $eventPayload['p_email_hash'] : null,
+        'p_phone_hash' => isset($eventPayload['p_phone_hash']) && is_scalar($eventPayload['p_phone_hash']) ? (string) $eventPayload['p_phone_hash'] : null,
+        'p_user_agent_hash' => isset($eventPayload['p_user_agent_hash']) && is_scalar($eventPayload['p_user_agent_hash']) ? (string) $eventPayload['p_user_agent_hash'] : null,
+        'p_session_hash' => isset($eventPayload['p_session_hash']) && is_scalar($eventPayload['p_session_hash']) ? (string) $eventPayload['p_session_hash'] : null,
+        'p_endpoint' => isset($eventPayload['p_endpoint']) && is_scalar($eventPayload['p_endpoint']) ? (string) $eventPayload['p_endpoint'] : null,
+        'p_http_method' => isset($eventPayload['p_http_method']) && is_scalar($eventPayload['p_http_method']) ? (string) $eventPayload['p_http_method'] : null,
+        'p_response_status' => isset($eventPayload['p_response_status']) && is_numeric($eventPayload['p_response_status']) ? (int) $eventPayload['p_response_status'] : null,
+        'p_result' => isset($eventPayload['p_result']) && is_scalar($eventPayload['p_result']) ? (string) $eventPayload['p_result'] : null,
+        'p_request_id' => isset($eventPayload['p_request_id']) && is_scalar($eventPayload['p_request_id']) ? (string) $eventPayload['p_request_id'] : null,
+        'p_source' => 'security_log_event',
+        'p_details' => [
+            'reason' => 'raw_ip_evidence',
+        ],
+    ];
+
+    try {
+        security_supabase_rpc('security_log_ip_evidence', $payload);
+    } catch (Throwable $e) {
+        // Raw IP evidence is secondary. Main security event logging must never fail because of it.
+    }
 }
 
 function security_log_event(string $eventKey, array $context = []): array
@@ -546,19 +603,17 @@ function security_log_event(string $eventKey, array $context = []): array
         $ipAddress = security_normalize_ip(security_context_value($context, 'ip_address')) ?? security_client_ip();
         $userAgent = security_context_value($context, 'user_agent') ?? security_user_agent();
         $details = is_array($context['details'] ?? null) ? $context['details'] : [];
-        $actorType = security_context_value($context, 'actor_type');
-        $sessionContext = security_log_event_session_context($actorType);
 
-        $tenantId = security_context_value($context, 'tenant_id') ?? security_context_value($sessionContext, 'tenant_id');
-        $userId = security_uuid_or_null(security_context_value($context, 'user_id') ?? security_context_value($sessionContext, 'user_id'));
-        $staffAccountId = security_uuid_or_null(security_context_value($context, 'staff_account_id') ?? security_context_value($sessionContext, 'staff_account_id'));
-        $staffId = security_uuid_or_null(security_context_value($context, 'staff_id') ?? security_context_value($sessionContext, 'staff_id'));
+        $tenantId = security_context_value($context, 'tenant_id');
+        $userId = security_uuid_or_null(security_context_value($context, 'user_id'));
+        $staffAccountId = security_uuid_or_null(security_context_value($context, 'staff_account_id'));
+        $staffId = security_uuid_or_null(security_context_value($context, 'staff_id'));
 
         $payload = [
             'p_event_key' => $eventKey,
             'p_action_key' => security_context_value($context, 'action_key') ?? $eventKey,
             'p_severity' => security_context_value($context, 'severity') ?? 'medium',
-            'p_actor_type' => $actorType ?? 'unknown',
+            'p_actor_type' => security_context_value($context, 'actor_type') ?? 'unknown',
             'p_tenant_id' => null,
             'p_user_id' => null,
             'p_staff_account_id' => null,
@@ -582,7 +637,11 @@ function security_log_event(string $eventKey, array $context = []): array
             'p_details' => security_sanitize_event_details($details),
         ];
 
-        return security_supabase_rpc('security_log_event', $payload);
+        $rpcResult = security_supabase_rpc('security_log_event', $payload);
+
+        security_log_raw_ip_evidence($rpcResult, $payload, $ipAddress);
+
+        return $rpcResult;
     } catch (Throwable $e) {
         return [
             'ok' => false,

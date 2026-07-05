@@ -6,6 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/payu.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/security.php';
 
 function cron_payments_response(array $payload, int $statusCode = 200): void
 {
@@ -29,6 +30,36 @@ function cron_payments_env(string $key, string $default = ''): string
 function cron_payments_is_cli(): bool
 {
     return PHP_SAPI === 'cli';
+}
+
+function cron_payments_security_event(
+    string $eventKey,
+    int $responseStatus,
+    string $result,
+    string $reason,
+    string $severity = 'medium',
+    string $stage = ''
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'cron_pending_payments',
+        'endpoint' => '/api/cron/check-pending-payments.php',
+        'http_method' => cron_payments_is_cli()
+            ? 'CLI'
+            : strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? '')),
+        'actor_type' => 'system',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
 }
 
 function cron_payments_request_secret(): string
@@ -68,6 +99,15 @@ function cron_payments_require_authorization(): void
     $expectedSecret = cron_payments_expected_secret();
 
     if ($expectedSecret === '') {
+        cron_payments_security_event(
+            'cron_payments_secret_missing_env',
+            401,
+            'denied',
+            'cron_secret_missing',
+            'high',
+            'auth'
+        );
+
         cron_payments_response([
             'success' => false,
             'error' => 'unauthorized',
@@ -77,6 +117,15 @@ function cron_payments_require_authorization(): void
     $providedSecret = cron_payments_request_secret();
 
     if ($providedSecret === '' || !hash_equals($expectedSecret, $providedSecret)) {
+        cron_payments_security_event(
+            'cron_payments_unauthorized',
+            401,
+            'denied',
+            'unauthorized',
+            'medium',
+            'auth'
+        );
+
         cron_payments_response([
             'success' => false,
             'error' => 'unauthorized',
@@ -533,6 +582,15 @@ function cron_payments_process_expired(DateTimeImmutable $now): array
 
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET' && ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+        cron_payments_security_event(
+            'cron_payments_method_not_allowed',
+            405,
+            'denied',
+            'method_not_allowed',
+            'low',
+            'method'
+        );
+
         cron_payments_response([
             'success' => false,
             'error' => 'Metoda niedozwolona.',
@@ -551,6 +609,15 @@ try {
         'expired' => $expired,
     ]);
 
+    cron_payments_security_event(
+        'cron_payments_run_success',
+        200,
+        'success',
+        'cron_payments_run_success',
+        'low',
+        'completed'
+    );
+
     cron_payments_response([
         'success' => true,
         'now' => $now->format(DATE_ATOM),
@@ -563,6 +630,15 @@ try {
         'error_class' => get_class($e),
         'message_trace' => cron_payments_trace($e->getMessage()),
     ]);
+
+    cron_payments_security_event(
+        'cron_payments_fatal',
+        500,
+        'error',
+        'cron_payments_fatal',
+        'high',
+        'fatal'
+    );
 
     cron_payments_response([
         'success' => false,

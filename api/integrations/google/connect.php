@@ -3,10 +3,74 @@
 require_once __DIR__ . '/../../helpers/session.php';
 require_once __DIR__ . '/../../helpers/supabase.php';
 require_once __DIR__ . '/../../helpers/plan_features.php';
+require_once __DIR__ . '/../../helpers/security.php';
 
 start_secure_session();
 
 header('Content-Type: application/json; charset=utf-8');
+
+function google_connect_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    array $context = []
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if (isset($context['stage']) && is_scalar($context['stage']) && trim((string) $context['stage']) !== '') {
+        $details['stage'] = trim((string) $context['stage']);
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'google_calendar_connect',
+        'endpoint' => '/api/integrations/google/connect.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'tenant_id' => $context['tenant_id'] ?? ($_SESSION['user']['tenant_id'] ?? null),
+        'user_id' => $context['user_id'] ?? ($_SESSION['user']['id'] ?? null),
+        'details' => $details,
+    ]);
+}
+
+function google_connect_debug(string $tag, array $context = []): void
+{
+    $logDir = __DIR__ . '/../../data';
+    $logFile = $logDir . '/google-calendar.log';
+    $safe = [];
+
+    foreach ([
+        'http_code',
+        'curl_errno',
+        'has_curl_error',
+        'has_response',
+        'response_length',
+        'has_google_client_id',
+        'has_google_redirect_uri',
+    ] as $key) {
+        if (array_key_exists($key, $context) && (is_scalar($context[$key]) || $context[$key] === null)) {
+            $safe[$key] = $context[$key];
+        }
+    }
+
+    if (!is_dir($logDir)) {
+        @mkdir($logDir, 0775, true);
+    }
+
+    @file_put_contents(
+        $logFile,
+        '[' . date('Y-m-d H:i:s') . '] ' . substr($tag, 0, 80) . ' '
+            . json_encode($safe, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+            . PHP_EOL,
+        FILE_APPEND
+    );
+}
 
 function google_connect_normalize_return_host(?string $rawHost): string
 {
@@ -103,6 +167,7 @@ function google_connect_tenant_owns_host(
 }
 
 if (!isset($_SESSION['user']['id'], $_SESSION['user']['tenant_id'])) {
+    google_connect_security_event('google_calendar_connect_unauthorized', 'unauthorized', 401);
     http_response_code(401);
     echo json_encode([
         'success' => false,
@@ -122,6 +187,10 @@ $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
 $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    google_connect_security_event('google_calendar_connect_env_missing', 'env_missing', 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+    ]);
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -131,6 +200,10 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 }
 
 if (!tenant_has_feature($tenantId, 'google_calendar')) {
+    google_connect_security_event('google_calendar_connect_feature_denied', 'feature_denied', 403, 'denied', 'medium', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+    ]);
     http_response_code(403);
     echo json_encode([
         'success' => false,
@@ -140,6 +213,10 @@ if (!tenant_has_feature($tenantId, 'google_calendar')) {
 }
 
 if ($googleClientId === '' || $googleRedirectUri === '') {
+    google_connect_security_event('google_calendar_connect_oauth_env_missing', 'oauth_env_missing', 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+    ]);
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -151,6 +228,10 @@ if ($googleClientId === '' || $googleRedirectUri === '') {
 $returnHost = google_connect_normalize_return_host($_SERVER['HTTP_HOST'] ?? '');
 
 if ($returnHost === '') {
+    google_connect_security_event('google_calendar_connect_return_host_invalid', 'return_host_invalid', 400, 'failed', 'medium', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+    ]);
     http_response_code(400);
     echo json_encode([
         'success' => false,
@@ -160,6 +241,10 @@ if ($returnHost === '') {
 }
 
 if (!google_connect_tenant_owns_host($supabaseUrl, $supabaseKey, $schema, $tenantId, $returnHost)) {
+    google_connect_security_event('google_calendar_connect_return_host_denied', 'return_host_denied', 403, 'denied', 'medium', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+    ]);
     http_response_code(403);
     echo json_encode([
         'success' => false,
@@ -200,26 +285,57 @@ curl_setopt_array($ch, [
 
 $response = curl_exec($ch);
 $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$curlErrno = (int) curl_errno($ch);
 $curlError = curl_error($ch);
 
 curl_close($ch);
 
 if ($curlError) {
+    google_connect_security_event('google_calendar_connect_state_insert_failed', 'state_insert_failed', 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'stage' => 'curl_error',
+    ]);
+
+    google_connect_debug('CONNECT_STATE_INSERT_CURL_ERROR', [
+        'http_code' => $httpCode,
+        'curl_errno' => $curlErrno,
+        'has_curl_error' => true,
+        'has_response' => is_string($response) && $response !== '',
+        'response_length' => is_string($response) ? strlen($response) : 0,
+        'has_google_client_id' => $googleClientId !== '',
+        'has_google_redirect_uri' => $googleRedirectUri !== '',
+    ]);
+
     http_response_code(500);
     echo json_encode([
         'success' => false,
-        'error' => 'Błąd połączenia z Supabase',
-        'debug' => $curlError
+        'error' => 'Nie udało się rozpocząć autoryzacji Google',
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
 if ($httpCode < 200 || $httpCode >= 300) {
+    google_connect_security_event('google_calendar_connect_state_insert_failed', 'state_insert_failed', $httpCode ?: 500, 'error', 'high', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'stage' => 'http_error',
+    ]);
+
+    google_connect_debug('CONNECT_STATE_INSERT_HTTP_ERROR', [
+        'http_code' => $httpCode,
+        'curl_errno' => $curlErrno,
+        'has_curl_error' => $curlError !== '',
+        'has_response' => is_string($response) && $response !== '',
+        'response_length' => is_string($response) ? strlen($response) : 0,
+        'has_google_client_id' => $googleClientId !== '',
+        'has_google_redirect_uri' => $googleRedirectUri !== '',
+    ]);
+
     http_response_code($httpCode ?: 500);
     echo json_encode([
         'success' => false,
         'error' => 'Nie udało się rozpocząć autoryzacji Google',
-        'debug' => $response
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
@@ -240,6 +356,11 @@ $query = http_build_query([
 ]);
 
 $authUrl = 'https://accounts.google.com/o/oauth2/v2/auth?' . $query;
+
+google_connect_security_event('google_calendar_connect_success', 'google_calendar_connect_success', 200, 'success', 'medium', [
+    'tenant_id' => $tenantId,
+    'user_id' => $userId,
+]);
 
 echo json_encode([
     'success' => true,

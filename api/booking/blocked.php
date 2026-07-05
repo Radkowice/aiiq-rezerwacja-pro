@@ -3,11 +3,19 @@ declare(strict_types=1);
 
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
+require_once __DIR__ . '/../helpers/security.php';
+
 if (in_array($method, ['POST', 'DELETE'], true)) {
     require_once __DIR__ . '/../helpers/session.php';
     start_secure_session();
 
     if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+        booking_blocked_security_event('booking_blocked_unauthorized', [
+            'reason' => 'auth_required',
+            'response_status' => 401,
+            'result' => 'denied',
+            'severity' => 'medium',
+        ]);
         json_response(['success' => false, 'error' => 'Brak autoryzacji'], 401);
     }
 }
@@ -26,6 +34,12 @@ $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
 $SUPABASE_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    booking_blocked_security_event('booking_blocked_env_missing', [
+        'reason' => 'supabase_env_missing',
+        'response_status' => 500,
+        'result' => 'error',
+        'severity' => 'high',
+    ]);
     json_response(['success' => false, 'error' => 'Brak konfiguracji Supabase'], 500);
 }
 
@@ -36,16 +50,34 @@ $TENANT_ID = in_array($method, ['POST', 'DELETE'], true)
     : (string)(getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA) ?: '');
 
 if ($TENANT_ID === '') {
+    booking_blocked_security_event('booking_blocked_tenant_denied', [
+        'reason' => 'tenant_not_resolved',
+        'response_status' => 400,
+        'result' => 'denied',
+        'severity' => 'medium',
+    ]);
     json_response(['success' => false, 'error' => 'Nie rozpoznano tenant'], 400);
 }
 
 if (in_array($method, ['POST', 'DELETE'], true)
     && !session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA)
 ) {
+    booking_blocked_security_event('booking_blocked_forbidden', [
+        'reason' => 'tenant_mismatch',
+        'response_status' => 403,
+        'result' => 'denied',
+        'severity' => 'medium',
+    ]);
     json_response(['success' => false, 'error' => 'Brak autoryzacji'], 403);
 }
 
 if (!in_array($method, ['GET', 'POST', 'DELETE'], true)) {
+    booking_blocked_security_event('booking_blocked_method_not_allowed', [
+        'reason' => 'method_not_allowed',
+        'response_status' => 405,
+        'result' => 'denied',
+        'severity' => 'low',
+    ]);
     header('Allow: GET, POST, DELETE');
     json_response(['success' => false, 'error' => 'Metoda niedozwolona'], 405);
 }
@@ -61,6 +93,44 @@ function json_input(): array
 {
     $data = json_decode(file_get_contents('php://input'), true);
     return is_array($data) ? $data : [];
+}
+
+function booking_blocked_security_event(string $eventKey, array $options = []): void
+{
+    $reason = trim((string)($options['reason'] ?? $eventKey));
+    $stage = trim((string)($options['stage'] ?? ''));
+    $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+
+    $details = [
+        'reason' => $reason !== '' ? $reason : $eventKey,
+    ];
+
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    $context = [
+        'action_key' => 'booking_blocked',
+        'endpoint' => '/api/booking/blocked.php',
+        'http_method' => $method,
+        'actor_type' => in_array($method, ['POST', 'DELETE'], true) ? 'tenant_user' : 'public',
+        'severity' => $options['severity'] ?? 'medium',
+        'response_status' => $options['response_status'] ?? null,
+        'result' => $options['result'] ?? null,
+        'details' => $details,
+    ];
+
+    $tenantId = trim((string)($options['tenant_id'] ?? ($GLOBALS['TENANT_ID'] ?? '')));
+    if ($tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    $staffId = trim((string)($options['staff_id'] ?? ''));
+    if ($staffId !== '') {
+        $context['staff_id'] = $staffId;
+    }
+
+    security_log_event($eventKey, $context);
 }
 
 function supabase_request(string $method, string $url, string $apiKey, string $schema, ?array $payload = null, array $headers = []): array
@@ -130,6 +200,14 @@ function resolve_staff_ref(
     $rows = is_array($result['data']) ? $result['data'] : [];
 
     if (!$result['ok']) {
+        booking_blocked_security_event('booking_blocked_staff_lookup_failed', [
+            'reason' => 'staff_lookup_failed',
+            'stage' => 'resolve_staff_ref',
+            'response_status' => 400,
+            'result' => 'failed',
+            'severity' => 'medium',
+            'tenant_id' => $tenantId,
+        ]);
         json_response(['success' => false, 'error' => 'Nieprawidłowy pracownik.'], 400);
     }
 
@@ -151,6 +229,14 @@ function resolve_staff_ref(
         }
     }
 
+    booking_blocked_security_event('booking_blocked_staff_ref_invalid', [
+        'reason' => 'staff_ref_invalid',
+        'stage' => 'resolve_staff_ref',
+        'response_status' => 400,
+        'result' => 'failed',
+        'severity' => 'medium',
+        'tenant_id' => $tenantId,
+    ]);
     json_response(['success' => false, 'error' => 'Nieprawidłowy pracownik.'], 400);
 }
 
@@ -168,6 +254,14 @@ function resolve_staff_request_id(
     }
 
     if (normalize_staff_ref($staffIdValue) !== '') {
+        booking_blocked_security_event('booking_blocked_legacy_id_rejected', [
+            'reason' => 'legacy_staff_id_rejected',
+            'stage' => 'resolve_staff_request_id',
+            'response_status' => 400,
+            'result' => 'failed',
+            'severity' => 'medium',
+            'tenant_id' => $tenantId,
+        ]);
         json_response([
             'success' => false,
             'error' => 'Nieprawidłowy pracownik.',
@@ -208,12 +302,29 @@ function ensure_staff_belongs_to_tenant(?string $staffId, string $tenantId, stri
     $rows = is_array($result['data']) ? $result['data'] : [];
 
     if (!$result['ok'] || empty($rows[0]['id'])) {
+        booking_blocked_security_event('booking_blocked_staff_not_found', [
+            'reason' => 'staff_not_found',
+            'stage' => 'ensure_staff_belongs_to_tenant',
+            'response_status' => 404,
+            'result' => 'failed',
+            'severity' => 'medium',
+            'tenant_id' => $tenantId,
+            'staff_id' => $staffId ?? '',
+        ]);
         json_response(['success' => false, 'error' => 'Nie znaleziono pracownika'], 404);
     }
 }
 
 function fail_supabase(string $label, array $result): void
 {
+    booking_blocked_security_event('booking_blocked_supabase_failed', [
+        'reason' => 'supabase_failed',
+        'stage' => preg_replace('/[^a-zA-Z0-9_.-]+/', '_', strtolower($label)) ?: 'supabase',
+        'response_status' => 500,
+        'result' => 'error',
+        'severity' => 'medium',
+    ]);
+
     $data = is_array($result['data']) ? $result['data'] : [];
     $message = trim((string)($data['message'] ?? $data['details'] ?? $result['error'] ?? $result['body'] ?? ''));
     json_response([
@@ -249,6 +360,14 @@ if ($method === 'DELETE') {
     ensure_staff_belongs_to_tenant($staffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        booking_blocked_security_event('booking_blocked_validation_failed', [
+            'reason' => 'invalid_date',
+            'stage' => 'delete',
+            'response_status' => 400,
+            'result' => 'failed',
+            'severity' => 'low',
+            'staff_id' => $staffId ?? '',
+        ]);
         json_response(['success' => false, 'error' => 'Nieprawidłowa data'], 400);
     }
 
@@ -257,6 +376,14 @@ if ($method === 'DELETE') {
 
     if ($table === 'blocked_times' && !$deleteAllTimes) {
         if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
+            booking_blocked_security_event('booking_blocked_validation_failed', [
+                'reason' => 'invalid_time',
+                'stage' => 'delete',
+                'response_status' => 400,
+                'result' => 'failed',
+                'severity' => 'low',
+                'staff_id' => $staffId ?? '',
+            ]);
             json_response(['success' => false, 'error' => 'Nieprawidłowa godzina'], 400);
         }
         $query .= '&time=eq.' . rawurlencode($time);
@@ -266,6 +393,24 @@ if ($method === 'DELETE') {
     if (!$result['ok']) {
         fail_supabase('Błąd usuwania blokady', $result);
     }
+
+    booking_blocked_security_event('booking_blocked_delete_success', [
+        'reason' => 'booking_blocked_delete_success',
+        'stage' => $table,
+        'response_status' => 200,
+        'result' => 'success',
+        'severity' => 'medium',
+        'staff_id' => $staffId ?? '',
+    ]);
+
+    booking_blocked_security_event('booking_blocked_create_success', [
+        'reason' => 'booking_blocked_create_success',
+        'stage' => $table,
+        'response_status' => 200,
+        'result' => 'success',
+        'severity' => 'medium',
+        'staff_id' => $staffId ?? '',
+    ]);
 
     json_response(['success' => true]);
 }
@@ -295,6 +440,14 @@ if ($method === 'POST') {
             fail_supabase('Błąd zapisu ustawień blokad', $result);
         }
 
+        booking_blocked_security_event('booking_block_settings_save_success', [
+            'reason' => 'booking_block_settings_save_success',
+            'stage' => 'block_settings',
+            'response_status' => 200,
+            'result' => 'success',
+            'severity' => 'medium',
+        ]);
+
         json_response([
             'success' => true,
             'blockSettings' => [
@@ -321,11 +474,27 @@ if ($method === 'POST') {
     ensure_staff_belongs_to_tenant($staffId, $TENANT_ID, $SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
     if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+        booking_blocked_security_event('booking_blocked_validation_failed', [
+            'reason' => 'invalid_date',
+            'stage' => 'create',
+            'response_status' => 400,
+            'result' => 'failed',
+            'severity' => 'low',
+            'staff_id' => $staffId ?? '',
+        ]);
         json_response(['success' => false, 'error' => 'Nieprawidłowa data'], 400);
     }
 
     $isTimeBlock = !$allDay && $time !== '';
     if ($isTimeBlock && !preg_match('/^\d{2}:\d{2}$/', $time)) {
+        booking_blocked_security_event('booking_blocked_validation_failed', [
+            'reason' => 'invalid_time',
+            'stage' => 'create',
+            'response_status' => 400,
+            'result' => 'failed',
+            'severity' => 'low',
+            'staff_id' => $staffId ?? '',
+        ]);
         json_response(['success' => false, 'error' => 'Nieprawidłowa godzina'], 400);
     }
 

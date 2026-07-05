@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -19,6 +20,58 @@ function block_settings_json(array $payload, int $status = 200): void
     http_response_code($status);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function block_settings_security_event(string $eventKey, array $context = []): void
+{
+    $reason = isset($context['reason']) && is_scalar($context['reason'])
+        ? trim((string) $context['reason'])
+        : $eventKey;
+
+    if ($reason === '') {
+        $reason = $eventKey;
+    }
+
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if (isset($context['stage']) && is_scalar($context['stage'])) {
+        $stage = trim((string) $context['stage']);
+        if ($stage !== '') {
+            $details['stage'] = $stage;
+        }
+    }
+
+    $eventContext = [
+        'action_key' => 'booking_block_settings',
+        'endpoint' => '/api/booking/block-settings.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => isset($context['actor_type']) && is_scalar($context['actor_type'])
+            ? (string) $context['actor_type']
+            : 'tenant_user',
+        'severity' => isset($context['severity']) && is_scalar($context['severity'])
+            ? (string) $context['severity']
+            : 'medium',
+        'response_status' => isset($context['response_status']) ? (int) $context['response_status'] : null,
+        'result' => isset($context['result']) && is_scalar($context['result'])
+            ? (string) $context['result']
+            : 'failed',
+        'details' => $details,
+    ];
+
+    if (isset($context['tenant_id']) && is_scalar($context['tenant_id'])) {
+        $tenantId = trim((string) $context['tenant_id']);
+        if ($tenantId !== '') {
+            $eventContext['tenant_id'] = $tenantId;
+        }
+    }
+
+    try {
+        security_log_event($eventKey, $eventContext);
+    } catch (Throwable $exception) {
+        // Audyt security nie może przerwać zapisu/odczytu ustawień blokad.
+    }
 }
 
 function block_settings_supabase_request(
@@ -81,6 +134,14 @@ function block_settings_supabase_request(
 }
 
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    block_settings_security_event('booking_block_settings_env_missing', [
+        'actor_type' => 'public',
+        'severity' => 'high',
+        'response_status' => 500,
+        'result' => 'error',
+        'reason' => 'env_missing',
+    ]);
+
     block_settings_json([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase',
@@ -91,6 +152,15 @@ if ($method === 'GET') {
     $tenantId = getTenantIdFromHost($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA);
 
     if (!$tenantId) {
+        block_settings_security_event('booking_block_settings_tenant_denied', [
+            'actor_type' => 'public',
+            'severity' => 'medium',
+            'response_status' => 400,
+            'result' => 'failed',
+            'reason' => 'tenant_denied',
+            'stage' => 'get',
+        ]);
+
         block_settings_json([
             'success' => false,
             'error' => 'Nie udało się ustalić tenant po domenie',
@@ -110,6 +180,16 @@ if ($method === 'GET') {
     );
 
     if (!$result['ok']) {
+        block_settings_security_event('booking_block_settings_fetch_failed', [
+            'actor_type' => 'public',
+            'tenant_id' => (string) $tenantId,
+            'severity' => 'medium',
+            'response_status' => $result['status'] ?: 500,
+            'result' => 'failed',
+            'reason' => 'fetch_failed',
+            'stage' => 'get',
+        ]);
+
         block_settings_json([
             'success' => false,
             'error' => 'Nie udało się pobrać ustawień blokad',
@@ -125,6 +205,14 @@ if ($method === 'GET') {
 }
 
 if ($method !== 'POST') {
+    block_settings_security_event('booking_block_settings_method_not_allowed', [
+        'actor_type' => 'public',
+        'severity' => 'low',
+        'response_status' => 405,
+        'result' => 'failed',
+        'reason' => 'method_not_allowed',
+    ]);
+
     header('Allow: GET, POST');
     block_settings_json([
         'success' => false,
@@ -133,6 +221,15 @@ if ($method !== 'POST') {
 }
 
 if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+    block_settings_security_event('booking_block_settings_unauthorized', [
+        'actor_type' => 'tenant_user',
+        'severity' => 'medium',
+        'response_status' => 401,
+        'result' => 'denied',
+        'reason' => 'unauthorized',
+        'stage' => 'post',
+    ]);
+
     block_settings_json([
         'success' => false,
         'error' => 'Brak autoryzacji',
@@ -140,6 +237,15 @@ if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
 }
 
 if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_DB_SCHEMA)) {
+    block_settings_security_event('booking_block_settings_session_invalid', [
+        'actor_type' => 'tenant_user',
+        'severity' => 'medium',
+        'response_status' => 401,
+        'result' => 'denied',
+        'reason' => 'session_invalid',
+        'stage' => 'post',
+    ]);
+
     block_settings_json([
         'success' => false,
         'error' => 'Sesja nie pasuje do domeny',
@@ -155,6 +261,16 @@ if (!is_array($data)) {
 
 foreach (['block_saturdays', 'block_sundays', 'block_holidays'] as $field) {
     if (array_key_exists($field, $data) && !is_bool($data[$field])) {
+        block_settings_security_event('booking_block_settings_validation_failed', [
+            'actor_type' => 'tenant_user',
+            'tenant_id' => $tenantId,
+            'severity' => 'medium',
+            'response_status' => 400,
+            'result' => 'failed',
+            'reason' => 'validation_failed',
+            'stage' => 'post',
+        ]);
+
         block_settings_json([
             'success' => false,
             'error' => 'Nieprawidłowe dane wejściowe',
@@ -183,6 +299,16 @@ $result = block_settings_supabase_request(
 );
 
 if (!$result['ok']) {
+    block_settings_security_event('booking_block_settings_save_failed', [
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'severity' => 'medium',
+        'response_status' => $result['status'] ?: 500,
+        'result' => 'failed',
+        'reason' => 'save_failed',
+        'stage' => 'post',
+    ]);
+
     block_settings_json([
         'success' => false,
         'error' => 'Nie udało się zapisać ustawień blokad',
@@ -199,6 +325,16 @@ if (is_array($saved)) {
         $saved['updated_at']
     );
 }
+
+block_settings_security_event('booking_block_settings_save_success', [
+    'actor_type' => 'tenant_user',
+    'tenant_id' => $tenantId,
+    'severity' => 'medium',
+    'response_status' => 200,
+    'result' => 'success',
+    'reason' => 'save_success',
+    'stage' => 'post',
+]);
 
 block_settings_json([
     'success' => true,

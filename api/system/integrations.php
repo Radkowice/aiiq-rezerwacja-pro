@@ -2,11 +2,33 @@
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/crypto.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+
+function integrations_security_event(string $eventKey, string $reason, int $responseStatus = 200, string $result = 'success', string $severity = 'medium', string $stage = ''): void
+{
+    $details = ['reason' => $reason];
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'system_integrations',
+        'endpoint' => '/api/system/integrations.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($_SESSION['user']['tenant_id'] ?? ''),
+        'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 header('Content-Type: application/json; charset=utf-8');
 
@@ -410,6 +432,7 @@ $saveUrl = $supabaseUrl
 $saveResult = curl_supabase($saveUrl, 'POST', $supabaseKey, $schema, $payload);
 
 if ($saveResult['error']) {
+    integrations_security_event('system_integration_save_failed', 'supabase_request_failed', 500, 'failed', 'medium', $provider);
     json_response([
         'success' => false,
         'error' => 'Błąd połączenia z Supabase'
@@ -417,11 +440,14 @@ if ($saveResult['error']) {
 }
 
 if ($saveResult['http_code'] < 200 || $saveResult['http_code'] >= 300) {
+    integrations_security_event('system_integration_save_failed', 'supabase_response_failed', $saveResult['http_code'] ?: 500, 'failed', 'medium', $provider);
     json_response([
         'success' => false,
         'error' => 'Nie udało się zapisać integracji'
     ], $saveResult['http_code'] ?: 500);
 }
+
+integrations_security_event('system_integration_save_success', 'system_integration_save_success', 200, 'success', 'medium', $provider);
 
 $row = is_array($saveResult['data']) && isset($saveResult['data'][0])
     ? $saveResult['data'][0]

@@ -5,6 +5,7 @@ require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 
 start_secure_session();
 ini_set('display_errors', '0');
@@ -14,16 +15,101 @@ $SUPABASE_URL = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
 $SUPABASE_DB_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 $REGISTER_BASE_DOMAIN = 'rezerwacja-ai-iq.pl';
+$REGISTER_SECURITY_CONTEXT = [];
+
+function register_security_context(array $context): void
+{
+    global $REGISTER_SECURITY_CONTEXT;
+
+    foreach (['tenant_id', 'user_id', 'email', 'phone'] as $key) {
+        $value = trim((string) ($context[$key] ?? ''));
+        if ($value !== '') {
+            $REGISTER_SECURITY_CONTEXT[$key] = $value;
+        }
+    }
+}
+
+function register_security_event(string $eventKey, string $reason, int $statusCode, string $result = 'failed', string $severity = 'medium', array $context = []): void
+{
+    global $REGISTER_SECURITY_CONTEXT;
+
+    $merged = array_merge($REGISTER_SECURITY_CONTEXT, $context);
+    $details = ['reason' => $reason];
+
+    if (isset($context['stage']) && is_scalar($context['stage'])) {
+        $details['stage'] = (string) $context['stage'];
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'auth_register',
+        'severity' => $severity,
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($merged['tenant_id'] ?? ''),
+        'user_id' => (string) ($merged['user_id'] ?? ''),
+        'email' => (string) ($merged['email'] ?? ''),
+        'phone' => (string) ($merged['phone'] ?? ''),
+        'ip_address' => security_client_ip(),
+        'endpoint' => '/api/auth/register.php',
+        'http_method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? '')),
+        'response_status' => $statusCode,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
+
+function register_debug_enabled(): bool
+{
+    $flag = strtolower(trim((string) (getenv('REGISTER_DEBUG_LOG') ?: '')));
+
+    return in_array($flag, ['1', 'true', 'yes', 'on'], true);
+}
+
+function register_debug_sanitize($value)
+{
+    if (is_array($value)) {
+        $safe = [];
+        foreach ($value as $key => $item) {
+            $keyString = is_int($key) ? (string) $key : strtolower((string) $key);
+            if (preg_match('/(password|token|secret|authorization|cookie|session|payload|raw|response|email|phone|tax|nip|address|tenant_id|user_id|payment_id|order_id|ext_order_id)/i', $keyString)) {
+                $safe[$key] = '[redacted]';
+                continue;
+            }
+            $safe[$key] = register_debug_sanitize($item);
+        }
+        return $safe;
+    }
+
+    if (is_string($value)) {
+        $value = preg_replace('/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i', '[uuid]', $value) ?? $value;
+        $value = preg_replace('/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i', '[email]', $value) ?? $value;
+        $value = preg_replace('/\b(?:\+?48)?[ -]?[1-9][0-9](?:[ -]?[0-9]){7}\b/', '[phone]', $value) ?? $value;
+
+        return mb_substr($value, 0, 180);
+    }
+
+    if (is_bool($value) || is_int($value) || is_float($value) || $value === null) {
+        return $value;
+    }
+
+    return '[redacted]';
+}
 
 function register_debug($label, $data = null): void
 {
-    $line = date('c') . " [$label]";
-    if ($data !== null) {
-        $line .= ' ' . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!register_debug_enabled()) {
+        return;
     }
+
+    $safeLabel = preg_replace('/[^A-Z0-9_:-]/i', '_', (string) $label) ?: 'debug';
+    $line = date('c') . " [$safeLabel]";
+
+    if ($data !== null) {
+        $line .= ' ' . json_encode(register_debug_sanitize($data), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    }
+
     $line .= PHP_EOL;
 
-    @file_put_contents('/var/www/data/register-debug.log', $line, FILE_APPEND);
+    @file_put_contents('/var/www/data/register-debug.log', $line, FILE_APPEND | LOCK_EX);
 }
 
 function register_store_subscription_return_handoff(string $tenantId, string $paymentId): void
@@ -49,6 +135,7 @@ function register_debug_result(string $label, array $result): void
 register_debug('START');
 
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    register_security_event('auth_register_env_missing', 'env_missing', 500, 'failed', 'high');
     register_debug('CONFIG_MISSING', [
         'SUPABASE_URL' => $SUPABASE_URL !== '',
         'SUPABASE_KEY' => $SUPABASE_KEY !== ''
@@ -145,6 +232,7 @@ if ($method === 'GET') {
 }
 
 if ($method !== 'POST') {
+    register_security_event('auth_register_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     json_response([
         'success' => false,
         'error' => 'Metoda niedozwolona'
@@ -155,6 +243,7 @@ $rawInput = file_get_contents('php://input');
 $data = json_decode($rawInput, true);
 
 if (!is_array($data)) {
+    register_security_event('auth_register_invalid_json', 'invalid_json', 400, 'failed', 'low');
     json_response([
         'success' => false,
         'error' => 'Nieprawidłowe dane wejściowe'
@@ -187,6 +276,11 @@ $companyPhone = normalize_polish_phone($companyPhoneRaw);
 $companyEmail = $companyEmailRaw !== ''
     ? filter_var($companyEmailRaw, FILTER_VALIDATE_EMAIL)
     : $email;
+
+register_security_context([
+    'email' => is_string($email) ? $email : '',
+    'phone' => $companyPhone,
+]);
 
 if ($planCode === '') {
     json_response([
@@ -305,6 +399,7 @@ if (!$reservedSubdomain['ok']) {
 }
 
 if (is_reserved_subdomain_slug($reservedSubdomain['data'] ?? [], $subdomainSlug)) {
+    register_security_event('auth_register_reserved_subdomain', 'reserved_subdomain', 409, 'blocked', 'medium');
     json_response([
         'success' => false,
         'error' => 'Ta nazwa adresu jest zarezerwowana. Wybierz inną.'
@@ -328,6 +423,7 @@ if (!$emailExists['ok']) {
 }
 
 if ($emailExists['ok'] && !empty($emailExists['data'])) {
+    register_security_event('auth_register_email_exists', 'email_exists', 409, 'blocked', 'medium');
     json_response([
         'success' => false,
         'error' => 'Email jest już zarejestrowany'
@@ -351,6 +447,7 @@ if (!$domainExists['ok']) {
 }
 
 if ($domainExists['ok'] && !empty($domainExists['data'])) {
+    register_security_event('auth_register_domain_exists', 'domain_exists', 409, 'blocked', 'medium');
     json_response([
         'success' => false,
         'error' => 'Ten adres panelu jest już zajęty. Wybierz inną nazwę.'
@@ -370,6 +467,7 @@ try {
     register_debug('GENERATE_IDS_BEFORE');
 
     $tenantId = gen_uuid_v4();
+    register_security_context(['tenant_id' => $tenantId]);
     $passwordHash = password_hash($password, PASSWORD_DEFAULT);
     $companyId = generate_unique_company_id();
     $clientNumber = generate_client_number();
@@ -445,6 +543,8 @@ try {
     if ($userId === '') {
         throw new Exception('Nie udało się ustalić identyfikatora utworzonego użytkownika');
     }
+
+    register_security_context(['user_id' => $userId]);
 
     // 3. MAPOWANIE DOMENY -> TENANT
     $domainPayload = [
@@ -661,19 +761,36 @@ try {
         'created' => true
     ]);
 
-    json_response([
-        'success'       => true,
-        'message'       => 'Konto zostało utworzone. Sprawdź e-mail i kliknij link aktywacyjny.',
-        'tenant_id'     => $tenantId,
-        'company_id'    => $companyId,
-        'client_number' => $clientNumber,
-        'domain'        => $domain,
-        'plan_code'     => $planCode,
-        'billing_period'=> $planCode === 'pro' ? $billingPeriod : null,
-        'payment_url'   => $paymentUrl
-    ], 201);
+    $responsePayload = [
+        'success' => true,
+        'message' => $planCode === 'pro'
+            ? 'Rejestracja została przyjęta.'
+            : 'Rejestracja została przyjęta. Sprawdź skrzynkę e-mail.',
+    ];
+
+    if ($planCode === 'pro' && $paymentUrl !== '') {
+        $responsePayload['payment_url'] = $paymentUrl;
+    }
+
+    register_security_event('auth_register_success', 'registration_accepted', 201, 'success', 'low', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => is_string($email) ? $email : '',
+        'phone' => $companyPhone,
+        'stage' => $planCode === 'pro' ? 'pro_payment_created' : 'activation_mail_sent',
+    ]);
+
+    json_response($responsePayload, 201);
 
 } catch (Throwable $e) {
+    register_security_event('auth_register_failed', 'registration_failed', 500, 'failed', 'high', [
+        'tenant_id' => (string) ($tenantId ?? ''),
+        'user_id' => (string) ($userId ?? ''),
+        'email' => is_string($email ?? '') ? (string) $email : '',
+        'phone' => (string) ($companyPhone ?? ''),
+        'stage' => 'exception',
+    ]);
+
     register_debug('EXCEPTION', [
         'createdBranding' => $createdBranding,
         'createdUser' => $createdUser,
@@ -683,7 +800,7 @@ try {
         'createdActivationToken' => $createdActivationToken,
         'createdSubscriptionPayment' => $createdSubscriptionPayment,
         'exception_type' => get_class($e),
-        'exception_message' => mb_substr(preg_replace('/\s+/', ' ', $e->getMessage()), 0, 220)
+        'exception_message' => '[redacted]'
     ]);
 
     if (!empty($tenantId) && $createdSubscriptionPayment) {

@@ -3,8 +3,38 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
+
+
+function subscription_payu_notify_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'subscription_payu_notify',
+        'endpoint' => '/api/subscriptions/payu-notify.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'payu_webhook',
+        'tenant_id' => $tenantId,
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 
 function subscription_payu_notify_json(int $status, array $payload): void
 {
@@ -863,6 +893,7 @@ function subscription_payu_notify_valid_id(string $value): bool
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
         header('Allow: POST');
+        subscription_payu_notify_security_event('subscription_payu_notify_method_not_allowed', 'method_not_allowed', 405);
         subscription_payu_notify_json(405, [
             'success' => false,
             'error' => 'Metoda niedozwolona.',
@@ -873,6 +904,7 @@ try {
     $data = json_decode($rawBody, true);
 
     if (!is_array($data)) {
+        subscription_payu_notify_security_event('subscription_payu_notify_invalid_json', 'invalid_json', 400, 'failed', 'medium', null, 'parse');
         aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_INVALID_JSON', [
             'body_length' => strlen($rawBody),
             'json_error' => json_last_error_msg(),
@@ -890,6 +922,7 @@ try {
     $payuStatus = trim((string) ($order['status'] ?? ''));
 
     if (!subscription_payu_notify_valid_id($orderId) || !subscription_payu_notify_valid_id($extOrderId)) {
+        subscription_payu_notify_security_event('subscription_payu_notify_invalid_order_identifier', 'invalid_order_identifier', 400);
         subscription_payu_notify_json(400, [
             'success' => false,
             'error' => 'Nieprawidłowy identyfikator płatności.',
@@ -897,6 +930,7 @@ try {
     }
 
     if ($orderId === '' && $extOrderId === '') {
+        subscription_payu_notify_security_event('subscription_payu_notify_order_id_missing', 'order_id_missing', 400);
         aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_ORDER_ID_MISSING', [
             'body_length' => strlen($rawBody),
             'has_order' => is_array($data['order'] ?? null),
@@ -912,6 +946,7 @@ try {
     $signatureHeader = subscription_payu_notify_header('OpenPayu-Signature');
 
     if (!subscription_payu_notify_verify_signature($rawBody, $secondKey, $signatureHeader)) {
+        subscription_payu_notify_security_event('subscription_payu_notify_signature_invalid', 'signature_invalid', 401, 'denied', 'high');
         aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_SIGNATURE_INVALID', [
             'order_id_set' => $orderId !== '',
             'order_hash' => subscription_payu_notify_hash($orderId),
@@ -932,6 +967,7 @@ try {
     $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
     if ($supabaseUrl === '' || $supabaseKey === '') {
+        subscription_payu_notify_security_event('subscription_payu_notify_env_missing', 'env_missing', 500, 'error', 'critical');
         subscription_payu_notify_json(500, [
             'success' => false,
             'error' => 'Brak konfiguracji bazy danych.',
@@ -944,6 +980,7 @@ try {
     $payment = subscription_payu_notify_find_payment($supabaseUrl, $headers, $orderId, $extOrderId);
 
     if (!is_array($payment)) {
+        subscription_payu_notify_security_event('subscription_payu_notify_payment_not_found', 'payment_not_found', 404);
         aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_PAYMENT_NOT_FOUND', [
             'order_id_set' => $orderId !== '',
             'order_hash' => subscription_payu_notify_hash($orderId),
@@ -962,6 +999,7 @@ try {
     $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
 
     if ($paymentId === '' || $tenantId === '') {
+        subscription_payu_notify_security_event('subscription_payu_notify_payment_invalid', 'payment_invalid', 422, 'failed', 'high', $tenantId ?: null);
         subscription_payu_notify_json(422, [
             'success' => false,
             'error' => 'Nieprawidłowy rekord płatności abonamentu.',
@@ -989,6 +1027,7 @@ try {
                 );
 
                 if (empty($activationEmailResult['ok'])) {
+                    subscription_payu_notify_security_event('subscription_payu_notify_activation_email_failed', 'activation_email_failed', 500, 'error', 'medium', $tenantId, 'idempotent_email');
                     subscription_payu_notify_json(500, [
                         'success' => false,
                         'error' => 'Nie udało się wysłać potwierdzenia Pro dla przetworzonej płatności.',
@@ -997,6 +1036,7 @@ try {
             }
         }
 
+        subscription_payu_notify_security_event('subscription_payu_notify_already_processed', 'already_processed', 200, 'success', 'low', $tenantId);
         aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_ALREADY_PROCESSED', [
             'payment_hash' => subscription_payu_notify_hash($paymentId),
             'tenant_hash' => subscription_payu_notify_hash($tenantId),
@@ -1022,12 +1062,14 @@ try {
         ]);
 
         if (!$updated) {
+            subscription_payu_notify_security_event('subscription_payu_notify_status_update_failed', 'status_update_failed', 500, 'error', 'high', $tenantId, 'non_paid_status');
             subscription_payu_notify_json(500, [
                 'success' => false,
                 'error' => 'Nie udało się zaktualizować płatności abonamentu.',
             ]);
         }
 
+        subscription_payu_notify_security_event('subscription_payu_notify_status_update_success', 'status_update_success', 200, 'success', 'low', $tenantId, 'non_paid_status');
         subscription_payu_notify_json(200, [
             'success' => true,
             'status' => $mappedStatus,
@@ -1038,6 +1080,7 @@ try {
     $billingPeriod = strtolower(trim((string) ($payment['billing_period'] ?? '')));
 
     if (!in_array($billingPeriod, ['monthly', 'yearly'], true)) {
+        subscription_payu_notify_security_event('subscription_payu_notify_billing_period_invalid', 'billing_period_invalid', 422, 'failed', 'high', $tenantId);
         subscription_payu_notify_json(422, [
             'success' => false,
             'error' => 'Nieprawidłowy okres rozliczeniowy płatności.',
@@ -1074,6 +1117,7 @@ try {
         ]);
 
         if (!$paymentPrepared) {
+            subscription_payu_notify_security_event('subscription_payu_notify_payment_prepare_failed', 'payment_prepare_failed', 500, 'error', 'high', $tenantId);
             subscription_payu_notify_json(500, [
                 'success' => false,
                 'error' => 'Nie udało się przygotować płatności abonamentu do przetworzenia.',
@@ -1108,6 +1152,7 @@ try {
     );
 
     if (!$subscriptionSaved) {
+        subscription_payu_notify_security_event('subscription_payu_notify_subscription_save_failed', 'subscription_save_failed', 500, 'error', 'high', $tenantId);
         subscription_payu_notify_json(500, [
             'success' => false,
             'error' => 'Nie udało się zaktualizować abonamentu.',
@@ -1126,6 +1171,7 @@ try {
     ]);
 
     if (!$paymentUpdated) {
+        subscription_payu_notify_security_event('subscription_payu_notify_payment_update_failed', 'payment_update_failed', 500, 'error', 'high', $tenantId);
         subscription_payu_notify_json(500, [
             'success' => false,
             'error' => 'Abonament został zaktualizowany, ale nie udało się oznaczyć płatności jako przetworzonej.',
@@ -1151,12 +1197,14 @@ try {
     );
 
     if (empty($activationEmailResult['ok'])) {
+        subscription_payu_notify_security_event('subscription_payu_notify_activation_email_failed', 'activation_email_failed', 500, 'error', 'medium', $tenantId, 'final_email');
         subscription_payu_notify_json(500, [
             'success' => false,
             'error' => 'Abonament został aktywowany, ale nie udało się wysłać potwierdzenia Pro.',
         ]);
     }
 
+    subscription_payu_notify_security_event('subscription_payu_notify_processed', 'subscription_payu_notify_processed', 200, 'success', 'medium', $tenantId);
     aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_PROCESSED', [
         'payment_hash' => subscription_payu_notify_hash($paymentId),
         'tenant_hash' => subscription_payu_notify_hash($tenantId),
@@ -1175,6 +1223,7 @@ try {
         'activation_email_sent' => !empty($activationEmailResult['sent']),
     ]);
 } catch (Throwable $e) {
+    subscription_payu_notify_security_event('subscription_payu_notify_fatal', 'fatal', 500, 'error', 'critical', $tenantId ?? null);
     aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_FATAL', [
         'exception_type' => get_class($e),
     ]);

@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
@@ -10,6 +11,27 @@ header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 header('Pragma: no-cache');
 
 start_secure_session();
+
+function service_settings_security_event(string $eventKey, string $reason, int $responseStatus = 200, string $result = 'success', string $severity = 'medium', string $stage = ''): void
+{
+    $details = ['reason' => $reason];
+    if ($stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'system_service_settings',
+        'endpoint' => '/api/system/service-settings.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => (string) ($_SESSION['user']['tenant_id'] ?? ''),
+        'user_id' => (string) ($_SESSION['user']['id'] ?? ''),
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ]);
+}
 if (!isset($_SESSION['user']['tenant_id'])) {
     http_response_code(401);
     echo json_encode([
@@ -24,7 +46,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 
 $supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
-$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
+$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'public';
 
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
     http_response_code(500);
@@ -293,6 +315,7 @@ if ($method === 'POST') {
         );
 
         if (!$result['ok']) {
+            service_settings_security_event('system_service_settings_save_failed', 'company_contact_save_failed', 500, 'failed', 'medium', 'company_contact');
             sendServiceSettingsJson([
                 'success' => false,
                 'error' => 'Nie udało się zapisać danych firmy',
@@ -300,6 +323,8 @@ if ($method === 'POST') {
         }
 
         $saved = $result['json'][0] ?? $payload[0];
+
+        service_settings_security_event('system_service_settings_save_success', 'company_contact_save_success', 200, 'success', 'medium', 'company_contact');
 
         sendServiceSettingsJson([
             'success' => true,
@@ -401,6 +426,7 @@ $payload[0] = array_merge($payload[0], $companyPayload);
     );
 
     if (!$result['ok']) {
+        service_settings_security_event('system_service_settings_save_failed', 'service_settings_save_failed', 500, 'failed', 'medium', 'service_settings');
         sendServiceSettingsJson([
             'success' => false,
             'error' => 'Nie udało się zapisać ustawień usługi',
@@ -408,6 +434,8 @@ $payload[0] = array_merge($payload[0], $companyPayload);
     }
 
     $saved = $result['json'][0] ?? $payload[0];
+
+    service_settings_security_event('system_service_settings_save_success', 'service_settings_save_success', 200, 'success', 'medium', 'service_settings');
 
     sendServiceSettingsJson([
         'success' => true,

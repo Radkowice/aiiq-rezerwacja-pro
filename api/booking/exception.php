@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -16,6 +17,46 @@ function exception_json(array $payload, int $statusCode = 200): void
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     exit;
+}
+
+function exception_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $staffId = null,
+    ?string $stage = null
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    $context = [
+        'action_key' => 'booking_exception',
+        'endpoint' => '/api/booking/exception.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    if ($tenantId !== null && trim($tenantId) !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    if ($staffId !== null && trim($staffId) !== '') {
+        $context['staff_id'] = $staffId;
+    }
+
+    security_log_event($eventKey, $context);
 }
 
 function exception_supabase_request(
@@ -90,6 +131,16 @@ function exception_resolve_staff_ref(
     $rows = is_array($result['data']) ? $result['data'] : [];
 
     if ($result['error'] !== '' || $result['httpCode'] >= 400) {
+        exception_security_event(
+            'booking_exception_staff_lookup_failed',
+            'staff_lookup_failed',
+            400,
+            'failed',
+            'medium',
+            $tenantId,
+            null,
+            'staff_ref_lookup'
+        );
         exception_json([
             'success' => false,
             'error' => 'Nieprawidłowy pracownik.',
@@ -114,6 +165,16 @@ function exception_resolve_staff_ref(
         }
     }
 
+    exception_security_event(
+        'booking_exception_staff_ref_invalid',
+        'staff_ref_invalid',
+        400,
+        'failed',
+        'medium',
+        $tenantId,
+        null,
+        'staff_ref_resolve'
+    );
     exception_json([
         'success' => false,
         'error' => 'Nieprawidłowy pracownik.',
@@ -134,6 +195,16 @@ function exception_resolve_staff_request_id(
     }
 
     if (exception_normalize_staff_ref($staffIdValue) !== '') {
+        exception_security_event(
+            'booking_exception_legacy_id_rejected',
+            'legacy_staff_id_rejected',
+            400,
+            'failed',
+            'medium',
+            $tenantId,
+            null,
+            'staff_request'
+        );
         exception_json([
             'success' => false,
             'error' => 'Nieprawidłowy pracownik.',
@@ -179,6 +250,16 @@ function exception_ensure_staff_belongs_to_tenant(
     $rows = is_array($result['data']) ? $result['data'] : [];
 
     if ($result['error'] !== '' || $result['httpCode'] >= 400) {
+        exception_security_event(
+            'booking_exception_staff_lookup_failed',
+            'staff_lookup_failed',
+            500,
+            'error',
+            'medium',
+            $tenantId,
+            $staffId,
+            'staff_tenant_check'
+        );
         exception_json([
             'success' => false,
             'error' => 'Nie udało się sprawdzić pracownika',
@@ -186,6 +267,16 @@ function exception_ensure_staff_belongs_to_tenant(
     }
 
     if (empty($rows[0]['id'])) {
+        exception_security_event(
+            'booking_exception_staff_not_found',
+            'staff_not_found',
+            404,
+            'failed',
+            'medium',
+            $tenantId,
+            $staffId,
+            'staff_tenant_check'
+        );
         exception_json([
             'success' => false,
             'error' => 'Nie znaleziono pracownika',
@@ -211,6 +302,16 @@ function exception_find_existing(
     $result = exception_supabase_request('GET', $url, $apiKey, $schema);
 
     if ($result['error'] !== '' || $result['httpCode'] >= 400) {
+        exception_security_event(
+            'booking_exception_lookup_failed',
+            'exception_lookup_failed',
+            500,
+            'error',
+            'medium',
+            $tenantId,
+            $staffId,
+            'find_existing'
+        );
         exception_json([
             'success' => false,
             'error' => 'Błąd odczytu wyjątku dostępności',
@@ -222,10 +323,28 @@ function exception_find_existing(
     return !empty($rows[0]) && is_array($rows[0]) ? $rows[0] : null;
 }
 
-function exception_fail_supabase(string $message, array $result): void
-{
+function exception_fail_supabase(
+    string $message,
+    array $result,
+    string $eventKey = 'booking_exception_supabase_failed',
+    string $reason = 'supabase_failed',
+    ?string $tenantId = null,
+    ?string $staffId = null,
+    string $stage = 'supabase'
+): void {
     $data = is_array($result['data']) ? $result['data'] : [];
     $details = trim((string)($data['message'] ?? $data['details'] ?? $result['error'] ?? $result['response'] ?? ''));
+
+    exception_security_event(
+        $eventKey,
+        $reason,
+        500,
+        'error',
+        'medium',
+        $tenantId,
+        $staffId,
+        $stage
+    );
 
     exception_json([
         'success' => false,
@@ -236,6 +355,13 @@ function exception_fail_supabase(string $message, array $result): void
 
 if (!in_array($method, ['POST', 'DELETE'], true)) {
     header('Allow: POST, DELETE');
+    exception_security_event(
+        'booking_exception_method_not_allowed',
+        'method_not_allowed',
+        405,
+        'failed',
+        'low'
+    );
     exception_json([
         'success' => false,
         'error' => 'Metoda niedozwolona',
@@ -243,6 +369,13 @@ if (!in_array($method, ['POST', 'DELETE'], true)) {
 }
 
 if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
+    exception_security_event(
+        'booking_exception_unauthorized',
+        'unauthorized',
+        401,
+        'denied',
+        'medium'
+    );
     exception_json([
         'success' => false,
         'error' => 'Brak autoryzacji',
@@ -255,6 +388,13 @@ $TENANT_ID = (string)($_SESSION['user']['tenant_id'] ?? '');
 $SUPABASE_SCHEMA = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
 if ($TENANT_ID === '') {
+    exception_security_event(
+        'booking_exception_session_invalid',
+        'session_invalid',
+        400,
+        'failed',
+        'medium'
+    );
     exception_json([
         'success' => false,
         'error' => 'Nieprawidłowa sesja',
@@ -262,6 +402,14 @@ if ($TENANT_ID === '') {
 }
 
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
+    exception_security_event(
+        'booking_exception_env_missing',
+        'env_missing',
+        500,
+        'error',
+        'high',
+        $TENANT_ID
+    );
     exception_json([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase',
@@ -269,6 +417,14 @@ if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
 }
 
 if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE_SCHEMA)) {
+    exception_security_event(
+        'booking_exception_tenant_denied',
+        'tenant_mismatch',
+        401,
+        'denied',
+        'medium',
+        $TENANT_ID
+    );
     exception_json([
         'success' => false,
         'error' => 'Sesja nie pasuje do domeny',
@@ -294,6 +450,16 @@ $staffId = exception_resolve_staff_request_id(
 );
 
 if ($date === '' || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+    exception_security_event(
+        'booking_exception_validation_failed',
+        'invalid_date',
+        400,
+        'failed',
+        'low',
+        $TENANT_ID,
+        $staffId,
+        'date'
+    );
     exception_json([
         'success' => false,
         'error' => 'Nieprawidłowa data',
@@ -313,8 +479,27 @@ if ($method === 'DELETE') {
     $result = exception_supabase_request('DELETE', $url, $SUPABASE_KEY, $SUPABASE_SCHEMA);
 
     if ($result['error'] !== '' || $result['httpCode'] >= 400) {
-        exception_fail_supabase('Błąd usuwania wyjątku dostępności', $result);
+        exception_fail_supabase(
+            'Błąd usuwania wyjątku dostępności',
+            $result,
+            'booking_exception_delete_failed',
+            'delete_failed',
+            $TENANT_ID,
+            $staffId,
+            'delete_exception'
+        );
     }
+
+    exception_security_event(
+        'booking_exception_delete_success',
+        'booking_exception_delete_success',
+        200,
+        'success',
+        'medium',
+        $TENANT_ID,
+        $staffId,
+        'delete_exception'
+    );
 
     exception_json([
         'success' => true,
@@ -355,7 +540,15 @@ $result = exception_supabase_request(
 );
 
 if ($result['error'] !== '' || $result['httpCode'] >= 400) {
-    exception_fail_supabase('Błąd zapisu wyjątku dostępności', $result);
+    exception_fail_supabase(
+        'Błąd zapisu wyjątku dostępności',
+        $result,
+        'booking_exception_save_failed',
+        'save_failed',
+        $TENANT_ID,
+        $staffId,
+        strtolower($methodForSave)
+    );
 }
 
 $cleanupUrl = $SUPABASE_URL
@@ -365,6 +558,17 @@ $cleanupUrl = $SUPABASE_URL
     . rawurlencode($date)
     . exception_staff_filter($staffId);
 exception_supabase_request('DELETE', $cleanupUrl, $SUPABASE_KEY, $SUPABASE_SCHEMA);
+
+exception_security_event(
+    $methodForSave === 'PATCH' ? 'booking_exception_update_success' : 'booking_exception_create_success',
+    $methodForSave === 'PATCH' ? 'booking_exception_update_success' : 'booking_exception_create_success',
+    200,
+    'success',
+    'medium',
+    $TENANT_ID,
+    $staffId,
+    strtolower($methodForSave)
+);
 
 exception_json([
     'success' => true,

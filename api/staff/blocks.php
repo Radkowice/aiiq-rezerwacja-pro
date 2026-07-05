@@ -6,9 +6,54 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+
+
+function staff_blocks_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus = 400,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $staffAccountId = null,
+    ?string $staffId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && $stage !== '') {
+        $details['stage'] = $stage;
+    }
+
+    $context = [
+        'action_key' => 'staff_blocks',
+        'endpoint' => '/api/staff/blocks.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? '',
+        'actor_type' => 'staff',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    if ($tenantId !== null && $tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    if ($staffAccountId !== null && $staffAccountId !== '') {
+        $context['staff_account_id'] = $staffAccountId;
+    }
+
+    if ($staffId !== null && $staffId !== '') {
+        $context['staff_id'] = $staffId;
+    }
+
+    security_log_event($eventKey, $context);
+}
 
 function staff_blocks_json(array $payload, int $statusCode = 200): void
 {
@@ -66,6 +111,20 @@ function staff_blocks_clear_session(): void
 
 function staff_blocks_fail(string $message, array $result): void
 {
+    global $tenantId, $accountId, $staffId;
+
+    staff_blocks_security_event(
+        'staff_blocks_failed',
+        'supabase_failed',
+        500,
+        'failed',
+        'high',
+        is_string($tenantId ?? null) ? $tenantId : null,
+        is_string($accountId ?? null) ? $accountId : null,
+        is_string($staffId ?? null) ? $staffId : null,
+        'supabase'
+    );
+
     $data = is_array($result['data'] ?? null) ? $result['data'] : [];
     $details = trim((string) ($data['message'] ?? $data['details'] ?? $result['error'] ?? $result['response'] ?? ''));
 
@@ -241,8 +300,11 @@ function staff_blocks_write_admin_notification(
     );
 
     if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] >= 400) {
-        $details = trim((string) ($result['error'] ?: $result['response'] ?: 'unknown error'));
-        error_log('Staff block admin notification was not saved: ' . substr($details, 0, 400));
+        error_log('Staff block admin notification was not saved: ' . json_encode([
+            'http_code' => (int) ($result['httpCode'] ?? 0),
+            'has_error' => trim((string) ($result['error'] ?? '')) !== '',
+            'has_response' => trim((string) ($result['response'] ?? '')) !== '',
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
     }
 }
 
@@ -250,6 +312,7 @@ $method = $_SERVER['REQUEST_METHOD'] ?? '';
 
 if (!in_array($method, ['POST', 'DELETE'], true)) {
     header('Allow: POST, DELETE');
+    staff_blocks_security_event('staff_blocks_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     staff_blocks_json([
         'success' => false,
         'error' => 'Metoda niedozwolona.',
@@ -259,6 +322,7 @@ if (!in_array($method, ['POST', 'DELETE'], true)) {
 $staffSession = $_SESSION['staff_user'] ?? null;
 
 if (!is_array($staffSession) || empty($staffSession['account_id']) || empty($staffSession['tenant_id']) || empty($staffSession['staff_id'])) {
+    staff_blocks_security_event('staff_blocks_unauthorized', 'unauthorized', 401, 'denied', 'medium');
     staff_blocks_json([
         'success' => false,
         'error' => 'Brak aktywnej sesji personelu.',
@@ -270,6 +334,7 @@ $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    staff_blocks_security_event('staff_blocks_env_missing', 'env_missing', 500, 'failed', 'high');
     staff_blocks_json([
         'success' => false,
         'error' => 'Brak konfiguracji Supabase.',
@@ -282,6 +347,7 @@ $staffId = (string) ($staffSession['staff_id'] ?? '');
 $accountId = (string) ($staffSession['account_id'] ?? '');
 
 if (!$hostTenantId || !hash_equals($tenantId, (string) $hostTenantId)) {
+    staff_blocks_security_event('staff_blocks_session_invalidated', 'tenant_mismatch', 401, 'denied', 'medium', $tenantId, $accountId, $staffId);
     staff_blocks_clear_session();
     staff_blocks_json([
         'success' => false,
@@ -308,6 +374,7 @@ if ($accountResult['response'] === false || $accountResult['error'] !== '' || $a
 }
 
 if (empty($accountRows[0]['id'])) {
+    staff_blocks_security_event('staff_blocks_session_invalidated', 'inactive_staff_account', 401, 'denied', 'medium', $tenantId, $accountId, $staffId);
     staff_blocks_clear_session();
     staff_blocks_json([
         'success' => false,
@@ -318,6 +385,7 @@ if (empty($accountRows[0]['id'])) {
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
+    staff_blocks_security_event('staff_blocks_invalid_json', 'invalid_json', 400, 'failed', 'medium', $tenantId, $accountId, $staffId);
     staff_blocks_json([
         'success' => false,
         'error' => 'Nieprawidłowy JSON.',
@@ -364,6 +432,8 @@ if ($method === 'DELETE') {
     );
 
     // TODO: staff block notification delivery for admin beyond the in-panel notification list.
+    staff_blocks_security_event('staff_blocks_delete_success', $allDay ? 'staff_block_day_removed' : 'staff_block_time_removed', 200, 'success', 'medium', $tenantId, $accountId, $staffId);
+
     staff_blocks_json([
         'success' => true,
         'action' => $allDay ? 'unblock_day' : 'unblock_time',
@@ -373,6 +443,7 @@ if ($method === 'DELETE') {
 }
 
 if (staff_blocks_has_booking($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffId, $date, $allDay ? null : $time)) {
+    staff_blocks_security_event('staff_blocks_conflict', 'booking_conflict', 409, 'failed', 'medium', $tenantId, $accountId, $staffId);
     staff_blocks_json([
         'success' => false,
         'error' => $allDay
@@ -421,6 +492,8 @@ staff_blocks_write_admin_notification(
 );
 
 // TODO: staff block notification delivery for admin beyond the in-panel notification list.
+staff_blocks_security_event('staff_blocks_create_success', $allDay ? 'staff_block_day_created' : 'staff_block_time_created', 200, 'success', 'medium', $tenantId, $accountId, $staffId);
+
 staff_blocks_json([
     'success' => true,
     'action' => $allDay ? 'block_day' : 'block_time',

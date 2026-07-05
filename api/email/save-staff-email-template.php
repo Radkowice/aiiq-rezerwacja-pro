@@ -5,10 +5,56 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
 start_secure_session();
+
+function save_staff_email_security_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus = 400,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $tenantId = null,
+    ?string $staffId = null,
+    ?string $stage = null
+): void {
+    $details = ['reason' => $reason];
+
+    if ($stage !== null && trim($stage) !== '') {
+        $details['stage'] = trim($stage);
+    }
+
+    $context = [
+        'action_key' => 'staff_email_template_save',
+        'endpoint' => '/api/email/save-staff-email-template.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'severity' => $severity,
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'details' => $details,
+    ];
+
+    $tenantId = trim((string) ($tenantId ?? ($_SESSION['user']['tenant_id'] ?? '')));
+    if ($tenantId !== '') {
+        $context['tenant_id'] = $tenantId;
+    }
+
+    $userId = trim((string) ($_SESSION['user']['id'] ?? ''));
+    if ($userId !== '') {
+        $context['user_id'] = $userId;
+    }
+
+    $staffId = trim((string) ($staffId ?? ''));
+    if ($staffId !== '') {
+        $context['staff_id'] = $staffId;
+    }
+
+    security_log_event($eventKey, $context);
+}
 
 function save_staff_email_json(array $payload, int $statusCode = 200): void
 {
@@ -61,12 +107,14 @@ function save_staff_email_resolve_staff_ref(
     curl_close($ch);
 
     if ($response === false || $curlError !== '' || $httpCode < 200 || $httpCode >= 300) {
+        save_staff_email_security_event('staff_email_template_staff_lookup_failed', 'staff_lookup_failed', 500, 'error', 'medium', $tenantId, null, 'staff_lookup');
         save_staff_email_json(['success' => false, 'error' => 'Nie udało się sprawdzić pracownika.'], 500);
     }
 
     $rows = json_decode((string) $response, true);
 
     if (!is_array($rows)) {
+        save_staff_email_security_event('staff_email_template_staff_lookup_failed', 'staff_lookup_failed', 500, 'error', 'medium', $tenantId, null, 'staff_lookup_response');
         save_staff_email_json(['success' => false, 'error' => 'Nieprawidłowa odpowiedź bazy danych.'], 500);
     }
 
@@ -100,6 +148,7 @@ function save_staff_email_public_staff(array $row, string $tenantId, string $ref
 function save_staff_email_text($value, int $maxLength, bool $required = false): ?string
 {
     if (is_array($value) || is_object($value)) {
+        save_staff_email_security_event('staff_email_template_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'text_type');
         save_staff_email_json(['success' => false, 'error' => 'Nieprawidłowe dane wejściowe.'], 422);
     }
 
@@ -107,6 +156,7 @@ function save_staff_email_text($value, int $maxLength, bool $required = false): 
 
     if ($text === '') {
         if ($required) {
+            save_staff_email_security_event('staff_email_template_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'required_field');
             save_staff_email_json(['success' => false, 'error' => 'Uzupełnij temat i treść wiadomości.'], 422);
         }
 
@@ -114,6 +164,7 @@ function save_staff_email_text($value, int $maxLength, bool $required = false): 
     }
 
     if (mb_strlen($text, 'UTF-8') > $maxLength) {
+        save_staff_email_security_event('staff_email_template_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'text_length');
         save_staff_email_json(['success' => false, 'error' => 'Wpisany tekst jest zbyt długi.'], 422);
     }
 
@@ -121,11 +172,13 @@ function save_staff_email_text($value, int $maxLength, bool $required = false): 
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    save_staff_email_security_event('staff_email_template_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     header('Allow: POST');
     save_staff_email_json(['success' => false, 'error' => 'Metoda niedozwolona.'], 405);
 }
 
 if (empty($_SESSION['user']['tenant_id'])) {
+    save_staff_email_security_event('staff_email_template_unauthorized', 'unauthorized', 401, 'denied', 'medium');
     save_staff_email_json(['success' => false, 'error' => 'Brak autoryzacji.'], 401);
 }
 
@@ -133,12 +186,14 @@ $tenantId = (string) $_SESSION['user']['tenant_id'];
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
 
 if (!is_array($input)) {
+    save_staff_email_security_event('staff_email_template_invalid_json', 'invalid_json', 400, 'failed', 'low', $tenantId);
     save_staff_email_json(['success' => false, 'error' => 'Brak danych wejściowych.'], 400);
 }
 
 $staffRef = save_staff_email_normalize_staff_ref($input['staff_ref'] ?? null);
 
 if ($staffRef === '') {
+    save_staff_email_security_event('staff_email_template_staff_ref_missing', 'staff_ref_missing', 422, 'failed', 'low', $tenantId);
     save_staff_email_json(['success' => false, 'error' => 'Wybierz pracownika, aby edytować jego szablon e-mail.'], 422);
 }
 
@@ -151,14 +206,17 @@ $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE
 $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
+    save_staff_email_security_event('staff_email_template_env_missing', 'env_missing', 500, 'error', 'high', $tenantId, null, 'supabase_config');
     save_staff_email_json(['success' => false, 'error' => 'Brak konfiguracji Supabase.'], 500);
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $supabaseKey, $schema)) {
+    save_staff_email_security_event('staff_email_template_tenant_denied', 'tenant_denied', 403, 'denied', 'high', $tenantId);
     save_staff_email_json(['success' => false, 'error' => 'Sesja nie pasuje do domeny.'], 403);
 }
 
 if (!tenant_has_feature($tenantId, 'staff_module')) {
+    save_staff_email_security_event('staff_email_template_feature_denied', 'feature_denied', 403, 'denied', 'medium', $tenantId, null, 'staff_module');
     save_staff_email_json([
         'success' => false,
         'error' => 'Szablony e-mail pracowników są dostępne w wyższym planie.',
@@ -170,6 +228,7 @@ $refSecret = public_response_ref_secret($supabaseKey);
 $staffId = save_staff_email_resolve_staff_ref($staffRef, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret);
 
 if ($staffId === '') {
+    save_staff_email_security_event('staff_email_template_staff_not_found', 'staff_not_found', 404, 'failed', 'medium', $tenantId);
     save_staff_email_json(['success' => false, 'error' => 'Nie znaleziono pracownika.'], 404);
 }
 
@@ -204,17 +263,21 @@ $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
 curl_close($ch);
 
 if ($response === false || $curlError !== '' || $httpCode < 200 || $httpCode >= 300) {
+    save_staff_email_security_event('staff_email_template_save_failed', 'template_save_failed', 500, 'error', 'medium', $tenantId, $staffId, 'staff_profile_patch');
     save_staff_email_json(['success' => false, 'error' => 'Nie udało się zapisać zmian. Spróbuj ponownie.'], 500);
 }
 
 $rows = json_decode((string) $response, true);
 
 if (!is_array($rows) || empty($rows[0])) {
+    save_staff_email_security_event('staff_email_template_staff_not_found', 'staff_not_found', 404, 'failed', 'medium', $tenantId, $staffId, 'patch_response');
     save_staff_email_json(['success' => false, 'error' => 'Nie znaleziono pracownika.'], 404);
 }
 
 $staff = save_staff_email_public_staff($rows[0], $tenantId, $refSecret);
 $staff['has_custom_template'] = true;
+
+save_staff_email_security_event('staff_email_template_save_success', 'staff_email_template_save_success', 200, 'success', 'low', $tenantId, $staffId);
 
 save_staff_email_json([
     'success' => true,
