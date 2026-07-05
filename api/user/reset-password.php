@@ -243,6 +243,8 @@ if ($expiresAt === '' || strtotime($expiresAt) === false) {
         'endpoint' => $securityEndpoint,
         'http_method' => $securityMethod,
         'actor_type' => 'tenant_user',
+        'tenant_id' => $TENANT_ID,
+        'email' => $email,
         'response_status' => 400,
         'result' => 'failed',
         'details' => [
@@ -278,6 +280,8 @@ if (strtotime($expiresAt) < time()) {
         'endpoint' => $securityEndpoint,
         'http_method' => $securityMethod,
         'actor_type' => 'tenant_user',
+        'tenant_id' => $TENANT_ID,
+        'email' => $email,
         'response_status' => 400,
         'result' => 'failed',
         'details' => [
@@ -325,6 +329,7 @@ if (count($userRows) === 0) {
 }
 
 $user = $userRows[0];
+$userId = (string) ($user['id'] ?? '');
 
 if (isset($user['is_active']) && $user['is_active'] === false) {
     resetPasswordJson([
@@ -384,34 +389,15 @@ if (!$deleteResult['ok']) {
     ], 500);
 }
 
-/*
- * Log techniczny resetu.
- */
-$logData = [
-    'tenant_id' => $TENANT_ID,
-    'email' => $email,
-    'ip' => $_SERVER['REMOTE_ADDR'] ?? 'unknown',
-    'time' => date('Y-m-d H:i:s'),
-];
-
-$logDir = __DIR__ . '/../data';
-
-if (!is_dir($logDir)) {
-    @mkdir($logDir, 0775, true);
-}
-
-@file_put_contents(
-    $logDir . '/reset_password.log',
-    json_encode($logData, JSON_UNESCAPED_UNICODE) . PHP_EOL,
-    FILE_APPEND | LOCK_EX
-);
-
 security_log_event('user_password_reset_success', [
     'action_key' => 'user_password_reset',
     'ip_address' => $securityIp,
     'endpoint' => $securityEndpoint,
     'http_method' => $securityMethod,
     'actor_type' => 'tenant_user',
+    'tenant_id' => $TENANT_ID,
+    'user_id' => $userId,
+    'email' => $email,
     'response_status' => 200,
     'result' => 'success',
     'details' => [

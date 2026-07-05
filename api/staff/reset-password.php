@@ -98,9 +98,12 @@ function staff_reset_password_security_context(
     ?string $email = null,
     ?int $responseStatus = null,
     ?string $result = null,
-    string $reason = ''
+    string $reason = '',
+    ?string $staffAccountId = null,
+    ?string $staffId = null
 ): array {
     $context = [
+        'action_key' => 'staff_password_reset',
         'endpoint' => '/api/staff/reset-password.php',
         'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
         'actor_type' => 'staff',
@@ -116,6 +119,14 @@ function staff_reset_password_security_context(
 
     if ($email !== null && $email !== '') {
         $context['email'] = $email;
+    }
+
+    if ($staffAccountId !== null && $staffAccountId !== '') {
+        $context['staff_account_id'] = $staffAccountId;
+    }
+
+    if ($staffId !== null && $staffId !== '') {
+        $context['staff_id'] = $staffId;
     }
 
     if ($responseStatus !== null) {
@@ -360,7 +371,9 @@ if (
         $email,
         500,
         'error',
-        'staff_password_reset_account_lookup_failed'
+        'staff_password_reset_account_lookup_failed',
+        $accountId,
+        $staffId
     ));
 
     staff_reset_password_json([
@@ -378,7 +391,9 @@ if (!is_array($account) || empty($account['id']) || !filter_var($account['is_act
         $email,
         403,
         'failed',
-        'staff_password_reset_inactive_account'
+        'staff_password_reset_inactive_account',
+        $accountId,
+        $staffId
     ));
 
     staff_reset_password_json([
@@ -395,7 +410,9 @@ if ($email !== '' && $accountEmail !== '' && !hash_equals($email, $accountEmail)
         $email,
         400,
         'failed',
-        'staff_password_reset_token_account_mismatch'
+        'staff_password_reset_token_account_mismatch',
+        $accountId,
+        $staffId
     ));
 
     staff_reset_password_json([
@@ -424,7 +441,9 @@ if (
         $accountEmail !== '' ? $accountEmail : $email,
         500,
         'error',
-        'staff_password_reset_profile_lookup_failed'
+        'staff_password_reset_profile_lookup_failed',
+        $accountId,
+        $staffId
     ));
 
     staff_reset_password_json([
@@ -442,7 +461,9 @@ if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] 
         $accountEmail !== '' ? $accountEmail : $email,
         403,
         'failed',
-        'staff_password_reset_inactive_profile'
+        'staff_password_reset_inactive_profile',
+        $accountId,
+        $staffId
     ));
 
     staff_reset_password_json([
@@ -476,7 +497,9 @@ if (
         $accountEmail !== '' ? $accountEmail : $email,
         500,
         'error',
-        'staff_password_reset_password_update_failed'
+        'staff_password_reset_password_update_failed',
+        $accountId,
+        $staffId
     ));
 
     staff_reset_password_json([
@@ -506,7 +529,9 @@ if (
         $accountEmail !== '' ? $accountEmail : $email,
         500,
         'error',
-        'staff_password_reset_token_mark_used_failed'
+        'staff_password_reset_token_mark_used_failed',
+        $accountId,
+        $staffId
     ));
 
     error_log('STAFF_PASSWORD_RESET_TOKEN_MARK_USED_FAILED tenant_id_set=' . ($tenantId !== '' ? 'true' : 'false') . ' token_id_set=' . ($tokenId !== '' ? 'true' : 'false'));
@@ -533,7 +558,9 @@ if (
         $accountEmail !== '' ? $accountEmail : $email,
         500,
         'error',
-        'staff_password_reset_other_tokens_invalidate_failed'
+        'staff_password_reset_other_tokens_invalidate_failed',
+        $accountId,
+        $staffId
     ));
 
     error_log('STAFF_PASSWORD_RESET_OTHER_TOKENS_INVALIDATE_FAILED tenant_id_set=' . ($tenantId !== '' ? 'true' : 'false') . ' staff_account_id_set=' . ($accountId !== '' ? 'true' : 'false'));
@@ -544,7 +571,9 @@ security_log_event('staff_password_reset_success', staff_reset_password_security
     $accountEmail !== '' ? $accountEmail : $email,
     200,
     'success',
-    'staff_password_reset_success'
+    'staff_password_reset_success',
+    $accountId,
+    $staffId
 ));
 
 staff_reset_password_json([

@@ -377,6 +377,16 @@ function security_user_hash(?string $userId): ?string
     return security_hash_value($userId, 'user');
 }
 
+function security_staff_account_hash(?string $staffAccountId): ?string
+{
+    return security_hash_value($staffAccountId, 'staff_account');
+}
+
+function security_staff_hash(?string $staffId): ?string
+{
+    return security_hash_value($staffId, 'staff');
+}
+
 function security_user_agent_hash(?string $ua): ?string
 {
     return security_hash_value($ua, 'user_agent');
@@ -452,6 +462,63 @@ function security_context_value(array $context, string $key): ?string
     return $value !== '' ? $value : null;
 }
 
+function security_session_context_record(string $sessionKey): array
+{
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        return [];
+    }
+
+    $record = $_SESSION[$sessionKey] ?? null;
+
+    return is_array($record) ? $record : [];
+}
+
+function security_session_context_value(array $record, string $key): ?string
+{
+    if (!array_key_exists($key, $record) || !is_scalar($record[$key])) {
+        return null;
+    }
+
+    $value = trim((string) $record[$key]);
+
+    return $value !== '' ? $value : null;
+}
+
+function security_log_event_session_context(?string $actorType): array
+{
+    $actorType = strtolower(trim((string) $actorType));
+    $userSession = security_session_context_record('user');
+    $staffSession = security_session_context_record('staff_user');
+    $useStaffSession = $actorType !== ''
+        && (strpos($actorType, 'staff') !== false || strpos($actorType, 'personel') !== false || strpos($actorType, 'personnel') !== false);
+    $useUserSession = !$useStaffSession
+        && $actorType !== ''
+        && (strpos($actorType, 'tenant') !== false
+            || strpos($actorType, 'admin') !== false
+            || $actorType === 'user'
+            || strpos($actorType, 'user') !== false);
+
+    if ($actorType === '') {
+        $useStaffSession = !empty($staffSession) && empty($userSession);
+        $useUserSession = !empty($userSession) && empty($staffSession);
+    }
+
+    $context = [];
+
+    if ($useStaffSession && !empty($staffSession)) {
+        $context['tenant_id'] = security_session_context_value($staffSession, 'tenant_id');
+        $context['staff_account_id'] = security_session_context_value($staffSession, 'account_id');
+        $context['staff_id'] = security_session_context_value($staffSession, 'staff_id');
+    }
+
+    if ($useUserSession && !empty($userSession)) {
+        $context['tenant_id'] = $context['tenant_id'] ?? security_session_context_value($userSession, 'tenant_id');
+        $context['user_id'] = security_session_context_value($userSession, 'id');
+    }
+
+    return $context;
+}
+
 function security_default_endpoint(): string
 {
     $script = trim((string) ($_SERVER['SCRIPT_NAME'] ?? ''));
@@ -479,17 +546,28 @@ function security_log_event(string $eventKey, array $context = []): array
         $ipAddress = security_normalize_ip(security_context_value($context, 'ip_address')) ?? security_client_ip();
         $userAgent = security_context_value($context, 'user_agent') ?? security_user_agent();
         $details = is_array($context['details'] ?? null) ? $context['details'] : [];
+        $actorType = security_context_value($context, 'actor_type');
+        $sessionContext = security_log_event_session_context($actorType);
+
+        $tenantId = security_context_value($context, 'tenant_id') ?? security_context_value($sessionContext, 'tenant_id');
+        $userId = security_uuid_or_null(security_context_value($context, 'user_id') ?? security_context_value($sessionContext, 'user_id'));
+        $staffAccountId = security_uuid_or_null(security_context_value($context, 'staff_account_id') ?? security_context_value($sessionContext, 'staff_account_id'));
+        $staffId = security_uuid_or_null(security_context_value($context, 'staff_id') ?? security_context_value($sessionContext, 'staff_id'));
 
         $payload = [
             'p_event_key' => $eventKey,
             'p_action_key' => security_context_value($context, 'action_key') ?? $eventKey,
             'p_severity' => security_context_value($context, 'severity') ?? 'medium',
-            'p_actor_type' => security_context_value($context, 'actor_type') ?? 'unknown',
-            'p_tenant_id' => security_context_value($context, 'tenant_id'),
-            'p_user_id' => security_uuid_or_null(security_context_value($context, 'user_id')),
-            'p_staff_account_id' => security_uuid_or_null(security_context_value($context, 'staff_account_id')),
-            'p_staff_id' => security_uuid_or_null(security_context_value($context, 'staff_id')),
-            'p_ip_address' => $ipAddress,
+            'p_actor_type' => $actorType ?? 'unknown',
+            'p_tenant_id' => null,
+            'p_user_id' => null,
+            'p_staff_account_id' => null,
+            'p_staff_id' => null,
+            'p_tenant_hash' => security_context_value($context, 'tenant_hash') ?? security_tenant_hash($tenantId),
+            'p_user_hash' => security_context_value($context, 'user_hash') ?? security_user_hash($userId),
+            'p_staff_account_hash' => security_context_value($context, 'staff_account_hash') ?? security_staff_account_hash($staffAccountId),
+            'p_staff_hash' => security_context_value($context, 'staff_hash') ?? security_staff_hash($staffId),
+            'p_ip_address' => null,
             'p_ip_hash' => security_context_value($context, 'ip_hash') ?? security_ip_hash($ipAddress),
             'p_email_hash' => security_context_value($context, 'email_hash') ?? security_email_hash(security_context_value($context, 'email')),
             'p_phone_hash' => security_context_value($context, 'phone_hash') ?? security_hash_value(security_context_value($context, 'phone'), 'phone'),

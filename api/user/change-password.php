@@ -204,6 +204,35 @@ function markPasswordChangeCodesUsed(
     curl_close($ch);
 }
 
+
+function user_change_password_log_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium',
+    ?string $limiter = null
+): void {
+    $details = [
+        'reason' => $reason,
+    ];
+
+    if ($limiter !== null && $limiter !== '') {
+        $details['limiter'] = $limiter;
+    }
+
+    security_log_event($eventKey, [
+        'action_key' => 'user_change_password',
+        'endpoint' => '/api/user/change-password.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'severity' => $severity,
+        'details' => $details,
+    ]);
+}
+
 $input = json_decode(file_get_contents('php://input'), true);
 
 $currentPassword = trim((string) ($input['current_password'] ?? ''));
@@ -217,11 +246,11 @@ if (
     !preg_match('/[0-9]/', $newPassword) ||
     !preg_match('/[^A-Za-z0-9]/', $newPassword)
 ) {
-    header('Content-Type: application/json');
+    http_response_code(422);
     echo json_encode([
         'success' => false,
         'error' => 'Hasło musi mieć min. 8 znaków, dużą i małą literę, cyfrę oraz znak specjalny.'
-    ]);
+    ], JSON_UNESCAPED_UNICODE);
     exit;
 }
 
@@ -272,6 +301,14 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
 }
 
 if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    user_change_password_log_event(
+        'user_change_password_session_denied',
+        'tenant_mismatch',
+        401,
+        'denied',
+        'medium'
+    );
+
     http_response_code(401);
     echo json_encode([
         'success' => false,
@@ -347,6 +384,14 @@ if (!$user) {
 $passwordHash = (string) ($user['password_hash'] ?? '');
 
 if ($passwordHash === '' || !password_verify($currentPassword, $passwordHash)) {
+    user_change_password_log_event(
+        'user_change_password_current_password_failed',
+        'current_password_failed',
+        422,
+        'failed',
+        'medium'
+    );
+
     http_response_code(422);
     echo json_encode([
         'success' => false,
@@ -387,20 +432,14 @@ $rateLimitResult = security_rate_limit_check(
 );
 
 if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
-    security_log_event('password_change_rate_limited', [
-        'tenant_id' => $tenantId,
-        'email' => $securityEmail,
-        'ip_address' => $securityIp,
-        'endpoint' => $securityEndpoint,
-        'http_method' => $securityMethod,
-        'actor_type' => 'tenant_user',
-        'response_status' => 429,
-        'result' => 'blocked',
-        'details' => [
-            'reason' => 'password_change_request',
-            'limiter' => 'security_rate_limit_check',
-        ],
-    ]);
+    user_change_password_log_event(
+        'user_change_password_request_rate_limited',
+        'password_change_request',
+        429,
+        'blocked',
+        'high',
+        'security_rate_limit_check'
+    );
 
     http_response_code(429);
 
@@ -416,20 +455,14 @@ if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false)
 $rateLimitStatus = passwordChangeRateLimit($tenantId, $userId, $clientIp);
 
 if ($rateLimitStatus === 'limited') {
-    security_log_event('password_change_rate_limited', [
-        'tenant_id' => $tenantId,
-        'email' => $securityEmail,
-        'ip_address' => $securityIp,
-        'endpoint' => $securityEndpoint,
-        'http_method' => $securityMethod,
-        'actor_type' => 'tenant_user',
-        'response_status' => 429,
-        'result' => 'blocked',
-        'details' => [
-            'reason' => 'password_change_request',
-            'limiter' => 'legacy_json_rate_limit',
-        ],
-    ]);
+    user_change_password_log_event(
+        'user_change_password_request_rate_limited',
+        'password_change_request',
+        429,
+        'blocked',
+        'high',
+        'legacy_json_rate_limit'
+    );
 
     http_response_code(429);
     echo json_encode([
@@ -447,20 +480,6 @@ if ($rateLimitStatus !== 'allowed') {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
-
-security_log_event('password_change_request', [
-    'tenant_id' => $tenantId,
-    'email' => $securityEmail,
-    'ip_address' => $securityIp,
-    'endpoint' => $securityEndpoint,
-    'http_method' => $securityMethod,
-    'actor_type' => 'tenant_user',
-    'response_status' => 202,
-    'result' => 'accepted',
-    'details' => [
-        'reason' => 'password_change_request',
-    ],
-]);
 
 $code = (string) random_int(100000, 999999);
 $codeHash = password_hash($code, PASSWORD_DEFAULT);
@@ -562,6 +581,14 @@ markPasswordChangeCodesUsed(
     [
         'code_hash=neq.' . rawurlencode($codeHash),
     ]
+);
+
+user_change_password_log_event(
+    'user_change_password_request_success',
+    'password_change_request',
+    200,
+    'success',
+    'high'
 );
 
 echo json_encode([

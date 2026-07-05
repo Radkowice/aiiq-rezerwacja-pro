@@ -111,15 +111,6 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
     exit;
 }
 
-if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
-    http_response_code(401);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Sesja nie pasuje do domeny.'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
 $securityEmail = $email;
 $securityIp = security_client_ip();
 $securityEndpoint = '/api/user/confirm-password-change.php';
@@ -128,26 +119,22 @@ $clientIp = $securityIp ?: 'unknown';
 
 function passwordChangeConfirmLogSecurityEvent(
     string $eventKey,
-    string $tenantId,
-    string $email,
     ?string $securityIp,
     string $securityEndpoint,
     string $securityMethod,
     int $responseStatus,
     string $result,
     string $reason,
-    array $extraDetails = []
+    array $extraDetails = [],
+    string $severity = 'medium'
 ): void {
     security_log_event($eventKey, [
-        'action_key' => $eventKey === 'password_change_confirm_rate_limited'
-            ? 'password_change_confirm_invalid_code'
-            : $eventKey,
-        'tenant_id' => $tenantId,
-        'email' => $email,
+        'action_key' => 'password_change_confirm',
         'ip_address' => $securityIp,
         'endpoint' => $securityEndpoint,
         'http_method' => $securityMethod,
         'actor_type' => 'tenant_user',
+        'severity' => $severity,
         'response_status' => $responseStatus,
         'result' => $result,
         'details' => array_merge([
@@ -176,8 +163,6 @@ function passwordChangeConfirmRegisterInvalidAttempt(
             'endpoint' => $securityEndpoint,
             'http_method' => $securityMethod,
             'actor_type' => 'tenant_user',
-            'tenant_id' => $tenantId,
-            'email' => $email,
             'ip_address' => $securityIp,
             'metadata' => [
                 'reason' => 'password_change_confirm_invalid_code',
@@ -188,8 +173,6 @@ function passwordChangeConfirmRegisterInvalidAttempt(
     if (isset($invalidCodeRateLimitResult['allowed']) && $invalidCodeRateLimitResult['allowed'] === false) {
         passwordChangeConfirmLogSecurityEvent(
             'password_change_confirm_rate_limited',
-            $tenantId,
-            $email,
             $securityIp,
             $securityEndpoint,
             $securityMethod,
@@ -198,7 +181,8 @@ function passwordChangeConfirmRegisterInvalidAttempt(
             'password_change_confirm_invalid_code',
             [
                 'limiter' => 'security_rate_limit_check',
-            ]
+            ],
+            'high'
         );
 
         http_response_code(429);
@@ -214,8 +198,6 @@ function passwordChangeConfirmRegisterInvalidAttempt(
 
     passwordChangeConfirmLogSecurityEvent(
         'password_change_confirm_invalid_code',
-        $tenantId,
-        $email,
         $securityIp,
         $securityEndpoint,
         $securityMethod,
@@ -223,6 +205,25 @@ function passwordChangeConfirmRegisterInvalidAttempt(
         'failed',
         $reason
     );
+}
+
+if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)) {
+    passwordChangeConfirmLogSecurityEvent(
+        'password_change_confirm_session_denied',
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod,
+        401,
+        'denied',
+        'tenant_mismatch'
+    );
+
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
 }
 
 $input = json_decode(file_get_contents('php://input'), true);
@@ -375,20 +376,15 @@ if ($expiresAt === '' || strtotime($expiresAt) < time()) {
         );
     }
 
-    security_log_event('password_change_confirm_expired_code', [
-        'action_key' => 'password_change_confirm_invalid_code',
-        'tenant_id' => $tenantId,
-        'email' => $securityEmail,
-        'ip_address' => $securityIp,
-        'endpoint' => $securityEndpoint,
-        'http_method' => $securityMethod,
-        'actor_type' => 'tenant_user',
-        'response_status' => 410,
-        'result' => 'failed',
-        'details' => [
-            'reason' => 'password_change_confirm_expired_code',
-        ],
-    ]);
+    passwordChangeConfirmLogSecurityEvent(
+        'password_change_confirm_expired_code',
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod,
+        410,
+        'failed',
+        'password_change_confirm_expired_code'
+    );
 
     http_response_code(410);
     echo json_encode([
@@ -399,21 +395,19 @@ if ($expiresAt === '' || strtotime($expiresAt) < time()) {
 }
 
 if ($attempts >= 5) {
-    security_log_event('password_change_confirm_rate_limited', [
-        'action_key' => 'password_change_confirm_invalid_code',
-        'tenant_id' => $tenantId,
-        'email' => $securityEmail,
-        'ip_address' => $securityIp,
-        'endpoint' => $securityEndpoint,
-        'http_method' => $securityMethod,
-        'actor_type' => 'tenant_user',
-        'response_status' => 429,
-        'result' => 'blocked',
-        'details' => [
-            'reason' => 'password_change_confirm_invalid_code',
+    passwordChangeConfirmLogSecurityEvent(
+        'password_change_confirm_rate_limited',
+        $securityIp,
+        $securityEndpoint,
+        $securityMethod,
+        429,
+        'blocked',
+        'password_change_confirm_invalid_code',
+        [
             'limiter' => 'legacy_code_attempts',
         ],
-    ]);
+        'high'
+    );
 
     http_response_code(429);
     echo json_encode([
@@ -595,20 +589,17 @@ if ($logPayload !== false) {
     curl_close($logCh);
 }
 
-security_log_event('password_change_confirm_success', [
-    'action_key' => 'password_change_confirm_success',
-    'tenant_id' => $tenantId,
-    'email' => $securityEmail,
-    'ip_address' => $securityIp,
-    'endpoint' => $securityEndpoint,
-    'http_method' => $securityMethod,
-    'actor_type' => 'tenant_user',
-    'response_status' => 200,
-    'result' => 'success',
-    'details' => [
-        'reason' => 'password_change_confirm_success',
-    ],
-]);
+passwordChangeConfirmLogSecurityEvent(
+    'password_change_confirm_success',
+    $securityIp,
+    $securityEndpoint,
+    $securityMethod,
+    200,
+    'success',
+    'password_change_confirm_success',
+    [],
+    'high'
+);
 
 $mailHtml = buildPasswordChangedHtml();
 sendSystemMail($rowEmail, 'Potwierdzenie zmiany hasła', $mailHtml);

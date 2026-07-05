@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -46,8 +47,20 @@ function staff_me_request(
     ];
 }
 
-function staff_me_clear_session(): void
+function staff_me_clear_session(string $reason = 'invalid_session_context', int $responseStatus = 401): void
 {
+    security_log_event('staff_me_session_invalidated', [
+        'action_key' => 'staff_me',
+        'endpoint' => '/api/staff/me.php',
+        'actor_type' => 'staff',
+        'severity' => 'medium',
+        'response_status' => $responseStatus,
+        'result' => 'denied',
+        'details' => [
+            'reason' => $reason,
+        ],
+    ]);
+
     unset($_SESSION['staff_user']);
 }
 
@@ -142,7 +155,7 @@ $hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
 $sessionTenantId = (string) ($staffSession['tenant_id'] ?? '');
 
 if (!$hostTenantId || !hash_equals($sessionTenantId, (string) $hostTenantId)) {
-    staff_me_clear_session();
+    staff_me_clear_session('tenant_mismatch', 401);
     staff_me_json([
         'success' => false,
         'error' => 'Sesja personelu nie pasuje do domeny.'
@@ -184,7 +197,7 @@ $accountRows = is_array($accountResult['data'] ?? null) ? $accountResult['data']
 $account = is_array($accountRows[0] ?? null) ? $accountRows[0] : null;
 
 if (!is_array($account) || empty($account['id']) || !filter_var($account['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
-    staff_me_clear_session();
+    staff_me_clear_session('inactive_staff_account', 401);
     staff_me_json([
         'success' => false,
         'error' => 'Sesja personelu jest nieaktywna.'
@@ -216,7 +229,7 @@ $staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
 $staff = is_array($staffRows[0] ?? null) ? $staffRows[0] : null;
 
 if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN)) {
-    staff_me_clear_session();
+    staff_me_clear_session('inactive_staff_profile', 401);
     staff_me_json([
         'success' => false,
         'error' => 'Profil personelu jest nieaktywny.'

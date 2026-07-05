@@ -4,8 +4,32 @@ require_once __DIR__ . '/../helpers/supabase.php';
 
 function tenant_debug_log(string $label, $data): void
 {
+    $enabled = strtolower(trim((string) getenv('TENANT_DEBUG_LOG')));
+
+    if (!in_array($enabled, ['1', 'true', 'yes', 'on'], true)) {
+        return;
+    }
+
     if (is_array($data)) {
-        $blockedKeys = ['url', 'response', 'body', 'json', 'error', 'curlError', 'details', 'debug'];
+        $blockedKeys = [
+            'url',
+            'response',
+            'body',
+            'json',
+            'error',
+            'curlError',
+            'details',
+            'debug',
+            'host',
+            'hosts',
+            'checked_hosts',
+            'domain',
+            'matched_domain',
+            'tenant_id',
+            'authorization',
+            'cookie',
+            'payload',
+        ];
 
         foreach ($blockedKeys as $key) {
             if (array_key_exists($key, $data)) {

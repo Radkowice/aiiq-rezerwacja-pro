@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -60,8 +61,37 @@ function staff_change_password_request(
     ];
 }
 
-function staff_change_password_clear_session(): void
+function staff_change_password_log_event(
+    string $eventKey,
+    string $reason,
+    int $responseStatus,
+    string $result = 'failed',
+    string $severity = 'medium'
+): void {
+    security_log_event($eventKey, [
+        'action_key' => 'staff_change_password',
+        'endpoint' => '/api/staff/change-password.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'staff',
+        'response_status' => $responseStatus,
+        'result' => $result,
+        'severity' => $severity,
+        'details' => [
+            'reason' => $reason,
+        ],
+    ]);
+}
+
+function staff_change_password_clear_session(string $reason = 'invalid_session_context', int $responseStatus = 401): void
 {
+    staff_change_password_log_event(
+        'staff_change_password_session_invalidated',
+        $reason,
+        $responseStatus,
+        'denied',
+        'medium'
+    );
+
     unset($_SESSION['staff_user']);
 }
 
@@ -122,7 +152,7 @@ $hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
 $sessionTenantId = (string) ($staffSession['tenant_id'] ?? '');
 
 if (!$hostTenantId || !hash_equals($sessionTenantId, (string) $hostTenantId)) {
-    staff_change_password_clear_session();
+    staff_change_password_clear_session('tenant_mismatch', 401);
     staff_change_password_json([
         'success' => false,
         'error' => 'Sesja personelu nie pasuje do domeny.'
@@ -200,7 +230,7 @@ $accountRows = is_array($accountResult['data'] ?? null) ? $accountResult['data']
 $account = is_array($accountRows[0] ?? null) ? $accountRows[0] : null;
 
 if (!is_array($account) || empty($account['id']) || !filter_var($account['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
-    staff_change_password_clear_session();
+    staff_change_password_clear_session('inactive_staff_account', 401);
     staff_change_password_json([
         'success' => false,
         'error' => 'Konto personelu jest nieaktywne.'
@@ -234,7 +264,7 @@ $staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
 $staff = is_array($staffRows[0] ?? null) ? $staffRows[0] : null;
 
 if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN)) {
-    staff_change_password_clear_session();
+    staff_change_password_clear_session('inactive_staff_profile', 401);
     staff_change_password_json([
         'success' => false,
         'error' => 'Profil personelu jest nieaktywny.'
@@ -244,6 +274,14 @@ if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] 
 $passwordHash = (string) ($account['password_hash'] ?? '');
 
 if ($passwordHash === '' || !password_verify($currentPassword, $passwordHash)) {
+    staff_change_password_log_event(
+        'staff_change_password_current_password_failed',
+        'current_password_invalid',
+        422,
+        'failed',
+        'medium'
+    );
+
     staff_change_password_json([
         'success' => false,
         'error' => 'Obecne hasło jest nieprawidłowe.'
@@ -282,6 +320,14 @@ if (
         'error' => 'Nie udało się zapisać nowego hasła.'
     ], 500);
 }
+
+staff_change_password_log_event(
+    'staff_change_password_success',
+    'staff_change_password_success',
+    200,
+    'success',
+    'high'
+);
 
 if ($accountEmail !== '' && filter_var($accountEmail, FILTER_VALIDATE_EMAIL)) {
     $mailMessage = ''

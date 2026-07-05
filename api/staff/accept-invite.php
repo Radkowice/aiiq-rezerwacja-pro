@@ -373,6 +373,9 @@ security_log_event('staff_invite_accept_success', [
     'endpoint' => $securityEndpoint,
     'http_method' => $securityMethod,
     'actor_type' => 'staff',
+    'tenant_id' => $tenantId,
+    'staff_id' => $staffId,
+    'email' => $email,
     'response_status' => 200,
     'result' => 'success',
     'details' => [

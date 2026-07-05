@@ -830,6 +830,21 @@ if ($isUpdate && $existingIsActive && array_key_exists('is_active', $payload) &&
     ]);
 }
 
+if ($isUpdate && !$existingIsActive && array_key_exists('is_active', $payload) && $payload['is_active'] === true) {
+    security_log_event('staff_save_activate_success', [
+        'action_key' => 'staff_save',
+        'endpoint' => '/api/staff/save.php',
+        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
+        'actor_type' => 'tenant_user',
+        'response_status' => 200,
+        'result' => 'success',
+        'severity' => 'medium',
+        'details' => [
+            'reason' => 'staff_save_activate_success',
+        ],
+    ]);
+}
+
 staff_save_json([
     'success' => true,
     'staff' => staff_save_public_record($savedRows[0], $tenantId, $refSecret)
