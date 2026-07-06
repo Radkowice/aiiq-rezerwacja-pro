@@ -2223,18 +2223,17 @@ if (in_array($ip, $blacklist, true)) {
 }
 
 $rateFile = __DIR__ . '/../data/rate_limit_book.json';
-if (!file_exists($rateFile)) {
-    @file_put_contents($rateFile, json_encode([], JSON_UNESCAPED_UNICODE));
-}
-
-$rateData = json_decode(@file_get_contents($rateFile), true);
-if (!is_array($rateData)) {
-    $rateData = [];
-}
-
 $now = time();
 $limit = 3;
 $window = 60;
+$rateHandle = @fopen($rateFile, 'c+');
+
+if ($rateHandle !== false && @flock($rateHandle, LOCK_EX)) {
+rewind($rateHandle);
+$rateData = json_decode((string) stream_get_contents($rateHandle), true);
+if (!is_array($rateData)) {
+    $rateData = [];
+}
 
 if (!isset($rateData[$ip]) || !is_array($rateData[$ip])) {
     $rateData[$ip] = [];
@@ -2271,6 +2270,9 @@ if (count($rateData[$ip]) >= $limit) {
         );
     }
 
+    @flock($rateHandle, LOCK_UN);
+    @fclose($rateHandle);
+
     booking_security_event('booking_create_rate_limited', 'ip_rate_limited', 429, 'blocked', 'medium');
 
     json_response([
@@ -2280,7 +2282,21 @@ if (count($rateData[$ip]) >= $limit) {
 }
 
 $rateData[$ip][] = $now;
-@file_put_contents($rateFile, json_encode($rateData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE), LOCK_EX);
+$encodedRateData = json_encode($rateData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+if ($encodedRateData !== false) {
+    rewind($rateHandle);
+    @ftruncate($rateHandle, 0);
+    @fwrite($rateHandle, $encodedRateData);
+    @fflush($rateHandle);
+}
+
+@flock($rateHandle, LOCK_UN);
+}
+
+if ($rateHandle !== false) {
+    @fclose($rateHandle);
+}
 }
 
 if (!isset($_SESSION['last_booking_time'])) {

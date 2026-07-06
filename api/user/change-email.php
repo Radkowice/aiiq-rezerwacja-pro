@@ -49,6 +49,35 @@ if (!isset($_SESSION['user']['id'])) {
     exit;
 }
 
+function userChangeEmailCsrfToken(): string
+{
+    $token = trim((string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+
+    if ($token === '' && function_exists('apache_request_headers')) {
+        $headers = apache_request_headers();
+        $token = trim((string) ($headers['X-CSRF-Token'] ?? $headers['x-csrf-token'] ?? ''));
+    }
+
+    return $token;
+}
+
+function requireUserChangeEmailCsrf(): void
+{
+    $sessionToken = (string) ($_SESSION['csrf'] ?? '');
+    $requestToken = userChangeEmailCsrfToken();
+
+    if ($sessionToken === '' || $requestToken === '' || !hash_equals($sessionToken, $requestToken)) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'csrf_invalid'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
+requireUserChangeEmailCsrf();
+
 $input = json_decode(file_get_contents('php://input'), true);
 $newEmail = trim((string)($input['email'] ?? ''));
 

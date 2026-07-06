@@ -66,13 +66,13 @@ function cron_booking_reminders_provided_secret(): string
         return $headerSecret;
     }
 
-    $querySecret = trim((string)($_GET['secret'] ?? ''));
+    $authorization = cron_booking_reminders_header('Authorization');
 
-    if ($querySecret !== '') {
-        return $querySecret;
+    if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
+        return trim((string)$matches[1]);
     }
 
-    return trim((string)($_POST['secret'] ?? ''));
+    return '';
 }
 
 function cron_booking_reminders_authorized(): bool
@@ -163,7 +163,7 @@ function cron_booking_reminders_fetch_records(string $type, DateTimeImmutable $n
         : 'reminder_same_day_sent_at';
 
     $query = [
-        'select=id,booking_ref,tenant_id,booking_date,booking_time,name,email,service_name_snapshot,staff_id,status,payment_required,payment_status,' . $sentColumn,
+        'select=id,tenant_id,booking_date,booking_time,name,email,service_name_snapshot,staff_id,status,payment_required,payment_status,' . $sentColumn,
         'booking_date=eq.' . rawurlencode($targetDate),
         $sentColumn . '=is.null',
         'status=not.in.(cancelled,canceled,deleted,payment_overdue)',

@@ -76,13 +76,7 @@ function cleanup_get_token_from_request(): string
         return $headerSecret;
     }
 
-    $secret = trim((string) ($_GET['secret'] ?? ''));
-
-    if ($secret !== '') {
-        return $secret;
-    }
-
-    return trim((string) ($_GET['token'] ?? ''));
+    return '';
 }
 
 function cleanup_expected_token(): string

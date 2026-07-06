@@ -70,7 +70,18 @@ function cron_payments_request_secret(): string
         return $headerSecret;
     }
 
-    return trim((string)($_GET['secret'] ?? $_POST['secret'] ?? ''));
+    $authorization = trim((string)($_SERVER['HTTP_AUTHORIZATION'] ?? ''));
+
+    if ($authorization === '' && function_exists('apache_request_headers')) {
+        $headers = apache_request_headers();
+        $authorization = trim((string)($headers['Authorization'] ?? $headers['authorization'] ?? ''));
+    }
+
+    if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
+        return trim((string)$matches[1]);
+    }
+
+    return '';
 }
 
 function cron_payments_expected_secret(): string

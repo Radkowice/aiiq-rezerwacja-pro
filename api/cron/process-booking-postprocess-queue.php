@@ -92,6 +92,14 @@ function booking_postprocess_worker_authorized(): bool
     $expected = trim((string)getenv('BOOKING_POSTPROCESS_CRON_SECRET'));
     $provided = booking_postprocess_worker_header('X-Cron-Secret');
 
+    if ($provided === '') {
+        $authorization = booking_postprocess_worker_header('Authorization');
+
+        if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
+            $provided = trim((string)$matches[1]);
+        }
+    }
+
     return $expected !== '' && $provided !== '' && hash_equals($expected, $provided);
 }
 

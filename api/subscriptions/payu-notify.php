@@ -1010,6 +1010,7 @@ try {
     $now = gmdate('c');
     $safeNotify = subscription_payu_notify_safe_payload($data, true);
     $alreadyProcessed = strtolower(trim((string) ($payment['status'] ?? ''))) === 'paid'
+        && $mappedStatus === 'paid'
         && trim((string) ($payment['processed_at'] ?? '')) !== '';
 
     if ($alreadyProcessed) {

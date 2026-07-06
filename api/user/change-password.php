@@ -20,6 +20,33 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+function userChangePasswordCsrfToken(): string
+{
+    $token = trim((string) ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+
+    if ($token === '' && function_exists('apache_request_headers')) {
+        $headers = apache_request_headers();
+        $token = trim((string) ($headers['X-CSRF-Token'] ?? $headers['x-csrf-token'] ?? ''));
+    }
+
+    return $token;
+}
+
+function requireUserChangePasswordCsrf(): void
+{
+    $sessionToken = (string) ($_SESSION['csrf'] ?? '');
+    $requestToken = userChangePasswordCsrfToken();
+
+    if ($sessionToken === '' || $requestToken === '' || !hash_equals($sessionToken, $requestToken)) {
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'csrf_invalid'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
 if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id']) || empty($_SESSION['user']['email'])) {
     http_response_code(401);
     echo json_encode([
@@ -28,6 +55,8 @@ if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id']) || e
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+requireUserChangePasswordCsrf();
 
 function getClientIpAddress(): string
 {

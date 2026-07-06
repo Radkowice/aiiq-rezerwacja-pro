@@ -75,7 +75,7 @@ function cleanup_runtime_token_from_request(): string
         return trim((string)$matches[1]);
     }
 
-    return trim((string)($_GET['token'] ?? ''));
+    return '';
 }
 
 function cleanup_runtime_authorized(): bool

@@ -41,12 +41,19 @@ async function readAdminResponsePayload(response) {
 }
 
 async function adminRequest(url, options = {}) {
+  const method = String(options.method || 'GET').toUpperCase();
+  const csrfToken = String(window.CSRF_TOKEN || '').trim();
+  const headers = {
+    ...((method !== 'GET' && method !== 'HEAD' && csrfToken) ? { 'X-CSRF-Token': csrfToken } : {}),
+    ...(options.headers || {})
+  };
   let response;
 
   try {
     response = await fetch(url, {
       credentials: 'include',
-      ...options
+      ...options,
+      headers
     });
   } catch (error) {
     throw createAdminRequestError(
@@ -676,9 +683,13 @@ async function showPasswordChangeRateLimitMessage() {
 }
 
 async function fetchPasswordChangeRequest(payload) {
+  const csrfToken = String(window.CSRF_TOKEN || '').trim();
   const response = await fetch('/api/user/change-password.php', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+    },
     credentials: 'include',
     body: JSON.stringify(payload)
   });

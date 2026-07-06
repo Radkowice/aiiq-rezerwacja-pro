@@ -46,7 +46,13 @@ function subscription_reminder_request_secret(): string
         return $headerSecret;
     }
 
-    return trim((string) ($_GET['secret'] ?? ''));
+    $authorization = subscription_reminder_header('Authorization');
+
+    if (preg_match('/^Bearer\s+(.+)$/i', $authorization, $matches)) {
+        return trim((string) $matches[1]);
+    }
+
+    return '';
 }
 
 function subscription_reminder_configured_secret(): string

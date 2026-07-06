@@ -54,13 +54,7 @@ function retention_request_token(): string
         return $headerSecret;
     }
 
-    $secret = trim((string) ($_GET['secret'] ?? ''));
-
-    if ($secret !== '') {
-        return $secret;
-    }
-
-    return trim((string) ($_GET['token'] ?? ''));
+    return '';
 }
 
 function retention_expected_token(): string
