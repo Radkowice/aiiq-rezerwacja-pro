@@ -180,6 +180,9 @@ if (!filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
     exit;
 }
 
+// 🔁 regeneracja ID sesji po pomyślnym uwierzytelnieniu (ochrona przed session fixation)
+session_regenerate_id(true);
+
 $_SESSION['user'] = [
     'id'        => $user['id'],
     'email'     => $user['email'],

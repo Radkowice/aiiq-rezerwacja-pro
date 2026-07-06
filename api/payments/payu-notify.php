@@ -591,6 +591,31 @@ try {
     }
 
    $newStatus = payu_notify_map_status($payuStatus);
+
+    // Idempotencja: jeśli booking ma już zapisany status 'paid', uzupełniony 'paid_at'
+    // ORAZ nowe powiadomienie po zmapowaniu też daje 'paid', traktujemy je jako powtórkę
+    // PayU (retry webhooka) i nie aktualizujemy ponownie rezerwacji ani nie wysyłamy maila.
+    // Notyfikacje CANCELED/pending/unknown nie są blokowane, nawet jeśli booking byl 'paid'.
+    $alreadyProcessedPaid = strtolower(trim((string)($booking['payment_status'] ?? ''))) === 'paid'
+        && trim((string)($booking['paid_at'] ?? '')) !== ''
+        && $newStatus === 'paid';
+
+    if ($alreadyProcessedPaid) {
+        payu_notify_debug('PAYU_NOTIFY_ALREADY_PROCESSED', [
+            'has_booking_id' => $bookingId !== '',
+            'has_order_id' => $orderId !== '',
+            'has_ext_order_id' => $extOrderId !== '',
+            'payu_status' => $payuStatus,
+        ]);
+
+        payu_notify_response([
+            'success' => true,
+            'status' => 'paid',
+            'idempotent' => true,
+            'paid_email_sent' => false,
+        ]);
+    }
+
 $now = gmdate('c');
 
 $payload = [

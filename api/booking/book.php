@@ -2197,7 +2197,9 @@ $formFillTimeRaw = trim((string) ($input['form_fill_time_ms'] ?? ''));
 $termsAcceptedRaw = $input['terms_accepted'] ?? null;
 
 // Anty-spam / blacklist / rate limit
-$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+// Rozwiazanie IP swiadome zaufanego reverse proxy/CDN (spojne z reszta security.php),
+// z zachowaniem oryginalnego fallbacku na REMOTE_ADDR, gdy helper nie zwroci wartosci.
+$ip = security_client_ip() ?? ($_SERVER['REMOTE_ADDR'] ?? 'unknown');
 $bookingLoadTestIpAllowed = booking_load_test_ip_is_allowed($ip);
 
 // Kontrolowany wyjątek testowy: po testach obciążeniowych ENV powinien być pusty lub nieustawiony.
