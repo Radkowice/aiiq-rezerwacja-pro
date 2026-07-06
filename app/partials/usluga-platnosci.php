@@ -151,7 +151,7 @@
           <label>
             <span>Kolejność</span>
             <input type="number" id="service-sort-order" min="0" step="1" value="0" placeholder="10">
-            <small class="service-field-hint">Niższa liczba oznacza wyższą pozycję na liście i na froncie rezerwacji. Zalecane: 10, 20, 30.</small>
+            <small class="service-field-hint">Niższa liczba oznacza wyższą pozycję w kalendarzu rezerwacji.</small>
           </label>
 
           <label>
