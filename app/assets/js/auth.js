@@ -521,18 +521,23 @@ if (themeSelect) {
   });
 }
 
-let isChangingEmail = false;
+let changeEmailInProgress = false;
 const changeEmailFallbackMessage = 'Nie udało się zmienić emaila. Sprawdź dane i spróbuj ponownie.';
 
 function getSafeChangeEmailMessage(errorOrData) {
   const status = Number(errorOrData?.status || 0);
   const data = errorOrData?.data || errorOrData || {};
   const message = String(data?.error || data?.message || errorOrData?.message || '').trim();
+  const csrfErrorPattern = /csrf_invalid|błąd_csrf|blad_csrf/i;
 
   const invalidEmailPattern = /poprawny adres e-?mail|niepoprawny e-?mail|nieprawidłowy e-?mail/i;
 
   if (status === 400 && (!message || invalidEmailPattern.test(message))) {
     return 'Niepoprawny email';
+  }
+
+  if (csrfErrorPattern.test(message)) {
+    return 'Sesja wygasła. Odśwież panel i spróbuj ponownie.';
   }
 
   if (!message) {
@@ -552,8 +557,8 @@ function getSafeChangeEmailMessage(errorOrData) {
 document.getElementById('change-email-btn')?.addEventListener('click', async (e) => {
   e.preventDefault();
 
-  if (isChangingEmail) return;
-  isChangingEmail = true;
+  if (changeEmailInProgress) return;
+  changeEmailInProgress = true;
 
   const btn = document.getElementById('change-email-btn');
   if (btn) btn.disabled = true;
@@ -582,6 +587,18 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
     if (!data) return;
 
     if (data.success === true) {
+      let refreshedEmail = data.email || email;
+
+      if (typeof loadAccountData === 'function') {
+        try {
+          window.adminAccountDataReady = loadAccountData();
+          const refreshedData = await window.adminAccountDataReady;
+          refreshedEmail = refreshedData?.user?.email || refreshedEmail;
+        } catch (refreshError) {
+          console.warn('Could not refresh account data after email change:', refreshError);
+        }
+      }
+
       await window.openAdminConfirm({
         title: 'Sukces',
         message: data.message || 'Email został zmieniony, powiadomienie wysłaliśmy na email',
@@ -593,7 +610,12 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
 
       const accountEmail = document.getElementById('account-email');
       if (accountEmail) {
-        accountEmail.value = data.email || email;
+        accountEmail.value = refreshedEmail;
+      }
+
+      const newEmailInput = document.getElementById('new-email');
+      if (newEmailInput) {
+        newEmailInput.value = '';
       }
 
       return;
@@ -602,7 +624,7 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
     if (data.error) {
       await window.openAdminConfirm({
         title: 'Błąd',
-        message: data.error,
+        message: getSafeChangeEmailMessage(data),
         confirmText: 'OK',
         cancelText: 'Zamknij',
         icon: '✖',
@@ -635,7 +657,7 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
       variant: 'danger'
     });
   } finally {
-    isChangingEmail = false;
+    changeEmailInProgress = false;
     if (btn) btn.disabled = false;
   }
 });

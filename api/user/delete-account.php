@@ -687,6 +687,15 @@ if ($supabaseUrl === '' || $serviceRoleKey === '') {
     exit;
 }
 
+if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $supabaseSchema)) {
+    http_response_code(401);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Sesja nie pasuje do domeny'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 if ($action === 'request_code') {
     accountDeleteCheckRequestRateLimit(
         $tenantId,

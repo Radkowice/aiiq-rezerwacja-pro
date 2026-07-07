@@ -785,67 +785,6 @@ if (saveFormFieldsBtn) {
   });
 }
 
-  // MOJE KONTO — zmiana e-maila
-  const changeEmailBtn = document.getElementById('change-email-btn');
-
-  if (changeEmailBtn) {
-    changeEmailBtn.addEventListener('click', async () => {
-      const startTime = Date.now();
-      const defaultText = 'Zapisz nowy e-mail';
-      const newEmailInput = document.getElementById('new-email');
-      const newEmail = newEmailInput?.value.trim();
-
-      if (!newEmail) {
-        if (accountMessage) {
-          accountMessage.textContent = 'Podaj nowy adres e-mail.';
-          accountMessage.className = 'message error';
-          setTimeout(() => {
-            accountMessage.textContent = '';
-          }, 3000);
-        }
-        return;
-      }
-
-      changeEmailBtn.disabled = true;
-      changeEmailBtn.textContent = 'Zapisywanie zamiany email...';
-
-      try {
-        const result = await apiFetch('/api/user/change-email.php', {
-          method: 'POST',
-          body: JSON.stringify({ email: newEmail })
-        });
-
-        if (accountMessage) {
-          if (result?.success) {
-            accountMessage.textContent = result.message || 'E-mail został zmieniony.';
-            accountMessage.className = 'message success';
-
-            const accountEmail = document.getElementById('account-email');
-            if (accountEmail) accountEmail.value = newEmail;
-            if (newEmailInput) newEmailInput.value = '';
-          } else {
-            accountMessage.textContent =
-              result?.message || result?.error || 'Nie udało się zmienić e-maila.';
-            accountMessage.className = 'message error';
-          }
-        }
-      } catch (error) {
-        if (accountMessage) {
-          accountMessage.textContent = error.message || 'Błąd zmiany e-maila.';
-          accountMessage.className = 'message error';
-        }
-      } finally {
-        if (accountMessage) {
-          setTimeout(() => {
-            accountMessage.textContent = '';
-          }, 3000);
-        }
-
-        finishButtonState(changeEmailBtn, defaultText, startTime, 3000);
-      }
-    });
-  }
-  
   // EMAIL — ustawienia e-mail
  
   // USTAWIENIA — zapis ustawień
