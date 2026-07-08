@@ -581,11 +581,17 @@ function front_bootstrap_build_service(
         && $globalPriceAmount !== null
         && $globalPriceAmount > 0;
 
+    if (!$globalPaymentFeatureEnabled) {
+        $settings['price_amount'] = null;
+        $settings['payment_message'] = '';
+        $settings['payment_provider_enabled'] = false;
+    }
+
     return [
         'service' => $settings,
         'company_full_name' => (string)($settings['company_full_name'] ?? ''),
-        'payu_enabled' => $payuEnabled,
-        'global_payments_enabled' => !empty($settings['payment_required_configured']),
+        'payu_enabled' => $globalPaymentFeatureEnabled && $payuEnabled,
+        'global_payments_enabled' => $globalPaymentFeatureEnabled && !empty($settings['payment_required_configured']),
         'calendar_settings' => $settings,
     ];
 }
@@ -751,8 +757,8 @@ function front_bootstrap_build_services(
             return strcmp((string)($a['display_name'] ?? ''), (string)($b['display_name'] ?? ''));
         });
 
-        $priceAmount = front_bootstrap_price($serviceRow['price_amount'] ?? null);
-        $servicePaymentsEnabled = !empty($serviceRow['payments_enabled']);
+        $priceAmount = $onlinePaymentsEnabled ? front_bootstrap_price($serviceRow['price_amount'] ?? null) : null;
+        $servicePaymentsEnabled = $onlinePaymentsEnabled && !empty($serviceRow['payments_enabled']);
         $paymentRequired = $onlinePaymentsEnabled
             && $payuEnabled
             && $servicePaymentsEnabled
@@ -769,7 +775,7 @@ function front_bootstrap_build_services(
             'price_currency' => (string)($serviceRow['price_currency'] ?? 'PLN'),
             'payments_enabled' => $servicePaymentsEnabled,
             'payment_required' => $paymentRequired,
-            'payment_message' => (string)($serviceRow['payment_message'] ?? ''),
+            'payment_message' => $onlinePaymentsEnabled ? (string)($serviceRow['payment_message'] ?? '') : '',
             'duration' => front_bootstrap_nullable_int($serviceRow['duration_minutes'] ?? null),
             'break_minutes' => front_bootstrap_nullable_int($serviceRow['break_minutes'] ?? null),
             'booking_buffer_minutes' => front_bootstrap_nullable_int($serviceRow['booking_buffer_minutes'] ?? null),

@@ -57,9 +57,9 @@
       </div>
 
       <div class="admin-info-card admin-info-pro-upgrade-card" id="pro-upgrade-card" hidden>
-        <h3>Przejdź na plan Pro</h3>
+        <h3 id="pro-upgrade-title">Przejdź na plan Pro</h3>
 
-        <p class="admin-info-desc">
+        <p class="admin-info-desc pro-upgrade-sales-copy">
           Odblokuj pełne możliwości systemu rezerwacji i zautomatyzuj obsługę klientów bez ręcznego pilnowania wszystkiego.
         </p>
 

@@ -19,83 +19,94 @@ function systemMailEnv(string $key, string $default = ''): string
     return $value !== '' ? $value : $default;
 }
 
+function systemMailIconForTitle(string $title, string $intro = ''): string
+{
+    $text = mb_strtolower($title . ' ' . $intro, 'UTF-8');
+
+    if (str_contains($text, 'płat') || str_contains($text, 'plat') || str_contains($text, 'abonament') || str_contains($text, 'pro')) {
+        return '💳';
+    }
+
+    if (str_contains($text, 'usu')) {
+        return '⚠️';
+    }
+
+    if (str_contains($text, 'hasł') || str_contains($text, 'hasl') || str_contains($text, 'bezpieczeń') || str_contains($text, 'bezpieczen')) {
+        return '🔐';
+    }
+
+    if (str_contains($text, 'email') || str_contains($text, 'e-mail') || str_contains($text, 'wiadomo')) {
+        return '✉️';
+    }
+
+    if (str_contains($text, 'aktyw') || str_contains($text, 'konto')) {
+        return '✅';
+    }
+
+    if (str_contains($text, 'rezerwac')) {
+        return '📅';
+    }
+
+    return '📬';
+}
+
 function buildSystemMailLayout(string $title, string $intro, string $messageHtml, string $footerNote = ''): string
 {
-    $appName = htmlspecialchars(systemMailEnv('SMTP_SYSTEM_NAME', 'AI-IQ'), ENT_QUOTES, 'UTF-8');
+    $icon = htmlspecialchars(systemMailIconForTitle($title, $intro), ENT_QUOTES, 'UTF-8');
     $footerNote = trim($footerNote);
 
     $footerHtml = $footerNote !== ''
-        ? '<p style="margin:12px 0 0;font-size:12px;line-height:1.6;color:#7b8794;">' . htmlspecialchars($footerNote, ENT_QUOTES, 'UTF-8') . '</p>'
+        ? '<p style="margin:10px 0 0 0;font-size:12px;line-height:1.6;color:#607284;">' . htmlspecialchars($footerNote, ENT_QUOTES, 'UTF-8') . '</p>'
         : '';
 
-    return '<!doctype html>
-<html lang="pl">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</title>
-</head>
-<body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f7fb;margin:0;padding:24px 12px;">
-        <tr>
-            <td align="center">
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="max-width:640px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #e5e7eb;">
-                    <tr>
-                        <td align="center" style="background:linear-gradient(135deg,#111827 0%,#1f2937 100%);padding:28px 32px;text-align:center;">
-                            <div style="font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;font-weight:bold;text-align:center;">
-                                ' . $appName . '
-                            </div>
-                            <div style="margin:12px auto 0;font-size:42px;line-height:1;text-align:center;" aria-hidden="true">
-                                📩
-                            </div>
-                            <div style="margin:10px auto 0;font-size:28px;line-height:1.25;font-weight:700;color:#ffffff;text-align:center;">
-                                ' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '
-                            </div>
-                            <div style="margin:10px auto 0;font-size:15px;line-height:1.7;color:#e5e7eb;text-align:center;">
-                                ' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '
-                            </div>
-                        </td>
-                    </tr>
+    return '<!doctype html>'
+        . '<html lang="pl">'
+        . '<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0"><title>' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</title></head>'
+        . '<body style="margin:0;padding:0;background:#f4f7fb;">'
+        . '<div style="margin:0;padding:0;background:#f4f7fb;">'
+        . '<div style="max-width:640px;margin:0 auto;background:#ffffff;font-family:Arial,sans-serif;color:#17324d;">'
+        . '<div style="background:linear-gradient(135deg,#071b2d,#0f2d47);padding:32px 24px;text-align:center;color:#ffffff;">'
+        . '<div style="font-size:42px;line-height:1;margin-bottom:12px;" aria-hidden="true">' . $icon . '</div>'
+        . '<h1 style="margin:0;font-size:28px;line-height:1.25;">' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</h1>'
+        . '<p style="margin:12px 0 0 0;font-size:16px;line-height:1.55;opacity:0.95;">' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '</p>'
+        . '</div>'
+        . '<div style="padding:32px 24px;">'
+        . '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:0 0 24px 0;">'
+        . '<div style="font-size:16px;line-height:1.8;color:#17324d;">' . $messageHtml . '</div>'
+        . '</div>'
+        . '<p style="margin:24px 0 0 0;font-size:14px;line-height:1.6;color:#4f6478;">🔒 Wiadomość systemowa AI-IQ Rezerwacja Pro. Prosimy nie odpowiadać na tę wiadomość.</p>'
+        . $footerHtml
+        . '</div>'
+        . '<div style="background:#eef3f8;padding:18px 24px;font-size:12px;color:#607284;text-align:center;">'
+        . 'Obsługiwane przez <a href="https://ai-iq.pl" target="_blank" style="color:#607284;text-decoration:none;font-weight:600;">AI-IQ</a> | Inteligentne automatyzacje'
+        . '</div>'
+        . '</div>'
+        . '</div>'
+        . '</body></html>';
+}
+function buildEmailChangeCodeHtml(string $code, string $oldEmail, string $newEmail): string
+{
+    $oldEmailEsc = htmlspecialchars($oldEmail, ENT_QUOTES, 'UTF-8');
+    $newEmailEsc = htmlspecialchars($newEmail, ENT_QUOTES, 'UTF-8');
 
-                    <tr>
-                        <td style="padding:32px;">
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:14px;">
-                                <tr>
-                                    <td style="padding:22px 22px 18px 22px;">
-                                        <div style="font-size:16px;line-height:1.8;color:#111827;">
-                                            ' . $messageHtml . '
-                                        </div>
-                                    </td>
-                                </tr>
-                            </table>
+    $message = ''
+        . '<p style="margin:0 0 14px;"><strong>Otrzymaliśmy prośbę o zmianę adresu e-mail konta.</strong></p>'
+        . '<p style="margin:0 0 10px;">Obecny adres: <strong>' . $oldEmailEsc . '</strong></p>'
+        . '<p style="margin:0 0 10px;">Nowy adres: <strong>' . $newEmailEsc . '</strong></p>'
+        . '<p style="margin:0 0 10px;">Aby potwierdzić zmianę, wpisz poniższy kod w panelu:</p>'
+        . '<div style="margin:22px 0;padding:18px 20px;background:#111827;color:#ffffff;'
+        . 'font-size:32px;font-weight:700;letter-spacing:0.25em;text-align:center;border-radius:14px;">'
+        . htmlspecialchars($code, ENT_QUOTES, 'UTF-8')
+        . '</div>'
+        . '<p style="margin:0 0 10px;">Kod jest ważny przez <strong>10 minut</strong>.</p>'
+        . '<p style="margin:10px 0 0;">Jeśli to nie Ty inicjowałeś zmianę, zignoruj tę wiadomość i zabezpiecz konto.</p>';
 
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:22px;">
-                                <tr>
-                                    <td style="font-size:14px;line-height:1.8;color:#4b5563;">
-                                        <p style="margin:0 0 10px;"><strong>🔒 Wiadomość systemowa</strong></p>
-                                        <p style="margin:0;">
-                                            Email został wysłany automatycznie przez system. Prosimy nie odpowiadać na tę wiadomość — ta skrzynka nie jest monitorowana.
-                                        </p>
-                                        ' . $footerHtml . '
-                                    </td>
-                                </tr>
-                            </table>
-                        </td>
-                    </tr>
-
-                   <tr>
-    <td style="padding:18px 32px;background:#eef2f7;border-top:1px solid #e5e7eb;text-align:center;">
-        <div style="font-size:12px;line-height:1.6;color:#6b7280;">
-            © ' . date('Y') . ' AI-IQ | Inteligentne systemy ·
-            <a href="https://www.ai-iq.pl" target="_blank" rel="noopener noreferrer" style="color:#6b7280;text-decoration:none;">
-                Powiadomienie systemowe
-            </a>
-        </div>
-    </td>
-</tr>
-    </table>
-</body>
-</html>';
+    return buildSystemMailLayout(
+        'Kod potwierdzenia zmiany e-maila',
+        'To wiadomość systemowa dotycząca bezpieczeństwa Twojego konta.',
+        $message,
+        'Nie odpowiadaj na tę wiadomość. Skrzynka nie jest monitorowana.'
+    );
 }
 
 function buildEmailChangeOldAddressHtml(string $oldEmail, string $newEmail): string
@@ -104,17 +115,17 @@ function buildEmailChangeOldAddressHtml(string $oldEmail, string $newEmail): str
     $newEmailEsc = htmlspecialchars($newEmail, ENT_QUOTES, 'UTF-8');
 
     $message = ''
-        . '<p style="margin:0 0 14px;"><strong>📩 Zmieniono adres email przypisany do Twojego konta.</strong></p>'
+        . '<p style="margin:0 0 14px;"><strong>📩 Zmieniono adres e-mail przypisany do Twojego konta.</strong></p>'
         . '<p style="margin:0 0 10px;">Poprzedni adres: <strong>' . $oldEmailEsc . '</strong></p>'
         . '<p style="margin:0 0 10px;">Nowy adres: <strong>' . $newEmailEsc . '</strong></p>'
         . '<p style="margin:16px 0 0;">Jeśli to była Twoja zmiana, nie musisz nic robić.</p>'
         . '<p style="margin:10px 0 0;">Jeśli nie rozpoznajesz tej operacji, jak najszybciej zabezpiecz konto.</p>';
 
     return buildSystemMailLayout(
-        'Zmiana adresu email',
-        'Wykryto zmianę adresu email na Twoim koncie.',
+        'Zmiana adresu e-mail',
+        'Wykryto zmianę adresu e-mail na Twoim koncie.',
         $message,
-        'To powiadomienie trafiło na poprzedni adres email, aby zwiększyć bezpieczeństwo konta.'
+        'To powiadomienie trafiło na poprzedni adres e-mail, aby zwiększyć bezpieczeństwo konta.'
     );
 }
 
@@ -124,13 +135,13 @@ function buildEmailChangeNewAddressHtml(string $oldEmail, string $newEmail): str
     $newEmailEsc = htmlspecialchars($newEmail, ENT_QUOTES, 'UTF-8');
 
     $message = ''
-        . '<p style="margin:0 0 14px;"><strong>✅ Twój nowy adres email został ustawiony poprawnie.</strong></p>'
+        . '<p style="margin:0 0 14px;"><strong>✅ Twój nowy adres e-mail został ustawiony poprawnie.</strong></p>'
         . '<p style="margin:0 0 10px;">Poprzedni adres: <strong>' . $oldEmailEsc . '</strong></p>'
         . '<p style="margin:0 0 10px;">Nowy adres: <strong>' . $newEmailEsc . '</strong></p>'
         . '<p style="margin:16px 0 0;">Od teraz ten adres będzie używany do komunikacji dotyczącej konta.</p>';
 
     return buildSystemMailLayout(
-        'Potwierdzenie zmiany email',
+        'Potwierdzenie zmiany e-maila',
         'To potwierdzenie zostało wysłane na nowo ustawiony adres.',
         $message,
         'Zachowaj tę wiadomość na wypadek późniejszej weryfikacji zmian na koncie.'

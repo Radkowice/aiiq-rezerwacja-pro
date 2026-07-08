@@ -81,6 +81,15 @@ function publicPlanHasFeature(featureKey) {
   return context.features[featureKey] === true;
 }
 
+function applyPublicPlanClass(planContext = null) {
+  const root = document.documentElement;
+  const context = planContext || null;
+  const isFree = context?.is_free === true || context?.plan_code === 'free';
+
+  root.classList.remove('front-plan-free', 'front-plan-pro');
+  root.classList.add(isFree ? 'front-plan-free' : 'front-plan-pro');
+}
+
 function setFrontLegalConsentVisible(isVisible) {
   const consentWrap = getEl('frontLegalConsent');
   const termsConsentInput = getEl('termsConsent');
@@ -385,6 +394,7 @@ async function loadFrontBranding() {
 
   const branding = data.branding;
   window.AIIQ_PUBLIC_PLAN_CONTEXT = data.plan_context || null;
+  applyPublicPlanClass(data.plan_context || null);
 
 const clientName = (branding.client_name || '').trim();
 const logoUrl = (branding.logo_url_front || '').trim();
@@ -2347,6 +2357,7 @@ if (FRONT_STAFF_REQUIRED) {
 
 function applyFrontBrandingData(branding = {}, planContext = null) {
   window.AIIQ_PUBLIC_PLAN_CONTEXT = planContext || null;
+  applyPublicPlanClass(planContext);
 
   const clientName = String(branding.client_name || '').trim();
   const logoUrl = String(branding.logo_url_front || '').trim();

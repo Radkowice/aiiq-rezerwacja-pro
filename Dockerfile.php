@@ -14,3 +14,5 @@ RUN apk add --no-cache \
     && docker-php-ext-configure gd --with-freetype --with-jpeg --with-webp \
     && docker-php-ext-install -j$(nproc) gd \
     && apk del .build-deps
+
+COPY php/production-security.ini /usr/local/etc/php/conf.d/99-production-security.ini

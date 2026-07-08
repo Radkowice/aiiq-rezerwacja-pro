@@ -325,8 +325,8 @@ foreach ($serviceRows as $serviceRow) {
         return strcmp((string) ($a['display_name'] ?? ''), (string) ($b['display_name'] ?? ''));
     });
 
-    $priceAmount = public_services_price($serviceRow['price_amount'] ?? null);
-    $servicePaymentsEnabled = !empty($serviceRow['payments_enabled']);
+    $priceAmount = $onlinePaymentsEnabled ? public_services_price($serviceRow['price_amount'] ?? null) : null;
+    $servicePaymentsEnabled = $onlinePaymentsEnabled && !empty($serviceRow['payments_enabled']);
     $paymentRequired = $onlinePaymentsEnabled
         && $payuEnabled
         && $servicePaymentsEnabled
@@ -342,7 +342,7 @@ foreach ($serviceRows as $serviceRow) {
         'price_currency' => (string) ($serviceRow['price_currency'] ?? 'PLN'),
         'payments_enabled' => $servicePaymentsEnabled,
         'payment_required' => $paymentRequired,
-        'payment_message' => (string) ($serviceRow['payment_message'] ?? ''),
+        'payment_message' => $onlinePaymentsEnabled ? (string) ($serviceRow['payment_message'] ?? '') : '',
         'duration' => public_services_nullable_int($serviceRow['duration_minutes'] ?? null),
         'break_minutes' => public_services_nullable_int($serviceRow['break_minutes'] ?? null),
         'booking_buffer_minutes' => public_services_nullable_int($serviceRow['booking_buffer_minutes'] ?? null),

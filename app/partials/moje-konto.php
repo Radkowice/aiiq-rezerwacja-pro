@@ -34,16 +34,42 @@
     </div>
 
     <div class="admin-card">
-      <h3>Zmiana email</h3>
+      <h3>Zmiana e-maila</h3>
 
       <div class="form-group">
         <label for="new-email">Nowy e-mail</label>
         <input type="email" id="new-email" placeholder="Podaj nowy adres e-mail" autocomplete="off">
       </div>
 
+      <div class="form-group">
+        <label for="change-email-password">Aktualne hasło</label>
+        <div class="password-field">
+          <input type="password" id="change-email-password" autocomplete="off" placeholder="Wpisz aktualne hasło">
+          <button type="button" class="toggle-password" data-target="change-email-password" aria-label="Pokaż lub ukryj hasło">👁</button>
+        </div>
+      </div>
+
       <button class="btn" type="button" id="change-email-btn">
-        Zapisz nowy e-mail
+        Wyślij kod potwierdzający
       </button>
+
+      <div id="email-code-section" class="hidden">
+        <div class="form-group">
+          <label for="email-change-code">Kod z e-maila</label>
+          <input type="text" id="email-change-code" maxlength="6" inputmode="numeric" placeholder="Wpisz 6-cyfrowy kod">
+        </div>
+
+        <div id="email-code-timer" class="password-code-timer"></div>
+
+        <div class="form-group">
+          <button class="btn" type="button" id="confirm-email-code-btn">
+            Potwierdź kod
+          </button>
+          <button class="btn" type="button" id="resend-email-code-btn">
+            Wyślij ponownie
+          </button>
+        </div>
+      </div>
     </div>
 
     <div class="admin-card">

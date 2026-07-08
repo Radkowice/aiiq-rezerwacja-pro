@@ -5,6 +5,7 @@
     services: [],
     staff: [],
     globalSettings: {},
+    planContext: {},
     selectedRef: null,
     loading: false,
     saving: false,
@@ -208,6 +209,7 @@
         method: 'GET',
         cache: options.forceRefresh ? 'no-store' : 'default',
       });
+      state.planContext = data.plan_context || {};
       fillGlobalSettings(data.settings || {});
     } catch (error) {
       fillGlobalSettings({});
@@ -310,12 +312,49 @@
     setFieldValue(els.globalPaymentTimeLimitValue, normalizePaymentTimeLimitValue(settings.payment_time_limit_value));
     setFieldValue(els.globalPaymentTimeLimitUnit, normalizePaymentTimeLimitUnit(settings.payment_time_limit_unit));
     setFieldValue(els.globalPaymentMessage, settings.payment_message || '');
+    updatePaymentFieldsAvailability();
+  }
+
+  function servicePaymentsAllowed() {
+    const features = state.planContext?.features || {};
+    return features.online_payments === true && features.payu === true;
+  }
+
+  function updatePaymentFieldsAvailability() {
+    const allowed = servicePaymentsAllowed();
+
+    [
+      els.globalPrice,
+      els.globalCurrency,
+      els.globalPaymentRequired,
+      els.globalPaymentTimeLimitValue,
+      els.globalPaymentTimeLimitUnit,
+      els.globalPaymentMessage,
+      els.priceAmount,
+      els.priceCurrency,
+      els.paymentsEnabled,
+      els.paymentMessage,
+    ].forEach((field) => {
+      if (field) field.disabled = !allowed;
+    });
+
+    if (!allowed) {
+      setCheckboxValue(els.globalPaymentRequired, false);
+      setCheckboxValue(els.paymentsEnabled, false);
+    }
   }
 
   function readGlobalSettingsPayload() {
+    if (!servicePaymentsAllowed()) {
+      return {
+        service_name: els.globalName.value.trim(),
+        service_description: els.globalDescription.value.trim(),
+      };
+    }
+
     const priceCurrency = (els.globalCurrency.value.trim() || 'PLN').toUpperCase();
     const priceAmount = readMoneyValue(els.globalPrice, 'Globalna cena');
-    const paymentRequired = Boolean(els.globalPaymentRequired.checked);
+    const paymentRequired = servicePaymentsAllowed() && Boolean(els.globalPaymentRequired.checked);
     const paymentTimeLimitValue = readInteger(els.globalPaymentTimeLimitValue, 'Termin płatności', 1);
     const paymentTimeLimitUnit = els.globalPaymentTimeLimitUnit.value;
 
@@ -738,6 +777,7 @@
     }
 
     renderStaffCheckboxes(selected ? selected.staffRefs : []);
+    updatePaymentFieldsAvailability();
   }
 
   function renderStaffCheckboxes(selectedStaffRefs) {
@@ -804,9 +844,10 @@
     }
 
     const sortOrder = readInteger(els.sortOrder, 'Kolejność', 0, 1000000);
-    const priceAmount = readPrice();
-    const priceCurrency = (els.priceCurrency.value.trim() || 'PLN').toUpperCase();
-    const paymentsEnabled = Boolean(els.paymentsEnabled.checked);
+    const paymentsAllowed = servicePaymentsAllowed();
+    const priceAmount = paymentsAllowed ? readPrice() : null;
+    const priceCurrency = paymentsAllowed ? (els.priceCurrency.value.trim() || 'PLN').toUpperCase() : 'PLN';
+    const paymentsEnabled = paymentsAllowed && Boolean(els.paymentsEnabled.checked);
 
     if (name === '') {
       throw new Error('Wpisz nazwę usługi.');

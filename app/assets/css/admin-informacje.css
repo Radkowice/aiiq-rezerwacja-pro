@@ -335,6 +335,12 @@
   color: var(--color-muted);
 }
 
+.admin-info-pro-upgrade-card.is-renewal .pro-upgrade-sales-copy,
+.admin-info-pro-upgrade-card.is-renewal .pro-upgrade-benefits-intro,
+.admin-info-pro-upgrade-card.is-renewal .pro-upgrade-benefits {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .admin-info-row:has(.admin-info-input) {
     grid-template-columns: 1fr;

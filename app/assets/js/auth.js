@@ -522,7 +522,8 @@ if (themeSelect) {
 }
 
 let changeEmailInProgress = false;
-const changeEmailFallbackMessage = 'Nie udało się zmienić emaila. Sprawdź dane i spróbuj ponownie.';
+let confirmEmailInProgress = false;
+const changeEmailFallbackMessage = 'Nie udało się zmienić e-maila. Sprawdź dane i spróbuj ponownie.';
 
 function getSafeChangeEmailMessage(errorOrData) {
   const status = Number(errorOrData?.status || 0);
@@ -533,7 +534,7 @@ function getSafeChangeEmailMessage(errorOrData) {
   const invalidEmailPattern = /poprawny adres e-?mail|niepoprawny e-?mail|nieprawidłowy e-?mail/i;
 
   if (status === 400 && (!message || invalidEmailPattern.test(message))) {
-    return 'Niepoprawny email';
+    return 'Niepoprawny e-mail';
   }
 
   if (csrfErrorPattern.test(message)) {
@@ -554,22 +555,52 @@ function getSafeChangeEmailMessage(errorOrData) {
   return message;
 }
 
-document.getElementById('change-email-btn')?.addEventListener('click', async (e) => {
-  e.preventDefault();
+let emailTimerInterval = null;
+let emailTimeLeft = 0;
 
+function startEmailTimer(duration = 600) {
+  emailTimeLeft = duration;
+
+  const timerEl = document.getElementById('email-code-timer');
+
+  if (!timerEl) return;
+
+  if (emailTimerInterval) {
+    clearInterval(emailTimerInterval);
+  }
+
+  emailTimerInterval = setInterval(() => {
+    const minutes = Math.floor(emailTimeLeft / 60);
+    const seconds = emailTimeLeft % 60;
+
+    timerEl.textContent = `Kod ważny jeszcze: ${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+    if (emailTimeLeft <= 0) {
+      clearInterval(emailTimerInterval);
+      timerEl.textContent = 'Kod wygasł. Kliknij „Wyślij ponownie”.';
+    }
+
+    emailTimeLeft--;
+  }, 1000);
+}
+
+async function requestEmailChangeCode(successTitle, successMessage) {
   if (changeEmailInProgress) return;
   changeEmailInProgress = true;
 
   const btn = document.getElementById('change-email-btn');
+  const resendBtn = document.getElementById('resend-email-code-btn');
   if (btn) btn.disabled = true;
+  if (resendBtn) resendBtn.disabled = true;
 
   try {
-    const email = document.getElementById('new-email').value.trim();
+    const email = document.getElementById('new-email')?.value.trim() || '';
+    const current_password = document.getElementById('change-email-password')?.value || '';
 
-    if (!email) {
+    if (!email || !current_password) {
       await window.openAdminConfirm({
         title: 'Brak danych',
-        message: 'Podaj nowy email',
+        message: 'Podaj nowy e-mail i aktualne hasło',
         confirmText: 'OK',
         cancelText: 'Zamknij',
         icon: '⚠️',
@@ -581,67 +612,42 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
     const data = await apiFetch('/api/user/change-email.php', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email })
+      body: JSON.stringify({ email, current_password })
     });
 
     if (!data) return;
 
     if (data.success === true) {
-      let refreshedEmail = data.email || email;
-
-      if (typeof loadAccountData === 'function') {
-        try {
-          window.adminAccountDataReady = loadAccountData();
-          const refreshedData = await window.adminAccountDataReady;
-          refreshedEmail = refreshedData?.user?.email || refreshedEmail;
-        } catch (refreshError) {
-          console.warn('Could not refresh account data after email change:', refreshError);
-        }
-      }
-
       await window.openAdminConfirm({
-        title: 'Sukces',
-        message: data.message || 'Email został zmieniony, powiadomienie wysłaliśmy na email',
+        title: successTitle,
+        message: successMessage || data.message || 'Wysłaliśmy kod potwierdzający na nowy adres e-mail.',
         confirmText: 'OK',
         cancelText: 'Zamknij',
-        icon: '✅',
+        icon: '✉️',
         variant: 'primary'
       });
 
-      const accountEmail = document.getElementById('account-email');
-      if (accountEmail) {
-        accountEmail.value = refreshedEmail;
+      const codeSection = document.getElementById('email-code-section');
+
+      if (codeSection) {
+        codeSection.classList.remove('hidden');
+        codeSection.style.display = 'block';
+        codeSection.scrollIntoView({ behavior: 'smooth' });
+        document.getElementById('email-change-code')?.focus();
+        startEmailTimer(600);
       }
 
-      const newEmailInput = document.getElementById('new-email');
-      if (newEmailInput) {
-        newEmailInput.value = '';
-      }
-
-      return;
-    }
-
-    if (data.error) {
-      await window.openAdminConfirm({
-        title: 'Błąd',
-        message: getSafeChangeEmailMessage(data),
-        confirmText: 'OK',
-        cancelText: 'Zamknij',
-        icon: '✖',
-        variant: 'danger'
-      });
       return;
     }
 
     await window.openAdminConfirm({
       title: 'Błąd',
-      message: 'Nieprawidłowa odpowiedź serwera',
+      message: getSafeChangeEmailMessage(data),
       confirmText: 'OK',
       cancelText: 'Zamknij',
       icon: '✖',
       variant: 'danger'
     });
-
   } catch (e) {
     console.error(e);
 
@@ -658,6 +664,110 @@ document.getElementById('change-email-btn')?.addEventListener('click', async (e)
     });
   } finally {
     changeEmailInProgress = false;
+    if (btn) btn.disabled = false;
+    if (resendBtn) resendBtn.disabled = false;
+  }
+}
+
+document.getElementById('change-email-btn')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+
+  await requestEmailChangeCode(
+    'Kod wysłany',
+    'Wysłaliśmy kod na nowy adres e-mail. Wpisz go poniżej, aby potwierdzić zmianę.'
+  );
+});
+
+document.getElementById('resend-email-code-btn')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+
+  await requestEmailChangeCode(
+    'Nowy kod wysłany',
+    'Nowy kod został wysłany na nowy adres e-mail.'
+  );
+});
+
+document.getElementById('confirm-email-code-btn')?.addEventListener('click', async (e) => {
+  e.preventDefault();
+
+  if (confirmEmailInProgress) return;
+  confirmEmailInProgress = true;
+
+  const btn = document.getElementById('confirm-email-code-btn');
+  if (btn) btn.disabled = true;
+
+  try {
+    const code = document.getElementById('email-change-code')?.value.trim() || '';
+
+    if (!/^\d{6}$/.test(code)) {
+      await window.openAdminConfirm({
+        title: 'Błąd',
+        message: 'Kod jest nieprawidłowy lub nieważny.',
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        icon: '✖',
+        variant: 'danger'
+      });
+      return;
+    }
+
+    const data = await apiFetch('/api/user/confirm-email-change.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code })
+    });
+
+    if (!data) return;
+
+    if (data.success === true) {
+      const changedEmail = data.email || document.getElementById('new-email')?.value.trim() || '';
+      const accountEmail = document.getElementById('account-email');
+
+      if (accountEmail) {
+        accountEmail.value = changedEmail;
+      }
+
+      document.getElementById('email-code-section')?.classList.add('hidden');
+      document.getElementById('email-change-code').value = '';
+      document.getElementById('new-email').value = '';
+      document.getElementById('change-email-password').value = '';
+
+      await window.openAdminConfirm({
+        title: 'Sukces',
+        message: data.message || 'E-mail został zmieniony',
+        confirmText: 'OK',
+        cancelText: 'Zamknij',
+        icon: '✅',
+        variant: 'primary'
+      });
+
+      return;
+    }
+
+    await window.openAdminConfirm({
+      title: 'Błąd',
+      message: getSafeChangeEmailMessage(data),
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✖',
+      variant: 'danger'
+    });
+  } catch (e) {
+    console.error(e);
+
+    const status = Number(e?.status || 0);
+    const isControlledError = [400, 401, 403, 409, 410, 422, 429].includes(status);
+
+    await window.openAdminConfirm({
+      title: isControlledError ? 'Błąd' : 'Błąd połączenia',
+      message: isControlledError ? getSafeChangeEmailMessage(e) : 'Nie udało się połączyć z serwerem',
+      confirmText: 'OK',
+      cancelText: 'Zamknij',
+      icon: '✖',
+      variant: 'danger'
+    });
+  } finally {
+    confirmEmailInProgress = false;
     if (btn) btn.disabled = false;
   }
 });
@@ -867,13 +977,13 @@ document.getElementById('change-password-btn')?.addEventListener('click', async 
   try {
     await requestPasswordChangeCode(
       'Kod wysłany',
-      'Wysłaliśmy kod na Twój email. Wpisz go poniżej, aby zmienić hasło.'
+      'Wysłaliśmy kod na Twój e-mail. Wpisz go poniżej, aby zmienić hasło.'
     );
 
   } catch (e) {
     await window.openAdminConfirm({
       title: 'Błąd połączenia',
-      message: 'Wystąpił problem z odpowiedzią serwera. Jeśli kod został wysłany, sprawdź email i wpisz go poniżej.',
+      message: 'Wystąpił problem z odpowiedzią serwera. Jeśli kod został wysłany, sprawdź e-mail i wpisz go poniżej.',
       confirmText: 'OK',
       cancelText: 'Zamknij',
       icon: '✖',
@@ -903,7 +1013,7 @@ document.getElementById('resend-password-code-btn')?.addEventListener('click', a
   } catch (e) {
     await window.openAdminConfirm({
       title: 'Błąd połączenia',
-      message: 'Wystąpił problem z odpowiedzią serwera. Jeśli kod został wysłany, sprawdź email i wpisz go poniżej.',
+      message: 'Wystąpił problem z odpowiedzią serwera. Jeśli kod został wysłany, sprawdź e-mail i wpisz go poniżej.',
       confirmText: 'OK',
       cancelText: 'Zamknij',
       icon: '✖',
@@ -934,9 +1044,13 @@ async function showPasswordCodeInvalidMessage() {
 }
 
 async function fetchPasswordCodeConfirmation(code) {
+  const csrfToken = String(window.CSRF_TOKEN || '').trim();
   const response = await fetch('/api/user/confirm-password-change.php', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {})
+    },
     credentials: 'include',
     body: JSON.stringify({ code })
   });

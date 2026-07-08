@@ -8,6 +8,47 @@ function system_subscription_mail_escape(?string $value): string
     return htmlspecialchars(trim((string) $value), ENT_QUOTES, 'UTF-8');
 }
 
+function buildSubscriptionDowngradedToFreeMailHtml(array $subscription, array $lastPaidPro, array $context): string
+{
+    $panelUrl = system_subscription_mail_panel_url($context);
+
+    if ($panelUrl !== '' && preg_match('#/logowanie\.html$#i', $panelUrl) !== 1) {
+        $panelUrl = rtrim($panelUrl, '/') . '/logowanie.html';
+    }
+
+    $companyName = trim((string) ($context['company_name'] ?? ''));
+    $periodEnd = trim((string) ($subscription['current_period_end'] ?? ''));
+
+    if ($periodEnd === '') {
+        $periodEnd = trim((string) ($lastPaidPro['subscription_period_end'] ?? ''));
+    }
+
+    $periodEndLabel = system_subscription_mail_format_date($periodEnd);
+    $graceDays = is_numeric($subscription['grace_period_days'] ?? null)
+        ? max(0, (int) $subscription['grace_period_days'])
+        : 30;
+    $graceLabel = $graceDays > 0
+        ? $graceDays . ' ' . ($graceDays === 1 ? 'dzień' : 'dni')
+        : '';
+
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Twój plan Pro został zmieniony na Free z powodu braku płatności. Funkcje Pro są teraz niedostępne.</p>'
+        . system_subscription_mail_info_card('⚠️', 'Status', 'Plan Pro został zmieniony na Free')
+        . system_subscription_mail_info_card('🧾', 'Ostatni opłacony okres Pro', $periodEndLabel)
+        . system_subscription_mail_info_card('🛡️', 'Okres ochronny', $graceLabel, 'Dane i konfiguracje Pro są jeszcze tymczasowo chronione przez okres ochronny.')
+        . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
+        . system_subscription_mail_info_card('🔗', 'Panel', $panelUrl)
+        . '<p style="margin:18px 0 0 0;font-size:16px;line-height:1.6;color:#17324d;">Przedłuż abonament, aby zachować ustawienia i odzyskać pełny dostęp.</p>'
+        . system_subscription_mail_button($panelUrl, 'Przedłuż abonament');
+
+    return system_subscription_mail_layout(
+        'Twój plan Pro został zmieniony na Free',
+        'Informacja abonamentowa AI-IQ Rezerwacja Pro.',
+        '⚠️',
+        $body,
+        'Ten e-mail został wysłany po zakończeniu opłaconego okresu Pro i okresu ochronnego.'
+    );
+}
+
 function system_subscription_mail_url(?string $domain): string
 {
     $domain = strtolower(trim((string) $domain));
@@ -156,6 +197,10 @@ function system_subscription_mail_details_table(array $rows): string
 
 function system_subscription_mail_layout(string $headline, string $intro, string $icon, string $bodyHtml, string $footerNote = ''): string
 {
+    if (function_exists('systemMailIconForTitle')) {
+        $icon = systemMailIconForTitle($headline, $intro);
+    }
+
     $footerNote = trim($footerNote);
     $footerHtml = $footerNote !== ''
         ? '<p style="margin:10px 0 0 0;font-size:12px;line-height:1.6;color:#607284;">' . system_subscription_mail_escape($footerNote) . '</p>'

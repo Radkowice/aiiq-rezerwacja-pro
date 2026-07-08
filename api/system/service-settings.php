@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -43,6 +44,8 @@ if (!isset($_SESSION['user']['tenant_id'])) {
 
 $tenantId = (string) $_SESSION['user']['tenant_id'];
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
+$planContext = plan_features_get_context($tenantId);
+$servicePaymentsAllowed = tenant_has_feature($tenantId, 'online_payments') && tenant_has_feature($tenantId, 'payu');
 
 $supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
@@ -246,6 +249,7 @@ if ($method === 'GET') {
     sendServiceSettingsJson([
         'success' => true,
         'settings' => serviceSettingsPublicSettings($settings),
+        'plan_context' => $planContext,
     ]);
 }
 
@@ -354,16 +358,16 @@ if ($isCompanyInfoSave) {
   }
 
     $priceAmountRaw = str_replace(',', '.', (string) ($input['price_amount'] ?? '0'));
-    $priceAmount = is_numeric($priceAmountRaw) ? (float) $priceAmountRaw : 0.0;
+    $priceAmount = $servicePaymentsAllowed && is_numeric($priceAmountRaw) ? (float) $priceAmountRaw : 0.0;
 
-    if ($priceAmount < 0) {
+    if ($servicePaymentsAllowed && $priceAmount < 0) {
         sendServiceSettingsJson([
             'success' => false,
             'error' => 'Cena nie może być ujemna.'
         ], 422);
     }
 
-    $paymentTimeLimitRaw = $input['payment_time_limit_value'] ?? 48;
+    $paymentTimeLimitRaw = $servicePaymentsAllowed ? ($input['payment_time_limit_value'] ?? 48) : 48;
 
     if (is_string($paymentTimeLimitRaw) && trim($paymentTimeLimitRaw) === '') {
         sendServiceSettingsJson([
@@ -395,21 +399,24 @@ if ($isCompanyInfoSave) {
     if ($priceCurrency !== 'PLN') {
         $priceCurrency = 'PLN';
     }
-$payload = [[
+$payloadItem = [
     'tenant_id' => $tenantId,
 
     'service_name' => normalizeServiceText($input['service_name'] ?? null, 255),
     'service_description' => normalizeServiceText($input['service_description'] ?? null, 1500),
-    'price_amount' => $priceAmount,
-    'price_currency' => $priceCurrency,
-
-    'payment_required' => !empty($input['payment_required']),
-    'payment_time_limit_value' => $paymentTimeLimitValue,
-    'payment_time_limit_unit' => $paymentTimeLimitUnit,
-    'payment_message' => normalizeServiceText($input['payment_message'] ?? null, 1500),
-
     'updated_at' => gmdate('c'),
-]];
+];
+
+if ($servicePaymentsAllowed) {
+    $payloadItem['price_amount'] = $priceAmount;
+    $payloadItem['price_currency'] = $priceCurrency;
+    $payloadItem['payment_required'] = !empty($input['payment_required']);
+    $payloadItem['payment_time_limit_value'] = $paymentTimeLimitValue;
+    $payloadItem['payment_time_limit_unit'] = $paymentTimeLimitUnit;
+    $payloadItem['payment_message'] = normalizeServiceText($input['payment_message'] ?? null, 1500);
+}
+
+$payload = [$payloadItem];
 
 $payload[0] = array_merge($payload[0], $companyPayload);
 

@@ -714,6 +714,7 @@ $serviceSecurityContext = services_security_context($context, [
 ]);
 
 require_tenant_feature($tenantId, 'multiple_services');
+$servicePaymentsAllowed = tenant_has_feature($tenantId, 'online_payments') && tenant_has_feature($tenantId, 'payu');
 
 $input = services_read_json_input();
 $serviceRefInput = $input['service_ref'] ?? '';
@@ -755,10 +756,10 @@ $description = services_save_text($input['description'] ?? null, 'description', 
 $durationMinutes = services_save_integer($input['duration_minutes'] ?? 60, 'duration_minutes', 1, 1440);
 $breakMinutes = services_save_integer($input['break_minutes'] ?? 0, 'break_minutes', 0, 1440);
 $bookingBufferMinutes = services_save_integer($input['booking_buffer_minutes'] ?? 0, 'booking_buffer_minutes', 0, 10080);
-$priceAmount = services_save_price($input['price_amount'] ?? null);
-$priceCurrency = strtoupper(trim((string) ($input['price_currency'] ?? 'PLN')));
+$priceAmount = $servicePaymentsAllowed ? services_save_price($input['price_amount'] ?? null) : null;
+$priceCurrency = $servicePaymentsAllowed ? strtoupper(trim((string) ($input['price_currency'] ?? 'PLN'))) : 'PLN';
 
-if (!preg_match('/^[A-Z]{3}$/', $priceCurrency)) {
+if ($servicePaymentsAllowed && !preg_match('/^[A-Z]{3}$/', $priceCurrency)) {
     services_json([
         'success' => false,
         'error' => 'Waluta musi mieć 3 znaki',
@@ -767,6 +768,10 @@ if (!preg_match('/^[A-Z]{3}$/', $priceCurrency)) {
 }
 
 $paymentsEnabled = services_save_boolean($input['payments_enabled'] ?? false, 'payments_enabled');
+
+if (!$servicePaymentsAllowed) {
+    $paymentsEnabled = false;
+}
 
 if ($paymentsEnabled && ($priceAmount === null || (float) $priceAmount <= 0)) {
     services_json([
@@ -815,11 +820,12 @@ if ($hasStaffPayload) {
 }
 
 $existingIsActive = false;
+$existingService = null;
 
 if ($isUpdate) {
     $existingUrl = $supabaseUrl
         . '/rest/v1/tenant_services'
-        . '?select=id,is_active'
+        . '?select=id,is_active,price_amount,price_currency,payment_message'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&id=eq.' . rawurlencode($serviceId)
         . '&limit=1';
@@ -855,7 +861,20 @@ if ($isUpdate) {
         ], 404);
     }
 
-    $existingIsActive = !empty($existingRows[0]['is_active']);
+    $existingService = is_array($existingRows[0] ?? null) ? $existingRows[0] : null;
+    $existingIsActive = !empty($existingService['is_active']);
+}
+
+if (!$servicePaymentsAllowed) {
+    $priceAmount = $existingService !== null && array_key_exists('price_amount', $existingService)
+        ? services_save_price($existingService['price_amount'])
+        : null;
+    $priceCurrency = $existingService !== null && trim((string) ($existingService['price_currency'] ?? '')) !== ''
+        ? strtoupper(trim((string) $existingService['price_currency']))
+        : 'PLN';
+    $paymentMessage = $existingService !== null
+        ? services_save_text($existingService['payment_message'] ?? null, 'payment_message', 2000)
+        : null;
 }
 
 if ($isActive && (!$isUpdate || !$existingIsActive)) {

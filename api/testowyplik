@@ -3,29 +3,29 @@
 declare(strict_types=1);
 
 /**
- * AI-IQ Rezerwacja Pro — starter testu masowych rezerwacji.
+ * AI-IQ Rezerwacja Pro â€” starter testu masowych rezerwacji.
  *
- * Tryb domyœlny: DRY RUN, bez tworzenia rezerwacji.
+ * Tryb domyÅ›lny: DRY RUN, bez tworzenia rezerwacji.
  *
- * Przyk³ad dry-run:
+ * PrzykÅ‚ad dry-run:
  * php load-booking-starter.php --host=twoja-subdomena.rezerwacja-ai-iq.pl --email-base=test@example.com
  *
- * Przyk³ad realnego testu x5:
+ * PrzykÅ‚ad realnego testu x5:
  * php load-booking-starter.php --host=twoja-subdomena.rezerwacja-ai-iq.pl --email-base=test@example.com --count=5 --run=1
  *
  * Uwaga:
- * - przy count > 3/min endpoint mo¿e celowo zadzia³aæ rate limitem,
- * - dla testów x10/x20 IP testuj¹ce musi byæ œwiadomie dodane do BOOKING_LOAD_TEST_ALLOW_IPS,
- * - payload publiczny u¿ywa service_ref/staff_ref, nie technicznych ID.
+ * - przy count > 3/min endpoint moÅ¼e celowo zadziaÅ‚aÄ‡ rate limitem,
+ * - dla testÃ³w x10/x20 IP testujÄ…ce musi byÄ‡ Å›wiadomie dodane do BOOKING_LOAD_TEST_ALLOW_IPS,
+ * - payload publiczny uÅ¼ywa service_ref/staff_ref, nie technicznych ID.
  */
 
 date_default_timezone_set('Europe/Warsaw');
 
-$projectRoot = __DIR__;
+$projectRoot = dirname(__DIR__);
 
 $publicResponseHelper = $projectRoot . '/api/helpers/public_response.php';
 if (!is_file($publicResponseHelper)) {
-    fwrite(STDERR, "B£¥D: brak helpera public_response.php\n");
+    fwrite(STDERR, "BÅÄ„D: brak helpera public_response.php\n");
     exit(1);
 }
 
@@ -36,7 +36,7 @@ if (
     || !function_exists('public_response_service_ref')
     || !function_exists('public_response_staff_ref')
 ) {
-    fwrite(STDERR, "B£¥D: brak wymaganych funkcji publicznych refów\n");
+    fwrite(STDERR, "BÅÄ„D: brak wymaganych funkcji publicznych refÃ³w\n");
     exit(1);
 }
 
@@ -190,7 +190,7 @@ function rest_select(string $baseUrl, string $table, string $query, array $heade
 
     if ($result['http_code'] !== 200 || !is_array($result['data'])) {
         throw new RuntimeException(
-            'B³¹d pobierania z tabeli ' . $table . ', HTTP=' . $result['http_code']
+            'BÅ‚Ä…d pobierania z tabeli ' . $table . ', HTTP=' . $result['http_code']
         );
     }
 
@@ -302,17 +302,17 @@ $manualServiceId = trim((string) cli_arg('service-id', ''));
 $manualStaffId = trim((string) cli_arg('staff-id', ''));
 
 if ($host === '') {
-    fwrite(STDERR, "B£¥D: podaj --host=subdomena\n");
+    fwrite(STDERR, "BÅÄ„D: podaj --host=subdomena\n");
     exit(1);
 }
 
 if ($emailBase === '') {
-    fwrite(STDERR, "B£¥D: podaj kontrolowany adres przez --email-base=test@example.com\n");
+    fwrite(STDERR, "BÅÄ„D: podaj kontrolowany adres przez --email-base=test@example.com\n");
     exit(1);
 }
 
 if (!filter_var($emailBase, FILTER_VALIDATE_EMAIL)) {
-    fwrite(STDERR, "B£¥D: --email-base nie jest poprawnym adresem e-mail\n");
+    fwrite(STDERR, "BÅÄ„D: --email-base nie jest poprawnym adresem e-mail\n");
     exit(1);
 }
 
@@ -321,7 +321,7 @@ $supabaseKey = env_value('SUPABASE_SERVICE_ROLE_KEY');
 $schema = env_value('SUPABASE_DB_SCHEMA', 'rezerwacja_pro');
 
 if ($supabaseUrl === '' || $supabaseKey === '') {
-    fwrite(STDERR, "B£¥D: brak SUPABASE_URL albo SUPABASE_SERVICE_ROLE_KEY\n");
+    fwrite(STDERR, "BÅÄ„D: brak SUPABASE_URL albo SUPABASE_SERVICE_ROLE_KEY\n");
     exit(1);
 }
 
@@ -339,7 +339,7 @@ $tenantRows = rest_select(
 );
 
 if (empty($tenantRows[0]['tenant_id'])) {
-    fwrite(STDERR, "B£¥D: nie znaleziono aktywnego tenanta dla hosta\n");
+    fwrite(STDERR, "BÅÄ„D: nie znaleziono aktywnego tenanta dla hosta\n");
     exit(1);
 }
 
@@ -355,7 +355,7 @@ $calendarRows = rest_select(
 );
 
 if (empty($calendarRows[0]) || !bool_value($calendarRows[0]['calendar_enabled'] ?? false)) {
-    fwrite(STDERR, "B£¥D: kalendarz rezerwacji jest wy³¹czony dla tego tenanta\n");
+    fwrite(STDERR, "BÅÄ„D: kalendarz rezerwacji jest wyÅ‚Ä…czony dla tego tenanta\n");
     exit(1);
 }
 
@@ -371,7 +371,7 @@ $serviceRows = rest_select(
 );
 
 if (empty($serviceRows)) {
-    fwrite(STDERR, "B£¥D: brak aktywnej us³ugi widocznej na froncie\n");
+    fwrite(STDERR, "BÅÄ„D: brak aktywnej usÅ‚ugi widocznej na froncie\n");
     exit(1);
 }
 
@@ -386,7 +386,7 @@ if ($manualServiceId !== '') {
     }
 
     if (!is_array($service)) {
-        fwrite(STDERR, "B£¥D: podany service-id nie jest aktywn¹ us³ug¹ frontow¹\n");
+        fwrite(STDERR, "BÅÄ„D: podany service-id nie jest aktywnÄ… usÅ‚ugÄ… frontowÄ…\n");
         exit(1);
     }
 }
@@ -406,7 +406,7 @@ if (!is_array($service)) {
 
 $serviceId = (string) ($service['id'] ?? '');
 if ($serviceId === '') {
-    fwrite(STDERR, "B£¥D: wybrana us³uga nie ma ID\n");
+    fwrite(STDERR, "BÅÄ„D: wybrana usÅ‚uga nie ma ID\n");
     exit(1);
 }
 
@@ -441,7 +441,7 @@ if ($staffId !== '') {
     );
 
     if (empty($staffRows[0]['id'])) {
-        fwrite(STDERR, "B£¥D: wybrany staff_id nie jest aktywny\n");
+        fwrite(STDERR, "BÅÄ„D: wybrany staff_id nie jest aktywny\n");
         exit(1);
     }
 
@@ -464,7 +464,7 @@ if ($date === '' || $time === '') {
         );
 
         if (empty($availabilityRows)) {
-            fwrite(STDERR, "B£¥D: wybrany pracownik nie ma aktywnego grafiku\n");
+            fwrite(STDERR, "BÅÄ„D: wybrany pracownik nie ma aktywnego grafiku\n");
             exit(1);
         }
 
@@ -478,12 +478,12 @@ if ($date === '' || $time === '') {
 }
 
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
-    fwrite(STDERR, "B£¥D: data musi mieæ format YYYY-MM-DD\n");
+    fwrite(STDERR, "BÅÄ„D: data musi mieÄ‡ format YYYY-MM-DD\n");
     exit(1);
 }
 
 if (!preg_match('/^\d{2}:\d{2}$/', $time)) {
-    fwrite(STDERR, "B£¥D: godzina musi mieæ format HH:MM\n");
+    fwrite(STDERR, "BÅÄ„D: godzina musi mieÄ‡ format HH:MM\n");
     exit(1);
 }
 
@@ -499,7 +499,7 @@ $existingBookings = rest_select(
 );
 
 if (!$force && !empty($existingBookings)) {
-    fwrite(STDERR, "B£¥D: slot ma ju¿ rezerwacjê. Zmieñ date/time albo u¿yj --force=1 œwiadomie.\n");
+    fwrite(STDERR, "BÅÄ„D: slot ma juÅ¼ rezerwacjÄ™. ZmieÅ„ date/time albo uÅ¼yj --force=1 Å›wiadomie.\n");
     exit(1);
 }
 
@@ -515,7 +515,7 @@ $blockedRows = rest_select(
 );
 
 if (!$force && !empty($blockedRows)) {
-    fwrite(STDERR, "B£¥D: slot jest w blocked_times. Zmieñ date/time albo u¿yj --force=1 œwiadomie.\n");
+    fwrite(STDERR, "BÅÄ„D: slot jest w blocked_times. ZmieÅ„ date/time albo uÅ¼yj --force=1 Å›wiadomie.\n");
     exit(1);
 }
 
@@ -579,13 +579,13 @@ echo json_encode([
     ],
     'count' => $count,
     'rate_limit_note' => $count > 3
-        ? 'Dla count > 3/min potrzebny jest œwiadomy allowlist IP w BOOKING_LOAD_TEST_ALLOW_IPS albo endpoint zwróci kontrolowane 429.'
-        : 'Count mieœci siê w podstawowym limicie 3/min.',
+        ? 'Dla count > 3/min potrzebny jest Å›wiadomy allowlist IP w BOOKING_LOAD_TEST_ALLOW_IPS albo endpoint zwrÃ³ci kontrolowane 429.'
+        : 'Count mieÅ›ci siÄ™ w podstawowym limicie 3/min.',
     'sample_payload' => $payloads[0],
 ], JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
 
 if (!$run) {
-    echo "\nDRY RUN: nie wys³ano rezerwacji. Dodaj --run=1, gdy dane s¹ poprawne.\n";
+    echo "\nDRY RUN: nie wysÅ‚ano rezerwacji. Dodaj --run=1, gdy dane sÄ… poprawne.\n";
     exit(0);
 }
 

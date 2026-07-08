@@ -243,6 +243,26 @@ function subscription_payu_notify_fetch_subscription(string $supabaseUrl, array 
     return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
 }
 
+function subscription_payu_notify_fetch_last_paid_pro_period(string $supabaseUrl, array $headers, string $tenantId): ?array
+{
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/tenant_subscription_payments'
+        . '?select=paid_at,subscription_period_start,subscription_period_end'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&plan_code=eq.pro'
+        . '&status=eq.paid'
+        . '&order=subscription_period_end.desc.nullslast'
+        . '&limit=1';
+
+    $result = subscription_payu_notify_request('GET', $url, $headers);
+
+    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
+        return null;
+    }
+
+    return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
+}
+
 function subscription_payu_notify_fetch_email_context(string $supabaseUrl, array $headers, string $tenantId): array
 {
     $context = [
@@ -832,6 +852,40 @@ function subscription_payu_notify_save_subscription(
     return false;
 }
 
+function subscription_payu_notify_update_branding_plan(
+    string $supabaseUrl,
+    array $headers,
+    string $tenantId,
+    string $planCode
+): bool {
+    $planCode = strtolower(trim($planCode));
+
+    if ($tenantId === '' || !in_array($planCode, ['free', 'pro'], true)) {
+        return false;
+    }
+
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/tenant_branding'
+        . '?tenant_id=eq.' . rawurlencode($tenantId);
+
+    $result = subscription_payu_notify_request('PATCH', $url, $headers, [
+        'plan' => $planCode,
+    ]);
+
+    if ($result['ok']) {
+        return true;
+    }
+
+    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_BRANDING_PLAN_UPDATE_ERROR', [
+        'tenant_hash' => subscription_payu_notify_hash($tenantId),
+        'plan_code' => $planCode,
+        'http_code' => $result['http_code'],
+        'has_error' => $result['error'] !== null,
+    ]);
+
+    return false;
+}
+
 function subscription_payu_notify_map_status(string $payuStatus): string
 {
     return match (strtoupper(trim($payuStatus))) {
@@ -858,17 +912,23 @@ function subscription_payu_notify_date_start(?string $value): ?DateTimeImmutable
     }
 }
 
-function subscription_payu_notify_period(array $payment, ?array $subscription): array
+function subscription_payu_notify_period(array $payment, ?array $subscription, ?string $fallbackPaidAt = null): array
 {
     $billingPeriod = strtolower(trim((string) ($payment['billing_period'] ?? '')));
-    $paymentType = strtolower(trim((string) ($payment['payment_type'] ?? '')));
-    $today = new DateTimeImmutable('today', new DateTimeZone('UTC'));
-    $start = $today;
+    $storedPaidAt = trim((string) ($payment['paid_at'] ?? ''));
+    $paidAtSource = $storedPaidAt !== '' ? $storedPaidAt : trim((string) $fallbackPaidAt);
+    $paidDate = subscription_payu_notify_date_start($paidAtSource);
 
-    if ($paymentType === 'subscription_renewal' && is_array($subscription)) {
+    if (!$paidDate) {
+        $paidDate = new DateTimeImmutable('today', new DateTimeZone('UTC'));
+    }
+
+    $start = $paidDate;
+
+    if (is_array($subscription)) {
         $currentEnd = subscription_payu_notify_date_start($subscription['current_period_end'] ?? null);
 
-        if ($currentEnd && $currentEnd > $today) {
+        if ($currentEnd && $paidDate <= $currentEnd) {
             $start = $currentEnd;
         }
     }
@@ -1089,11 +1149,20 @@ try {
     }
 
     $subscription = subscription_payu_notify_fetch_subscription($supabaseUrl, $headers, $tenantId);
+
+    if (is_array($subscription) && trim((string) ($subscription['current_period_end'] ?? '')) === '') {
+        $lastPaidProPeriod = subscription_payu_notify_fetch_last_paid_pro_period($supabaseUrl, $headers, $tenantId);
+
+        if (is_array($lastPaidProPeriod) && trim((string) ($lastPaidProPeriod['subscription_period_end'] ?? '')) !== '') {
+            $subscription['current_period_end'] = $lastPaidProPeriod['subscription_period_end'];
+        }
+    }
+
     $storedPeriodStart = trim((string) ($payment['subscription_period_start'] ?? ''));
     $storedPeriodEnd = trim((string) ($payment['subscription_period_end'] ?? ''));
     $period = ($storedPeriodStart !== '' && $storedPeriodEnd !== '')
         ? ['start' => $storedPeriodStart, 'end' => $storedPeriodEnd]
-        : subscription_payu_notify_period($payment, $subscription);
+        : subscription_payu_notify_period($payment, $subscription, $now);
     $subscriptionExists = is_array($subscription);
 
     if ($storedPeriodStart !== '' && $storedPeriodEnd !== '') {
@@ -1157,6 +1226,16 @@ try {
         subscription_payu_notify_json(500, [
             'success' => false,
             'error' => 'Nie udało się zaktualizować abonamentu.',
+        ]);
+    }
+
+    $brandingUpdated = subscription_payu_notify_update_branding_plan($supabaseUrl, $headers, $tenantId, 'pro');
+
+    if (!$brandingUpdated) {
+        subscription_payu_notify_security_event('subscription_payu_notify_branding_plan_update_failed', 'branding_plan_update_failed', 500, 'error', 'high', $tenantId);
+        subscription_payu_notify_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się zaktualizować planu firmy.',
         ]);
     }
 

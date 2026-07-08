@@ -329,6 +329,96 @@ function subscription_reminder_prepare_log(
     ];
 }
 
+function subscription_reminder_date_start($value, DateTimeZone $timeZone): ?DateTimeImmutable
+{
+    $value = trim((string) $value);
+
+    if ($value === '') {
+        return null;
+    }
+
+    try {
+        return (new DateTimeImmutable($value, $timeZone))->setTime(0, 0, 0);
+    } catch (Throwable $e) {
+        return null;
+    }
+}
+
+function subscription_reminder_fetch_free_subscriptions(string $supabaseUrl, array $headers): ?array
+{
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/tenant_subscriptions'
+        . '?select=tenant_id,plan_code,plan_name,billing_period,status,amount,currency,current_period_start,current_period_end,next_payment_due_at,grace_period_days'
+        . '&status=eq.active'
+        . '&plan_code=eq.free';
+    $result = subscription_reminder_request('GET', $url, $headers);
+
+    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
+        return null;
+    }
+
+    return $result['data'];
+}
+
+function subscription_reminder_fetch_last_paid_pro(string $supabaseUrl, array $headers, string $tenantId): ?array
+{
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/tenant_subscription_payments'
+        . '?select=plan_code,status,paid_at,subscription_period_start,subscription_period_end,billing_period,amount,currency'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&plan_code=eq.pro'
+        . '&status=eq.paid'
+        . '&order=subscription_period_end.desc.nullslast'
+        . '&limit=1';
+    $result = subscription_reminder_request('GET', $url, $headers);
+
+    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
+        return null;
+    }
+
+    return is_array($result['data'][0] ?? null) ? $result['data'][0] : [];
+}
+
+function subscription_reminder_grace_days(array $subscription): int
+{
+    $configured = is_numeric($subscription['grace_period_days'] ?? null)
+        ? (int) $subscription['grace_period_days']
+        : 0;
+
+    return $configured > 0 ? $configured : 30;
+}
+
+function subscription_reminder_downgrade_period_end(array $subscription, array $lastPaidPro): string
+{
+    $periodEnd = trim((string) ($subscription['current_period_end'] ?? ''));
+
+    if ($periodEnd === '') {
+        $periodEnd = trim((string) ($lastPaidPro['subscription_period_end'] ?? ''));
+    }
+
+    return $periodEnd;
+}
+
+function subscription_reminder_is_after_grace(
+    array $subscription,
+    array $lastPaidPro,
+    DateTimeImmutable $today,
+    DateTimeZone $timeZone
+): bool {
+    $periodEnd = subscription_reminder_date_start(
+        subscription_reminder_downgrade_period_end($subscription, $lastPaidPro),
+        $timeZone
+    );
+
+    if (!$periodEnd) {
+        return false;
+    }
+
+    $graceEnd = $periodEnd->modify('+' . subscription_reminder_grace_days($subscription) . ' days');
+
+    return $today > $graceEnd;
+}
+
 try {
     if (!in_array(($_SERVER['REQUEST_METHOD'] ?? ''), ['GET', 'POST'], true)) {
         header('Allow: GET, POST');
@@ -482,12 +572,116 @@ try {
         $sent++;
     }
 
+    $downgradeChecked = 0;
+    $downgradeSent = 0;
+    $downgradeSkipped = 0;
+    $downgradeFailed = 0;
+    $freeSubscriptions = subscription_reminder_fetch_free_subscriptions($supabaseUrl, $headers);
+
+    if ($freeSubscriptions === null) {
+        $downgradeFailed++;
+    } else {
+        foreach ($freeSubscriptions as $subscription) {
+            if (!is_array($subscription)) {
+                continue;
+            }
+
+            $tenantId = trim((string) ($subscription['tenant_id'] ?? ''));
+
+            if ($tenantId === '') {
+                $downgradeSkipped++;
+                continue;
+            }
+
+            $lastPaidPro = subscription_reminder_fetch_last_paid_pro($supabaseUrl, $headers, $tenantId);
+
+            if ($lastPaidPro === null) {
+                $downgradeFailed++;
+                continue;
+            }
+
+            if (empty($lastPaidPro)) {
+                $downgradeSkipped++;
+                continue;
+            }
+
+            if (!subscription_reminder_is_after_grace($subscription, $lastPaidPro, $today, $timeZone)) {
+                $downgradeSkipped++;
+                continue;
+            }
+
+            $periodEnd = subscription_reminder_downgrade_period_end($subscription, $lastPaidPro);
+
+            if ($periodEnd === '') {
+                $downgradeSkipped++;
+                continue;
+            }
+
+            $downgradeChecked++;
+            $context = subscription_reminder_fetch_context($supabaseUrl, $headers, $tenantId);
+            $recipientEmail = trim((string) ($context['recipient_email'] ?? ''));
+
+            if (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
+                $downgradeFailed++;
+                continue;
+            }
+
+            $logState = subscription_reminder_prepare_log(
+                $supabaseUrl,
+                $headers,
+                $tenantId,
+                'subscription_pro_downgraded_to_free',
+                $periodEnd,
+                $recipientEmail
+            );
+
+            if (empty($logState['ok'])) {
+                $downgradeFailed++;
+                continue;
+            }
+
+            if (empty($logState['send_allowed'])) {
+                $downgradeSkipped++;
+                continue;
+            }
+
+            $logId = trim((string) ($logState['log_id'] ?? ''));
+
+            if ($logId === '') {
+                $downgradeFailed++;
+                continue;
+            }
+
+            $html = buildSubscriptionDowngradedToFreeMailHtml($subscription, $lastPaidPro, $context);
+
+            if (!sendSystemMail($recipientEmail, 'Twój plan Pro został zmieniony na Free', $html)) {
+                subscription_reminder_update_log($supabaseUrl, $headers, $logId, [
+                    'status' => 'failed',
+                    'failed_at' => gmdate('c'),
+                ]);
+                $downgradeFailed++;
+                continue;
+            }
+
+            subscription_reminder_update_log($supabaseUrl, $headers, $logId, [
+                'status' => 'sent',
+                'sent_at' => gmdate('c'),
+            ]);
+
+            $downgradeSent++;
+        }
+    }
+
     subscription_reminder_json(200, [
         'success' => true,
         'checked' => $checked,
         'sent' => $sent,
         'skipped' => $skipped,
         'failed' => $failed,
+        'downgrade_checked' => $downgradeChecked,
+        'downgrade_sent' => $downgradeSent,
+        'downgrade_skipped' => $downgradeSkipped,
+        'downgrade_failed' => $downgradeFailed,
         'target_dates' => $targetDates,
     ]);
 } catch (Throwable $e) {

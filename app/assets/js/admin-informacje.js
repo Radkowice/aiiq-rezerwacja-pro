@@ -134,12 +134,14 @@
     setText('info-next-payment', notice?.next_payment_due_at_label || '—');
     setText('info-amount', notice?.amount_label || formatMoney(subscription.amount ?? 0, subscription.currency || 'PLN'));
     setText('info-status', notice?.status_label || formatSubscriptionStatus(subscription.status || 'active'));
-    setText('info-current-period', formatCurrentPeriod({
-      ...subscription,
-      plan_code: 'free'
-    }));
+    setText('info-current-period', notice?.expired_paid_pro === true && notice?.current_period_end_label
+      ? `Pro do ${notice.current_period_end_label}`
+      : formatCurrentPeriod({
+        ...subscription,
+        plan_code: 'free'
+      }));
     setText('info-days-left-label', notice?.days_left_row_label || 'Pozostało do końca abonamentu');
-    setText('info-days-left', '—');
+    setText('info-days-left', notice?.days_left_label || '—');
     setText('info-grace-period-label', notice?.grace_period_row_label || 'Okres ochronny danych');
     setText('info-grace-period', notice?.grace_period_label || 'Nie dotyczy');
   }
@@ -309,8 +311,31 @@
 
   function renderProUpgradeSection(subscription, planContext) {
     const planCode = resolveVisiblePlanCode(subscription, planContext);
+    const isRenewal = planContext?.expired_paid_pro === true || isProPlan(planCode);
+    const card = document.getElementById('pro-upgrade-card');
+    const title = document.getElementById('pro-upgrade-title');
+    const note = document.getElementById('pro-upgrade-note');
+    const button = document.getElementById('pro-upgrade-btn');
 
-    if (planCode !== 'free') {
+    if (card) {
+      card.classList.toggle('is-renewal', isRenewal);
+    }
+
+    if (title) {
+      title.textContent = isRenewal ? 'Przedłuż abonament' : 'Przejdź na plan Pro';
+    }
+
+    if (note) {
+      note.textContent = isRenewal
+        ? 'W kolejnym kroku zostaniesz przekierowany do PayU. Okres abonamentu zostanie przedłużony po potwierdzeniu płatności.'
+        : 'W kolejnym kroku zostaniesz przekierowany do PayU. Funkcje Pro zostaną aktywowane po potwierdzeniu płatności.';
+    }
+
+    if (button) {
+      button.textContent = isRenewal ? 'Przedłuż abonament' : 'Przejdź na plan Pro';
+    }
+
+    if (!isFreePlan(planCode) && !isProPlan(planCode)) {
       hideProUpgradeSection();
       return;
     }
@@ -362,7 +387,9 @@
         },
         body: JSON.stringify({
           billing_period: billingPeriod,
-          payment_type: isProPlan(planCode) ? 'subscription_renewal' : 'subscription_upgrade'
+          payment_type: isProPlan(planCode) || currentPlanContext?.expired_paid_pro === true
+            ? 'subscription_renewal'
+            : 'subscription_upgrade'
         })
       });
 
@@ -601,7 +628,7 @@
       const subscriptionNotice = data.subscription_notice || null;
       const planContext = data.plan_context || {};
       const displayPlanContext = subscriptionNotice?.effective_plan_code
-        ? { ...planContext, plan_code: subscriptionNotice.effective_plan_code }
+        ? { ...planContext, plan_code: subscriptionNotice.effective_plan_code, expired_paid_pro: subscriptionNotice.expired_paid_pro === true }
         : planContext;
       currentSubscription = subscription;
       currentPlanContext = displayPlanContext;

@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/tenant.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 
 $supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
@@ -134,6 +135,7 @@ $tenantId = (string) $tenantId;
     );
 
     $payuEnabled = false;
+    $onlinePaymentsEnabled = tenant_has_feature($tenantId, 'online_payments') && tenant_has_feature($tenantId, 'payu');
 
     if ($payuResult['ok']) {
         $payuIntegration = $payuResult['json'][0] ?? null;
@@ -172,8 +174,13 @@ $settings['booking_start_month_offset'] = (int)($calendarSettings['booking_start
 $settings['booking_month_range'] = (int)($calendarSettings['booking_month_range'] ?? 1);
 
     $settings['payment_required_configured'] = !empty($settings['payment_required']);
-    $settings['payment_provider_enabled'] = $payuEnabled;
-    $settings['payment_required'] = !empty($settings['payment_required']) && $payuEnabled;
+    $settings['payment_provider_enabled'] = $onlinePaymentsEnabled && $payuEnabled;
+    $settings['payment_required'] = !empty($settings['payment_required']) && $onlinePaymentsEnabled && $payuEnabled;
+
+    if (!$onlinePaymentsEnabled) {
+        $settings['price_amount'] = null;
+        $settings['payment_message'] = '';
+    }
 
     sendPublicServiceJson([
         'success' => true,
