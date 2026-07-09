@@ -2246,7 +2246,7 @@ $rateData[$ip] = array_values(array_filter($rateData[$ip], function ($t) use ($n
 if (count($rateData[$ip]) >= $limit) {
     $banFile = __DIR__ . '/../data/ban_counter.json';
     if (!file_exists($banFile)) {
-        @file_put_contents($banFile, json_encode([], JSON_UNESCAPED_UNICODE));
+        @file_put_contents($banFile, '{}');
     }
 
     $banData = json_decode(@file_get_contents($banFile), true);
