@@ -122,6 +122,45 @@ function subscription_reminder_request(string $method, string $url, array $heade
     ];
 }
 
+function subscription_reminder_sync_expired_pro_to_free(string $supabaseUrl, array $headers): array
+{
+    $url = rtrim($supabaseUrl, '/')
+        . '/rest/v1/rpc/subscription_sync_expired_pro_to_free';
+
+    $result = subscription_reminder_request('POST', $url, $headers, [
+        'p_dry_run' => false,
+    ]);
+
+    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
+        return [
+            'ok' => false,
+            'subscriptions_updated' => 0,
+            'branding_updated' => 0,
+        ];
+    }
+
+    $payload = $result['data'];
+    $schemaResult = $payload['rezerwacja_pro'] ?? null;
+
+    if (
+        ($payload['success'] ?? false) !== true
+        || ($payload['dry_run'] ?? true) !== false
+        || !is_array($schemaResult)
+    ) {
+        return [
+            'ok' => false,
+            'subscriptions_updated' => 0,
+            'branding_updated' => 0,
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'subscriptions_updated' => max(0, (int) ($schemaResult['subscriptions_updated'] ?? 0)),
+        'branding_updated' => max(0, (int) ($schemaResult['branding_updated'] ?? 0)),
+    ];
+}
+
 function subscription_reminder_fetch_context(string $supabaseUrl, array $headers, string $tenantId): array
 {
     $context = [
@@ -399,7 +438,7 @@ function subscription_reminder_downgrade_period_end(array $subscription, array $
     return $periodEnd;
 }
 
-function subscription_reminder_is_after_grace(
+function subscription_reminder_is_after_paid_period(
     array $subscription,
     array $lastPaidPro,
     DateTimeImmutable $today,
@@ -414,9 +453,7 @@ function subscription_reminder_is_after_grace(
         return false;
     }
 
-    $graceEnd = $periodEnd->modify('+' . subscription_reminder_grace_days($subscription) . ' days');
-
-    return $today > $graceEnd;
+    return $today > $periodEnd;
 }
 
 try {
@@ -469,6 +506,15 @@ try {
             'success' => false,
             'sql_required' => true,
             'error' => 'Brak konfiguracji logów crona abonamentowego.',
+        ]);
+    }
+
+    $downgradeSync = subscription_reminder_sync_expired_pro_to_free($supabaseUrl, $headers);
+
+    if (empty($downgradeSync['ok'])) {
+        subscription_reminder_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się zsynchronizować wygasłych abonamentów.',
         ]);
     }
 
@@ -605,7 +651,7 @@ try {
                 continue;
             }
 
-            if (!subscription_reminder_is_after_grace($subscription, $lastPaidPro, $today, $timeZone)) {
+            if (!subscription_reminder_is_after_paid_period($subscription, $lastPaidPro, $today, $timeZone)) {
                 $downgradeSkipped++;
                 continue;
             }
@@ -682,6 +728,10 @@ try {
         'downgrade_sent' => $downgradeSent,
         'downgrade_skipped' => $downgradeSkipped,
         'downgrade_failed' => $downgradeFailed,
+        'downgrade_sync' => [
+            'subscriptions_updated' => (int) ($downgradeSync['subscriptions_updated'] ?? 0),
+            'branding_updated' => (int) ($downgradeSync['branding_updated'] ?? 0),
+        ],
         'target_dates' => $targetDates,
     ]);
 } catch (Throwable $e) {

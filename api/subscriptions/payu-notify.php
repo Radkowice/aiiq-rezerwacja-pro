@@ -1074,6 +1074,35 @@ try {
         && trim((string) ($payment['processed_at'] ?? '')) !== '';
 
     if ($alreadyProcessed) {
+        $sanitized = subscription_payu_notify_update_payment(
+            $supabaseUrl,
+            $headers,
+            $paymentId,
+            $tenantId,
+            [
+                'payment_url' => null,
+                'payu_status' => 'COMPLETED',
+                'raw_notify' => $safeNotify,
+                'updated_at' => $now,
+            ]
+        );
+
+        if (!$sanitized) {
+            subscription_payu_notify_security_event(
+                'subscription_payu_notify_sanitization_failed',
+                'sanitization_failed',
+                500,
+                'error',
+                'high',
+                $tenantId,
+                'already_processed'
+            );
+            subscription_payu_notify_json(500, [
+                'success' => false,
+                'error' => 'Nie udało się zanonimizować danych zakończonej płatności.',
+            ]);
+        }
+
         $activationEmailResult = ['ok' => true, 'sent' => false, 'idempotent' => true];
 
         if ($mappedStatus === 'paid') {
@@ -1115,12 +1144,25 @@ try {
     }
 
     if ($mappedStatus !== 'paid') {
-        $updated = subscription_payu_notify_update_payment($supabaseUrl, $headers, $paymentId, $tenantId, [
+        $statusPayload = [
             'status' => $mappedStatus,
             'payu_status' => $payuStatus !== '' ? strtoupper($payuStatus) : 'UNKNOWN',
             'raw_notify' => $safeNotify,
             'updated_at' => $now,
-        ]);
+        ];
+
+        if (in_array($mappedStatus, ['failed', 'canceled', 'expired'], true)) {
+            $statusPayload['payment_url'] = null;
+            $statusPayload[$mappedStatus . '_at'] = $now;
+        }
+
+        $updated = subscription_payu_notify_update_payment(
+            $supabaseUrl,
+            $headers,
+            $paymentId,
+            $tenantId,
+            $statusPayload
+        );
 
         if (!$updated) {
             subscription_payu_notify_security_event('subscription_payu_notify_status_update_failed', 'status_update_failed', 500, 'error', 'high', $tenantId, 'non_paid_status');
@@ -1180,6 +1222,7 @@ try {
             'status' => 'paid',
             'payu_status' => 'COMPLETED',
             'paid_at' => $now,
+            'payment_url' => null,
             'raw_notify' => $safeNotify,
             'subscription_period_start' => $period['start'],
             'subscription_period_end' => $period['end'],
@@ -1244,6 +1287,7 @@ try {
         'payu_status' => 'COMPLETED',
         'paid_at' => $payment['paid_at'] ?? $now,
         'processed_at' => $now,
+        'payment_url' => null,
         'raw_notify' => $safeNotify,
         'subscription_period_start' => $period['start'],
         'subscription_period_end' => $period['end'],

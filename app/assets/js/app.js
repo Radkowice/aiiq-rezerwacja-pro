@@ -981,7 +981,7 @@ function updateStaffForSelectedService() {
   staffBox.classList.remove('is-single', 'is-multiple');
   staffBox.classList.add('hidden');
   staffBox.style.display = 'none';
-  staffEl.innerHTML = '<option value="">Wybierz osobę</option>';
+  staffEl.innerHTML = '<option value="">Specjalista</option>';
   staffEl.value = '';
   staffEl.disabled = true;
 
@@ -1637,7 +1637,7 @@ async function renderTimeOptions() {
       const staffId = getSelectedStaffId();
 
       if (!staffId) {
-        timeEl.innerHTML = '<option value="">Najpierw wybierz osobę</option>';
+        timeEl.innerHTML = '<option value="">Najpierw wybierz specjalistę</option>';
         return;
       }
 

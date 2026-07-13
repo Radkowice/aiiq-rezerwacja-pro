@@ -2,12 +2,14 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+require_csrf_token();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -129,39 +131,6 @@ function subscription_payu_fetch_last_paid_pro(string $supabaseUrl, array $heade
     );
 }
 
-function subscription_payu_patch_single(string $supabaseUrl, array $headers, string $table, string $query, array $payload): bool
-{
-    $url = rtrim($supabaseUrl, '/') . '/rest/v1/' . rawurlencode($table) . '?' . $query;
-    $result = subscription_payu_request('PATCH', $url, $headers, $payload);
-
-    if ($result['ok']) {
-        return true;
-    }
-
-    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PATCH_ERROR', [
-        'table' => $table,
-        'http_code' => $result['http_code'],
-        'has_error' => $result['error'] !== null,
-    ]);
-
-    return false;
-}
-
-function subscription_payu_sync_expired_pro_to_free_rpc(string $supabaseUrl, array $headers): void
-{
-    $url = rtrim($supabaseUrl, '/') . '/rest/v1/rpc/subscription_sync_expired_pro_to_free';
-    $result = subscription_payu_request('POST', $url, $headers, [
-        'p_dry_run' => false,
-    ]);
-
-    if (!$result['ok']) {
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_EXPIRED_SYNC_RPC_SKIPPED', [
-            'http_code' => $result['http_code'],
-            'has_error' => $result['error'] !== null,
-        ]);
-    }
-}
-
 function subscription_payu_date_start(?string $value): ?DateTimeImmutable
 {
     $value = trim((string) $value);
@@ -175,86 +144,6 @@ function subscription_payu_date_start(?string $value): ?DateTimeImmutable
     } catch (Throwable $e) {
         return null;
     }
-}
-
-function subscription_payu_is_expired_active_pro(array $subscription): bool
-{
-    $planCode = subscription_payu_normalize_plan_code((string) ($subscription['plan_code'] ?? ''));
-    $status = strtolower(trim((string) ($subscription['status'] ?? '')));
-
-    if ($planCode !== 'pro' || $status !== 'active') {
-        return false;
-    }
-
-    $periodEnd = subscription_payu_date_start((string) ($subscription['current_period_end'] ?? ''));
-
-    if (!$periodEnd) {
-        return false;
-    }
-
-    $graceDays = max(0, (int) ($subscription['grace_period_days'] ?? 0));
-    $accessUntil = $periodEnd->modify('+' . $graceDays . ' days');
-    $today = new DateTimeImmutable(gmdate('Y-m-d'));
-
-    return $today > $accessUntil;
-}
-
-function subscription_payu_sync_current_subscription_if_expired(
-    string $supabaseUrl,
-    array $headers,
-    string $tenantId,
-    array $subscription
-): ?array {
-    if (!subscription_payu_is_expired_active_pro($subscription)) {
-        return $subscription;
-    }
-
-    $now = gmdate('c');
-    $today = gmdate('Y-m-d');
-
-    $subscriptionUpdated = subscription_payu_patch_single(
-        $supabaseUrl,
-        $headers,
-        'tenant_subscriptions',
-        'tenant_id=eq.' . rawurlencode($tenantId),
-        [
-            'plan_code' => 'free',
-            'plan_name' => 'Free',
-            'billing_period' => 'monthly',
-            'status' => 'active',
-            'amount' => 0,
-            'current_period_start' => $today,
-            'suspended_at' => null,
-            'cancelled_at' => null,
-            'last_reminder_at' => null,
-            'reminder_count' => 0,
-            'updated_at' => $now,
-        ]
-    );
-
-    if (!$subscriptionUpdated) {
-        return null;
-    }
-
-    subscription_payu_patch_single(
-        $supabaseUrl,
-        $headers,
-        'tenant_branding',
-        'tenant_id=eq.' . rawurlencode($tenantId),
-        [
-            'plan' => 'free',
-        ]
-    );
-
-    $freshSubscription = subscription_payu_fetch_single(
-        $supabaseUrl,
-        $headers,
-        'tenant_subscriptions',
-        'select=tenant_id,plan_code,plan_name,status,billing_period,amount,currency,current_period_start,current_period_end,next_payment_due_at,grace_period_days'
-            . '&tenant_id=eq.' . rawurlencode($tenantId)
-    );
-
-    return is_array($freshSubscription) ? $freshSubscription : null;
 }
 
 function subscription_payu_insert_payment(string $supabaseUrl, array $headers, array $payload): ?array
@@ -481,7 +370,6 @@ try {
     $headers = supabaseHeaders($supabaseKey, $schema);
     $headers[] = 'Content-Type: application/json';
 
-    subscription_payu_sync_expired_pro_to_free_rpc($supabaseUrl, $headers);
 
     $user = subscription_payu_fetch_single(
         $supabaseUrl,
@@ -541,16 +429,6 @@ try {
         subscription_payu_json(404, [
             'success' => false,
             'error' => 'Nie znaleziono abonamentu klienta.',
-        ]);
-    }
-
-    $subscription = subscription_payu_sync_current_subscription_if_expired($supabaseUrl, $headers, $tenantId, $subscription);
-
-    if (!is_array($subscription)) {
-        subscription_payu_security_event('subscription_payu_create_order_subscription_sync_failed', 'subscription_sync_failed', 503, 'error', 'high', $tenantId, $userId);
-        subscription_payu_json(503, [
-            'success' => false,
-            'error' => 'Nie udało się odświeżyć statusu abonamentu. Spróbuj ponownie za chwilę.',
         ]);
     }
 

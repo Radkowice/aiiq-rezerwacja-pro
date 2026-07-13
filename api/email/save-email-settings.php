@@ -3,11 +3,13 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
 start_secure_session();
+require_csrf_token();
 
 function email_settings_security_event(
     string $eventKey,
@@ -80,7 +82,11 @@ function email_settings_text($value, int $maxLength, bool $required = false): ?s
         return null;
     }
 
-    if (mb_strlen($text, 'UTF-8') > $maxLength) {
+    $textLength = function_exists('mb_strlen')
+        ? mb_strlen($text, 'UTF-8')
+        : strlen($text);
+
+    if ($textLength > $maxLength) {
         email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'text_length');
         email_settings_json([
             'success' => false,
@@ -177,7 +183,7 @@ if (!in_array($section, ['all', 'smtp', 'global_template'], true)) {
 
 $supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $serviceRoleKey = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
-$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'public';
+$schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
 
 if ($supabaseUrl === '' || $serviceRoleKey === '') {
     email_settings_security_event('email_settings_env_missing', 'env_missing', 500, 'error', 'high', $tenantId, $userId, 'supabase_config');

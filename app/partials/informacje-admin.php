@@ -130,7 +130,7 @@
 
           <div class="admin-info-row">
             <span>Wersja</span>
-            <strong>1.0</strong>
+            <strong>1.3</strong>
           </div>
 
           <div class="admin-info-row">

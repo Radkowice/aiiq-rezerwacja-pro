@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/security.php';
@@ -14,6 +15,7 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 start_secure_session();
+require_csrf_token();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
@@ -201,7 +203,7 @@ if (!is_array($data)) {
 $smtpHost = trim((string) ($data['smtp_host'] ?? ''));
 $smtpPort = (int) ($data['smtp_port'] ?? 587);
 $smtpUsername = trim((string) ($data['smtp_username'] ?? ''));
-$smtpPassword = (string) ($data['credentials_missing'] ?? '');
+$smtpPassword = (string) ($data['smtp_password'] ?? '');
 
 $fromEmail = trim((string) ($data['smtp_email'] ?? ''));
 $fromName = trim((string) ($data['smtp_name'] ?? ''));
@@ -289,7 +291,7 @@ if ($smtpPassword === '') {
     }
 
     $rows = json_decode((string) $response, true);
-    $smtpPassword = (string) ($rows[0]['credentials_missing'] ?? '');
+    $smtpPassword = (string) ($rows[0]['smtp_password'] ?? '');
 }
 
 if ($smtpPassword === '') {
