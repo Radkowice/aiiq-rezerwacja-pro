@@ -268,14 +268,43 @@ booking_postprocess_worker_log('WORKER_DONE', [
     'recovered' => $recovered,
 ]);
 
-booking_postprocess_worker_security_event(
-    'booking_postprocess_worker_run_success',
-    'worker_run_success',
-    200,
-    'success',
-    'low',
-    'run'
-);
+if ($failed > 0) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_run_failed',
+        'jobs_failed_permanently',
+        200,
+        'failed',
+        'high',
+        'jobs'
+    );
+} elseif ($retried > 0) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_retry_scheduled',
+        'jobs_scheduled_for_retry',
+        200,
+        'success',
+        'medium',
+        'retry'
+    );
+} elseif ($recovered > 0) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_stale_recovered',
+        'stale_processing_recovered',
+        200,
+        'success',
+        'medium',
+        'recovery'
+    );
+} elseif ($processed > 0) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_run_success',
+        'worker_run_success',
+        200,
+        'success',
+        'low',
+        'run'
+    );
+}
 
 booking_postprocess_worker_response([
     'success' => true,

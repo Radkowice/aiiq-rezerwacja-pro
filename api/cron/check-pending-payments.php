@@ -12,6 +12,11 @@ function cron_payments_response(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if (PHP_SAPI === 'cli') {
+        exit($statusCode >= 400 ? 1 : 0);
+    }
+
     exit;
 }
 
@@ -38,11 +43,11 @@ function cron_payments_security_event(
     string $result,
     string $reason,
     string $severity = 'medium',
-    string $stage = ''
+    string $stage = '',
+    array $extraDetails = []
 ): void {
-    $details = [
-        'reason' => $reason,
-    ];
+    $details = $extraDetails;
+    $details['reason'] = $reason;
 
     if ($stage !== '') {
         $details['stage'] = $stage;
@@ -525,6 +530,44 @@ function cron_payments_process_reminders(DateTimeImmutable $now): array
     ];
 }
 
+function cron_payments_failed_count(array $reminders, array $expired): int
+{
+    return (int)($reminders['failed'] ?? 0)
+        + (int)($expired['failed'] ?? 0);
+}
+
+function cron_payments_has_activity(array $reminders, array $expired): bool
+{
+    $activityCounters = [
+        (int)($reminders['checked'] ?? 0),
+        (int)($reminders['emails_sent'] ?? 0),
+        (int)($reminders['updated'] ?? 0),
+        (int)($reminders['skipped'] ?? 0),
+        (int)($expired['checked'] ?? 0),
+        (int)($expired['customer_emails_sent'] ?? 0),
+        (int)($expired['admin_emails_sent'] ?? 0),
+        (int)($expired['updated'] ?? 0),
+    ];
+
+    return array_sum($activityCounters) > 0;
+}
+
+function cron_payments_security_summary(array $reminders, array $expired): array
+{
+    return [
+        'reminders_checked' => (int)($reminders['checked'] ?? 0),
+        'reminder_emails_sent' => (int)($reminders['emails_sent'] ?? 0),
+        'reminders_updated' => (int)($reminders['updated'] ?? 0),
+        'reminders_skipped' => (int)($reminders['skipped'] ?? 0),
+        'reminders_failed' => (int)($reminders['failed'] ?? 0),
+        'expired_checked' => (int)($expired['checked'] ?? 0),
+        'expired_customer_emails_sent' => (int)($expired['customer_emails_sent'] ?? 0),
+        'expired_admin_emails_sent' => (int)($expired['admin_emails_sent'] ?? 0),
+        'expired_updated' => (int)($expired['updated'] ?? 0),
+        'expired_failed' => (int)($expired['failed'] ?? 0),
+    ];
+}
+
 function cron_payments_process_expired(DateTimeImmutable $now): array
 {
     $threshold = $now->modify('-30 minutes')->format(DATE_ATOM);
@@ -558,6 +601,7 @@ function cron_payments_process_expired(DateTimeImmutable $now): array
         $wasUpdated = cron_payments_update_booking($bookingId, [
             'status' => 'payment_overdue',
             'payment_status' => 'expired',
+            'payment_url' => null,
             'payment_expired_at' => $now->format(DATE_ATOM),
             'updated_at' => $now->format(DATE_ATOM),
         ]);
@@ -592,20 +636,26 @@ function cron_payments_process_expired(DateTimeImmutable $now): array
 }
 
 try {
-    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET' && ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
-        cron_payments_security_event(
-            'cron_payments_method_not_allowed',
-            405,
-            'denied',
-            'method_not_allowed',
-            'low',
-            'method'
-        );
+    if (!cron_payments_is_cli()) {
+        $requestMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? ''));
 
-        cron_payments_response([
-            'success' => false,
-            'error' => 'Metoda niedozwolona.',
-        ], 405);
+        if ($requestMethod !== 'POST') {
+            header('Allow: POST');
+
+            cron_payments_security_event(
+                'cron_payments_method_not_allowed',
+                405,
+                'denied',
+                'method_not_allowed',
+                'low',
+                'method'
+            );
+
+            cron_payments_response([
+                'success' => false,
+                'error' => 'method_not_allowed',
+            ], 405);
+        }
     }
 
     cron_payments_require_authorization();
@@ -620,14 +670,30 @@ try {
         'expired' => $expired,
     ]);
 
-    cron_payments_security_event(
-        'cron_payments_run_success',
-        200,
-        'success',
-        'cron_payments_run_success',
-        'low',
-        'completed'
-    );
+    $failedCount = cron_payments_failed_count($reminders, $expired);
+    $securitySummary = cron_payments_security_summary($reminders, $expired);
+
+    if ($failedCount > 0) {
+        cron_payments_security_event(
+            'cron_payments_run_partial_failure',
+            200,
+            'partial_failure',
+            'cron_payments_run_partial_failure',
+            'medium',
+            'completed_with_errors',
+            $securitySummary
+        );
+    } elseif (cron_payments_has_activity($reminders, $expired)) {
+        cron_payments_security_event(
+            'cron_payments_run_activity',
+            200,
+            'success',
+            'cron_payments_run_activity',
+            'low',
+            'completed_with_activity',
+            $securitySummary
+        );
+    }
 
     cron_payments_response([
         'success' => true,

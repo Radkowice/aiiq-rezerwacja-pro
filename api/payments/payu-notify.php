@@ -590,22 +590,45 @@ try {
         ], 401);
     }
 
-   $newStatus = payu_notify_map_status($payuStatus);
+       $newStatus = payu_notify_map_status($payuStatus);
+    $now = gmdate('c');
 
     // Idempotencja: jeśli booking ma już zapisany status 'paid', uzupełniony 'paid_at'
     // ORAZ nowe powiadomienie po zmapowaniu też daje 'paid', traktujemy je jako powtórkę
-    // PayU (retry webhooka) i nie aktualizujemy ponownie rezerwacji ani nie wysyłamy maila.
-    // Notyfikacje CANCELED/pending/unknown nie są blokowane, nawet jeśli booking byl 'paid'.
+    // PayU (retry webhooka) i nie aktywujemy ponownie rezerwacji ani nie wysyłamy maila.
+    // Jeśli historyczny rekord nadal ma payment_url, powtórny webhook bezpiecznie go wyczyści.
+    // Notyfikacje CANCELED/pending/unknown nie są blokowane, nawet jeśli booking był 'paid'.
     $alreadyProcessedPaid = strtolower(trim((string)($booking['payment_status'] ?? ''))) === 'paid'
         && trim((string)($booking['paid_at'] ?? '')) !== ''
         && $newStatus === 'paid';
 
     if ($alreadyProcessedPaid) {
+        $paymentUrlWasPresent = trim((string)($booking['payment_url'] ?? '')) !== '';
+
+        if ($paymentUrlWasPresent) {
+            $paymentUrlCleared = payu_notify_update_booking(
+                $bookingId,
+                $tenantId,
+                [
+                    'payment_url' => null,
+                    'updated_at' => $now,
+                ]
+            );
+
+            if (!$paymentUrlCleared) {
+                payu_notify_response([
+                    'success' => false,
+                    'error' => 'Nie udało się wyczyścić zakończonej płatności.',
+                ], 500);
+            }
+        }
+
         payu_notify_debug('PAYU_NOTIFY_ALREADY_PROCESSED', [
             'has_booking_id' => $bookingId !== '',
             'has_order_id' => $orderId !== '',
             'has_ext_order_id' => $extOrderId !== '',
             'payu_status' => $payuStatus,
+            'payment_url_cleared' => $paymentUrlWasPresent,
         ]);
 
         payu_notify_response([
@@ -616,24 +639,23 @@ try {
         ]);
     }
 
-$now = gmdate('c');
+    $payload = [
+        'payment_status' => $newStatus,
+        'payment_provider' => 'payu',
+        'updated_at' => $now,
+    ];
 
-$payload = [
-    'payment_status' => $newStatus,
-    'payment_provider' => 'payu',
-    'updated_at' => $now,
-];
+    if ($orderId !== '') {
+        $payload['payment_order_id'] = $orderId;
+    }
 
-if ($orderId !== '') {
-    $payload['payment_order_id'] = $orderId;
-}
+    if ($newStatus === 'paid') {
+        $payload['status'] = 'confirmed';
+        $payload['paid_at'] = $now;
+        $payload['payment_url'] = null;
+    }
 
-if ($newStatus === 'paid') {
-    $payload['status'] = 'confirmed';
-    $payload['paid_at'] = $now;
-}
-
-$updated = payu_notify_update_booking($bookingId, $tenantId, $payload);
+    $updated = payu_notify_update_booking($bookingId, $tenantId, $payload);
 
     if (!$updated) {
         payu_notify_response([
