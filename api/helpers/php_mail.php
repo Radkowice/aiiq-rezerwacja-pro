@@ -148,8 +148,13 @@ function buildEmailChangeNewAddressHtml(string $oldEmail, string $newEmail): str
     );
 }
 
-function sendSystemMail(string $to, string $subject, string $html, ?string $replyToOverride = null, string $replyNameOverride = ''): bool
-{
+function sendSystemMail(
+    string $to,
+    string $subject,
+    string $html,
+    ?string $replyToOverride = null,
+    string $replyNameOverride = ''
+): bool {
     try {
         $host       = systemMailEnv('SMTP_SYSTEM_HOST');
         $port       = (int) systemMailEnv('SMTP_SYSTEM_PORT', '587');
@@ -158,11 +163,25 @@ function sendSystemMail(string $to, string $subject, string $html, ?string $repl
         $fromEmail  = systemMailEnv('SMTP_SYSTEM_FROM');
         $fromName   = systemMailEnv('SMTP_SYSTEM_NAME', 'AI-IQ');
         $encryption = strtolower(systemMailEnv('SMTP_SYSTEM_ENCRYPTION', 'tls'));
-        $replyTo    = $replyToOverride !== null ? trim($replyToOverride) : systemMailEnv('SMTP_SYSTEM_REPLY_TO', $fromEmail);
-        $replyName  = $replyToOverride !== null ? trim($replyNameOverride) : systemMailEnv('SMTP_SYSTEM_REPLY_TO_NAME', 'No Reply');
+        $replyTo    = $replyToOverride !== null
+            ? trim($replyToOverride)
+            : systemMailEnv('SMTP_SYSTEM_REPLY_TO', $fromEmail);
+        $replyName  = $replyToOverride !== null
+            ? trim($replyNameOverride)
+            : systemMailEnv('SMTP_SYSTEM_REPLY_TO_NAME', 'No Reply');
+
+        $timeout = (int) systemMailEnv('SMTP_SYSTEM_TIMEOUT', '20');
+        $timeLimit = (int) systemMailEnv('SMTP_SYSTEM_TIMELIMIT', '20');
+
+        $timeout = max(5, min(60, $timeout));
+        $timeLimit = max(5, min(60, $timeLimit));
 
         if ($host === '' || $username === '' || $password === '' || $fromEmail === '') {
             throw new Exception('Brak pełnej konfiguracji SMTP_SYSTEM_* w ENV');
+        }
+
+        if (!filter_var($to, FILTER_VALIDATE_EMAIL)) {
+            throw new Exception('Nieprawidłowy adres odbiorcy');
         }
 
         $mail = new PHPMailer(true);
@@ -174,6 +193,9 @@ function sendSystemMail(string $to, string $subject, string $html, ?string $repl
         $mail->Username   = $username;
         $mail->Password   = $password;
         $mail->CharSet    = 'UTF-8';
+        $mail->Timeout    = $timeout;
+
+        $mail->getSMTPInstance()->Timelimit = $timeLimit;
 
         if ($encryption === 'ssl' || $encryption === 'smtps') {
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
@@ -190,13 +212,29 @@ function sendSystemMail(string $to, string $subject, string $html, ?string $repl
 
         $mail->isHTML(true);
         $mail->Subject = $subject;
-        $mail->Body    = $html;
-        $mail->AltBody = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+        $mail->Body = $html;
+        $mail->AltBody = trim(
+            html_entity_decode(
+                strip_tags(
+                    str_replace(
+                        ['<br>', '<br/>', '<br />'],
+                        "\n",
+                        $html
+                    )
+                ),
+                ENT_QUOTES | ENT_HTML5,
+                'UTF-8'
+            )
+        );
 
         return $mail->send();
 
     } catch (\Throwable $e) {
-        error_log('MAIL ERROR: ' . $e->getMessage());
+        error_log('SYSTEM_MAIL_ERROR ' . json_encode([
+            'error_class' => get_class($e),
+            'message_trace' => substr(hash('sha256', $e->getMessage()), 0, 16),
+        ], JSON_UNESCAPED_SLASHES));
+
         return false;
     }
 }
