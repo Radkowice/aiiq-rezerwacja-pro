@@ -55,10 +55,10 @@
             <span class="badge-r">R</span> - rezerwacja
           </span>
           <span class="legend-item">
-            <span class="badge-r">R↻</span> - zmiana rezerwacji
+            <span class="badge-r">R↻</span> - zmieniony termin rezerwacji
           </span>
           <span class="legend-item">
-            <span class="badge-r">Rx</span> - suma rezerwacji
+            <span class="badge-r">Rx</span> - liczba rezerwacji w danym dniu
           </span>
         </div>
         <div class="admin-legend-blocks">

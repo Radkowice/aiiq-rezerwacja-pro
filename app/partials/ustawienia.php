@@ -29,7 +29,7 @@
     </div>
 
     <div class="settings-card">
-      <h3>Globalny czas rezerwacji</h3>
+      <h3>Domyślne ustawienia rezerwacji</h3>
       <p class="settings-desc">
         Używany głównie jako ustawienie domyślne, gdy rezerwacje nie są obsługiwane przez aktywny personel.
         Przy usługach i pracownikach pierwszeństwo mają ustawienia z zakładki „Usługa i płatności”.
@@ -37,7 +37,7 @@
 
       <div class="settings-row">
         <div class="form-group">
-          <label for="consultation-duration">Długość konsultacji</label>
+          <label for="consultation-duration">Domyślny czas trwania rezerwacji</label>
           <select id="consultation-duration">
             <option value="15">15 minut</option>
             <option value="30">30 minut</option>
@@ -49,7 +49,7 @@
         </div>
 
         <div class="form-group">
-          <label for="consultation-break">Przerwa między konsultacjami</label>
+          <label for="consultation-break">Przerwa między rezerwacjami</label>
           <input type="number" id="consultation-break" min="0" step="5" value="0">
           <div class="settings-help">
             Globalna przerwa między rezerwacjami bez aktywnego personelu. Przy personelu używaj ustawień usług i grafików.
@@ -77,13 +77,13 @@
     <div class="settings-card">
       <h3>Zakres widoczności kalendarza</h3>
       <p class="settings-desc">
-        To ustawienie działa zawsze na froncie, niezależnie od personelu. Określa, od którego miesiąca
+        To ustawienie działa zawsze na stronie rezerwacji, niezależnie od personelu. Określa, od którego miesiąca
         i na ile miesięcy do przodu klient widzi kalendarz.
       </p>
 
       <div class="settings-row">
         <div class="form-group">
-          <label for="booking-start-month-offset">Start od miesiąca</label>
+          <label for="booking-start-month-offset">Pierwszy widoczny miesiąc</label>
           <input type="number" id="booking-start-month-offset" min="0" max="11" step="1" value="0">
           <div class="settings-help">
             0 = bieżący miesiąc, 1 = następny, 2 = za dwa miesiące itd. Działa niezależnie od personelu.
@@ -93,7 +93,7 @@
         <div class="form-group">
           <label for="booking-month-range">Zakres miesięcy</label>
           <input type="number" id="booking-month-range" min="1" max="12" step="1" value="1">
-          <div class="settings-help">Ile kolejnych miesięcy ma być dostępnych dla klienta na froncie.</div>
+          <div class="settings-help">Ile kolejnych miesięcy ma być dostępnych dla klienta na stronie rezerwacji.</div>
         </div>
       </div>
     </div>

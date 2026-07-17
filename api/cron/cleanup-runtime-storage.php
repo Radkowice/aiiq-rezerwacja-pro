@@ -26,6 +26,11 @@ function cleanup_runtime_response(array $payload, int $statusCode = 200): void
     }
 
     echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . PHP_EOL;
+
+    if (cleanup_runtime_is_cli()) {
+        exit($statusCode >= 400 ? 1 : 0);
+    }
+
     exit;
 }
 
@@ -342,38 +347,74 @@ if (!cleanup_runtime_authorized()) {
 
 $dryRun = cleanup_runtime_is_dry_run();
 $summary = cleanup_runtime_base_result($dryRun);
+$workerLockResult = booking_postprocess_queue_try_acquire_worker_lock();
+$workerLockStatus = (string)($workerLockResult['status'] ?? 'error');
+$workerLock = $workerLockResult['handle'] ?? null;
 
-$recovered = booking_postprocess_queue_recover_stale_processing(
-    CLEANUP_RUNTIME_QUEUE_PROCESSING_RECOVERY_SECONDS,
-    $dryRun
-);
-cleanup_runtime_add_step($summary, 'queue_processing_recovery', [
-    'recovered' => $recovered,
-]);
+if ($workerLockStatus === 'busy') {
+    cleanup_runtime_add_step($summary, 'queue_worker_lock', [
+        'skipped' => 1,
+    ]);
+    $summary['success'] = true;
+    $summary['status'] = 'already_running';
+    $summary = array_merge($summary, cleanup_runtime_log_run($summary));
 
-cleanup_runtime_add_step(
-    $summary,
-    'queue_pending_to_failed',
-    booking_postprocess_queue_fail_stale_pending(CLEANUP_RUNTIME_QUEUE_PENDING_FAIL_SECONDS, $dryRun)
-);
+    cleanup_runtime_response($summary);
+}
 
-cleanup_runtime_add_step(
-    $summary,
-    'queue_done_cleanup',
-    booking_postprocess_queue_cleanup_done(CLEANUP_RUNTIME_QUEUE_DONE_RETENTION_SECONDS, $dryRun)
-);
+if ($workerLockStatus !== 'acquired' || !is_resource($workerLock)) {
+    cleanup_runtime_add_step($summary, 'queue_worker_lock', [
+        'errors' => [[
+            'category' => (string)($workerLockResult['error_category'] ?? 'worker_lock_unavailable'),
+        ]],
+    ]);
+    $summary['success'] = false;
+    $summary = array_merge($summary, cleanup_runtime_log_run($summary));
 
-cleanup_runtime_add_step(
-    $summary,
-    'queue_failed_cleanup',
-    booking_postprocess_queue_cleanup_failed(CLEANUP_RUNTIME_QUEUE_FAILED_RETENTION_SECONDS, $dryRun)
-);
+    cleanup_runtime_response($summary, 500);
+}
 
-cleanup_runtime_add_step(
-    $summary,
-    'queue_tmp_cleanup',
-    booking_postprocess_queue_cleanup_tmp(CLEANUP_RUNTIME_TMP_RETENTION_SECONDS, $dryRun)
-);
+try {
+    $recovered = booking_postprocess_queue_recover_stale_processing(
+        CLEANUP_RUNTIME_QUEUE_PROCESSING_RECOVERY_SECONDS,
+        $dryRun
+    );
+    cleanup_runtime_add_step($summary, 'queue_processing_recovery', [
+        'recovered' => $recovered,
+    ]);
+
+    cleanup_runtime_add_step(
+        $summary,
+        'queue_pending_to_failed',
+        booking_postprocess_queue_fail_stale_pending(CLEANUP_RUNTIME_QUEUE_PENDING_FAIL_SECONDS, $dryRun)
+    );
+
+    cleanup_runtime_add_step(
+        $summary,
+        'queue_done_cleanup',
+        booking_postprocess_queue_cleanup_done(CLEANUP_RUNTIME_QUEUE_DONE_RETENTION_SECONDS, $dryRun)
+    );
+
+    cleanup_runtime_add_step(
+        $summary,
+        'queue_failed_cleanup',
+        booking_postprocess_queue_cleanup_failed(CLEANUP_RUNTIME_QUEUE_FAILED_RETENTION_SECONDS, $dryRun)
+    );
+
+    cleanup_runtime_add_step(
+        $summary,
+        'queue_tmp_cleanup',
+        booking_postprocess_queue_cleanup_tmp(CLEANUP_RUNTIME_TMP_RETENTION_SECONDS, $dryRun)
+    );
+} catch (Throwable $e) {
+    cleanup_runtime_add_step($summary, 'queue_cleanup', [
+        'errors' => [[
+            'category' => 'unexpected_error',
+        ]],
+    ]);
+} finally {
+    booking_postprocess_queue_release_worker_lock($workerLock);
+}
 
 cleanup_runtime_add_step(
     $summary,

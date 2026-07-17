@@ -11,7 +11,7 @@
       <div class="personel-card-header">
         <div>
           <h3>Lista personelu</h3>
-          <p class="personel-muted">Wybierz osobę, aby edytować dane, grafik i usługę.</p>
+          <p class="personel-muted">Wybierz osobę, aby edytować jej dane, grafik i przypisane usługi.</p>
         </div>
         <button type="button" class="btn" id="personel-add-btn">Dodaj osobę</button>
       </div>

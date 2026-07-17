@@ -395,27 +395,49 @@ function booking_postprocess_queue_job_is_due(array $job, ?DateTimeImmutable $no
     }
 }
 
-function booking_postprocess_queue_acquire_worker_lock()
+function booking_postprocess_queue_try_acquire_worker_lock(): array
 {
     if (!booking_postprocess_queue_ensure_directories()) {
-        return null;
+        return [
+            'status' => 'error',
+            'handle' => null,
+            'error_category' => 'queue_unavailable',
+        ];
     }
 
     $lockFile = booking_postprocess_queue_root() . '/worker.lock';
     $handle = @fopen($lockFile, 'c');
 
     if (!is_resource($handle)) {
-        return null;
+        return [
+            'status' => 'error',
+            'handle' => null,
+            'error_category' => 'worker_lock_open_failed',
+        ];
     }
 
     @chmod($lockFile, 0660);
 
     if (!@flock($handle, LOCK_EX | LOCK_NB)) {
         @fclose($handle);
-        return null;
+        return [
+            'status' => 'busy',
+            'handle' => null,
+            'error_category' => null,
+        ];
     }
 
-    return $handle;
+    return [
+        'status' => 'acquired',
+        'handle' => $handle,
+        'error_category' => null,
+    ];
+}
+
+function booking_postprocess_queue_acquire_worker_lock()
+{
+    $result = booking_postprocess_queue_try_acquire_worker_lock();
+    return is_resource($result['handle'] ?? null) ? $result['handle'] : null;
 }
 
 function booking_postprocess_queue_release_worker_lock($handle): void

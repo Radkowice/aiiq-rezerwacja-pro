@@ -15,7 +15,7 @@
           </div>
 
           <div class="admin-info-row">
-            <span>Płatność rozliczeniowa</span>
+            <span>Okres rozliczeniowy</span>
             <strong id="info-billing-period">—</strong>
           </div>
 
@@ -79,7 +79,7 @@
           <li>większą kontrolę nad rezerwacjami, blokadami i dostępnością.</li>
         </ul>
 
-        <div class="pro-upgrade-options" id="pro-upgrade-options" role="radiogroup" aria-label="Płatność rozliczeniowa planu Pro">
+        <div class="pro-upgrade-options" id="pro-upgrade-options" role="radiogroup" aria-label="Okres rozliczeniowy planu Pro">
           <label class="pro-upgrade-option">
             <input type="radio" name="pro-upgrade-period" value="monthly">
             <span>
@@ -130,7 +130,7 @@
 
           <div class="admin-info-row">
             <span>Wersja</span>
-            <strong>1.3</strong>
+            <strong>1.1</strong>
           </div>
 
           <div class="admin-info-row">
@@ -205,7 +205,7 @@
       </div>
 
       <div class="admin-info-card admin-info-support-card">
-        <h3>Support</h3>
+        <h3>Pomoc i kontakt</h3>
 
         <p class="admin-info-desc">
           W razie problemów technicznych, pytań dotyczących abonamentu albo potrzeby zmiany danych,

@@ -68,6 +68,21 @@ function booking_postprocess_worker_error_code(Throwable $error): string
 
 function booking_postprocess_worker_response(array $payload, int $statusCode = 200): void
 {
+    if (
+        PHP_SAPI === 'cli'
+        && $statusCode === 200
+        && $payload === [
+            'success' => true,
+            'processed' => 0,
+            'completed' => 0,
+            'retried' => 0,
+            'failed' => 0,
+            'recovered' => 0,
+        ]
+    ) {
+        exit;
+    }
+
     if (PHP_SAPI !== 'cli') {
         http_response_code($statusCode);
         header('Content-Type: application/json; charset=utf-8');
@@ -144,9 +159,11 @@ if (!booking_postprocess_queue_ensure_directories()) {
     ], 500);
 }
 
-$workerLock = booking_postprocess_queue_acquire_worker_lock();
+$workerLockResult = booking_postprocess_queue_try_acquire_worker_lock();
+$workerLockStatus = (string)($workerLockResult['status'] ?? 'error');
+$workerLock = $workerLockResult['handle'] ?? null;
 
-if (!is_resource($workerLock)) {
+if ($workerLockStatus === 'busy') {
     booking_postprocess_worker_security_event(
         'booking_postprocess_worker_already_running',
         'worker_already_running',
@@ -161,6 +178,29 @@ if (!is_resource($workerLock)) {
         'message' => 'worker_already_running',
         'processed' => 0,
     ]);
+}
+
+if ($workerLockStatus !== 'acquired' || !is_resource($workerLock)) {
+    $lockError = (string)($workerLockResult['error_category'] ?? '');
+
+    if (!in_array($lockError, ['queue_unavailable', 'worker_lock_open_failed'], true)) {
+        $lockError = 'worker_lock_open_failed';
+    }
+
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_worker_lock_failed',
+        $lockError,
+        500,
+        'error',
+        'high',
+        'lock'
+    );
+
+    booking_postprocess_worker_response([
+        'success' => false,
+        'error' => $lockError,
+        'processed' => 0,
+    ], 500);
 }
 
 $processed = 0;

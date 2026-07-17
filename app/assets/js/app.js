@@ -384,6 +384,7 @@ async function loadFrontBranding() {
   const data = await res.json().catch(() => null);
 
   if (res.status === 404 && data?.error === 'tenant_not_found') {
+    setFrontRobotsIndexing(false);
     showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.');
     return false;
   }
@@ -2581,6 +2582,42 @@ function applyFrontBlockedData(blockedPayload = {}) {
     : null;
 }
 
+function setFrontRobotsIndexing(indexingEnabled) {
+  const robotsMeta = document.getElementById('frontMetaRobots');
+  if (!robotsMeta) {
+    return;
+  }
+
+  robotsMeta.content = indexingEnabled === false
+    ? 'noindex,nofollow'
+    : 'index,follow';
+}
+
+function applyFrontSeoData(seoPayload = {}) {
+  if (!seoPayload || seoPayload.success !== true) {
+    return;
+  }
+
+  const descriptionMeta = document.getElementById('frontMetaDescription');
+  const canonicalLink = document.getElementById('frontCanonical');
+  const effectiveTitle = String(seoPayload.effective_title || '').trim();
+  const effectiveDescription = String(seoPayload.effective_description || '').trim();
+
+  setFrontRobotsIndexing(seoPayload.indexing_enabled);
+
+  if (effectiveTitle !== '') {
+    document.title = effectiveTitle;
+  }
+
+  if (descriptionMeta && effectiveDescription !== '') {
+    descriptionMeta.content = effectiveDescription;
+  }
+
+  if (canonicalLink && ['http:', 'https:'].includes(window.location.protocol)) {
+    canonicalLink.href = new URL('/', window.location.origin).href;
+  }
+}
+
 async function loadFrontBootstrap() {
   let res;
   let data;
@@ -2597,6 +2634,7 @@ async function loadFrontBootstrap() {
   }
 
   if (res.status === 404 && data?.error === 'tenant_not_found') {
+    setFrontRobotsIndexing(false);
     showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.');
     return 'tenant_not_found';
   }
@@ -2606,6 +2644,7 @@ async function loadFrontBootstrap() {
     return false;
   }
 
+  applyFrontSeoData(data.seo || {});
   applyFrontBrandingData(data.branding || {}, data.plan_context || null);
   applyFrontServiceSettingsData(data.service || null);
   const servicesLoaded = applyFrontPublicServicesData(data.services || {});

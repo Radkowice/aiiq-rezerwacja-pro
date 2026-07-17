@@ -50,6 +50,8 @@ window.AdminLoadQueue = window.AdminLoadQueue || (() => {
 
 let adminEmailModuleQueued = false;
 let adminIntegrationsModuleQueued = false;
+let adminSeoGoogleModuleQueued = false;
+let adminSeoGoogleModuleInitialized = false;
 let adminStaffModuleQueued = false;
 let adminSettingsModuleQueued = false;
 let adminBlocksModuleQueued = false;
@@ -154,6 +156,32 @@ function enqueueAdminIntegrationsModule() {
     }
   }, {
     optional: true
+  });
+}
+
+function enqueueAdminSeoGoogleModule() {
+  if (adminSeoGoogleModuleQueued || adminSeoGoogleModuleInitialized) return;
+
+  adminSeoGoogleModuleQueued = true;
+
+  window.AdminLoadQueue.enqueue('seo-google-module', async () => {
+    const accountReady = window.adminAccountDataReady
+      || (typeof getAdminAccountDataReady === 'function'
+        ? getAdminAccountDataReady()
+        : Promise.resolve(null));
+    const data = await accountReady;
+
+    if (!data || data.success !== true) {
+      return;
+    }
+
+    if (typeof window.initSeoGoogleModule === 'function') {
+      adminSeoGoogleModuleInitialized = window.initSeoGoogleModule() === true;
+    }
+  }, {
+    optional: true
+  }).finally(() => {
+    adminSeoGoogleModuleQueued = false;
   });
 }
 
@@ -494,6 +522,7 @@ function initMenu() {
     'usluga-platnosci',
     'email',
     'integracje',
+    'widocznosc-google',
     'dokumenty_prawne',
     'informacje',
     'ustawienia',
@@ -538,6 +567,10 @@ function initMenu() {
 
     if (targetSection === 'integracje') {
       enqueueAdminIntegrationsModule();
+    }
+
+    if (targetSection === 'widocznosc-google') {
+      enqueueAdminSeoGoogleModule();
     }
 
     if (targetSection === 'dokumenty_prawne') {
@@ -753,6 +786,7 @@ function applyPlanLocks() {
     'usluga-platnosci',
     'email',
     'integracje',
+    'widocznosc-google',
     'dokumenty_prawne',
     'informacje',
     'ustawienia',
@@ -817,7 +851,10 @@ function initTopbarActions() {
       try {
         const res = await fetch('/api/auth/logout.php', {
           method: 'POST',
-          credentials: 'include'
+          credentials: 'include',
+          headers: {
+            'X-CSRF-Token': window.CSRF_TOKEN || ''
+          }
         });
 
         const data = await res.json();
@@ -1111,7 +1148,8 @@ async function markAdminNotificationsRead(button) {
       method: 'POST',
       credentials: 'include',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       body: JSON.stringify({
         action: 'mark_read'

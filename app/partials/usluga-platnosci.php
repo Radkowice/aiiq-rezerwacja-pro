@@ -9,9 +9,9 @@
 
   <div class="service-payments-grid">
     <div class="settings-card service-payments-card service-payments-info-card">
-      <h3>Logika ustawień</h3>
+      <h3>Jak działają ustawienia</h3>
       <p class="service-payments-desc">
-        Ustawienia globalne działają jako podstawowa usługa w kalendarzu.
+        Ustawienia globalne są używane wtedy, gdy nie utworzysz osobnych usług.
       </p>
      
     </div>
@@ -189,7 +189,7 @@
             <label class="service-payments-check">
               <input type="checkbox" id="service-visible-on-front" checked>
               <span>
-                <strong>Widoczna na froncie</strong>
+                <strong>Widoczna dla klientów</strong>
                 <small>Klient zobaczy tę usługę w kalendarzu.</small>
               </span>
             </label>

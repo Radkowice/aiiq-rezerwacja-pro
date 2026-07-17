@@ -21,7 +21,7 @@
       </div>
 
       <div class="integration-status" id="google-calendar-status">
-        Status: niepołączono
+        Status: nie połączono
       </div>
 
       <div class="settings-help">
@@ -87,7 +87,7 @@
       </div>
 
       <div class="settings-help" style="margin-top:14px;">
-        Klucze PayU zostaną zaszyfrowane.
+        Te dane znajdziesz w panelu PayU, w konfiguracji punktu płatności. Klucze PayU zostaną zaszyfrowane.
       </div>
 
       <div class="integration-actions settings-actions">

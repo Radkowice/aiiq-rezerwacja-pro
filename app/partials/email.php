@@ -7,7 +7,7 @@
   </div>
 
   <div class="settings-card email-settings-card email-fallback-notice">
-    <h3>Awaryjna wysyłka systemowa</h3>
+    <h3>Wysyłka systemowa bez własnej skrzynki</h3>
     <p class="settings-desc">
       Jeśli nie skonfigurujesz własnego połączenia e-mail oraz nie ustawisz szablonów wiadomości, system wyśle podstawowe powiadomienia z adresu systemowego AI-IQ Rezerwacja Pro.
     </p>
@@ -20,7 +20,7 @@
     <div class="settings-card email-settings-card" data-email-card="smtp">
       <h3>Serwer SMTP</h3>
       <p class="settings-desc">
-        Tutaj ustawiasz skrzynkę e-mail, z której system będzie wysyłał wiadomości do klientów. Możesz użyć poczty firmowej albo Gmaila/Google Workspace. Po zmianie danych SMTP zapisz ustawienia i sprawdź połączenie.
+        Tutaj ustawiasz skrzynkę e-mail, z której system będzie wysyłał wiadomości do klientów. Możesz użyć poczty firmowej albo Gmaila/Google Workspace. Dane serwera SMTP znajdziesz w ustawieniach swojej skrzynki pocztowej lub otrzymasz je od dostawcy hostingu. Po zmianie danych SMTP zapisz ustawienia i sprawdź połączenie.
         <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
       </p>
 

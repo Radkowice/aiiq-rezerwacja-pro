@@ -1,5 +1,6 @@
 User-agent: *
 Allow: /
+Allow: /api/front/bootstrap.php
 
 Disallow: /api/
 Disallow: /panel-admina.php

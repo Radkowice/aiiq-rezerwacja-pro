@@ -14,7 +14,7 @@
       </div>
 
       <div class="form-group">
-        <label>Nazwa publiczna firmy - marka</label>
+        <label>Nazwa widoczna dla klientów (marka)</label>
         <input type="text" id="account-company-name" placeholder="Nazwa firmy">
       </div>
 
@@ -161,7 +161,7 @@
     </div>
 
     <div class="admin-card">
-      <h3>Branding klienta</h3>
+      <h3>Logo i wygląd firmy</h3>
 
       <div class="form-group">
         <label for="account-logo">Logo</label>
@@ -180,18 +180,18 @@
       </div>
 
       <div class="form-group">
-        <label for="account-favicon">Favicon frontu kalendarza</label>
+        <label for="account-favicon">Ikona strony rezerwacji</label>
         <input type="file" id="account-favicon" accept="image/png,image/jpeg,image/webp">
-        <small>Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 512 KB. Plik zostanie zapisany jako PNG.</small>
+        <small>Mała ikona widoczna na karcie przeglądarki i w wynikach Google. Dozwolone formaty: PNG, JPG, WEBP. Maksymalnie 512 KB. Plik zostanie zapisany jako PNG.</small>
         <p id="account-favicon-message" class="account-field-message" hidden></p>
 
         <div class="branding-favicon-preview-wrap">
-          <div class="branding-logo-preview-label">Aktualna favicon</div>
-          <img id="account-favicon-preview" class="branding-favicon-preview" src="" alt="Aktualna favicon" style="display:none;">
-          <div id="account-favicon-empty" class="branding-logo-empty">Brak wgranej favicony</div>
+          <div class="branding-logo-preview-label">Aktualna ikona strony</div>
+          <img id="account-favicon-preview" class="branding-favicon-preview" src="" alt="Aktualna ikona strony" style="display:none;">
+          <div id="account-favicon-empty" class="branding-logo-empty">Brak wgranej ikony</div>
 
           <button class="btn branding-remove-btn" type="button" id="delete-favicon-front-btn" style="display:none;">
-            Usuń faviconę
+            Usuń ikonę
           </button>
         </div>
       </div>
@@ -249,7 +249,7 @@
     </div>
 
     <div class="admin-card">
-      <h3>Wygląd kalendarza frontowego</h3>
+      <h3>Wygląd strony rezerwacji</h3>
 
       <div class="form-group">
         <label for="front-bg-color">Kolor tła</label>
@@ -277,7 +277,7 @@
       </div>
 
       <div class="form-group">
-        <label for="front-width">Szerokość kontenera</label>
+        <label for="front-width">Szerokość formularza rezerwacji</label>
         <input type="range" id="front-width" min="320" max="1400" value="900">
       </div>
 
@@ -310,11 +310,11 @@
       </div>
 
       <div class="form-group">
-        <label><input type="checkbox" id="toggle-phone-field" checked> Pokaż pole telefon</label>
+        <label><input type="checkbox" id="toggle-phone-field" checked> Pokaż pole telefonu</label>
       </div>
 
       <div class="form-group">
-        <label><input type="checkbox" id="toggle-notes-field" checked> Pokaż pole wiadomość</label>
+        <label><input type="checkbox" id="toggle-notes-field" checked> Pokaż pole wiadomości</label>
       </div>
 
       <button class="btn" type="button" id="save-form-fields-btn">

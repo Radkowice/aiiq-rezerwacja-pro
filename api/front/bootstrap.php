@@ -230,6 +230,151 @@ function front_bootstrap_request(string $url, string $key, string $schema): arra
     return $lastResult;
 }
 
+function front_bootstrap_rpc_request(
+    string $url,
+    array $payload,
+    string $key,
+    string $schema
+): array {
+    $attempts = 1;
+    $lastResult = [
+        'ok' => false,
+        'response' => false,
+        'error' => '',
+        'httpCode' => 0,
+        'data' => null,
+    ];
+
+    for ($attempt = 1; $attempt <= $attempts; $attempt++) {
+        $ch = curl_init($url);
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => json_encode(
+                $payload,
+                JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES
+            ),
+            CURLOPT_HTTPHEADER => supabaseHeaders($key, $schema),
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 8,
+        ]);
+
+        $response = curl_exec($ch);
+        $error = curl_error($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        curl_close($ch);
+
+        $data = json_decode((string) $response, true);
+        $jsonValid = json_last_error() === JSON_ERROR_NONE;
+        $retryable = $response === false
+            || $error !== ''
+            || $httpCode === 429
+            || $httpCode >= 500
+            || $httpCode === 0;
+
+        $lastResult = [
+            'ok' => $response !== false
+                && $error === ''
+                && $httpCode >= 200
+                && $httpCode < 300
+                && $jsonValid
+                && is_array($data),
+            'response' => $response,
+            'error' => $error,
+            'httpCode' => $httpCode,
+            'data' => $data,
+        ];
+
+        if ($lastResult['ok'] || !$retryable || $attempt === $attempts) {
+            break;
+        }
+
+        usleep(150000);
+    }
+
+    return $lastResult;
+}
+
+function front_bootstrap_decode_rpc_result(mixed $data): ?array
+{
+    if (!is_array($data)) {
+        return null;
+    }
+
+    if (array_key_exists('success', $data)) {
+        return $data;
+    }
+
+    foreach ($data as $value) {
+        if (!is_array($value)) {
+            continue;
+        }
+
+        $decoded = front_bootstrap_decode_rpc_result($value);
+
+        if (is_array($decoded)) {
+            return $decoded;
+        }
+    }
+
+    return null;
+}
+
+function front_bootstrap_seo_bool(mixed $value, bool $default = false): bool
+{
+    if (is_bool($value)) {
+        return $value;
+    }
+
+    if ($value === 1 || $value === '1' || $value === 'true') {
+        return true;
+    }
+
+    if ($value === 0 || $value === '0' || $value === 'false') {
+        return false;
+    }
+
+    return $default;
+}
+
+function front_bootstrap_seo_text(mixed $value): string
+{
+    return is_scalar($value) ? trim((string) $value) : '';
+}
+
+function front_bootstrap_build_seo(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId
+): array {
+    $result = front_bootstrap_rpc_request(
+        $supabaseUrl . '/rest/v1/rpc/get_tenant_seo_settings',
+        ['p_tenant_id' => $tenantId],
+        $serviceRoleKey,
+        $schema
+    );
+
+    if (!$result['ok']) {
+        return ['success' => false];
+    }
+
+    $record = front_bootstrap_decode_rpc_result($result['data']);
+
+    if (!is_array($record) || !front_bootstrap_seo_bool($record['success'] ?? false)) {
+        return ['success' => false];
+    }
+
+    return [
+        'success' => true,
+        'indexing_enabled' => front_bootstrap_seo_bool($record['indexing_enabled'] ?? true, true),
+        'effective_title' => front_bootstrap_seo_text($record['effective_title'] ?? ''),
+        'effective_description' => front_bootstrap_seo_text($record['effective_description'] ?? ''),
+    ];
+}
+
 
 function front_bootstrap_multi_request(array $requests, string $key, string $schema): array
 {
@@ -1222,6 +1367,7 @@ function front_bootstrap_build_static_bundle(string $supabaseUrl, string $servic
         $publicPlanContext,
         (string)($serviceBundle['company_full_name'] ?? '')
     );
+    $seo = front_bootstrap_build_seo($supabaseUrl, $serviceRoleKey, $schema, $tenantId);
 
     return [
         'tenant_id' => $tenantId,
@@ -1231,6 +1377,7 @@ function front_bootstrap_build_static_bundle(string $supabaseUrl, string $servic
         'services' => $services,
         'staff' => $staff,
         'legal' => $legal,
+        'seo' => $seo,
         'calendar_service' => $service,
     ];
 }
@@ -1280,6 +1427,7 @@ try {
     $services = is_array($staticBundle['services'] ?? null) ? $staticBundle['services'] : ['success' => true, 'services' => []];
     $staff = is_array($staticBundle['staff'] ?? null) ? $staticBundle['staff'] : ['success' => false, 'staff_enabled' => false, 'staff' => []];
     $legal = is_array($staticBundle['legal'] ?? null) ? $staticBundle['legal'] : ['success' => true, 'enabled' => false, 'documents' => null];
+    $seo = is_array($staticBundle['seo'] ?? null) ? $staticBundle['seo'] : ['success' => false];
     $service = is_array($staticBundle['calendar_service'] ?? null) ? $staticBundle['calendar_service'] : [];
 
     if ($tenantId === '') {
@@ -1304,6 +1452,7 @@ try {
         'staff' => $staff,
         'legal' => $legal,
         'blocked' => $blocked,
+        'seo' => $seo,
     ]);
 } catch (Throwable $e) {
     error_log('front bootstrap error: ' . $e->getMessage());

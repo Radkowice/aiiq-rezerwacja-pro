@@ -8,7 +8,7 @@
     <div class="settings-card">
       <h3>Regulamin rezerwacji</h3>
       <p class="settings-desc">
-        Regulamin będzie linkowany przy checkboxie zgody na froncie rezerwacji.
+        Regulamin będzie dostępny przy zgodzie klienta na stronie rezerwacji.
       </p>
 
       <div class="settings-row">
@@ -36,7 +36,7 @@
     <div class="settings-card">
       <h3>Polityka prywatności</h3>
       <p class="settings-desc">
-        Polityka prywatności będzie będzie linkowana przy checkboxie zgody na froncie rezerwacji.
+        Polityka prywatności będzie dostępna przy zgodzie klienta na stronie rezerwacji.
       </p>
 
       <div class="settings-row">
@@ -64,12 +64,12 @@
     <div class="settings-card settings-actions-card">
       <h3>Publikacja dokumentów</h3>
       <p class="settings-desc">
-        Po włączeniu linki do dokumentów klienta pojawią się przy zgodzie na froncie rezerwacji.
+        Po włączeniu linki do dokumentów pojawią się przy zgodzie klienta na stronie rezerwacji.
       </p>
 
       <label class="legal-check-row" for="legal-is-enabled">
         <input id="legal-is-enabled" type="checkbox">
-        <span>Włącz dokumenty prawne w kalendarzu rezerwacji</span>
+        <span>Pokaż dokumenty prawne klientom podczas rezerwacji</span>
       </label>
 
       <a class="btn" href="/dokumenty/regulamin.html" target="_blank" rel="noopener">

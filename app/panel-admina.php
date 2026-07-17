@@ -25,7 +25,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/panel-admina-layout.css">
   <link rel="stylesheet" href="/assets/css/admin-personel.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-email.css?v=1">
-  <link rel="stylesheet" href="/assets/css/admin-ustawienia.css?v=1">
+  <link rel="stylesheet" href="/assets/css/admin-ustawienia.css?v=2">
   <link rel="stylesheet" href="/assets/css/admin-moje-konto.css?v=2">
   <link rel="stylesheet" href="/assets/css/panel-admina-przyciski.css?v=2">
   <link rel="stylesheet" href="/assets/css/admin-integracje.css?v=1">
