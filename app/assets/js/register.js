@@ -2,8 +2,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('registerForm');
   const passwordInput = document.getElementById('password');
   const subdomainInput = document.getElementById('subdomainSlug');
+  const websiteInput = document.getElementById('registerWebsite');
+  const formStartedAtInput = document.getElementById('registerFormStartedAt');
 
   if (!form) return;
+
+  if (formStartedAtInput) {
+    formStartedAtInput.value = String(Date.now());
+  }
 
   const registrationAllowed = await checkRegistrationAvailability();
 
@@ -25,6 +31,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     e.preventDefault();
 
     showRegisterError('');
+
+    if (websiteInput && websiteInput.value.trim() !== '') {
+      showRegisterError('Nie udało się wysłać formularza rejestracji. Odśwież stronę i spróbuj ponownie.');
+      return;
+    }
 
     const clientName = getRegisterValue('registerClientName');
     const subdomainInputValue = getRegisterValue('subdomainSlug');
@@ -150,6 +161,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         submitBtn.textContent = selectedPlan.code === 'pro' ? 'Przygotowuję płatność PayU...' : 'Tworzenie konta...';
       }
 
+      const formStartedAtRaw = formStartedAtInput ? formStartedAtInput.value.trim() : '';
+      const formStartedAt = Number(formStartedAtRaw);
+      const elapsedMs = Date.now() - formStartedAt;
+      const minFillTimeMs = 3000;
+
+      if (
+        formStartedAtRaw !== ''
+        && Number.isFinite(elapsedMs)
+        && elapsedMs >= 0
+        && elapsedMs < minFillTimeMs
+      ) {
+        await new Promise((resolve) => {
+          setTimeout(resolve, minFillTimeMs - elapsedMs + 150);
+        });
+      }
+
+      const formFillTimeMs = formStartedAtRaw !== ''
+        ? Date.now() - formStartedAt
+        : '';
+
       const res = await fetch('/api/auth/register.php', {
         method: 'POST',
         headers: {
@@ -165,6 +196,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           password_confirm: passwordConfirm,
           terms_accepted: registrationConsent,
           privacy_accepted: registrationConsent,
+          website: websiteInput ? websiteInput.value.trim() : '',
+          form_started_at: formStartedAtRaw,
+          form_fill_time_ms: Number.isFinite(formFillTimeMs) && formFillTimeMs >= 0
+            ? formFillTimeMs
+            : '',
 
           company_full_name: companyFullName,
           company_owner_name: companyOwnerName,

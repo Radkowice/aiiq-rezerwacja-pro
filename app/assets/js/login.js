@@ -1,9 +1,13 @@
 const loginUrlParams = new URLSearchParams(window.location.search);
 const loginActivatedState = loginUrlParams.get('activated');
 const skipSetupRedirect = loginActivatedState === 'already';
+const loginCodeEndpoint = '/api/auth/login-code.php';
 const activationReissueMessage = 'Jeśli konto wymaga aktywacji, wyślemy nowy link aktywacyjny.';
 const activationReissueErrorMessage = 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.';
 let activationReissueEmail = '';
+let selectedLoginMethod = 'code';
+let loginCodeRequested = false;
+let loginRequestInProgress = false;
 
 async function checkSetupBeforeLogin() {
   if (skipSetupRedirect) {
@@ -103,7 +107,158 @@ function showActivationMessage() {
   window.history.replaceState({}, document.title, window.location.pathname + window.location.hash);
 }
 
-async function login() {
+function setLoginLoading(isLoading) {
+  loginRequestInProgress = isLoading;
+
+  document.querySelectorAll('#loginForm input, #loginForm button, .login-method-btn').forEach((element) => {
+    element.disabled = isLoading;
+  });
+}
+
+function updateLoginSubmitLabel() {
+  const submit = document.getElementById('loginSubmitBtn');
+
+  if (!submit) return;
+
+  if (selectedLoginMethod === 'password') {
+    submit.textContent = 'Zaloguj się hasłem';
+    return;
+  }
+
+  submit.textContent = loginCodeRequested ? 'Zaloguj się kodem' : 'Wyślij kod';
+}
+
+function selectLoginMethod(method, message = '') {
+  if (!['code', 'password'].includes(method)) return;
+
+  selectedLoginMethod = method;
+
+  document.querySelectorAll('[data-login-method]').forEach((button) => {
+    const isActive = button.dataset.loginMethod === method;
+    button.classList.toggle('is-active', isActive);
+    button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+  });
+
+  document.querySelectorAll('[data-login-panel]').forEach((panel) => {
+    panel.hidden = panel.dataset.loginPanel !== method;
+  });
+
+  hideActivationReissueAction();
+  setLoginError(message);
+  updateLoginSubmitLabel();
+}
+
+async function requestLoginCode() {
+  if (loginRequestInProgress) return;
+
+  const emailInput = document.getElementById('email');
+  const email = emailInput ? emailInput.value.trim() : '';
+
+  if (!email) {
+    setLoginError('Podaj adres e-mail');
+    emailInput?.focus();
+    return;
+  }
+
+  setLoginLoading(true);
+
+  try {
+    const response = await fetch(loginCodeEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({ action: 'request', email })
+    });
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok || data?.success !== true) {
+      setLoginError(data?.error || 'Nie udało się wysłać kodu. Spróbuj ponownie za chwilę.');
+      return;
+    }
+
+    loginCodeRequested = true;
+    const codeStep = document.getElementById('loginCodeStep');
+
+    if (codeStep) {
+      codeStep.hidden = false;
+    }
+
+    const codeInput = document.getElementById('loginCode');
+    if (codeInput) codeInput.value = '';
+
+    updateLoginSubmitLabel();
+    setLoginError(data.message || 'Jeśli aktywne konto istnieje, kod logowania został wysłany.');
+    document.getElementById('loginCode')?.focus();
+  } catch (error) {
+    setLoginError('Nie udało się wysłać kodu. Spróbuj ponownie za chwilę.');
+  } finally {
+    setLoginLoading(false);
+  }
+}
+
+async function verifyLoginCode() {
+  if (loginRequestInProgress) return;
+
+  const emailInput = document.getElementById('email');
+  const codeInput = document.getElementById('loginCode');
+  const trustDeviceInput = document.getElementById('trustDevice');
+  const email = emailInput ? emailInput.value.trim() : '';
+  const code = codeInput ? codeInput.value.trim() : '';
+
+  if (!email) {
+    setLoginError('Podaj adres e-mail');
+    emailInput?.focus();
+    return;
+  }
+
+  if (!/^[0-9]{6}$/.test(code)) {
+    setLoginError('Wpisz sześciocyfrowy kod logowania.');
+    codeInput?.focus();
+    return;
+  }
+
+  setLoginLoading(true);
+
+  try {
+    const response = await fetch(loginCodeEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        action: 'verify',
+        email,
+        code,
+        trust_device: trustDeviceInput?.checked === true
+      })
+    });
+    const data = await response.json().catch(() => null);
+
+    if (response.ok && data?.success === true) {
+      if (codeInput) {
+        codeInput.value = '';
+      }
+
+      window.location.href = '/panel-admina.php';
+      return;
+    }
+
+    setLoginError(data?.error || 'Kod jest nieprawidłowy albo wygasł.');
+  } catch (error) {
+    setLoginError('Nie udało się zalogować. Spróbuj ponownie za chwilę.');
+  } finally {
+    setLoginLoading(false);
+  }
+}
+
+async function loginWithPassword() {
+  if (loginRequestInProgress) return;
+
   clearLoginError();
   hideActivationReissueAction();
 
@@ -125,6 +280,8 @@ async function login() {
     return;
   }
 
+  setLoginLoading(true);
+
   try {
     const res = await fetch('/api/auth/login.php', {
       method: 'POST',
@@ -140,6 +297,11 @@ async function login() {
       return;
     }
 
+    if (data?.code === 'trusted_device_required') {
+      selectLoginMethod('code', data.error || 'Zaloguj się kodem, aby zaufać tej przeglądarce.');
+      return;
+    }
+
     if (data?.activation_required === true) {
       activationReissueEmail = email;
       showActivationReissueAction();
@@ -151,7 +313,24 @@ async function login() {
   } catch (error) {
     hideActivationReissueAction();
     setLoginError('Nie udało się zalogować. Spróbuj ponownie za chwilę');
+  } finally {
+    setLoginLoading(false);
+    updateLoginSubmitLabel();
   }
+}
+
+async function submitSelectedLoginMethod() {
+  if (selectedLoginMethod === 'password') {
+    await loginWithPassword();
+    return;
+  }
+
+  if (loginCodeRequested) {
+    await verifyLoginCode();
+    return;
+  }
+
+  await requestLoginCode();
 }
 
 async function requestActivationReissue() {
@@ -213,25 +392,50 @@ document.addEventListener('DOMContentLoaded', async () => {
   const emailInput = document.getElementById('email');
   const togglePasswordButton = document.querySelector('.login-toggle-password');
   const activationReissueButton = getActivationReissueButton();
+  const requestNewCodeButton = document.getElementById('requestNewCodeBtn');
 
   if (form) {
-    form.addEventListener('submit', function (event) {
+    form.addEventListener('submit', async function (event) {
       event.preventDefault();
-      login();
+      await submitSelectedLoginMethod();
     });
   }
+
+  document.querySelectorAll('[data-login-method]').forEach((button) => {
+    button.addEventListener('click', () => {
+      selectLoginMethod(button.dataset.loginMethod || 'code');
+    });
+  });
 
   if (togglePasswordButton) {
     togglePasswordButton.addEventListener('click', togglePassword);
   }
 
   if (emailInput) {
-    emailInput.addEventListener('input', handleLoginEmailChange);
+    emailInput.addEventListener('input', () => {
+      handleLoginEmailChange();
+
+      if (loginCodeRequested) {
+        loginCodeRequested = false;
+        const codeStep = document.getElementById('loginCodeStep');
+        const codeInput = document.getElementById('loginCode');
+
+        if (codeStep) codeStep.hidden = true;
+        if (codeInput) codeInput.value = '';
+        updateLoginSubmitLabel();
+      }
+    });
   }
 
   if (activationReissueButton) {
     activationReissueButton.addEventListener('click', requestActivationReissue);
   }
+
+  if (requestNewCodeButton) {
+    requestNewCodeButton.addEventListener('click', requestLoginCode);
+  }
+
+  selectLoginMethod('code');
 
   if (skipSetupRedirect) {
     showActivationMessage();

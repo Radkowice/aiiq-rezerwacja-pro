@@ -6,6 +6,7 @@
 <link rel="icon" type="image/png" href="/favicon.png">
 <title>Logowanie</title>
 <link rel="stylesheet" href="assets/css/login.css">
+<link rel="stylesheet" href="assets/css/login-security.css?v=1">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 
@@ -21,9 +22,57 @@
   <div class="box login-box">
     <h2>Logowanie</h2>
 
-    <form>
-      <input type="email" id="email" placeholder="Email" autocomplete="email">
+    <div class="login-method-switch" role="group" aria-label="Wybierz metodę logowania">
+      <button type="button" class="login-method-btn is-active" data-login-method="code" aria-pressed="true">
+        Zaloguj się kodem
+      </button>
+      <button type="button" class="login-method-btn" data-login-method="password" aria-pressed="false">
+        Zaloguj się hasłem
+      </button>
+    </div>
 
+    <form id="loginForm" novalidate>
+      <label class="login-field" for="email">
+        <span>Adres e-mail</span>
+        <input type="email" id="email" autocomplete="username" required>
+      </label>
+
+      <section class="login-method-panel" data-login-panel="code">
+        <p class="login-method-description">
+          Wyślemy jednorazowy kod na adres przypisany do aktywnego konta.
+        </p>
+
+        <div id="loginCodeStep" hidden>
+          <label class="login-field" for="loginCode">
+            <span>Kod logowania</span>
+            <input
+              type="text"
+              id="loginCode"
+              inputmode="numeric"
+              autocomplete="one-time-code"
+              maxlength="6"
+              pattern="[0-9]{6}"
+            >
+          </label>
+
+          <label class="login-trusted-option" for="trustDevice">
+            <input type="checkbox" id="trustDevice" checked>
+            <span>Zaufaj tej przeglądarce na ograniczony czas i umożliw logowanie hasłem.</span>
+          </label>
+
+          <button type="button" class="login-secondary-btn" id="requestNewCodeBtn">
+            Wyślij nowy kod
+          </button>
+        </div>
+      </section>
+
+      <section class="login-method-panel" data-login-panel="password" hidden>
+        <p class="login-method-description">
+          Logowanie hasłem działa tylko w przeglądarce zaufanej wcześniej po zalogowaniu kodem.
+        </p>
+      <label class="login-field" for="password">
+        <span>Hasło</span>
+      </label>
       <div class="login-password-field">
         <input type="password" id="password" placeholder="Hasło" autocomplete="current-password">
 
@@ -36,8 +85,9 @@
           <span class="password-eye password-eye-closed">🙈</span>
         </button>
       </div>
+      </section>
 
-      <button type="submit" class="login-submit-btn">Zaloguj</button>
+      <button type="submit" class="login-submit-btn" id="loginSubmitBtn">Wyślij kod</button>
     </form>
 
     <p class="login-reset-link">
@@ -56,7 +106,7 @@
   <div class="login-footer app-footer" data-app-footer></div>
 </div>
 
-<script src="assets/js/login.js?v=7"></script>
+<script src="assets/js/login.js?v=8"></script>
 
   <script src="/assets/js/app-footer.js" defer></script>
 </body>

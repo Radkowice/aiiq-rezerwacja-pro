@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/login_security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -75,6 +76,15 @@ $rateLimitResult = security_rate_limit_check(
         ],
     ]
 );
+
+if (empty($rateLimitResult['ok'])) {
+    http_response_code(503);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Logowanie jest chwilowo niedostępne.'
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
 
 if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
     http_response_code(429);
@@ -145,6 +155,7 @@ if (!is_array($data) || empty($data)) {
 }
 
 $user = $data[0];
+$role = strtolower(trim((string) ($user['role'] ?? '')));
 
 // 🔐 weryfikacja hasła
 if (!password_verify($password, $user['password_hash'])) {
@@ -181,13 +192,64 @@ if (!filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
 }
 
 // 🔁 regeneracja ID sesji po pomyślnym uwierzytelnieniu (ochrona przed session fixation)
+if (!in_array($role, ['admin', 'administrator'], true)) {
+    security_log_event('login_invalid_role', [
+        'action_key' => 'auth_login_user',
+        'severity' => 'high',
+        'actor_type' => 'tenant_user',
+        'tenant_id' => $tenantId,
+        'user_id' => (string) ($user['id'] ?? ''),
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'response_status' => 401,
+        'result' => 'failed',
+        'details' => [
+            'reason' => 'invalid_admin_role',
+        ],
+    ]);
+
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'Błędny login lub hasło'], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!login_security_storage_available($SUPABASE_URL, $SUPABASE_KEY, $SCHEMA)) {
+    http_response_code(503);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Logowanie jest chwilowo niedostępne.'
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
+if (!login_security_is_trusted_device(
+    $SUPABASE_URL,
+    $SUPABASE_KEY,
+    $SCHEMA,
+    'admin',
+    (string) $tenantId,
+    (string) ($user['id'] ?? ''),
+    (string) ($user['password_hash'] ?? '')
+)) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'code' => 'trusted_device_required',
+        'error' => 'Ta przeglądarka nie jest zaufana. Zaloguj się kodem i zaznacz opcję zaufanego urządzenia.'
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    exit;
+}
+
 session_regenerate_id(true);
 
+unset($_SESSION['staff_user']);
 $_SESSION['user'] = [
     'id'        => $user['id'],
     'email'     => $user['email'],
     'tenant_id' => $user['tenant_id'],
-    'role'      => $user['role'] ?? 'admin'
+    'role'      => $role
 ];
 
 security_log_event('login_success', [
@@ -211,6 +273,6 @@ echo json_encode([
     'success' => true,
     'user'    => [
         'email' => (string) ($user['email'] ?? ''),
-        'role'  => (string) ($user['role'] ?? 'admin'),
+        'role'  => $role,
     ],
 ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);

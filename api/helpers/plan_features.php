@@ -11,6 +11,7 @@ function plan_features_all_keys(): array
         'online_payments',
         'payu',
         'google_calendar',
+        'seo_google',
         'legal_documents',
         'branding_logo',
         'branding_favicon',
@@ -641,6 +642,7 @@ function plan_features_features_from_effective(array $effective, string $effecti
         'online_payments' => $paymentsEnabled,
         'payu' => $servicePaymentsEnabled,
         'google_calendar' => $googleCalendarEnabled,
+        'seo_google' => $fallbackFeatures['seo_google'] ?? false,
         'branding' => $brandingEnabled,
         'legal_documents' => $legalDocumentsEnabled,
         'branding_logo' => $brandingEnabled,
@@ -850,8 +852,15 @@ function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger
         $cachedContext = booking_context_cache_read('plan_context', $persistentCacheKey);
 
         if (is_array($cachedContext)) {
-            $cache[$cacheKey] = $cachedContext;
-            return $cachedContext;
+            $cachedFeatures = is_array($cachedContext['features'] ?? null)
+                ? $cachedContext['features']
+                : [];
+            $missingFeatureKeys = array_diff(plan_features_all_keys(), array_keys($cachedFeatures));
+
+            if ($missingFeatureKeys === []) {
+                $cache[$cacheKey] = $cachedContext;
+                return $cachedContext;
+            }
         }
     }
 

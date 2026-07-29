@@ -1441,6 +1441,7 @@ try {
     $currentPlanContext = plan_features_get_context($tenantId);
     $publicPlanContext = front_bootstrap_public_plan_context($currentPlanContext);
     $branding = front_bootstrap_filter_branding_for_plan($branding, $publicPlanContext);
+    $seo = front_bootstrap_feature($currentPlanContext, 'seo_google') ? $seo : ['success' => false];
     $blocked = front_bootstrap_get_blocked($supabaseUrl, $serviceRoleKey, $schema, $tenantId, $service);
 
     front_bootstrap_json([

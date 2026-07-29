@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Rejestracja Pro</title>
   <link rel="stylesheet" href="assets/css/login.css">
-  <link rel="stylesheet" href="assets/css/rejestracja.css?v=2">
+  <link rel="stylesheet" href="assets/css/rejestracja.css?v=3">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body data-registration-entry="pro">
@@ -26,6 +26,23 @@
       <h2>Utwórz konto administratora</h2>
 
       <form id="registerForm">
+        <input
+          type="text"
+          name="website"
+          id="registerWebsite"
+          class="registration-honeypot"
+          tabindex="-1"
+          autocomplete="off"
+          aria-hidden="true"
+        >
+
+        <input
+          type="hidden"
+          name="form_started_at"
+          id="registerFormStartedAt"
+          value=""
+        >
+
         <div class="register-section pro-registration-card" id="proRegistrationCard">
           <h3>Plan Pro</h3>
           <p class="pro-registration-lead">
@@ -149,7 +166,7 @@
     <div class="auth-footer app-footer" data-app-footer></div>
   </div>
 
-  <script src="assets/js/register.js?v=8"></script>
+  <script src="assets/js/register.js?v=9"></script>
   <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>

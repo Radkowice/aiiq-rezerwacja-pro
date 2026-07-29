@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/tenant.php';
 
@@ -358,6 +359,8 @@ try {
             'error' => 'Brak uprawnień administratora.',
         ], 403);
     }
+
+    require_tenant_feature($tenantId, 'seo_google');
 
     $rpcFunction = 'get_tenant_seo_settings';
     $rpcPayload = [

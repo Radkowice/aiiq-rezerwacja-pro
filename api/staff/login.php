@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/login_security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -153,6 +154,13 @@ $rateLimitResult = security_rate_limit_check(
         ],
     ]
 );
+
+if (empty($rateLimitResult['ok'])) {
+    staff_login_json([
+        'success' => false,
+        'error' => 'Logowanie jest chwilowo niedostępne.'
+    ], 503);
+}
 
 if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
     $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);
@@ -345,8 +353,32 @@ if ($displayName === '') {
     $displayName = $accountEmail;
 }
 
+if (!login_security_storage_available($supabaseUrl, $supabaseKey, $schema)) {
+    staff_login_json([
+        'success' => false,
+        'error' => 'Logowanie jest chwilowo niedostępne.'
+    ], 503);
+}
+
+if (!login_security_is_trusted_device(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    'staff',
+    (string) $tenantId,
+    $accountId,
+    $passwordHash
+)) {
+    staff_login_json([
+        'success' => false,
+        'code' => 'trusted_device_required',
+        'error' => 'Ta przeglądarka nie jest zaufana. Zaloguj się kodem i zaznacz opcję zaufanego urządzenia.'
+    ], 403);
+}
+
 session_regenerate_id(true);
 
+unset($_SESSION['user']);
 $_SESSION['staff_user'] = [
     'account_id' => $accountId,
     'tenant_id' => (string) $tenantId,

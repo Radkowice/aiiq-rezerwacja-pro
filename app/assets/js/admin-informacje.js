@@ -383,7 +383,8 @@
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'X-CSRF-Token': window.CSRF_TOKEN || ''
         },
         body: JSON.stringify({
           billing_period: billingPeriod,
@@ -560,7 +561,8 @@
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'X-CSRF-Token': window.CSRF_TOKEN || ''
         },
         body: JSON.stringify(payload)
       });

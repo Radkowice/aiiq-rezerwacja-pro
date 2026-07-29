@@ -21,7 +21,7 @@
       <h3>Serwer SMTP</h3>
       <p class="settings-desc">
         Tutaj ustawiasz skrzynkę e-mail, z której system będzie wysyłał wiadomości do klientów. Możesz użyć poczty firmowej albo Gmaila/Google Workspace. Dane serwera SMTP znajdziesz w ustawieniach swojej skrzynki pocztowej lub otrzymasz je od dostawcy hostingu. Po zmianie danych SMTP zapisz ustawienia i sprawdź połączenie.
-        <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
+        <a class="settings-help-link" href="https://ai-iq.pl/instrukcja-rezerwacja-pro/" target="_blank" rel="noopener noreferrer">Instrukcja</a>
       </p>
 
       <div class="settings-row">
@@ -75,7 +75,7 @@
       <h3>Globalny szablon e-mail</h3>
       <p class="settings-desc">
         To domyślna wiadomość wysyłana do klienta po rezerwacji. System użyje tego szablonu wtedy, gdy pracownik nie ma ustawionej własnej treści wiadomości.
-        <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
+        <a class="settings-help-link" href="https://ai-iq.pl/instrukcja-rezerwacja-pro/" target="_blank" rel="noopener noreferrer">Instrukcja</a>
       </p>
 
       <div class="settings-row email-top-row">
@@ -145,7 +145,7 @@
       <h3>Szablony e-mail pracowników</h3>
       <p class="settings-desc">
         Tutaj możesz ustawić osobny temat, nagłówek i treść wiadomości dla konkretnego pracownika. Jeśli zostawisz pola puste albo przywrócisz szablon globalny, system użyje wiadomości z sekcji „Globalny szablon e-mail”.
-        <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
+        <a class="settings-help-link" href="https://ai-iq.pl/instrukcja-rezerwacja-pro/" target="_blank" rel="noopener noreferrer">Instrukcja</a>
       </p>
 
       <div class="form-group staff-email-select-group">

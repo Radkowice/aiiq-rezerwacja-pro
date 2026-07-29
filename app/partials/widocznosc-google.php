@@ -66,9 +66,11 @@
             <small id="seo-google-description-count" class="settings-help" aria-live="polite">0 / 160 znaków</small>
           </label>
 
-          <div class="settings-actions full">
-            <button type="submit" class="btn" id="seo-google-save-btn">Zapisz ustawienia</button>
-          </div>
+         <div class="settings-actions full">
+  <button type="submit" class="btn" id="seo-google-save-btn">
+    Zapisz ustawienia
+  </button>
+</div>
         </form>
       </section>
 

@@ -47,11 +47,12 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/admin-email.js?v=smtp-fix-1" defer></script>
   <script src="/assets/js/admin-modal.js" defer></script>
   <script src="/assets/js/admin-kalendarz.js?v=20260615-2" defer></script>
-  <script src="/assets/js/panel-admina.js?v=3" defer></script>
+  <script src="/assets/js/panel-admina.js?v=5" defer></script>
   <script src="/assets/js/admin-personel.js?v=2" defer></script>
   <script src="/assets/js/admin-ustawienia.js" defer></script>
   <script src="/assets/js/admin-integracje.js?v=2"></script>
   <script src="/assets/js/admin-usluga-platnosci.js?v=20260619-1"></script>
+  <script src="/assets/js/seo-google.js?v=6" defer></script>
   <script src="/assets/js/admin-dokumenty-prawne.js?v=1" defer></script>
   <script src="/assets/js/admin-informacje.js?v=2" defer></script>
 </head>
@@ -102,6 +103,11 @@ if (empty($_SESSION['csrf'])) {
 <button class="menu-item" type="button">
   <span class="label">Integracje</span>
   <span class="icon">🔌</span>
+</button>
+
+<button class="menu-item" type="button">
+  <span class="label">Widoczność w Google</span>
+  <span class="icon">🔎</span>
 </button>
 
 <button class="menu-item" type="button">
@@ -195,6 +201,8 @@ if (empty($_SESSION['csrf'])) {
   <?php require __DIR__ . '/partials/email.php'; ?>
   
  <?php require __DIR__ . '/partials/integracje.php'; ?>
+
+<?php require __DIR__ . '/partials/widocznosc-google.php'; ?>
 
 <?php require __DIR__ . '/partials/dokumenty-prawne.php'; ?>
 

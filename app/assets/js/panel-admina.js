@@ -161,6 +161,7 @@ function enqueueAdminIntegrationsModule() {
 
 function enqueueAdminSeoGoogleModule() {
   if (adminSeoGoogleModuleQueued || adminSeoGoogleModuleInitialized) return;
+  if (!aiIqHasFeature('seo_google')) return;
 
   adminSeoGoogleModuleQueued = true;
 
@@ -341,6 +342,10 @@ const PLAN_LOCKED_SECTIONS = {
   },
   integracje: {
     featureKey: 'online_payments',
+    title: 'Dostępne w wersji Pro'
+  },
+  'widocznosc-google': {
+    featureKey: 'seo_google',
     title: 'Dostępne w wersji Pro'
   },
   dokumenty_prawne: {

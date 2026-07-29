@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/login_security.php';
 
 start_secure_session();
 
@@ -517,6 +518,15 @@ if ($userPatchHttpCode < 200 || $userPatchHttpCode >= 300) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
+
+login_security_revoke_subject_devices(
+    $supabaseUrl,
+    $serviceRoleKey,
+    $schema,
+    'admin',
+    $tenantId,
+    $userId
+);
 
 $usedPatchUrl = $supabaseUrl
     . '/rest/v1/password_change_codes'

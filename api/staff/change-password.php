@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/login_security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -320,6 +321,15 @@ if (
         'error' => 'Nie udało się zapisać nowego hasła.'
     ], 500);
 }
+
+login_security_revoke_subject_devices(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    'staff',
+    $sessionTenantId,
+    $accountId
+);
 
 staff_change_password_log_event(
     'staff_change_password_success',

@@ -16,7 +16,7 @@
         <h3>Zakres blokad</h3>
         <p>
           Blokady globalne dotyczą całej firmy i blokują termin dla wszystkich pracowników. Blokady pracownika dotyczą tylko wybranej osoby, np. urlopu, wolnego dnia albo niedostępnej godziny.
-          <a class="settings-help-link" href="https://ai-iq.pl/wsparcie/rezerwacja-ai-iq-pro/instrukcja.html" target="_blank" rel="noopener noreferrer">Instrukcja</a>
+          <a class="settings-help-link" href="https://ai-iq.pl/instrukcja-rezerwacja-pro/" target="_blank" rel="noopener noreferrer">Instrukcja</a>
         </p>
       </div>
 

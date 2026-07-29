@@ -486,8 +486,28 @@ try {
             ),
         ],
         [
+            'key' => 'rate_limit_register',
+            'path' => $dataDir . '/rate_limit_register.json',
+            'format' => 'object',
+            'mode' => 'rate_limit',
+            'retention' => cleanup_booking_ip_int_env(
+                'CLEANUP_BOOKING_IP_RATE_LIMIT_RETENTION_SECONDS',
+                CLEANUP_BOOKING_IP_RATE_LIMIT_RETENTION_SECONDS
+            ),
+        ],
+        [
             'key' => 'ban_counter',
             'path' => $dataDir . '/ban_counter.json',
+            'format' => 'object',
+            'mode' => 'mtime_reset',
+            'retention' => cleanup_booking_ip_int_env(
+                'CLEANUP_BOOKING_IP_BAN_COUNTER_RETENTION_SECONDS',
+                CLEANUP_BOOKING_IP_BAN_COUNTER_RETENTION_SECONDS
+            ),
+        ],
+        [
+            'key' => 'ban_counter_register',
+            'path' => $dataDir . '/ban_counter_register.json',
             'format' => 'object',
             'mode' => 'mtime_reset',
             'retention' => cleanup_booking_ip_int_env(

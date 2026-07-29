@@ -1,5 +1,15 @@
 /* Rejestracja — dopracowanie pola subdomeny */
 
+.registration-honeypot {
+  position: absolute !important;
+  left: -9999px !important;
+  top: auto !important;
+  width: 1px !important;
+  height: 1px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
 .subdomain-address-field {
   display: grid;
   grid-template-columns: minmax(180px, 1fr) auto;

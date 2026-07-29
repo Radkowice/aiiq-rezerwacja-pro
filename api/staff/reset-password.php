@@ -7,6 +7,7 @@ require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/login_security.php';
 
 function staff_reset_password_json(array $payload, int $statusCode = 200): void
 {
@@ -507,6 +508,15 @@ if (
         'error' => 'Nie udało się zapisać nowego hasła.'
     ], 500);
 }
+
+login_security_revoke_subject_devices(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    'staff',
+    (string) $tenantId,
+    $accountId
+);
 
 $usedUrl = $supabaseUrl
     . '/rest/v1/staff_password_reset_tokens'

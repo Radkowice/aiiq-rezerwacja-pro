@@ -14,6 +14,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/login_security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -366,6 +367,18 @@ if (!$updateResult['ok']) {
         'message' => 'Nie udało się zmienić hasła.',
     ], 500);
 }
+
+/*
+ * Unieważniamy zaufane urządzenia po poprawnej zmianie hasła.
+ */
+login_security_revoke_subject_devices(
+    $SUPABASE_URL,
+    $SUPABASE_KEY,
+    $SUPABASE_DB_SCHEMA,
+    'admin',
+    (string) $TENANT_ID,
+    $userId
+);
 
 /*
  * Usuwamy token po poprawnej zmianie hasła.

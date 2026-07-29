@@ -1,0 +1,81 @@
+.employee-login-method-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.employee-login-method-btn,
+.employee-login-secondary-btn {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--employee-auth-border);
+  border-radius: var(--employee-auth-radius-md);
+  background: var(--employee-auth-card-soft);
+  color: var(--employee-auth-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.employee-login-method-btn.is-active {
+  border-color: var(--employee-auth-primary);
+  background: var(--employee-auth-primary);
+  color: #ffffff;
+}
+
+.employee-login-method-btn:focus-visible,
+.employee-login-secondary-btn:focus-visible {
+  outline: 3px solid rgba(39, 50, 74, 0.22);
+  outline-offset: 2px;
+}
+
+.employee-login-method-panel[hidden],
+#employeeLoginCodeStep[hidden] {
+  display: none;
+}
+
+.employee-login-method-description {
+  margin: 0;
+  color: var(--employee-auth-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.employee-login-trusted-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin-top: 14px;
+  color: var(--employee-auth-muted);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.employee-login-trusted-option input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  flex: 0 0 auto;
+}
+
+.employee-login-secondary-btn {
+  width: 100%;
+  margin-top: 14px;
+}
+
+.employee-login-method-btn:disabled,
+.employee-login-secondary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+@media (max-width: 400px) {
+  .employee-login-method-switch {
+    grid-template-columns: 1fr;
+  }
+}

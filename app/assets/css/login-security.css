@@ -1,0 +1,91 @@
+.login-method-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+
+.login-method-btn,
+.login-secondary-btn {
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--login-border-strong);
+  border-radius: var(--login-radius-md);
+  background: var(--login-card-soft);
+  color: var(--login-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.login-method-btn.is-active {
+  border-color: var(--login-primary);
+  background: var(--login-primary);
+  color: #ffffff;
+}
+
+.login-method-btn:focus-visible,
+.login-secondary-btn:focus-visible {
+  outline: 3px solid rgba(39, 50, 74, 0.22);
+  outline-offset: 2px;
+}
+
+.login-method-panel[hidden],
+#loginCodeStep[hidden] {
+  display: none;
+}
+
+.login-field {
+  display: grid;
+  gap: 7px;
+  color: var(--login-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.login-method-description {
+  margin: 0 0 14px;
+  color: var(--login-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.login-trusted-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 0 14px;
+  color: var(--login-muted);
+  font-size: 13px;
+  line-height: 1.45;
+  cursor: pointer;
+}
+
+.login-trusted-option input {
+  width: 18px;
+  height: 18px;
+  margin: 1px 0 0;
+  flex: 0 0 auto;
+}
+
+.login-secondary-btn {
+  width: 100%;
+  margin: 0 0 14px;
+}
+
+.login-method-btn:disabled,
+.login-secondary-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
+.error.visible.is-success {
+  color: #166534;
+}
+
+@media (max-width: 380px) {
+  .login-method-switch {
+    grid-template-columns: 1fr;
+  }
+}

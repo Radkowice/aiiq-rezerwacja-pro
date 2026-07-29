@@ -2,9 +2,13 @@
   'use strict';
 
   const LOGIN_ENDPOINT = '/api/staff/login.php';
+  const LOGIN_CODE_ENDPOINT = '/api/staff/login-code.php';
   const ME_ENDPOINT = '/api/staff/me.php';
   const ACCESS_ENDPOINT = '/api/staff/panel-access.php';
   const PANEL_URL = '/panel-pracownika/panel.html?v=2';
+  let selectedLoginMethod = 'code';
+  let loginCodeRequested = false;
+  let loginRequestInProgress = false;
   const LOCKED_TITLE = 'Panel pracownika dostępny w planie Pro';
   const LOCKED_MESSAGE = 'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.';
 
@@ -52,6 +56,42 @@
 
     submit.disabled = isLoading;
     submit.textContent = isLoading ? 'Logowanie…' : 'Zaloguj się';
+  }
+
+  function updateLoginSubmitLabel() {
+    const submit = getElement('employeeLoginSubmit');
+
+    if (!submit || loginRequestInProgress) {
+      return;
+    }
+
+    if (selectedLoginMethod === 'password') {
+      submit.textContent = 'Zaloguj się hasłem';
+      return;
+    }
+
+    submit.textContent = loginCodeRequested ? 'Zaloguj się kodem' : 'Wyślij kod';
+  }
+
+  function selectLoginMethod(method, message = '') {
+    if (!['code', 'password'].includes(method)) {
+      return;
+    }
+
+    selectedLoginMethod = method;
+
+    document.querySelectorAll('[data-login-method]').forEach((button) => {
+      const isActive = button.dataset.loginMethod === method;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-pressed', isActive ? 'true' : 'false');
+    });
+
+    document.querySelectorAll('[data-login-panel]').forEach((panel) => {
+      panel.hidden = panel.dataset.loginPanel !== method;
+    });
+
+    setMessage(message, message ? 'error' : '');
+    updateLoginSubmitLabel();
   }
 
   function showLoginContent() {
@@ -171,7 +211,147 @@
     }
   }
 
-  async function handleLogin(event) {
+  function setLoginRequestLoading(isLoading) {
+    loginRequestInProgress = isLoading;
+    setSubmitLoading(isLoading);
+    setFormDisabled(isLoading);
+
+    document.querySelectorAll('.employee-login-method-btn').forEach((button) => {
+      button.disabled = isLoading;
+    });
+
+    if (!isLoading) {
+      updateLoginSubmitLabel();
+    }
+  }
+
+  async function requestLoginCode() {
+    if (loginRequestInProgress) {
+      return;
+    }
+
+    const emailInput = getElement('employeeLoginEmail');
+    const email = normalizeEmail(emailInput ? emailInput.value : '');
+
+    setMessage('', '');
+
+    if (!email || !isValidEmail(email)) {
+      setMessage('Podaj poprawny adres e-mail.', 'error');
+      emailInput?.focus();
+      return;
+    }
+
+    setLoginRequestLoading(true);
+
+    try {
+      const response = await fetch(LOGIN_CODE_ENDPOINT, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ action: 'request', email })
+      });
+      const data = await response.json().catch(() => null);
+
+      if (response.status === 403 && data?.upgrade_required === true) {
+        showPlanLock(data.error || LOCKED_MESSAGE);
+        return;
+      }
+
+      if (!response.ok || data?.success !== true) {
+        setMessage(data?.error || 'Nie udało się wysłać kodu. Spróbuj ponownie za chwilę.', 'error');
+        return;
+      }
+
+      loginCodeRequested = true;
+      const codeStep = getElement('employeeLoginCodeStep');
+
+      if (codeStep) {
+        codeStep.hidden = false;
+      }
+
+      const codeInput = getElement('employeeLoginCode');
+      if (codeInput) codeInput.value = '';
+
+      setMessage(data.message || 'Jeśli aktywne konto istnieje, kod logowania został wysłany.', 'success');
+      getElement('employeeLoginCode')?.focus();
+    } catch (error) {
+      setMessage('Nie udało się wysłać kodu. Spróbuj ponownie za chwilę.', 'error');
+    } finally {
+      setLoginRequestLoading(false);
+    }
+  }
+
+  async function verifyLoginCode() {
+    if (loginRequestInProgress) {
+      return;
+    }
+
+    const emailInput = getElement('employeeLoginEmail');
+    const codeInput = getElement('employeeLoginCode');
+    const trustDeviceInput = getElement('employeeTrustDevice');
+    const email = normalizeEmail(emailInput ? emailInput.value : '');
+    const code = codeInput ? codeInput.value.trim() : '';
+
+    setMessage('', '');
+
+    if (!email || !isValidEmail(email)) {
+      setMessage('Podaj poprawny adres e-mail.', 'error');
+      emailInput?.focus();
+      return;
+    }
+
+    if (!/^[0-9]{6}$/.test(code)) {
+      setMessage('Wpisz sześciocyfrowy kod logowania.', 'error');
+      codeInput?.focus();
+      return;
+    }
+
+    setLoginRequestLoading(true);
+
+    try {
+      const response = await fetch(LOGIN_CODE_ENDPOINT, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({
+          action: 'verify',
+          email,
+          code,
+          trust_device: trustDeviceInput?.checked === true
+        })
+      });
+      const data = await response.json().catch(() => null);
+
+      if (response.status === 403 && data?.upgrade_required === true) {
+        showPlanLock(data.error || LOCKED_MESSAGE);
+        return;
+      }
+
+      if (!response.ok || data?.success !== true) {
+        setMessage(data?.error || 'Kod jest nieprawidłowy albo wygasł.', 'error');
+        return;
+      }
+
+      if (codeInput) {
+        codeInput.value = '';
+      }
+
+      setMessage('Zalogowano. Przekierowuję do panelu…', 'success');
+      window.location.href = PANEL_URL;
+    } catch (error) {
+      setMessage('Wystąpił błąd połączenia. Spróbuj ponownie za chwilę.', 'error');
+    } finally {
+      setLoginRequestLoading(false);
+    }
+  }
+
+  async function handlePasswordLogin(event) {
     event.preventDefault();
 
     const emailInput = getElement('employeeLoginEmail');
@@ -216,6 +396,11 @@
         return;
       }
 
+      if (data?.code === 'trusted_device_required') {
+        selectLoginMethod('code', data.error || 'Zaloguj się kodem, aby zaufać tej przeglądarce.');
+        return;
+      }
+
       if (!response.ok || !data || data.success !== true) {
         const errorMessage = data && data.error
           ? data.error
@@ -236,7 +421,24 @@
     } finally {
       setSubmitLoading(false);
       setFormDisabled(false);
+      updateLoginSubmitLabel();
     }
+  }
+
+  async function handleSelectedLogin(event) {
+    event.preventDefault();
+
+    if (selectedLoginMethod === 'password') {
+      await handlePasswordLogin(event);
+      return;
+    }
+
+    if (loginCodeRequested) {
+      await verifyLoginCode();
+      return;
+    }
+
+    await requestLoginCode();
   }
 
   document.addEventListener('DOMContentLoaded', async () => {
@@ -256,6 +458,32 @@
       return;
     }
 
-    form.addEventListener('submit', handleLogin);
+    document.querySelectorAll('[data-login-method]').forEach((button) => {
+      button.addEventListener('click', () => {
+        selectLoginMethod(button.dataset.loginMethod || 'code');
+      });
+    });
+
+    const emailInput = getElement('employeeLoginEmail');
+
+    if (emailInput) {
+      emailInput.addEventListener('input', () => {
+        if (!loginCodeRequested) {
+          return;
+        }
+
+        loginCodeRequested = false;
+        const codeStep = getElement('employeeLoginCodeStep');
+        const codeInput = getElement('employeeLoginCode');
+
+        if (codeStep) codeStep.hidden = true;
+        if (codeInput) codeInput.value = '';
+        updateLoginSubmitLabel();
+      });
+    }
+
+    getElement('employeeRequestNewCode')?.addEventListener('click', requestLoginCode);
+    selectLoginMethod('code');
+    form.addEventListener('submit', handleSelectedLogin);
   });
 })();

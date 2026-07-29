@@ -7,6 +7,7 @@
   <title>Logowanie personelu</title>
   <link rel="stylesheet" href="/panel-pracownika/assets/css/auth-pracownika.css?v=3">
   <link rel="stylesheet" href="/panel-pracownika/assets/css/logowanie-pracownika.css?v=3">
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/login-security.css?v=1">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body>
@@ -23,6 +24,15 @@
           Wpisz e-mail oraz hasło ustawione z zaproszenia.
         </p>
 
+        <div class="employee-login-method-switch" role="group" aria-label="Wybierz metodę logowania">
+          <button type="button" class="employee-login-method-btn is-active" data-login-method="code" aria-pressed="true">
+            Zaloguj się kodem
+          </button>
+          <button type="button" class="employee-login-method-btn" data-login-method="password" aria-pressed="false">
+            Zaloguj się hasłem
+          </button>
+        </div>
+
         <form class="employee-auth-form" id="employeeLoginForm" novalidate>
           <label class="employee-auth-field" for="employeeLoginEmail">
             <span>E-mail</span>
@@ -35,6 +45,36 @@
             >
           </label>
 
+          <section class="employee-login-method-panel" data-login-panel="code">
+            <p class="employee-login-method-description">
+              Wyślemy jednorazowy kod na adres przypisany do aktywnego konta personelu.
+            </p>
+
+            <div id="employeeLoginCodeStep" hidden>
+              <label class="employee-auth-field" for="employeeLoginCode">
+                <span>Kod logowania</span>
+                <input
+                  type="text"
+                  id="employeeLoginCode"
+                  inputmode="numeric"
+                  autocomplete="one-time-code"
+                  maxlength="6"
+                  pattern="[0-9]{6}"
+                >
+              </label>
+
+              <label class="employee-login-trusted-option" for="employeeTrustDevice">
+                <input type="checkbox" id="employeeTrustDevice" checked>
+                <span>Zaufaj tej przeglądarce na ograniczony czas i umożliw logowanie hasłem.</span>
+              </label>
+
+              <button type="button" class="employee-login-secondary-btn" id="employeeRequestNewCode">
+                Wyślij nowy kod
+              </button>
+            </div>
+          </section>
+
+          <section class="employee-login-method-panel" data-login-panel="password" hidden>
           <label class="employee-auth-field" for="employeeLoginPassword">
             <span>Hasło</span>
             <span class="employee-auth-password-wrap">
@@ -57,6 +97,7 @@
               </button>
             </span>
           </label>
+          </section>
 
           <button type="submit" class="employee-auth-submit" id="employeeLoginSubmit">
             Zaloguj się
@@ -88,7 +129,7 @@
     <footer class="employee-auth-footer app-footer" data-app-footer></footer>
   </main>
 
-  <script src="/panel-pracownika/assets/js/logowanie-pracownika.js?v=3"></script>
+  <script src="/panel-pracownika/assets/js/logowanie-pracownika.js?v=4"></script>
   <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>

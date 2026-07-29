@@ -132,6 +132,213 @@ function register_debug_result(string $label, array $result): void
     ]);
 }
 
+function register_write_json_handle($handle, array $data): void
+{
+    $encoded = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
+
+    if ($encoded === false) {
+        return;
+    }
+
+    rewind($handle);
+    @ftruncate($handle, 0);
+    @fwrite($handle, $encoded);
+    @fflush($handle);
+}
+
+function register_blacklist_contains(string $blacklistFile, string $ip): bool
+{
+    $handle = @fopen($blacklistFile, 'c+');
+
+    if ($handle === false) {
+        return false;
+    }
+
+    $isBlocked = false;
+
+    if (@flock($handle, LOCK_EX)) {
+        rewind($handle);
+        $rawBlacklist = (string) stream_get_contents($handle);
+        $blacklist = json_decode($rawBlacklist, true);
+
+        if (trim($rawBlacklist) === '') {
+            $blacklist = [];
+            register_write_json_handle($handle, $blacklist);
+        }
+
+        $isBlocked = is_array($blacklist) && in_array($ip, $blacklist, true);
+        @flock($handle, LOCK_UN);
+    }
+
+    @fclose($handle);
+
+    return $isBlocked;
+}
+
+function register_increment_ban_counter(string $banFile, string $ip): int
+{
+    $handle = @fopen($banFile, 'c+');
+
+    if ($handle === false || !@flock($handle, LOCK_EX)) {
+        if ($handle !== false) {
+            @fclose($handle);
+        }
+        return 0;
+    }
+
+    rewind($handle);
+    $banData = json_decode((string) stream_get_contents($handle), true);
+
+    if (!is_array($banData)) {
+        $banData = [];
+    }
+
+    $banData[$ip] = max(0, (int) ($banData[$ip] ?? 0)) + 1;
+    $count = $banData[$ip];
+    register_write_json_handle($handle, $banData);
+
+    @flock($handle, LOCK_UN);
+    @fclose($handle);
+
+    return $count;
+}
+
+function register_add_to_blacklist(string $blacklistFile, string $ip): void
+{
+    $handle = @fopen($blacklistFile, 'c+');
+
+    if ($handle === false || !@flock($handle, LOCK_EX)) {
+        if ($handle !== false) {
+            @fclose($handle);
+        }
+        return;
+    }
+
+    rewind($handle);
+    $blacklist = json_decode((string) stream_get_contents($handle), true);
+
+    if (!is_array($blacklist)) {
+        $blacklist = [];
+    }
+
+    if (!in_array($ip, $blacklist, true)) {
+        $blacklist[] = $ip;
+        register_write_json_handle($handle, array_values($blacklist));
+    }
+
+    @flock($handle, LOCK_UN);
+    @fclose($handle);
+}
+
+function register_antibot_reject(string $eventKey, string $reason, int $statusCode, string $severity = 'medium'): void
+{
+    register_security_event($eventKey, $reason, $statusCode, 'blocked', $severity);
+
+    json_response([
+        'success' => false,
+        'error' => 'Nie udało się wysłać formularza rejestracji. Odśwież stronę i spróbuj ponownie.',
+    ], $statusCode);
+}
+
+function register_apply_antibot_guards(array $data): void
+{
+    $website = trim((string) ($data['website'] ?? ''));
+    $formStartedAtRaw = trim((string) ($data['form_started_at'] ?? ''));
+    $formFillTimeRaw = trim((string) ($data['form_fill_time_ms'] ?? ''));
+    $ip = security_client_ip() ?? 'unknown';
+
+    $blacklistFile = __DIR__ . '/../data/blacklist.json';
+
+    if (register_blacklist_contains($blacklistFile, $ip)) {
+        register_antibot_reject('auth_register_rate_limited', 'blacklisted_ip', 403, 'high');
+    }
+
+    $rateFile = __DIR__ . '/../data/rate_limit_register.json';
+    $now = time();
+    $limit = 3;
+    $window = 60;
+    $rateHandle = @fopen($rateFile, 'c+');
+
+    if ($rateHandle !== false && @flock($rateHandle, LOCK_EX)) {
+        rewind($rateHandle);
+        $rateData = json_decode((string) stream_get_contents($rateHandle), true);
+
+        if (!is_array($rateData)) {
+            $rateData = [];
+        }
+
+        if (!isset($rateData[$ip]) || !is_array($rateData[$ip])) {
+            $rateData[$ip] = [];
+        }
+
+        $rateData[$ip] = array_values(array_filter(
+            $rateData[$ip],
+            static function ($timestamp) use ($now, $window): bool {
+                return ($now - (int) $timestamp) < $window;
+            }
+        ));
+
+        if (count($rateData[$ip]) >= $limit) {
+            @flock($rateHandle, LOCK_UN);
+            @fclose($rateHandle);
+
+            $banCount = register_increment_ban_counter(
+                __DIR__ . '/../data/ban_counter_register.json',
+                $ip
+            );
+
+            if ($banCount >= 5) {
+                register_add_to_blacklist($blacklistFile, $ip);
+            }
+
+            register_antibot_reject('auth_register_rate_limited', 'ip_rate_limited', 429);
+        }
+
+        $rateData[$ip][] = $now;
+        register_write_json_handle($rateHandle, $rateData);
+        @flock($rateHandle, LOCK_UN);
+    }
+
+    if ($rateHandle !== false) {
+        @fclose($rateHandle);
+    }
+
+    if (!isset($_SESSION['last_register_time'])) {
+        $_SESSION['last_register_time'] = 0;
+    }
+
+    if (time() - (int) $_SESSION['last_register_time'] < 10) {
+        register_antibot_reject('auth_register_rate_limited', 'session_throttle', 429);
+    }
+
+    $_SESSION['last_register_time'] = time();
+
+    if ($website !== '') {
+        register_antibot_reject('auth_register_bot_blocked', 'honeypot_triggered', 400);
+    }
+
+    $formStartedAt = ctype_digit($formStartedAtRaw) ? (int) $formStartedAtRaw : 0;
+    $hasClientFillTime = ctype_digit($formFillTimeRaw);
+    $formSubmittedAt = (int) round(microtime(true) * 1000);
+    $serverElapsedMs = $formSubmittedAt - $formStartedAt;
+
+    if ($formStartedAt <= 0 || !$hasClientFillTime || $serverElapsedMs < 0) {
+        register_antibot_reject('auth_register_bot_blocked', 'invalid_form_timing', 400);
+    }
+
+    $formFillTimeMs = (int) $formFillTimeRaw;
+    $minimumFillTimeMs = 3000;
+    $maximumFormAgeMs = 1000 * 60 * 60 * 6;
+
+    if ($formFillTimeMs < $minimumFillTimeMs || $serverElapsedMs < $minimumFillTimeMs) {
+        register_antibot_reject('auth_register_bot_blocked', 'form_too_fast', 400);
+    }
+
+    if ($formFillTimeMs > $maximumFormAgeMs || $serverElapsedMs > $maximumFormAgeMs) {
+        register_antibot_reject('auth_register_bot_blocked', 'form_too_old', 400);
+    }
+}
+
 register_debug('START');
 
 if ($SUPABASE_URL === '' || $SUPABASE_KEY === '') {
@@ -249,6 +456,8 @@ if (!is_array($data)) {
         'error' => 'Nieprawidłowe dane wejściowe'
     ], 400);
 }
+
+register_apply_antibot_guards($data);
 
 $email = filter_var(trim((string)($data['email'] ?? '')), FILTER_VALIDATE_EMAIL);
 $password = (string)($data['password'] ?? '');
@@ -937,9 +1146,7 @@ function extract_inserted_id($data): string
 
 function get_registration_ip_address(): ?string
 {
-    $ipAddress = trim((string) ($_SERVER['REMOTE_ADDR'] ?? ''));
-
-    return filter_var($ipAddress, FILTER_VALIDATE_IP) ? $ipAddress : null;
+    return security_client_ip();
 }
 
 function get_registration_user_agent(): ?string
