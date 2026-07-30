@@ -347,6 +347,8 @@
     const button = document.getElementById('pro-upgrade-btn');
     const selected = document.querySelector('input[name="pro-upgrade-period"]:checked');
     const consent = document.getElementById('pro-upgrade-consent');
+    const termsAccepted = consent?.checked === true;
+    const privacyAccepted = consent?.checked === true;
     const billingPeriod = String(selected?.value || '').trim();
     const planCode = resolveVisiblePlanCode(currentSubscription, currentPlanContext);
     const originalText = button ? button.textContent : '';
@@ -356,7 +358,7 @@
       return;
     }
 
-    if (!consent || !consent.checked) {
+    if (!termsAccepted || !privacyAccepted) {
       setProUpgradeMessage('Przed przejściem do płatności zaakceptuj Regulamin i Politykę prywatności.', 'error');
       if (consent) {
         consent.focus();
@@ -388,6 +390,8 @@
         },
         body: JSON.stringify({
           billing_period: billingPeriod,
+          terms_accepted: termsAccepted,
+          privacy_accepted: privacyAccepted,
           payment_type: isProPlan(planCode) || currentPlanContext?.expired_paid_pro === true
             ? 'subscription_renewal'
             : 'subscription_upgrade'

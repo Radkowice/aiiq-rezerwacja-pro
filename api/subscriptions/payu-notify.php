@@ -929,7 +929,7 @@ function subscription_payu_notify_period(array $payment, ?array $subscription, ?
         $currentEnd = subscription_payu_notify_date_start($subscription['current_period_end'] ?? null);
 
         if ($currentEnd && $paidDate <= $currentEnd) {
-            $start = $currentEnd;
+            $start = $currentEnd->modify('+1 day');
         }
     }
 

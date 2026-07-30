@@ -14,6 +14,9 @@ require_csrf_token();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
+const SUBSCRIPTION_PAYU_TERMS_VERSION = 'platform_terms_v1';
+const SUBSCRIPTION_PAYU_PRIVACY_VERSION = 'platform_privacy_v1';
+
 
 function subscription_payu_security_event(
     string $eventKey,
@@ -163,6 +166,46 @@ function subscription_payu_insert_payment(string $supabaseUrl, array $headers, a
     }
 
     return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
+}
+
+function subscription_payu_store_document_consent(
+    string $supabaseUrl,
+    array $headers,
+    string $tenantId,
+    string $userId
+): bool {
+    if ($tenantId === '' || $userId === '') {
+        return false;
+    }
+
+    $acceptedAt = gmdate('c');
+    $userAgent = security_user_agent();
+    $result = subscription_payu_request(
+        'POST',
+        rtrim($supabaseUrl, '/') . '/rest/v1/registration_consents',
+        $headers,
+        [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'terms_version' => SUBSCRIPTION_PAYU_TERMS_VERSION,
+            'privacy_version' => SUBSCRIPTION_PAYU_PRIVACY_VERSION,
+            'terms_accepted_at' => $acceptedAt,
+            'privacy_accepted_at' => $acceptedAt,
+            'ip_address' => security_client_ip(),
+            'user_agent' => $userAgent !== '' ? $userAgent : null,
+        ]
+    );
+
+    if ($result['ok']) {
+        return true;
+    }
+
+    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_CONSENT_INSERT_ERROR', [
+        'http_code' => $result['http_code'],
+        'has_error' => $result['error'] !== null,
+    ]);
+
+    return false;
 }
 
 function subscription_payu_update_payment(
@@ -330,6 +373,8 @@ try {
     $input = subscription_payu_input();
     $billingPeriod = strtolower(trim((string) ($input['billing_period'] ?? '')));
     $paymentType = strtolower(trim((string) ($input['payment_type'] ?? '')));
+    $termsAccepted = ($input['terms_accepted'] ?? null) === true;
+    $privacyAccepted = ($input['privacy_accepted'] ?? null) === true;
 
     if (!in_array($billingPeriod, ['monthly', 'yearly'], true)) {
         subscription_payu_security_event('subscription_payu_create_order_validation_failed', 'invalid_billing_period', 400, 'failed', 'medium', $tenantId, $userId);
@@ -344,6 +389,14 @@ try {
         subscription_payu_json(400, [
             'success' => false,
             'error' => 'Nieprawidłowy typ płatności abonamentu.',
+        ]);
+    }
+
+    if (!$termsAccepted || !$privacyAccepted) {
+        subscription_payu_security_event('subscription_payu_create_order_validation_failed', 'document_consent_required', 400, 'failed', 'medium', $tenantId, $userId);
+        subscription_payu_json(400, [
+            'success' => false,
+            'error' => 'Zaakceptuj Regulamin oraz Politykę prywatności przed przejściem do płatności.',
         ]);
     }
 
@@ -551,6 +604,31 @@ try {
         subscription_payu_json(422, [
             'success' => false,
             'error' => 'Nie udało się ustalić adresu e-mail kupującego. Uzupełnij dane administratora albo e-mail firmowy i spróbuj ponownie.',
+        ]);
+    }
+
+    $consentSaved = subscription_payu_store_document_consent(
+        $supabaseUrl,
+        $headers,
+        $tenantId,
+        $userId
+    );
+
+    if (!$consentSaved) {
+        subscription_payu_security_event(
+            'subscription_payu_create_order_consent_save_failed',
+            'consent_save_failed',
+            500,
+            'error',
+            'high',
+            $tenantId,
+            $userId,
+            $buyerEmail,
+            'consent_insert'
+        );
+        subscription_payu_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się zapisać wymaganej akceptacji dokumentów. Płatność nie została utworzona.',
         ]);
     }
 
