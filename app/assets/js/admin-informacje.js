@@ -84,7 +84,7 @@
       return configuredDays;
     }
 
-    return 30;
+    return 90;
   }
 
   function resolveGracePeriodLabel(subscription, notice) {

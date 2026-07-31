@@ -61,7 +61,12 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
 
 $staffSession = $_SESSION['staff_user'] ?? null;
 
-if (!is_array($staffSession) || empty($staffSession['tenant_id']) || empty($staffSession['staff_id'])) {
+if (
+    !is_array($staffSession)
+    || empty($staffSession['account_id'])
+    || empty($staffSession['tenant_id'])
+    || empty($staffSession['staff_id'])
+) {
     staff_bookings_json([
         'success' => false,
         'error' => 'Brak aktywnej sesji personelu.',
@@ -81,6 +86,7 @@ if ($supabaseUrl === '' || $supabaseKey === '') {
 }
 
 $hostTenantId = getTenantIdFromHost($supabaseUrl, $supabaseKey, $schema);
+$sessionAccountId = (string) ($staffSession['account_id'] ?? '');
 $sessionTenantId = (string) ($staffSession['tenant_id'] ?? '');
 $sessionStaffId = (string) ($staffSession['staff_id'] ?? '');
 
@@ -97,6 +103,85 @@ require_tenant_feature(
     'staff_module',
     'Panel pracownika jest dostępny dla kont z aktywnym planem Pro. To konto działa obecnie w planie Free albo abonament Pro wygasł. Opłać abonament Pro, aby odzyskać dostęp do panelu pracownika.'
 );
+
+$accountResult = staff_bookings_request(
+    'GET',
+    $supabaseUrl
+        . '/rest/v1/staff_accounts'
+        . '?select=id,is_active'
+        . '&tenant_id=eq.' . rawurlencode($sessionTenantId)
+        . '&id=eq.' . rawurlencode($sessionAccountId)
+        . '&staff_id=eq.' . rawurlencode($sessionStaffId)
+        . '&limit=1',
+    $supabaseKey,
+    $schema
+);
+
+if (
+    $accountResult['response'] === false
+    || ($accountResult['error'] ?? '') !== ''
+    || ($accountResult['httpCode'] ?? 0) < 200
+    || ($accountResult['httpCode'] ?? 0) >= 300
+    || !is_array($accountResult['data'] ?? null)
+) {
+    staff_bookings_json([
+        'success' => false,
+        'error' => 'Nie udało się potwierdzić aktywności sesji personelu.',
+    ], 503);
+}
+
+$account = $accountResult['data'][0] ?? null;
+
+if (
+    !is_array($account)
+    || empty($account['id'])
+    || ($account['is_active'] ?? null) !== true
+) {
+    staff_bookings_clear_session();
+    staff_bookings_json([
+        'success' => false,
+        'error' => 'Sesja personelu jest nieaktywna.',
+    ], 401);
+}
+
+$staffResult = staff_bookings_request(
+    'GET',
+    $supabaseUrl
+        . '/rest/v1/staff_profiles'
+        . '?select=id,is_active'
+        . '&tenant_id=eq.' . rawurlencode($sessionTenantId)
+        . '&id=eq.' . rawurlencode($sessionStaffId)
+        . '&limit=1',
+    $supabaseKey,
+    $schema
+);
+
+if (
+    $staffResult['response'] === false
+    || ($staffResult['error'] ?? '') !== ''
+    || ($staffResult['httpCode'] ?? 0) < 200
+    || ($staffResult['httpCode'] ?? 0) >= 300
+    || !is_array($staffResult['data'] ?? null)
+) {
+    staff_bookings_json([
+        'success' => false,
+        'error' => 'Nie udało się potwierdzić aktywności profilu personelu.',
+    ], 503);
+}
+
+$staffProfile = $staffResult['data'][0] ?? null;
+
+if (
+    !is_array($staffProfile)
+    || empty($staffProfile['id'])
+    || ($staffProfile['is_active'] ?? null) !== true
+) {
+    staff_bookings_clear_session();
+    staff_bookings_json([
+        'success' => false,
+        'error' => 'Profil personelu jest nieaktywny.',
+    ], 401);
+}
 
 $today = (new DateTimeImmutable('today'))->format('Y-m-d');
 

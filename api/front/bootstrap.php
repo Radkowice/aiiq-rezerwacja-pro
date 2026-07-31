@@ -369,7 +369,7 @@ function front_bootstrap_build_seo(
 
     return [
         'success' => true,
-        'indexing_enabled' => front_bootstrap_seo_bool($record['indexing_enabled'] ?? true, true),
+        'indexing_enabled' => front_bootstrap_seo_bool($record['indexing_enabled'] ?? null, false),
         'effective_title' => front_bootstrap_seo_text($record['effective_title'] ?? ''),
         'effective_description' => front_bootstrap_seo_text($record['effective_description'] ?? ''),
     ];

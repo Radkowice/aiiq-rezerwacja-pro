@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
@@ -69,6 +70,16 @@ function getProviderCompanyFullName(string $supabaseUrl, string $serviceRoleKey,
 $provider = [
     'company_full_name' => getProviderCompanyFullName($supabaseUrl, $serviceRoleKey, $schema, (string) $tenantId),
 ];
+
+if (!tenant_has_feature((string) $tenantId, 'legal_documents')) {
+    echo json_encode([
+        'success' => true,
+        'enabled' => false,
+        'provider' => $provider,
+        'documents' => null
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
 
 $url = $supabaseUrl
     . '/rest/v1/tenant_legal_documents'

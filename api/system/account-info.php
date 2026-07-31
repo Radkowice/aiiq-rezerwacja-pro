@@ -191,7 +191,7 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
     $configuredGraceDays = is_numeric($subscription['grace_period_days'] ?? null)
         ? (int) $subscription['grace_period_days']
         : 0;
-    $graceDays = $configuredGraceDays > 0 ? $configuredGraceDays : 30;
+    $graceDays = $configuredGraceDays > 0 ? $configuredGraceDays : 90;
     $graceBase = $periodEnd ?: $nextPaymentDue ?: $lastPaidProEnd;
     $graceDaysLeft = null;
 

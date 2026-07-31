@@ -24,17 +24,16 @@ function buildSubscriptionDowngradedToFreeMailHtml(array $subscription, array $l
     }
 
     $periodEndLabel = system_subscription_mail_format_date($periodEnd);
-    $graceDays = is_numeric($subscription['grace_period_days'] ?? null)
+    $configuredGraceDays = is_numeric($subscription['grace_period_days'] ?? null)
         ? max(0, (int) $subscription['grace_period_days'])
-        : 30;
-    $graceLabel = $graceDays > 0
-        ? $graceDays . ' ' . ($graceDays === 1 ? 'dzień' : 'dni')
-        : '';
+        : 0;
+    $graceDays = $configuredGraceDays > 0 ? $configuredGraceDays : 90;
+    $graceLabel = $graceDays . ' ' . ($graceDays === 1 ? 'dzień' : 'dni');
 
-    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Twój plan Pro został zmieniony na Free z powodu braku płatności. Funkcje Pro są teraz niedostępne.</p>'
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Twój plan Pro został zmieniony na Free z powodu braku płatności. Funkcje Pro zostały wyłączone i są teraz niedostępne.</p>'
         . system_subscription_mail_info_card('⚠️', 'Status', 'Plan Pro został zmieniony na Free')
         . system_subscription_mail_info_card('🧾', 'Ostatni opłacony okres Pro', $periodEndLabel)
-        . system_subscription_mail_info_card('🛡️', 'Okres ochronny', $graceLabel, 'Dane i konfiguracje Pro są jeszcze tymczasowo chronione przez okres ochronny.')
+        . system_subscription_mail_info_card('🛡️', 'Okres ochronny', $graceLabel, 'Dane i konfiguracje premium są zachowywane przez ' . $graceLabel . ' od końca ostatniego opłaconego okresu Pro. Okres ochronny nie przywraca dostępu do funkcji Pro.')
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
         . system_subscription_mail_info_card('🔗', 'Panel', $panelUrl)
         . '<p style="margin:18px 0 0 0;font-size:16px;line-height:1.6;color:#17324d;">Przedłuż abonament, aby zachować ustawienia i odzyskać pełny dostęp.</p>'
@@ -45,7 +44,7 @@ function buildSubscriptionDowngradedToFreeMailHtml(array $subscription, array $l
         'Informacja abonamentowa AI-IQ Rezerwacja Pro.',
         '⚠️',
         $body,
-        'Ten e-mail został wysłany po zakończeniu opłaconego okresu Pro i okresu ochronnego.'
+        'Ten e-mail został wysłany po zakończeniu opłaconego okresu Pro. Dane premium nie zostały usunięte; obowiązuje okres ochronny liczony od końca tego okresu.'
     );
 }
 

@@ -2588,12 +2588,14 @@ function setFrontRobotsIndexing(indexingEnabled) {
     return;
   }
 
-  robotsMeta.content = indexingEnabled === false
-    ? 'noindex,nofollow'
-    : 'index,follow';
+  robotsMeta.content = indexingEnabled === true
+    ? 'index,follow'
+    : 'noindex,nofollow';
 }
 
 function applyFrontSeoData(seoPayload = {}) {
+  setFrontRobotsIndexing(false);
+
   if (!seoPayload || seoPayload.success !== true) {
     return;
   }
@@ -2621,6 +2623,8 @@ function applyFrontSeoData(seoPayload = {}) {
 async function loadFrontBootstrap() {
   let res;
   let data;
+
+  setFrontRobotsIndexing(false);
 
   try {
     res = await fetch('/api/front/bootstrap.php', {

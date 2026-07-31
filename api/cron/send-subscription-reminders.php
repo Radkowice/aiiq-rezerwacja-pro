@@ -424,7 +424,7 @@ function subscription_reminder_grace_days(array $subscription): int
         ? (int) $subscription['grace_period_days']
         : 0;
 
-    return $configured > 0 ? $configured : 30;
+    return $configured > 0 ? $configured : 90;
 }
 
 function subscription_reminder_downgrade_period_end(array $subscription, array $lastPaidPro): string

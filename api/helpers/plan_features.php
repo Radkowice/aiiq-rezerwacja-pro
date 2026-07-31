@@ -309,7 +309,7 @@ function plan_features_grace_days(array $subscription): int
         ? (int) $subscription['grace_period_days']
         : 0;
 
-    return $configured > 0 ? $configured : 30;
+    return $configured > 0 ? $configured : 90;
 }
 
 function plan_features_access_state(array $subscription): array
@@ -318,6 +318,9 @@ function plan_features_access_state(array $subscription): array
     $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
     $periodEnd = plan_features_date_start($subscription['current_period_end'] ?? null);
     $periodDaysLeft = plan_features_days_until($periodEnd);
+    $configuredGraceDays = is_numeric($subscription['grace_period_days'] ?? null)
+        ? max(0, (int) $subscription['grace_period_days'])
+        : 0;
     $isPaidPlan = in_array($subscriptionPlanCode, ['pro', 'vip', 'business'], true);
     $periodAllowsAccess = $periodEnd !== null && $periodDaysLeft !== null && $periodDaysLeft >= 0;
 
@@ -332,11 +335,18 @@ function plan_features_access_state(array $subscription): array
         && in_array($status, ['payment_due', 'overdue'], true)
         && $periodAllowsAccess;
     $hasProAccess = $basePaidActive || $paymentAttentionActive;
-    $proAccessExpired = $isPaidPlan
+    $paidProAccessExpired = $isPaidPlan
         && in_array($status, ['active', 'trial', 'payment_due', 'overdue'], true)
         && $periodEnd !== null
         && $periodDaysLeft !== null
         && $periodDaysLeft < 0;
+    $downgradedFreeAfterPro = $subscriptionPlanCode === 'free'
+        && $status === 'active'
+        && $periodEnd !== null
+        && $periodDaysLeft !== null
+        && $periodDaysLeft < 0
+        && $configuredGraceDays > 0;
+    $proAccessExpired = $paidProAccessExpired || $downgradedFreeAfterPro;
     $graceDays = plan_features_grace_days($subscription);
     $dataGraceDaysLeft = null;
     $isInDataGracePeriod = false;
