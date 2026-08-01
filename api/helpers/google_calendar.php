@@ -361,6 +361,416 @@ function google_calendar_is_temporary_google_api_failure(array $result): bool
     ], true);
 }
 
+function google_calendar_disconnect_supabase_request(
+    string $url,
+    string $method,
+    string $key,
+    string $schema,
+    ?array $body = null,
+    bool $returnRepresentation = false
+): array {
+    $encodedBody = null;
+
+    if ($body !== null) {
+        $encodedBody = json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+        if ($encodedBody === false) {
+            return [
+                'transport_ok' => false,
+                'http_code' => 0,
+                'json_valid' => false,
+                'data' => null,
+            ];
+        }
+    }
+
+    $headers = [
+        'Content-Type: application/json',
+        'Accept: application/json',
+        'apikey: ' . $key,
+        'Authorization: Bearer ' . $key,
+        'Accept-Profile: ' . $schema,
+        'Content-Profile: ' . $schema,
+    ];
+
+    if ($returnRepresentation) {
+        $headers[] = 'Prefer: return=representation';
+    }
+
+    $ch = curl_init($url);
+
+    if ($ch === false) {
+        return [
+            'transport_ok' => false,
+            'http_code' => 0,
+            'json_valid' => false,
+            'data' => null,
+        ];
+    }
+
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_CUSTOMREQUEST => $method,
+        CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 25,
+    ];
+
+    if ($encodedBody !== null) {
+        $options[CURLOPT_POSTFIELDS] = $encodedBody;
+    }
+
+    if (!curl_setopt_array($ch, $options)) {
+        curl_close($ch);
+
+        return [
+            'transport_ok' => false,
+            'http_code' => 0,
+            'json_valid' => false,
+            'data' => null,
+        ];
+    }
+
+    $response = curl_exec($ch);
+    $curlErrno = curl_errno($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+    curl_close($ch);
+
+    $data = null;
+    $jsonValid = false;
+
+    if ($response !== false) {
+        $data = json_decode((string) $response, true);
+        $jsonValid = json_last_error() === JSON_ERROR_NONE;
+    }
+
+    return [
+        'transport_ok' => $response !== false && $curlErrno === 0,
+        'http_code' => $httpCode,
+        'json_valid' => $jsonValid,
+        'data' => $data,
+    ];
+}
+
+function google_calendar_disconnect_secret_value(array $secrets, string $key): string
+{
+    $value = $secrets[$key] ?? '';
+
+    if (!is_scalar($value)) {
+        return '';
+    }
+
+    return trim((string) $value);
+}
+
+function google_calendar_disconnect_revoke_google_token(string $token): array
+{
+    $ch = curl_init('https://oauth2.googleapis.com/revoke');
+
+    if ($ch === false) {
+        return [
+            'success' => false,
+            'temporary_failure' => true,
+            'revoked' => false,
+            'http_code' => 0,
+        ];
+    }
+
+    $payload = http_build_query([
+        'token' => $token,
+    ], '', '&', PHP_QUERY_RFC3986);
+
+    $options = [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/x-www-form-urlencoded',
+            'Accept: application/json',
+        ],
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_TIMEOUT => 25,
+    ];
+
+    if (!curl_setopt_array($ch, $options)) {
+        curl_close($ch);
+
+        return [
+            'success' => false,
+            'temporary_failure' => true,
+            'revoked' => false,
+            'http_code' => 0,
+        ];
+    }
+
+    $response = curl_exec($ch);
+    $curlErrno = curl_errno($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+    curl_close($ch);
+
+    $temporaryFailure = $response === false
+        || $curlErrno !== 0
+        || $httpCode === 0
+        || $httpCode === 408
+        || $httpCode === 429
+        || $httpCode >= 500;
+
+    if ($temporaryFailure) {
+        return [
+            'success' => false,
+            'temporary_failure' => true,
+            'revoked' => false,
+            'http_code' => $httpCode,
+        ];
+    }
+
+    return [
+        'success' => true,
+        'temporary_failure' => false,
+        'revoked' => in_array($httpCode, [200, 400], true),
+        'http_code' => $httpCode,
+    ];
+}
+
+function google_calendar_disconnect(
+    string $tenantId,
+    ?bool $expectedIntegrationExists = null,
+    ?string $expectedUpdatedAt = null
+): array {
+    $tenantId = trim($tenantId);
+    $expectedUpdatedAt = $expectedUpdatedAt === null ? '' : trim($expectedUpdatedAt);
+
+    if ($tenantId === '') {
+        return [
+            'success' => false,
+            'reason' => 'invalid_tenant_id',
+        ];
+    }
+
+    if (
+        ($expectedIntegrationExists === true && $expectedUpdatedAt === '')
+        || ($expectedIntegrationExists === false && $expectedUpdatedAt !== '')
+    ) {
+        return [
+            'success' => false,
+            'reason' => 'integration_state_invalid',
+        ];
+    }
+
+    try {
+        $supabaseUrl = rtrim(trim((string) getenv('SUPABASE_URL')), '/');
+        $supabaseKey = trim((string) getenv('SUPABASE_SERVICE_ROLE_KEY'));
+        $schema = trim((string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro'));
+
+        if ($supabaseUrl === '' || $supabaseKey === '' || $schema === '') {
+            return [
+                'success' => false,
+                'reason' => 'missing_supabase_config',
+            ];
+        }
+
+        $lookupUrl = $supabaseUrl
+            . '/rest/v1/tenant_integrations'
+            . '?select=tenant_id,provider,enabled,settings,secrets,connected_at,disconnected_at,updated_at'
+            . '&tenant_id=eq.' . rawurlencode($tenantId)
+            . '&provider=eq.google_calendar';
+
+        if ($expectedIntegrationExists === true) {
+            $lookupUrl .= '&updated_at=eq.' . rawurlencode($expectedUpdatedAt);
+        }
+
+        $lookupUrl .= '&limit=1';
+
+        $lookupResult = google_calendar_disconnect_supabase_request(
+            $lookupUrl,
+            'GET',
+            $supabaseKey,
+            $schema
+        );
+
+        if (
+            ($lookupResult['transport_ok'] ?? false) !== true
+            || ($lookupResult['http_code'] ?? 0) < 200
+            || ($lookupResult['http_code'] ?? 0) >= 300
+            || ($lookupResult['json_valid'] ?? false) !== true
+            || !is_array($lookupResult['data'] ?? null)
+        ) {
+            return [
+                'success' => false,
+                'reason' => 'integration_lookup_failed',
+            ];
+        }
+
+        if (empty($lookupResult['data'])) {
+            if ($expectedIntegrationExists === true) {
+                return [
+                    'success' => false,
+                    'reason' => 'integration_changed_concurrently',
+                ];
+            }
+
+            return [
+                'success' => true,
+                'already_disconnected' => true,
+            ];
+        }
+
+        $integration = $lookupResult['data'][0] ?? null;
+
+        if (!is_array($integration)) {
+            return [
+                'success' => false,
+                'reason' => 'integration_lookup_failed',
+            ];
+        }
+
+        if ($expectedIntegrationExists === false) {
+            return [
+                'success' => false,
+                'reason' => 'integration_changed_concurrently',
+            ];
+        }
+
+        if (
+            $expectedIntegrationExists === true
+            && (
+                !is_scalar($integration['updated_at'] ?? null)
+                || (string) $integration['updated_at'] !== $expectedUpdatedAt
+            )
+        ) {
+            return [
+                'success' => false,
+                'reason' => 'integration_changed_concurrently',
+            ];
+        }
+
+        $storedSecrets = is_array($integration['secrets'] ?? null)
+            ? $integration['secrets']
+            : [];
+
+        try {
+            $secrets = decrypt_json_secret($storedSecrets);
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'reason' => 'integration_secrets_unavailable',
+            ];
+        }
+
+        $refreshToken = google_calendar_disconnect_secret_value($secrets, 'refresh_token');
+        $accessToken = google_calendar_disconnect_secret_value($secrets, 'access_token');
+        $token = $refreshToken !== '' ? $refreshToken : $accessToken;
+        $enabled = filter_var($integration['enabled'] ?? false, FILTER_VALIDATE_BOOLEAN);
+        $disconnectedAt = is_scalar($integration['disconnected_at'] ?? null)
+            ? trim((string) $integration['disconnected_at'])
+            : '';
+
+        if (!$enabled && $disconnectedAt !== '' && $token === '') {
+            return [
+                'success' => true,
+                'already_disconnected' => true,
+            ];
+        }
+
+        $updatedAtValue = $integration['updated_at'] ?? null;
+
+        if (!is_scalar($updatedAtValue) || trim((string) $updatedAtValue) === '') {
+            return [
+                'success' => false,
+                'reason' => 'integration_state_invalid',
+            ];
+        }
+
+        $updatedAt = (string) $updatedAtValue;
+        $googleTokenRevoked = false;
+
+        if ($token !== '') {
+            $revokeResult = google_calendar_disconnect_revoke_google_token($token);
+
+            if (($revokeResult['success'] ?? false) !== true) {
+                $failure = [
+                    'success' => false,
+                    'reason' => 'google_revoke_temporary_failure',
+                ];
+                $httpCode = (int) ($revokeResult['http_code'] ?? 0);
+
+                if ($httpCode > 0) {
+                    $failure['http_code'] = $httpCode;
+                }
+
+                return $failure;
+            }
+
+            $googleTokenRevoked = ($revokeResult['revoked'] ?? false) === true;
+        }
+
+        try {
+            $emptySecrets = encrypt_json_secret([]);
+        } catch (Throwable $e) {
+            return [
+                'success' => false,
+                'reason' => 'local_disconnect_failed',
+            ];
+        }
+
+        $patchUrl = $supabaseUrl
+            . '/rest/v1/tenant_integrations'
+            . '?tenant_id=eq.' . rawurlencode($tenantId)
+            . '&provider=eq.google_calendar'
+            . '&updated_at=eq.' . rawurlencode($updatedAt);
+
+        $patchResult = google_calendar_disconnect_supabase_request(
+            $patchUrl,
+            'PATCH',
+            $supabaseKey,
+            $schema,
+            [
+                'enabled' => false,
+                'secrets' => $emptySecrets,
+                'connected_at' => null,
+                'disconnected_at' => date('c'),
+            ],
+            true
+        );
+
+        if (
+            ($patchResult['transport_ok'] ?? false) !== true
+            || ($patchResult['http_code'] ?? 0) < 200
+            || ($patchResult['http_code'] ?? 0) >= 300
+        ) {
+            return [
+                'success' => false,
+                'reason' => 'local_disconnect_failed',
+            ];
+        }
+
+        if (
+            ($patchResult['json_valid'] ?? false) !== true
+            || !is_array($patchResult['data'] ?? null)
+            || count($patchResult['data']) !== 1
+            || !is_array($patchResult['data'][0] ?? null)
+        ) {
+            return [
+                'success' => false,
+                'reason' => 'integration_changed_concurrently',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'already_disconnected' => false,
+            'google_token_revoked' => $googleTokenRevoked,
+        ];
+    } catch (Throwable $e) {
+        return [
+            'success' => false,
+            'reason' => 'google_calendar_disconnect_failed',
+        ];
+    }
+}
+
 function google_calendar_get_integration(string $tenantId, ?array &$lookupResult = null): ?array
 {
     $lookupResult = google_calendar_execution_result('failed', 'unknown');

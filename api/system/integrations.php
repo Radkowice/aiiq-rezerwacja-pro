@@ -4,6 +4,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/crypto.php';
+require_once __DIR__ . '/../helpers/google_calendar.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
@@ -343,6 +344,40 @@ if (!in_array($mode, $allowedModes, true)) {
 }
 
 $enabled = sanitize_bool($input['enabled'] ?? false);
+
+if ($provider === 'google_calendar' && !$enabled) {
+    $disconnectResult = google_calendar_disconnect($tenantId);
+
+    if (($disconnectResult['success'] ?? false) !== true) {
+        integrations_security_event(
+            'system_google_calendar_disconnect_failed',
+            'google_calendar_disconnect_failed',
+            500,
+            'failed',
+            'high',
+            'google_calendar_disconnect'
+        );
+
+        json_response([
+            'success' => false,
+            'error' => 'Nie udało się odłączyć integracji Google Calendar.',
+        ], 500);
+    }
+
+    integrations_security_event(
+        'system_google_calendar_disconnect_success',
+        'google_calendar_disconnect_success',
+        200,
+        'success',
+        'medium',
+        'google_calendar_disconnect'
+    );
+
+    json_response([
+        'success' => true,
+        'message' => 'Integracja Google Calendar została odłączona.',
+    ]);
+}
 
 $settingsInput = is_array($input['settings'] ?? null) ? $input['settings'] : [];
 $secretsInput = is_array($input['secrets'] ?? null) ? $input['secrets'] : [];
