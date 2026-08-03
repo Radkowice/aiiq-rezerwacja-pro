@@ -9,7 +9,7 @@
   height: 4px;
   margin: 0 auto 18px;
   border-radius: 999px;
-  background: var(--employee-auth-accent);
+  background: var(--employee-auth-primary);
 }
 
 .employee-auth-link {

@@ -243,24 +243,97 @@ function staff_blocks_fetch_staff_display_name(
         }
     }
 
-    return 'Pracownik';
+    return '';
+}
+
+function staff_blocks_notification_grammar_variant(string $staffName): string
+{
+    if (preg_match('//u', $staffName) !== 1) {
+        return 'neutral';
+    }
+
+    $trimmedName = preg_replace('/^[\p{Z}\s]+|[\p{Z}\s]+$/u', '', $staffName);
+
+    if (!is_string($trimmedName) || $trimmedName === '') {
+        return 'neutral';
+    }
+
+    if (preg_match('/^\p{L}+(?:[-\x{2019}\x{0027}]\p{L}+)*(?:[\p{Z}\s]+\p{L}+(?:[-\x{2019}\x{0027}]\p{L}+)*)*$/uD', $trimmedName) !== 1) {
+        return 'neutral';
+    }
+
+    $nameParts = preg_split('/[\p{Z}\s]+/u', $trimmedName, 2);
+    $firstName = is_array($nameParts) ? (string) ($nameParts[0] ?? '') : '';
+
+    if ($firstName === '') {
+        return 'neutral';
+    }
+
+    $normalizedFirstName = function_exists('mb_strtolower')
+        ? mb_strtolower($firstName, 'UTF-8')
+        : strtr(strtolower($firstName), [
+            'Ą' => 'ą',
+            'Ć' => 'ć',
+            'Ę' => 'ę',
+            'Ł' => 'ł',
+            'Ń' => 'ń',
+            'Ó' => 'ó',
+            'Ś' => 'ś',
+            'Ź' => 'ź',
+            'Ż' => 'ż',
+        ]);
+
+    static $maleNamesEndingWithA = [
+        'kuba',
+        'barnaba',
+        'bonawentura',
+        'jarema',
+        'kosma',
+        'sawa',
+    ];
+
+    if (in_array($normalizedFirstName, $maleNamesEndingWithA, true)) {
+        return 'male';
+    }
+
+    return substr($normalizedFirstName, -1) === 'a' ? 'female' : 'male';
 }
 
 function staff_blocks_build_notification_message(string $staffName, string $type, string $date, ?string $time): string
 {
+    $displayName = preg_replace('/^[\p{Z}\s]+|[\p{Z}\s]+$/u', '', $staffName);
+    $displayName = is_string($displayName) ? $displayName : '';
+    $grammarVariant = staff_blocks_notification_grammar_variant($displayName);
+
     if ($type === 'staff_block_day_created') {
-        return $staffName . ' zablokował dzień ' . $date . '.';
+        if ($grammarVariant === 'neutral') {
+            return 'Zablokowano dzień ' . $date . '.';
+        }
+
+        return $displayName . ($grammarVariant === 'female' ? ' zablokowała dzień ' : ' zablokował dzień ') . $date . '.';
     }
 
     if ($type === 'staff_block_day_removed') {
-        return $staffName . ' odblokował dzień ' . $date . '.';
+        if ($grammarVariant === 'neutral') {
+            return 'Odblokowano dzień ' . $date . '.';
+        }
+
+        return $displayName . ($grammarVariant === 'female' ? ' odblokowała dzień ' : ' odblokował dzień ') . $date . '.';
     }
 
     if ($type === 'staff_block_time_created') {
-        return $staffName . ' zablokował godzinę ' . (string) $time . ' w dniu ' . $date . '.';
+        if ($grammarVariant === 'neutral') {
+            return 'Zablokowano godzinę ' . (string) $time . ' w dniu ' . $date . '.';
+        }
+
+        return $displayName . ($grammarVariant === 'female' ? ' zablokowała godzinę ' : ' zablokował godzinę ') . (string) $time . ' w dniu ' . $date . '.';
     }
 
-    return $staffName . ' odblokował godzinę ' . (string) $time . ' w dniu ' . $date . '.';
+    if ($grammarVariant === 'neutral') {
+        return 'Odblokowano godzinę ' . (string) $time . ' w dniu ' . $date . '.';
+    }
+
+    return $displayName . ($grammarVariant === 'female' ? ' odblokowała godzinę ' : ' odblokował godzinę ') . (string) $time . ' w dniu ' . $date . '.';
 }
 
 function staff_blocks_write_admin_notification(

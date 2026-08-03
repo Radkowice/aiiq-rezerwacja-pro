@@ -31,7 +31,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/admin-integracje.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-usluga-platnosci.css?v=2">
   <link rel="stylesheet" href="/assets/css/admin-dokumenty-prawne.css?v=1">
-  <link rel="stylesheet" href="/assets/css/admin-informacje.css?v=1">
+  <link rel="stylesheet" href="/assets/css/admin-informacje.css?v=2">
   <link rel="stylesheet" href="/assets/css/plany.css?v=1">
   <link rel="stylesheet" href="/assets/css/app-loader.css">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
@@ -54,7 +54,7 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/admin-usluga-platnosci.js?v=20260619-1"></script>
   <script src="/assets/js/seo-google.js?v=6" defer></script>
   <script src="/assets/js/admin-dokumenty-prawne.js?v=1" defer></script>
-  <script src="/assets/js/admin-informacje.js?v=2" defer></script>
+  <script src="/assets/js/admin-informacje.js?v=3" defer></script>
 </head>
 <body class="tenant-theme app-loading">
   <div id="appLoader" class="app-loader" role="status" aria-live="polite" aria-hidden="false">

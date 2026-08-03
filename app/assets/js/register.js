@@ -1,3 +1,6 @@
+const PRO_REGISTRATION_PAYMENT_BUTTON_TEXT = 'Zamówienie z obowiązkiem zapłaty';
+const PRO_PAYMENT_INFO_TEXT = 'Płatność jednorazowa przez PayU. Plan Pro nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.';
+
 document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('registerForm');
   const passwordInput = document.getElementById('password');
@@ -240,7 +243,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = originalBtnText || 'Utwórz konto';
+        submitBtn.textContent = originalBtnText || (selectedPlan.code === 'pro'
+          ? PRO_REGISTRATION_PAYMENT_BUTTON_TEXT
+          : 'Utwórz konto');
       }
     }
   });
@@ -625,7 +630,7 @@ function updateProRegistrationSummary(pricesByPeriod) {
   }
 
   if (submitHint) {
-    submitHint.textContent = 'Po kliknięciu przycisku rejestracji zostaniesz przeniesiony do PayU. Link aktywacyjny do panelu wyślemy e-mailem dopiero po poprawnym potwierdzeniu płatności.';
+    submitHint.textContent = PRO_PAYMENT_INFO_TEXT;
   }
 }
 
@@ -645,7 +650,7 @@ async function initProRegistrationOptions(selectedPlan) {
   }
 
   if (submitBtn) {
-    submitBtn.textContent = 'Zarejestruj i przejdź do PayU';
+    submitBtn.textContent = PRO_REGISTRATION_PAYMENT_BUTTON_TEXT;
   }
 
   const monthlyPriceEl = document.getElementById('proRegistrationPriceMonthly');

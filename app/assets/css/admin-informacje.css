@@ -1,23 +1,23 @@
 .admin-info-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 18px;
-  margin-top: 22px;
+  gap: 16px;
+  margin-top: 20px;
   align-items: start;
 }
 
 .admin-info-column {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 16px;
   min-width: 0;
 }
 
 .admin-info-card {
   min-width: 0;
   box-sizing: border-box;
-  padding: 22px;
-  background: transparent;
+  padding: 20px;
+  background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-main);
   box-shadow: var(--shadow-main);
@@ -26,8 +26,8 @@
 
 .admin-info-card h3 {
   margin: 0 0 18px;
-  font-size: 20px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 500;
   color: var(--color-text);
   letter-spacing: -0.02em;
 }
@@ -138,7 +138,7 @@
   padding: 10px 12px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: var(--color-bg);
+  background: var(--color-input-bg, var(--color-card));
   color: var(--color-text);
   font: inherit;
   font-size: 14px;
@@ -156,7 +156,7 @@
 .admin-info-input:focus {
   outline: none;
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 18%, transparent);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .admin-info-subscription-notice {
@@ -164,7 +164,7 @@
   padding: 14px 16px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--color-bg) 92%, #64748b 8%);
+  background: var(--color-surface-subtle, var(--color-card-soft));
   color: var(--color-text);
 }
 
@@ -184,35 +184,35 @@
 }
 
 .admin-info-subscription-notice.success {
-  border-color: color-mix(in srgb, #16a34a 38%, var(--color-border));
-  background: color-mix(in srgb, var(--color-bg) 90%, #16a34a 10%);
+  border-color: var(--color-success-border);
+  background: var(--color-success-bg);
 }
 
 .admin-info-subscription-notice.success strong {
-  color: #15803d;
+  color: var(--color-success-text);
 }
 
 .admin-info-subscription-notice.warning {
-  border-color: color-mix(in srgb, #d97706 42%, var(--color-border));
-  background: color-mix(in srgb, var(--color-bg) 88%, #f59e0b 12%);
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-bg);
 }
 
 .admin-info-subscription-notice.warning strong {
-  color: #b45309;
+  color: var(--color-warning-text);
 }
 
 .admin-info-subscription-notice.danger {
-  border-color: color-mix(in srgb, #dc2626 38%, var(--color-border));
-  background: color-mix(in srgb, var(--color-bg) 90%, #dc2626 10%);
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-bg);
 }
 
 .admin-info-subscription-notice.danger strong {
-  color: #b91c1c;
+  color: var(--color-danger-text);
 }
 
 .admin-info-subscription-notice.neutral {
-  border-color: color-mix(in srgb, #64748b 30%, var(--color-border));
-  background: color-mix(in srgb, var(--color-bg) 92%, #64748b 8%);
+  border-color: var(--color-border);
+  background: var(--color-surface-subtle, var(--color-card-soft));
 }
 
 .admin-info-subscription-notice.neutral strong {
@@ -253,14 +253,15 @@
   min-width: 0;
   padding: 14px;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--color-bg) 92%, var(--color-primary) 8%);
+  border-radius: var(--admin-input-radius, var(--radius-small));
+  background: var(--color-surface-subtle, var(--color-card-soft));
   cursor: pointer;
 }
 
 .pro-upgrade-option:has(input:checked) {
   border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 16%, transparent);
+  background: var(--color-primary-soft);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .pro-upgrade-option input {
@@ -317,6 +318,7 @@
 
 .pro-upgrade-actions .btn {
   width: 100%;
+  white-space: normal;
 }
 
 .pro-upgrade-note,

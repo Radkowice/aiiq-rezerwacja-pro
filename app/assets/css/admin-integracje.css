@@ -16,8 +16,8 @@ section[data-section="integracje"] .panel-header h2 {
   align-items: stretch;
 }
 
-/* Karty integracji korzystaj¹ z .settings-card,
-   tutaj tylko drobne korekty modu³u */
+/* Karty integracji korzystajÄ… z .settings-card,
+   tutaj tylko drobne korekty moduÅ‚u */
 .integration-card {
   display: flex;
   flex-direction: column;
@@ -36,7 +36,7 @@ section[data-section="integracje"] .panel-header h2 {
   margin: 0 0 8px;
 }
 
-/* Ma³y prze³¹cznik W³¹cz/Wy³¹cz */
+/* MaÅ‚y przeÅ‚Ä…cznik WÅ‚Ä…cz/WyÅ‚Ä…cz */
 .integration-switch {
   display: inline-flex;
   flex-direction: column;
@@ -44,8 +44,8 @@ section[data-section="integracje"] .panel-header h2 {
   gap: 7px;
   min-width: 64px;
   font-size: 13px;
-  font-weight: 700;
-  color: #344054;
+  font-weight: 500;
+  color: var(--color-muted);
   cursor: pointer;
   user-select: none;
 }
@@ -58,7 +58,7 @@ section[data-section="integracje"] .panel-header h2 {
   padding: 0 !important;
   margin: 0 !important;
   border-radius: 4px !important;
-  accent-color: #7f1d1d;
+  accent-color: var(--color-primary);
   cursor: pointer;
   box-shadow: none !important;
 }
@@ -66,13 +66,14 @@ section[data-section="integracje"] .panel-header h2 {
 /* Status Google */
 .integration-status {
   margin: 0 0 16px;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: #344054;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--admin-input-radius, var(--radius-small));
+  background: var(--color-surface-subtle, var(--color-card-soft));
+  color: var(--color-muted);
   font-size: 14px;
   line-height: 1.45;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 /* Akcje na dole kart */
@@ -86,7 +87,7 @@ section[data-section="integracje"] .panel-header h2 {
 
 
 
-/* PayU: pomocnicze odstêpy */
+/* PayU: pomocnicze odstÄ™py */
 
 .integration-payu-keys-row {
   margin-top: 16px;
@@ -113,7 +114,7 @@ section[data-section="integracje"] .panel-header h2 {
   margin-top: 8px;
 }
 
-/* Responsywnoœæ */
+/* ResponsywnoÅ›Ä‡ */
 
 @media (max-width: 1350px) {
   .integration-card .settings-row-3 {

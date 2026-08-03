@@ -17,6 +17,34 @@
   --reservations-table-edge-padding: 18px;
 }
 
+/* Domyślny zestaw zapisany inline przez auth.js może podążać za motywem.
+   Reguła nie pasuje, gdy klient zmieni choć jeden z pięciu kolorów. */
+html[style*="--reservations-bg-color: #e5ebf2"][style*="--reservations-card-color: #f8fafc"][style*="--reservations-table-color: #eef2f7"][style*="--reservations-header-color: #cbd5e1"][style*="--reservations-border-color: #94a3b8"] body.theme-gray {
+  --reservations-bg-color: var(--color-bg);
+  --reservations-card-color: var(--color-card);
+  --reservations-table-color: var(--color-card-soft);
+  --reservations-header-color: var(--color-border);
+  --reservations-border-color: var(--color-border-strong);
+  --reservations-text-color: var(--color-text);
+  --reservations-muted-color: var(--color-muted);
+  --reservations-button-text-color: var(--color-text);
+  --reservations-button-border-color: var(--color-border-strong);
+  --reservations-header-text-color: var(--color-text);
+}
+
+html[style*="--reservations-bg-color: #e5ebf2"][style*="--reservations-card-color: #f8fafc"][style*="--reservations-table-color: #eef2f7"][style*="--reservations-header-color: #cbd5e1"][style*="--reservations-border-color: #94a3b8"] body.theme-dark {
+  --reservations-bg-color: #101925;
+  --reservations-card-color: #1b2738;
+  --reservations-table-color: #151f2e;
+  --reservations-header-color: #27364a;
+  --reservations-border-color: #536176;
+  --reservations-text-color: #e8edf5;
+  --reservations-muted-color: #a5b0c0;
+  --reservations-button-text-color: #e8edf5;
+  --reservations-button-border-color: #7f8b9d;
+  --reservations-header-text-color: #e8edf5;
+}
+
 /* ===== REZERWACJE — BAZA ===== */
 
 .panel-card[data-section="rezerwacje"] {
@@ -135,7 +163,7 @@
 .admin-inline-message {
   min-height: 18px;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .admin-inline-message.success {
@@ -419,7 +447,7 @@ td.col-actions {
 }
 
 td.col-name {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 td.col-contact {
@@ -434,7 +462,7 @@ td.col-contact {
 
 .booking-term-date {
   font-size: 14px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .booking-term-time,
@@ -442,7 +470,7 @@ td.col-contact {
   margin-top: 4px;
   color: var(--reservations-muted-color);
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .booking-service-name {
@@ -466,7 +494,7 @@ td.col-contact {
   border: 1px solid color-mix(in srgb, var(--reservations-border-color) 70%, #ffffff 30%);
   color: var(--reservations-muted-color) !important;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -583,6 +611,9 @@ td.col-contact {
 }
 
 .booking-details-panel {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
   margin-top: -3px;
   padding: 14px;
   border: 1px solid var(--reservations-border-color);
@@ -599,38 +630,64 @@ td.col-contact {
 .booking-details-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px 14px;
+  gap: 12px 20px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .booking-detail-item {
+  display: grid;
+  grid-template-columns: minmax(132px, 156px) minmax(0, 1fr);
+  align-items: start;
+  gap: 4px 12px;
   min-width: 0;
 }
 
-.booking-detail-item span {
-  display: inline-flex;
+.booking-detail-item > span {
+  display: flex;
   align-items: center;
-  gap: 5px;
-  margin-bottom: 3px;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
   color: var(--reservations-muted-color);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.4;
 }
 
-.booking-detail-item span i {
+.booking-detail-item > span::after {
+  content: ":";
+  margin-left: auto;
+}
+
+.booking-detail-item > span i {
+  flex: 0 0 20px;
+  width: 20px;
   font-style: normal;
   line-height: 1;
+  text-align: center;
 }
 
 .booking-detail-item strong,
-.booking-detail-item a,
+.booking-detail-item a {
+  display: block;
+  min-width: 0;
+  color: var(--reservations-text-color);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .booking-details-empty {
   color: var(--reservations-text-color);
   font-size: 13px;
-  font-weight: 700;
-  overflow-wrap: break-word;
-  word-break: normal;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .booking-detail-item a {
@@ -652,7 +709,7 @@ td.col-contact {
   background: var(--reservations-card-color);
   color: var(--reservations-button-text-color);
   font-size: 12px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .booking-technical-panel {
@@ -676,7 +733,7 @@ td.col-contact {
   padding: 6px 9px;
   border-radius: 999px;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.15;
   border: 1px solid transparent;
   white-space: normal;
@@ -689,58 +746,58 @@ td.col-contact {
 
 .payment-badge small {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   opacity: 0.9 !important;
 }
 
 .payment-badge.paid,
 .payment-badge.paid small {
-  color: #166534 !important;
+  color: var(--color-success-text) !important;
 }
 
 .payment-badge.paid {
-  background: #dcfce7;
-  border-color: #86efac;
+  background: var(--color-success-bg);
+  border-color: var(--color-success-border);
 }
 
 .payment-badge.pending,
 .payment-badge.pending small {
-  color: #854d0e !important;
+  color: var(--color-warning-text) !important;
 }
 
 .payment-badge.pending {
-  background: #fef9c3;
-  border-color: #fde68a;
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-border);
 }
 
 .payment-badge.expired,
 .payment-badge.expired small,
 .payment-badge.failed,
 .payment-badge.failed small {
-  color: #991b1b !important;
+  color: var(--color-danger-text) !important;
 }
 
 .payment-badge.expired,
 .payment-badge.failed {
-  background: #fee2e2;
-  border-color: #fca5a5;
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
 }
 
 .payment-badge.cancelled,
 .payment-badge.cancelled small,
 .payment-badge.not-required,
 .payment-badge.not-required small {
-  color: #374151 !important;
+  color: var(--color-muted) !important;
 }
 
 .payment-badge.cancelled {
-  background: #e5e7eb;
-  border-color: #d1d5db;
+  background: var(--color-surface-sunken, var(--color-bg));
+  border-color: var(--color-border-strong, var(--color-border));
 }
 
 .payment-badge.not-required {
-  background: #f1f5f9;
-  border-color: #cbd5e1;
+  background: var(--color-card-soft);
+  border-color: var(--color-border);
 }
 
 .booking-reschedule-badge {
@@ -750,11 +807,11 @@ td.col-contact {
   margin-top: 6px;
   padding: 3px 8px;
   border-radius: 999px;
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #f59e0b;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border: 1px solid var(--color-warning-border);
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
 }
@@ -770,8 +827,8 @@ td.col-contact {
   justify-content: center;
   padding: 22px;
   background: rgba(15, 23, 42, 0.35);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 
 .admin-confirm-overlay.show {
@@ -809,7 +866,7 @@ td.col-contact {
   margin: 0 0 10px;
   color: var(--reservations-text-color, #0f172a);
   font-size: 18px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.3;
 }
 
@@ -838,7 +895,7 @@ td.col-contact {
   background: rgba(255, 255, 255, 0.58);
   color: var(--reservations-text-color, #0f172a);
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.45;
   text-align: left;
 }
@@ -854,7 +911,7 @@ td.col-contact {
 .admin-confirm-modal strong {
   display: inline;
   margin-top: 0;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .admin-confirm-actions {
@@ -871,7 +928,7 @@ td.col-contact {
   border-radius: 12px;
   border: 1px solid var(--reservations-border-color, #94a3b8);
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 600;
   transition:
     transform 0.18s ease,
     box-shadow 0.18s ease,
@@ -927,7 +984,7 @@ td.col-contact {
   margin: 14px 0 7px;
   color: var(--reservations-text-color, #0f172a) !important;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .booking-staff-confirm-select {
@@ -951,7 +1008,7 @@ td.col-contact {
   margin-top: 10px !important;
   color: #b42318 !important;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 @keyframes popup {
@@ -1145,7 +1202,7 @@ body.theme-dark .admin-confirm-modal {
     padding-bottom: 6px;
     border-bottom: 1px solid color-mix(in srgb, var(--reservations-border-color) 34%, transparent);
     font-size: 11px;
-    font-weight: 800;
+  font-weight: 600;
     letter-spacing: 0.04em;
     text-align: center;
     text-transform: uppercase;
@@ -1198,11 +1255,11 @@ body.theme-dark .admin-confirm-modal {
 
   #bookingList td.col-name {
     font-size: 15px;
-    font-weight: 800;
+  font-weight: 600;
   }
 
   #bookingList td.col-term {
-    font-weight: 700;
+    font-weight: 600;
   }
 
   #bookingList td.col-payment,
@@ -1284,6 +1341,8 @@ body.theme-dark .admin-confirm-modal {
   width: 100%;
 }
 
+}
+
 @media (max-width: 420px) {
   #bookingList tr.booking-row {
     padding: 12px;
@@ -1302,5 +1361,222 @@ body.theme-dark .admin-confirm-modal {
   .payment-badge {
     font-size: 11px;
     padding: 6px 8px;
+  }
+}
+
+/* ===== FINALNA WARSTWA WIDOKU REZERWACJI ===== */
+.panel-card[data-section="rezerwacje"] .dash-card,
+.panel-card[data-section="rezerwacje"] .admin-calendar-status-card,
+.panel-card[data-section="rezerwacje"] .table-wrap,
+.booking-details-panel {
+  background: var(--reservations-card-color) !important;
+  border-color: var(--reservations-border-color) !important;
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.05));
+}
+
+.rezerwacje-table thead th {
+  background: var(--reservations-header-color);
+}
+
+.booking-view-btn,
+.booking-history-download-btn,
+.booking-search-clear,
+.panel-card[data-section="rezerwacje"] #save-calendar-enabled-btn,
+.booking-details-btn {
+  background: var(--reservations-card-color);
+  box-shadow: none;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.booking-view-btn:hover,
+.booking-view-btn.active,
+.booking-history-download-btn:hover,
+.booking-search-clear:hover,
+.panel-card[data-section="rezerwacje"] #save-calendar-enabled-btn:hover {
+  transform: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--reservations-header-color) 22%, transparent);
+}
+
+.booking-search-field input {
+  box-shadow: none;
+}
+
+td.col-name,
+.booking-term-date,
+.booking-muted,
+.booking-staff-name,
+.booking-actions button,
+.booking-details-empty,
+.booking-technical-btn,
+.payment-badge,
+.payment-badge small,
+.admin-confirm-title,
+.admin-confirm-check,
+.admin-confirm-modal strong,
+.admin-confirm-btn {
+  font-weight: 600;
+}
+
+.booking-actions button[onclick^="changeBookingStaff"] {
+  border-color: var(--color-info-border, var(--reservations-border-color));
+  background: var(--color-info-bg, var(--reservations-card-color));
+  color: var(--color-info-text, var(--reservations-text-color));
+}
+
+.booking-actions button[onclick^="detachBookingStaff"] {
+  border-color: var(--color-warning-border, var(--reservations-border-color));
+  background: var(--color-warning-bg, var(--reservations-card-color));
+  color: var(--color-warning-text, var(--reservations-text-color));
+}
+
+.booking-actions button[onclick^="deleteBooking"],
+.delete-btn {
+  border-color: var(--color-danger-border, var(--reservations-border-color));
+  background: var(--color-danger-bg, var(--reservations-card-color));
+  color: var(--color-danger-text, var(--reservations-text-color));
+}
+
+.booking-actions button:hover,
+.booking-details-btn:hover,
+.delete-btn:hover,
+.booking-technical-btn:hover {
+  transform: none;
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.05));
+}
+
+.payment-badge {
+  box-shadow: none;
+}
+
+.admin-confirm-modal {
+  background: var(--reservations-card-color, var(--color-card));
+  border-color: var(--reservations-border-color, var(--color-border));
+  box-shadow: var(--shadow-md, 0 18px 42px rgba(15, 23, 42, 0.18));
+}
+
+.admin-confirm-check {
+  background: var(--reservations-table-color, var(--color-card-soft));
+}
+
+.admin-confirm-btn:hover {
+  transform: none;
+  box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.05));
+}
+
+@media (max-width: 768px) {
+  #bookingList tr.booking-row {
+    background: var(--reservations-table-color);
+    box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.05));
+  }
+
+  #bookingList tr.booking-row:hover {
+    box-shadow: var(--shadow-xs, 0 1px 2px rgba(15, 23, 42, 0.05));
+  }
+
+  #bookingList tr.booking-row td {
+    background: var(--reservations-card-color);
+    box-shadow: none;
+  }
+
+  #bookingList tr.booking-row td::before,
+  #bookingList td.col-name,
+  #bookingList td.col-term {
+    font-weight: 600;
+  }
+}
+
+@media (max-width: 420px) {
+  .booking-detail-item {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .booking-detail-item > span {
+    width: fit-content;
+    max-width: 100%;
+  }
+
+  .booking-detail-item > span::after {
+    margin-left: 0;
+  }
+}
+
+/* ===== KOŃCOWE WYRÓWNANIE SZCZEGÓŁÓW REZERWACJI ===== */
+
+#bookingList .booking-details-panel > .booking-details-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
+  gap: 12px 24px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+#bookingList .booking-details-panel .booking-detail-item {
+  display: grid;
+  grid-template-columns: minmax(164px, 188px) minmax(0, 1fr);
+  align-items: start;
+  gap: 0 14px;
+  min-width: 0;
+}
+
+#bookingList .booking-details-panel .booking-detail-item > span {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  color: var(--reservations-muted-color);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+#bookingList .booking-details-panel .booking-detail-item > span::after {
+  content: ":";
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+#bookingList .booking-details-panel .booking-detail-item > span > i {
+  flex: 0 0 20px;
+  width: 20px;
+  margin-right: 6px;
+  font-style: normal;
+  line-height: 1.5;
+  text-align: center;
+}
+
+#bookingList .booking-details-panel .booking-detail-item > strong,
+#bookingList .booking-details-panel .booking-detail-item > a {
+  display: block;
+  align-self: start;
+  min-width: 0;
+  margin: 0;
+  color: var(--reservations-text-color);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+@media (max-width: 768px) {
+  #bookingList .booking-details-panel > .booking-details-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 420px) {
+  #bookingList .booking-details-panel .booking-detail-item {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 3px 0;
+  }
+
+  #bookingList .booking-details-panel .booking-detail-item > span {
+    width: fit-content;
+    max-width: 100%;
   }
 }

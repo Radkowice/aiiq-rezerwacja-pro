@@ -209,6 +209,36 @@
   min-height: 304px;
 }
 
+#calendarLoader {
+  min-height: 32px;
+  margin: 12px 0;
+  background: transparent;
+  color: transparent;
+  font-size: 0;
+  line-height: 0;
+  text-align: center;
+}
+
+#calendarLoader::before {
+  content: "";
+  display: inline-block;
+  width: 30px;
+  height: 30px;
+  border: 3px solid color-mix(in srgb, var(--front-active-color, var(--primary, #212d45)) 24%, transparent);
+  border-top-color: var(--front-active-color, var(--primary, #212d45));
+  border-radius: 50%;
+  box-sizing: border-box;
+  -webkit-animation: app-loader-spin 0.85s linear infinite;
+  animation: app-loader-spin 0.85s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #calendarLoader::before {
+    -webkit-animation: none;
+    animation: none;
+  }
+}
+
 /* === FRONT KALENDARZA — BRANDING KLIENTA === */
 
 body {

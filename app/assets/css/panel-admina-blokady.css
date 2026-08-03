@@ -1,12 +1,12 @@
 /* ===== BLOKADY ===== */
 
 .block-section {
-  margin-top: 24px;
+  margin-top: 20px;
   padding: 20px;
   border-radius: var(--radius-main);
   background: var(--color-card);
-  border: 1px solid rgba(15, 23, 42, 0.04);
-  box-shadow: 0 2px 8px rgba(15, 23, 42, 0.03);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-xs);
 }
 
 section[data-section="blokady"] .block-refresh-btn {
@@ -138,16 +138,16 @@ section[data-section="blokady"] .block-refresh-btn {
 }
 
 .blocked-item:hover {
-  background: #fbfcfe;
+  background: var(--color-card-soft);
 }
 
 .btn-unblock {
   height: 40px;
   padding: 0 14px;
   border-radius: var(--radius-small);
-  border: 1px solid #f3c1c1;
-  background: var(--color-card);
-  color: #b42318;
+  border: 1px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
   cursor: pointer;
   font-weight: 600;
 }
@@ -176,21 +176,21 @@ section[data-section="blokady"] .block-refresh-btn {
   padding: 12px 14px;
   border-radius: 12px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 500;
   overflow-wrap: anywhere;
   word-break: normal;
 }
 
 #block-message.success {
-  background: #ecfdf3;
-  color: #027a48;
-  border: 1px solid #abefc6;
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
+  border: 1px solid var(--color-success-border);
 }
 
 #block-message.error {
-  background: #fef3f2;
-  color: #b42318;
-  border: 1px solid #fecdca;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border: 1px solid var(--color-danger-border);
 }
 
 /* ===== KALENDARZ ADMINA ===== */
@@ -211,40 +211,40 @@ section[data-section="blokady"] .block-refresh-btn {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  background: #ecfdf3;
-  color: #027a48;
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
   border-radius: 10px;
   cursor: pointer;
 }
 
 .admin-day.blocked {
-  background: #fef3f2;
-  color: #b42318;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
 }
 
 .admin-day.staff-blocked {
-  background: #fff7ed;
-  color: #c2410c;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
 }
 
 .admin-day.day-has-reservations {
-  border: 2px solid #f59e0b;
-  background: #fffbeb;
-  color: #92400e;
-  box-shadow: 0 8px 18px rgba(245, 158, 11, 0.16);
+  border: 2px solid var(--color-warning-border);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  box-shadow: none;
 }
 
 .admin-day.blocked.day-has-reservations {
-  background: linear-gradient(145deg, #fef3c7, #fee2e2);
-  color: #991b1b;
-  border-color: #f97316;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border-color: var(--color-warning-border);
 }
 
 .admin-day.selected.day-has-reservations {
-  background: linear-gradient(145deg, #b45309, #7c2d12);
-  color: #ffffff;
-  border-color: #ffffff;
-  outline-color: #f59e0b;
+  background: var(--color-warning-text);
+  color: var(--color-primary-text, #ffffff);
+  border-color: var(--color-warning-text);
+  outline-color: var(--color-warning-border);
 }
 
 .admin-day .day-reservation-badge {
@@ -259,7 +259,7 @@ section[data-section="blokady"] .block-refresh-btn {
   color: #ffffff;
   font-size: 10px;
   line-height: 1.1;
-  font-weight: 800;
+  font-weight: 600;
 }
 
 .admin-day .day-label {
@@ -267,12 +267,12 @@ section[data-section="blokady"] .block-refresh-btn {
   margin-top: 2px;
   font-size: 10px;
   line-height: 1.1;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .admin-day.disabled {
-  background: #f8fafc;
-  color: #98a2b3;
+  background: var(--color-surface-sunken, var(--color-bg));
+  color: var(--color-text-tertiary, var(--color-muted));
   cursor: not-allowed;
 }
 
@@ -306,9 +306,9 @@ section[data-section="blokady"] .block-refresh-btn {
   height: 42px;
   padding: 0 16px;
   border-radius: 10px;
-  background: #fef3f2;
-  color: #b42318;
-  font-weight: 700;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  font-weight: 600;
   cursor: pointer;
 }
 
@@ -324,39 +324,39 @@ section[data-section="blokady"] .block-refresh-btn {
   align-items: center;
   justify-content: center;
   border-radius: 10px;
-  font-weight: 700;
-  background: #ecfdf3;
-  color: #027a48;
+  font-weight: 600;
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
   cursor: pointer;
 }
 
 .admin-time.blocked {
-  background: #fef3f2;
-  color: #b42318;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
 }
 
 .admin-time.booked {
-  background: #fef3f2;
-  color: #b42318;
-  border-color: #fecdca;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-border);
 }
 
 .admin-time.booked:hover {
-  background: #fee4e2;
-  color: #912018;
-  border-color: #fda29b;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-text);
 }
 
 .admin-time.staff-blocked {
-  background: #fff7ed;
-  color: #c2410c;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
 }
 
 .admin-time .time-scope-label {
   display: block;
   margin-left: 4px;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 500;
 }
 
 .admin-service-slots {
@@ -368,10 +368,10 @@ section[data-section="blokady"] .block-refresh-btn {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border: 1px solid rgba(100, 116, 139, 0.48);
+  border: 1px solid var(--color-border);
   border-radius: 14px;
-  background: linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(202, 213, 228, 0.88));
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.62), 0 10px 28px rgba(15, 23, 42, 0.08);
+  background: var(--color-card);
+  box-shadow: var(--shadow-xs);
 }
 
 .admin-service-card-header {
@@ -420,20 +420,20 @@ section[data-section="blokady"] .block-refresh-btn {
   min-width: 84px;
   min-height: 52px;
   padding: 8px 10px;
-  border: 1px solid rgba(100, 116, 139, 0.54);
+  border: 1px solid var(--color-border-strong, var(--color-border));
   border-radius: 12px;
-  background: linear-gradient(145deg, rgba(248, 250, 252, 0.92), rgba(218, 226, 238, 0.9));
+  background: var(--color-card-soft);
   color: var(--text-main);
   font: inherit;
   cursor: pointer;
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
-  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  box-shadow: none;
+  transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .admin-service-slot:hover,
 .admin-service-slot:focus-visible {
-  transform: translateY(-1px);
-  border-color: rgba(40, 64, 107, 0.74);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
   outline: none;
 }
 
@@ -454,39 +454,39 @@ section[data-section="blokady"] .block-refresh-btn {
 }
 
 .admin-service-slot.is-available {
-  border-color: rgba(6, 95, 70, 0.28);
-  background: rgba(187, 247, 208, 0.58);
-  color: #027a48;
+  border-color: var(--color-success-border);
+  background: var(--color-success-bg);
+  color: var(--color-success-text);
 }
 
 .admin-service-slot.is-reserved {
-  border-color: rgba(185, 28, 28, 0.34);
-  background: rgba(254, 226, 226, 0.72);
-  color: #7f1d1d;
+  border-color: var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
 }
 
 .admin-service-slot.is-staff_busy {
-  border-color: rgba(180, 83, 9, 0.32);
-  background: rgba(254, 243, 199, 0.74);
-  color: #92400e;
+  border-color: var(--color-warning-border);
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
 }
 
 .admin-service-slot.is-booking_buffer {
-  border-color: rgba(14, 116, 144, 0.3);
-  background: rgba(207, 250, 254, 0.68);
-  color: #155e75;
+  border-color: var(--color-info-border);
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
 }
 
 .admin-service-slot.is-blocked_staff {
-  border-color: rgba(40, 64, 107, 0.36);
-  background: rgba(219, 227, 238, 0.82);
-  color: #28406b;
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 .admin-service-slot.is-blocked_global {
-  border-color: rgba(100, 116, 139, 0.34);
-  background: rgba(203, 213, 225, 0.78);
-  color: #334155;
+  border-color: var(--color-border-strong, var(--color-border));
+  background: var(--color-surface-sunken, var(--color-bg));
+  color: var(--color-muted);
 }
 
 .admin-service-slot-r {
@@ -501,10 +501,10 @@ section[data-section="blokady"] .block-refresh-btn {
 .admin-service-slot-detail {
   width: min(320px, calc(100vw - 64px));
   padding: 10px;
-  border: 1px solid rgba(100, 116, 139, 0.42);
+  border: 1px solid var(--color-border);
   border-radius: 10px;
-  background: rgba(248, 250, 252, 0.92);
-  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.08);
+  background: var(--color-surface-elevated, var(--color-card));
+  box-shadow: var(--shadow-sm);
 }
 
 .admin-service-slot-detail[hidden] {
@@ -534,39 +534,37 @@ section[data-section="blokady"] .block-refresh-btn {
 
 .admin-service-reservation strong {
   color: var(--text-main);
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .admin-service-empty {
   padding: 14px;
-  border: 1px dashed rgba(100, 116, 139, 0.42);
+  border: 1px dashed var(--color-border-strong, var(--color-border));
   border-radius: 12px;
   color: var(--text-muted);
-  background: rgba(248, 250, 252, 0.62);
+  background: var(--color-surface-subtle, var(--color-card-soft));
 }
 
 /* ===== TODAY ===== */
 
 .admin-day.today {
-  border: 2px solid #3b82f6;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border: 2px solid var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 /* ===== SELECTED ===== */
 
 .admin-day.selected {
   position: relative;
-  background: linear-gradient(145deg, #1d4ed8, #0f2f73);
-  color: #ffffff;
-  border: 3px solid #ffffff;
-  outline: 3px solid #1d4ed8;
-  box-shadow:
-    0 0 0 2px rgba(29, 78, 216, 0.28),
-    0 10px 24px rgba(29, 78, 216, 0.36),
-    inset 0 1px 0 rgba(255, 255, 255, 0.32);
-  transform: translateY(-2px);
-  font-weight: 900;
+  background: var(--color-primary);
+  color: var(--color-primary-text, #ffffff);
+  border: 2px solid var(--color-primary);
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  box-shadow: none;
+  transform: none;
+  font-weight: 600;
   z-index: 2;
 }
 
@@ -578,19 +576,16 @@ section[data-section="blokady"] .block-refresh-btn {
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: #ffffff;
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.25);
+  background: currentColor;
+  box-shadow: none;
 }
 
 .admin-day.selected.blocked {
-  background: linear-gradient(145deg, #dc2626, #7f1d1d);
-  border-color: #ffffff;
-  outline-color: #dc2626;
-  color: #ffffff;
-  box-shadow:
-    0 0 0 2px rgba(220, 38, 38, 0.28),
-    0 10px 24px rgba(220, 38, 38, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  background: var(--color-btn-danger);
+  border-color: var(--color-btn-danger);
+  outline-color: var(--color-btn-danger);
+  color: var(--color-btn-text, #ffffff);
+  box-shadow: none;
 }
 
 .confirm-modal {
@@ -617,7 +612,8 @@ section[data-section="blokady"] .block-refresh-btn {
   width: 320px;
   max-width: 90%;
   text-align: center;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
 }
 
 .confirm-modal-box h3 {
@@ -638,8 +634,9 @@ section[data-section="blokady"] .block-refresh-btn {
 .btn-secondary {
   flex: 1;
   padding: 10px;
-  background: #ddd;
-  border: none;
+  background: var(--color-card-soft);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
   border-radius: 6px;
   cursor: pointer;
 }
@@ -662,7 +659,6 @@ section[data-section="blokady"] .block-refresh-btn {
   flex: 1;
   padding: 10px;
   background: var(--color-btn-success);
-  background: var(--color-card);
   border: none;
   border-radius: 6px;
   cursor: pointer;
@@ -681,7 +677,7 @@ section[data-section="blokady"] .block-refresh-btn {
   background: var(--color-card);
   border: 1px solid var(--color-border);
   border-radius: 14px;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.03);
+  box-shadow: var(--shadow-xs);
 }
 
 .block-range-box .form-row {
@@ -701,13 +697,13 @@ section[data-section="blokady"] .block-refresh-btn {
   height: 42px;
   padding: 0 10px;
   border-radius: 10px;
-  border: 1px solid rgba(15, 23, 42, 0.10);
+  border: 1px solid var(--color-border-strong, var(--color-border));
   font-size: 14px;
 }
 
 .block-range-box input[type="date"]:focus {
-  border-color: #28406b;
-  box-shadow: 0 0 0 4px rgba(40, 64, 107, 0.1);
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
 }
 
 .form-group-button {
@@ -718,7 +714,7 @@ section[data-section="blokady"] .block-refresh-btn {
 .form-group-button button {
   width: 100%;
   height: 42px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /* MOBILE */
@@ -778,7 +774,8 @@ section[data-section="blokady"] .block-refresh-btn {
   border-radius: 18px;
   padding: 24px;
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
   animation: popup 0.2s ease;
 }
 
@@ -791,7 +788,7 @@ section[data-section="blokady"] .block-refresh-btn {
 /* TYTUŁ */
 .confirm-title {
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 600;
   margin-bottom: 8px;
   color: var(--color-text);
 }
@@ -799,7 +796,7 @@ section[data-section="blokady"] .block-refresh-btn {
 /* TREŚĆ */
 .confirm-message {
   font-size: 15px;
-  color: #334155;
+  color: var(--color-muted);
   line-height: 1.5;
 }
 
@@ -821,32 +818,33 @@ section[data-section="blokady"] .block-refresh-btn {
   border: none;
   cursor: pointer;
   font-weight: 600;
-  transition: 0.2s;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
 .admin-confirm-btn:hover {
-  transform: translateY(-1px);
+  filter: brightness(0.97);
 }
 
 /* CANCEL */
 .admin-confirm-btn.cancel {
-  background: #e2e8f0;
+  background: var(--color-card-soft);
+  color: var(--color-text);
 }
 
 /* VARIANTY */
 .admin-confirm-btn.ok.danger {
-  background: #dc2626;
-  color: #fff;
+  background: var(--color-btn-danger);
+  color: var(--color-btn-text, #fff);
 }
 
 .admin-confirm-btn.ok.primary {
-  background: #1d4ed8;
-  color: #fff;
+  background: var(--color-primary);
+  color: var(--color-primary-text, #fff);
 }
 
 .admin-confirm-btn.ok.success {
-  background: #16a34a;
-  color: #fff;
+  background: var(--color-btn-success);
+  color: var(--color-btn-text, #fff);
 }
 
 /* BLOKADA SCROLL */
@@ -902,18 +900,19 @@ body.modal-open {
 }
 
 .warning-box {
-  background: #ffe5e5;
-  color: #b30000;
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  border: 1px solid var(--color-danger-border);
   padding: 10px;
   border-radius: 6px;
-  font-weight: bold;
+  font-weight: 600;
   margin-bottom: 10px;
 }
 
 .warning-box-strong {
-  background: #fff7ed;
-  color: #7c2d12;
-  border: 1px solid #fdba74;
+  background: var(--color-warning-bg);
+  color: var(--color-warning-text);
+  border: 1px solid var(--color-warning-border);
 }
 
 .day-reservation-warning-list {
@@ -929,8 +928,8 @@ body.modal-open {
   gap: 3px;
   padding: 8px;
   border-radius: 8px;
-  background: #ffffff;
-  color: #111827;
+  background: var(--color-card);
+  color: var(--color-text);
 }
 
 .day-reservation-warning-list span {
@@ -941,21 +940,21 @@ body.modal-open {
 .warning-more {
   margin: 4px 0 8px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
 }
 
-input[type="date"] {
+body.theme-dark section[data-section="blokady"] input[type="date"] {
   color-scheme: dark;
 }
 
 .staff-block-settings-note {
   margin: 14px 0 0;
   padding: 12px 14px;
-  border: 1px solid #bfdbfe;
+  border: 1px solid var(--color-info-border);
   border-radius: 10px;
-  background: #eff6ff;
-  color: #1e3a8a;
+  background: var(--color-info-bg);
+  color: var(--color-info-text);
   font-size: 14px;
   line-height: 1.45;
-  font-weight: 600;
+  font-weight: 500;
 }

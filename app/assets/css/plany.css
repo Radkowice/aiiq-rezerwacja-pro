@@ -20,7 +20,7 @@
   justify-content: center;
   padding: clamp(10px, 2vw, 18px);
   border-radius: inherit;
-  background: rgba(248, 250, 252, 0.68);
+  background: color-mix(in srgb, var(--color-bg, #f4f7fb) 76%, transparent);
   -webkit-backdrop-filter: blur(1.5px);
   backdrop-filter: blur(1.5px);
   text-align: center;
@@ -43,19 +43,19 @@
 .plan-lock-box {
   width: min(100%, 320px);
   padding: 16px 20px;
-  border: 1px solid rgba(148, 163, 184, 0.38);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.11);
-  color: #172033;
+  border: 1px solid var(--color-border-strong, var(--color-border, #c7d1de));
+  border-radius: var(--radius-small, 10px);
+  background: var(--color-surface-elevated, var(--color-card, #fff));
+  box-shadow: var(--shadow-sm, 0 5px 16px rgba(15, 23, 42, 0.06));
+  color: var(--color-text, #172033);
 }
 
 .plan-lock-title {
   display: block;
   margin: 0;
-  color: #172033;
+  color: var(--color-text, #172033);
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.25;
 }
 
@@ -75,7 +75,7 @@
 }
 
 .plan-lock-muted {
-  color: #64748b;
+  color: var(--color-muted, #64748b);
 }
 
 .plan-upgrade-bar {
@@ -83,10 +83,10 @@
   max-width: 520px;
   margin: 0 18px;
   padding: 11px 14px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
-  border-radius: 10px;
-  background: rgba(248, 250, 252, 0.78);
-  color: #475569;
+  border: 1px solid var(--color-info-border, var(--color-border));
+  border-radius: var(--radius-small, 10px);
+  background: var(--color-info-bg, var(--color-card-soft));
+  color: var(--color-info-text, var(--color-muted));
   font-size: 13px;
   font-weight: 500;
   line-height: 1.4;
@@ -107,14 +107,14 @@
 
 .plan-disabled-notification .admin-notifications-toggle {
   cursor: default;
-  color: #94a3b8;
-  background: rgba(248, 250, 252, 0.72);
-  border-color: rgba(203, 213, 225, 0.9);
+  color: var(--color-text-tertiary, var(--color-muted));
+  background: var(--color-surface-sunken, var(--color-bg));
+  border-color: var(--color-border);
   box-shadow: none;
 }
 
 .plan-disabled-notification .admin-notifications-toggle:hover {
-  background: rgba(248, 250, 252, 0.72);
+  background: var(--color-surface-sunken, var(--color-bg));
 }
 
 .plan-disabled-notification .admin-notifications-count,

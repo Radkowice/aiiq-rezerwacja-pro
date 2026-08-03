@@ -1,32 +1,29 @@
 :root {
-  --employee-bg: #e2e8f0;
-  --employee-card: #cbd5e1;
-  --employee-card-soft: #dbe3ee;
-  --employee-text: #0f172a;
-  --employee-muted: #334155;
-  --employee-border: #94a3b8;
-  --employee-primary: #28406b;
-  --employee-primary-hover: #22375c;
+  --employee-bg: #dfe5ec;
+  --employee-card: #eef2f6;
+  --employee-card-soft: #e7ecf2;
+  --employee-text: #18212f;
+  --employee-muted: #526071;
+  --employee-border: #bac4d0;
+  --employee-border-strong: #9eabba;
+  --employee-primary: #315d9d;
+  --employee-primary-hover: #264b80;
+  --employee-primary-soft: #dce8f8;
+  --employee-focus-ring: rgba(49, 93, 157, 0.25);
   --employee-radius: 14px;
   --employee-radius-small: 10px;
-  --employee-shadow:
-    10px 10px 24px rgba(71, 85, 105, 0.18),
-    -8px -8px 20px rgba(255, 255, 255, 0.42);
-  --employee-shadow-soft:
-    6px 6px 14px rgba(71, 85, 105, 0.14),
-    -5px -5px 12px rgba(255, 255, 255, 0.34);
-  --employee-shadow-inset:
-    inset 2px 2px 5px rgba(71, 85, 105, 0.13),
-    inset -2px -2px 5px rgba(255, 255, 255, 0.38);
-  --employee-success-bg: #bbf7d0;
-  --employee-success-text: #065f46;
-  --employee-warning-bg: #fde68a;
-  --employee-warning-text: #78350f;
-  --employee-danger-bg: #fecaca;
-  --employee-danger-text: #7f1d1d;
-  --employee-neutral-bg: #e2e8f0;
-  --employee-neutral-text: #334155;
-  --employee-font: Inter, Arial, sans-serif;
+  --employee-shadow: 0 6px 18px rgba(30, 41, 59, 0.10);
+  --employee-shadow-soft: 0 1px 2px rgba(30, 41, 59, 0.08);
+  --employee-shadow-inset: inset 0 1px 2px rgba(30, 41, 59, 0.08);
+  --employee-success-bg: #ecfdf3;
+  --employee-success-text: #067647;
+  --employee-warning-bg: #fff8eb;
+  --employee-warning-text: #a15c07;
+  --employee-danger-bg: #fff1f0;
+  --employee-danger-text: #b42318;
+  --employee-neutral-bg: #eef2f7;
+  --employee-neutral-text: #526071;
+  --employee-font: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
@@ -102,8 +99,7 @@ body.employee-panel-body {
 .employee-panel-sidebar,
 .employee-panel-topbar,
 .employee-panel-card {
-  background:
-    linear-gradient(145deg, rgba(214, 222, 234, 0.96), rgba(190, 202, 218, 0.92));
+  background: var(--employee-card);
   border: 1px solid var(--employee-border);
   border-radius: var(--employee-radius);
   box-shadow: var(--employee-shadow);
@@ -114,7 +110,7 @@ body.employee-panel-body {
   top: 24px;
   align-self: start;
   padding: 16px;
-  border-color: rgba(100, 116, 139, 0.62);
+  border-color: var(--employee-border);
 }
 
 .employee-panel-brand {
@@ -149,7 +145,7 @@ body.employee-panel-body {
   height: 36px;
   margin-left: auto;
   padding: 0;
-  border: 1px solid rgba(17, 24, 39, 0.72);
+  border: 1px solid var(--employee-border-strong);
   border-radius: var(--employee-radius-small);
   background: transparent;
   color: var(--employee-primary);
@@ -165,9 +161,9 @@ body.employee-panel-body {
 
 .employee-sidebar-toggle:hover,
 .employee-sidebar-toggle:focus-visible {
-  background: rgba(226, 233, 243, 0.88);
-  border-color: rgba(17, 24, 39, 0.5);
-  outline: none;
+  background: var(--employee-primary-soft);
+  border-color: var(--employee-primary);
+  color: var(--employee-primary);
 }
 
 .employee-panel-tabs {
@@ -216,22 +212,19 @@ body.employee-panel-body {
 
 .employee-panel-tab:hover,
 .employee-panel-tab:focus-visible {
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(197, 209, 224, 0.88));
-  border-color: rgba(100, 116, 139, 0.42);
-  color: var(--employee-text);
+  background: var(--employee-primary-soft);
+  border-color: var(--employee-primary);
+  color: var(--employee-primary);
   box-shadow: var(--employee-shadow-soft);
-  transform: translateY(-1px);
-  outline: none;
+  transform: none;
 }
 
 .employee-panel-tab.is-active {
-  background:
-    linear-gradient(145deg, rgba(232, 238, 246, 0.98), rgba(197, 209, 224, 0.94));
-  border-color: rgba(17, 24, 39, 0.72);
+  background: var(--employee-primary-soft);
+  border-color: var(--employee-primary);
   color: var(--employee-primary);
   font-weight: 600;
-  box-shadow: var(--employee-shadow-inset);
+  box-shadow: none;
 }
 
 .employee-panel-main {
@@ -327,42 +320,41 @@ body.employee-panel-body {
 }
 
 .employee-panel-logout {
-  border: 1px solid var(--employee-text);
-  background:
-    linear-gradient(145deg, rgba(232, 238, 246, 0.96), rgba(197, 209, 224, 0.92));
+  border: 1px solid var(--employee-border-strong);
+  background: var(--employee-card);
   color: var(--employee-text);
   box-shadow: var(--employee-shadow-soft);
 }
 
-.employee-panel-logout:hover,
+.employee-panel-logout:hover:not(:disabled),
 .employee-panel-logout:focus-visible {
   border-color: #b42318;
   background: #fef3f2;
   color: #b42318;
   transform: translateY(-1px);
-  outline: none;
 }
 
 .employee-panel-secondary-btn {
-  border: 1px solid var(--employee-border);
-  background:
-    linear-gradient(145deg, rgba(232, 238, 246, 0.96), rgba(197, 209, 224, 0.92));
+  border: 1px solid var(--employee-border-strong);
+  background: var(--employee-card);
   color: var(--employee-primary);
   box-shadow: var(--employee-shadow-soft);
 }
 
-.employee-panel-secondary-btn:hover,
+.employee-panel-secondary-btn:hover:not(:disabled),
 .employee-panel-secondary-btn:focus-visible {
-  background: var(--employee-card-soft);
-  border-color: var(--employee-border);
-  color: var(--employee-primary-hover);
-  transform: translateY(-1px);
-  outline: none;
+  background: var(--employee-primary-soft);
+  border-color: var(--employee-primary);
+  color: var(--employee-primary);
+  transform: none;
 }
 
 .employee-panel-logout:disabled,
 .employee-panel-secondary-btn:disabled {
-  opacity: 0.65;
+  border-color: var(--employee-border);
+  background: var(--employee-card-soft);
+  color: var(--employee-muted);
+  opacity: 1;
   cursor: not-allowed;
   transform: none;
   box-shadow: none;
@@ -426,7 +418,9 @@ body.employee-panel-body {
   padding: 0;
   color: var(--employee-danger-text);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .employee-panel-message:empty {
@@ -468,16 +462,15 @@ body.employee-panel-body {
   width: 100%;
   min-height: 42px;
   padding: 9px 13px;
-  border: 1px solid rgba(100, 116, 139, 0.72);
+  border: 1px solid var(--employee-border-strong);
   border-radius: var(--employee-radius-small);
-  background:
-    linear-gradient(145deg, rgba(219, 227, 238, 0.96), rgba(203, 213, 225, 0.92));
+  background: var(--employee-card);
   color: var(--employee-text);
   font: inherit;
   font-size: 14px;
   line-height: 1.4;
   outline: none;
-  box-shadow: var(--employee-shadow-inset);
+  box-shadow: none;
   transition:
     border-color 0.16s ease,
     box-shadow 0.16s ease,
@@ -491,9 +484,7 @@ body.employee-panel-body {
 
 .employee-booking-search-field input:focus {
   border-color: var(--employee-primary);
-  box-shadow:
-    0 0 0 3px rgba(40, 64, 107, 0.16),
-    var(--employee-shadow-inset);
+  box-shadow: 0 0 0 3px var(--employee-focus-ring);
 }
 
 .employee-booking-search-clear {
@@ -508,7 +499,7 @@ body.employee-panel-body {
   color: var(--employee-primary);
   font: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition:
     background 0.16s ease,
@@ -516,7 +507,7 @@ body.employee-panel-body {
     border-color 0.16s ease;
 }
 
-.employee-booking-search-clear:hover {
+.employee-booking-search-clear:hover:not(:disabled) {
   border-color: var(--employee-primary-hover);
   background: var(--employee-primary);
   color: #ffffff;
@@ -532,13 +523,10 @@ body.employee-panel-body {
   overflow-x: auto;
   overflow-y: visible;
   -webkit-overflow-scrolling: touch;
-  border: 1px solid rgba(100, 116, 139, 0.62);
+  border: 1px solid var(--employee-border);
   border-radius: var(--employee-radius);
-  background:
-    linear-gradient(145deg, rgba(219, 227, 238, 0.96), rgba(203, 213, 225, 0.92));
-  box-shadow:
-    0 16px 38px rgba(15, 23, 42, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  background: var(--employee-card);
+  box-shadow: var(--employee-shadow-soft);
 }
 
 .employee-bookings-table {
@@ -552,10 +540,9 @@ body.employee-panel-body {
 
 .employee-bookings-table th {
   padding: 10px 12px;
-  background:
-    linear-gradient(145deg, rgba(205, 216, 230, 0.98), rgba(184, 198, 216, 0.94));
+  background: var(--employee-card-soft);
   color: var(--employee-text);
-  border-bottom: 1px solid rgba(100, 116, 139, 0.48);
+  border-bottom: 1px solid var(--employee-border);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -580,17 +567,16 @@ body.employee-panel-body {
   padding: 13px 14px;
   vertical-align: middle;
   text-align: left;
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.88), rgba(203, 213, 225, 0.66));
-  border-top: 1px solid rgba(100, 116, 139, 0.34);
-  border-bottom: 1px solid rgba(100, 116, 139, 0.34);
+  background: var(--employee-card);
+  border-top: 1px solid var(--employee-border);
+  border-bottom: 1px solid var(--employee-border);
   color: var(--employee-text);
   overflow-wrap: break-word;
   word-break: normal;
 }
 
 .employee-bookings-table td + td {
-  border-left: 1px solid rgba(100, 116, 139, 0.22);
+  border-left: 1px solid var(--employee-border);
 }
 
 .employee-bookings-table tbody tr td:first-child {
@@ -600,13 +586,13 @@ body.employee-panel-body {
 }
 
 .employee-bookings-table tbody tr td:last-child {
-  border-right: 1px solid rgba(100, 116, 139, 0.34);
+  border-right: 1px solid var(--employee-border);
   border-top-right-radius: 14px;
   border-bottom-right-radius: 14px;
 }
 
 .employee-bookings-table tbody tr:last-child td {
-  border-bottom: 1px solid rgba(100, 116, 139, 0.34);
+  border-bottom: 1px solid var(--employee-border);
 }
 
 .employee-booking-row--inactive {
@@ -614,8 +600,7 @@ body.employee-panel-body {
 }
 
 .employee-booking-row--inactive td {
-  background:
-    linear-gradient(145deg, rgba(226, 232, 240, 0.72), rgba(203, 213, 225, 0.48));
+  background: var(--employee-card-soft);
   color: var(--employee-muted);
 }
 
@@ -630,8 +615,7 @@ body.employee-panel-body {
 }
 
 .employee-booking-row--assigned td {
-  background:
-    linear-gradient(145deg, rgba(220, 252, 231, 0.64), rgba(187, 247, 208, 0.30));
+  background: var(--employee-success-bg);
 }
 
 .employee-booking-row--assigned td:first-child {
@@ -762,8 +746,7 @@ body.employee-panel-body {
   font-size: 14px;
   font-weight: 500;
   text-align: center;
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(202, 213, 228, 0.88));
+  background: var(--employee-card-soft);
 }
 
 .employee-blocks-controls {
@@ -786,10 +769,9 @@ body.employee-panel-body {
 .employee-blocks-date-field input {
   min-height: 42px;
   padding: 9px 12px;
-  border: 1px solid rgba(100, 116, 139, 0.58);
+  border: 1px solid var(--employee-border-strong);
   border-radius: var(--employee-radius-small);
-  background:
-    linear-gradient(145deg, rgba(248, 250, 252, 0.96), rgba(226, 233, 243, 0.92));
+  background: var(--employee-card);
   color: var(--employee-text);
   font: inherit;
   font-size: 14px;
@@ -797,9 +779,8 @@ body.employee-panel-body {
 }
 
 .employee-blocks-date-field input:focus {
-  border-color: rgba(40, 64, 107, 0.82);
-  box-shadow: 0 0 0 3px rgba(40, 64, 107, 0.12);
-  outline: none;
+  border-color: var(--employee-primary);
+  box-shadow: 0 0 0 3px var(--employee-focus-ring);
 }
 
 .employee-blocks-message {
@@ -847,11 +828,10 @@ body.employee-panel-body {
   display: grid;
   gap: 14px;
   padding: 16px;
-  border: 1px solid rgba(100, 116, 139, 0.48);
+  border: 1px solid var(--employee-border);
   border-radius: var(--employee-radius);
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(202, 213, 228, 0.88));
-  box-shadow: var(--employee-shadow-inset);
+  background: var(--employee-card-soft);
+  box-shadow: none;
 }
 
 .employee-service-card-header {
@@ -900,10 +880,9 @@ body.employee-panel-body {
   min-width: 84px;
   min-height: 52px;
   padding: 8px 10px;
-  border: 1px solid rgba(100, 116, 139, 0.54);
+  border: 1px solid var(--employee-border-strong);
   border-radius: 12px;
-  background:
-    linear-gradient(145deg, rgba(248, 250, 252, 0.92), rgba(218, 226, 238, 0.9));
+  background: var(--employee-card);
   color: var(--employee-text);
   font: inherit;
   cursor: pointer;
@@ -918,7 +897,6 @@ body.employee-panel-body {
 .employee-slot-tile:focus-visible {
   transform: translateY(-1px);
   border-color: rgba(40, 64, 107, 0.74);
-  outline: none;
 }
 
 .employee-slot-tile strong {
@@ -948,7 +926,7 @@ body.employee-panel-body {
   background: #dc2626;
   color: #ffffff;
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -985,9 +963,9 @@ body.employee-panel-body {
 .employee-slot-detail {
   width: min(320px, calc(100vw - 64px));
   padding: 10px;
-  border: 1px solid rgba(100, 116, 139, 0.42);
+  border: 1px solid var(--employee-border);
   border-radius: var(--employee-radius-small);
-  background: rgba(248, 250, 252, 0.88);
+  background: var(--employee-card);
   box-shadow: var(--employee-shadow-soft);
 }
 
@@ -1024,9 +1002,9 @@ body.employee-panel-body {
 
 .employee-blocks-empty {
   padding: 18px 14px;
-  border: 1px solid rgba(100, 116, 139, 0.36);
+  border: 1px solid var(--employee-border);
   border-radius: var(--employee-radius-small);
-  background: rgba(226, 233, 243, 0.58);
+  background: var(--employee-card-soft);
   color: var(--employee-muted);
   font-size: 14px;
   font-weight: 400;
@@ -1040,11 +1018,10 @@ body.employee-panel-body {
 
 .employee-block-scope-card,
 .employee-admin-calendar-wrap {
-  border: 1px solid rgba(100, 116, 139, 0.48);
+  border: 1px solid var(--employee-border);
   border-radius: var(--employee-radius);
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(202, 213, 228, 0.88));
-  box-shadow: var(--employee-shadow-inset);
+  background: var(--employee-card-soft);
+  box-shadow: none;
 }
 
 .employee-block-scope-card {
@@ -1073,9 +1050,9 @@ body.employee-panel-body {
   gap: 10px;
   margin-top: 14px;
   padding: 12px;
-  border: 1px solid rgba(100, 116, 139, 0.42);
+  border: 1px solid var(--employee-border);
   border-radius: 12px;
-  background: rgba(248, 250, 252, 0.42);
+  background: var(--employee-card);
 }
 
 .employee-block-scope-option span {
@@ -1114,20 +1091,21 @@ body.employee-panel-body {
 .employee-calendar-header button {
   width: 42px;
   height: 42px;
-  border: 1px solid rgba(100, 116, 139, 0.58);
+  border: 1px solid var(--employee-border-strong);
   border-radius: 10px;
-  background: rgba(248, 250, 252, 0.88);
+  background: var(--employee-card);
   color: var(--employee-text);
   font-size: 20px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   box-shadow: var(--employee-shadow-soft);
 }
 
-.employee-calendar-header button:hover,
+.employee-calendar-header button:hover:not(:disabled),
 .employee-calendar-header button:focus-visible {
-  background: #f8fafc;
-  outline: none;
+  border-color: var(--employee-primary);
+  background: var(--employee-primary-soft);
+  color: var(--employee-primary);
 }
 
 .employee-calendar-header div {
@@ -1168,7 +1146,7 @@ body.employee-panel-body {
   color: #027a48;
   font: inherit;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   transition:
     transform 0.18s ease,
@@ -1181,7 +1159,6 @@ body.employee-panel-body {
 .employee-admin-day:focus-visible {
   transform: translateY(-1px);
   box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
-  outline: none;
 }
 
 .employee-admin-day.empty {
@@ -1253,7 +1230,7 @@ body.employee-panel-body {
 .employee-admin-day .day-label {
   display: block;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.1;
 }
 
@@ -1295,7 +1272,7 @@ body.employee-panel-body {
   color: #7f1d1d;
   font: inherit;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 600;
   cursor: pointer;
   box-shadow: var(--employee-shadow-soft);
 }
@@ -1303,6 +1280,18 @@ body.employee-panel-body {
 .employee-btn-unblock-day {
   border-color: rgba(40, 64, 107, 0.62);
   background: rgba(248, 250, 252, 0.76);
+  color: var(--employee-primary);
+}
+
+.employee-btn-block-day:hover:not(:disabled) {
+  border-color: #b42318;
+  background: #b42318;
+  color: #ffffff;
+}
+
+.employee-btn-unblock-day:hover:not(:disabled) {
+  border-color: var(--employee-primary);
+  background: var(--employee-primary-soft);
   color: var(--employee-primary);
 }
 
@@ -1342,7 +1331,7 @@ body.employee-panel-body {
   background: #e53935;
   color: #ffffff;
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1;
 }
 
@@ -1377,11 +1366,10 @@ body.employee-panel-body {
   width: min(100%, 420px);
   padding: 24px;
   border-radius: 18px;
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.98), rgba(202, 213, 228, 0.96));
+  background: var(--employee-card);
   color: var(--employee-text);
   text-align: center;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.20);
 }
 
 .employee-confirm-icon {
@@ -1426,18 +1414,37 @@ body.employee-panel-body {
 }
 
 .employee-confirm-btn.cancel {
-  background: #e2e8f0;
+  border: 1px solid var(--employee-border-strong);
+  background: var(--employee-card-soft);
   color: var(--employee-text);
 }
 
 .employee-confirm-btn.ok.primary {
-  background: #1d4ed8;
+  background: var(--employee-primary);
   color: #ffffff;
 }
 
 .employee-confirm-btn.ok.danger {
   background: #dc2626;
   color: #ffffff;
+}
+
+.employee-confirm-btn:hover:not(:disabled) {
+  box-shadow: var(--employee-shadow-soft);
+}
+
+.employee-booking-search-clear:disabled,
+.employee-calendar-header button:disabled,
+.employee-admin-day:disabled,
+.employee-btn-block-day:disabled,
+.employee-confirm-btn:disabled {
+  border-color: var(--employee-border);
+  background: var(--employee-card-soft);
+  color: var(--employee-muted);
+  cursor: not-allowed;
+  opacity: 1;
+  transform: none;
+  box-shadow: none;
 }
 
 body.modal-open {
@@ -1464,11 +1471,10 @@ body.modal-open {
   display: grid;
   gap: 4px;
   padding: 12px 14px;
-  border: 1px solid rgba(100, 116, 139, 0.48);
+  border: 1px solid var(--employee-border);
   border-radius: var(--employee-radius-small);
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(202, 213, 228, 0.88));
-  box-shadow: var(--employee-shadow-inset);
+  background: var(--employee-card-soft);
+  box-shadow: none;
 }
 
 .employee-info-list dt {
@@ -1510,10 +1516,9 @@ body.modal-open {
   width: 100%;
   min-height: 42px;
   padding: 10px 48px 10px 12px;
-  border: 1px solid rgba(100, 116, 139, 0.58);
+  border: 1px solid var(--employee-border-strong);
   border-radius: var(--employee-radius-small);
-  background:
-    linear-gradient(145deg, rgba(248, 250, 252, 0.96), rgba(226, 233, 243, 0.92));
+  background: var(--employee-card);
   color: var(--employee-text);
   font: inherit;
   font-size: 14px;
@@ -1526,9 +1531,9 @@ body.modal-open {
 }
 
 .employee-password-field input:focus {
-  border-color: rgba(40, 64, 107, 0.82);
-  background: #f8fafc;
-  box-shadow: 0 0 0 3px rgba(40, 64, 107, 0.12);
+  border-color: var(--employee-primary);
+  background: var(--employee-card);
+  box-shadow: 0 0 0 3px var(--employee-focus-ring);
 }
 
 .employee-password-field input:disabled {
@@ -1561,15 +1566,17 @@ body.modal-open {
     opacity 0.18s ease;
 }
 
-.employee-password-toggle:hover,
+.employee-password-toggle:hover:not(:disabled),
 .employee-password-toggle:focus-visible {
-  background: rgba(40, 64, 107, 0.10);
-  outline: none;
+  background: var(--employee-primary-soft);
+  color: var(--employee-primary);
 }
 
 .employee-password-toggle:disabled {
+  background: var(--employee-card-soft);
+  color: var(--employee-muted);
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 1;
 }
 
 .employee-password-hint {
@@ -1625,6 +1632,7 @@ body.modal-open {
   font-size: 13px;
   font-weight: 400;
   text-align: center;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 1100px) {
@@ -1671,7 +1679,7 @@ body.modal-open {
 
   .employee-panel-topbar h1,
   .employee-panel-card h2 {
-    font-size: 24px;
+    font-size: 20px;
   }
 
   .employee-panel-logout,
@@ -1699,7 +1707,7 @@ body.modal-open {
 
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1100px) {
   .employee-booking-search {
     width: 100%;
     flex-direction: column;
@@ -1756,27 +1764,21 @@ body.modal-open {
     padding: 14px;
     border: 1px solid var(--employee-border);
     border-radius: var(--employee-radius);
-    background:
-      linear-gradient(145deg, rgba(226, 233, 243, 0.96), rgba(202, 213, 228, 0.92));
-    box-shadow:
-      0 10px 24px rgba(15, 23, 42, 0.10),
-      inset 0 1px 0 rgba(255, 255, 255, 0.52);
+    background: var(--employee-card);
+    box-shadow: var(--employee-shadow);
   }
 
   .employee-bookings-table tbody tr:hover {
-    background:
-      linear-gradient(145deg, rgba(226, 233, 243, 0.96), rgba(202, 213, 228, 0.92));
+    background: var(--employee-card);
   }
 
   .employee-bookings-table tr.employee-booking-row--inactive {
-    background:
-      linear-gradient(145deg, rgba(226, 232, 240, 0.82), rgba(203, 213, 225, 0.46));
+    background: var(--employee-card-soft);
     border-color: rgba(185, 28, 28, 0.28);
   }
 
   .employee-bookings-table tr.employee-booking-row--assigned {
-    background:
-      linear-gradient(145deg, rgba(220, 252, 231, 0.84), rgba(187, 247, 208, 0.42));
+    background: var(--employee-success-bg);
     border-color: rgba(22, 101, 52, 0.28);
   }
 
@@ -1815,7 +1817,7 @@ body.modal-open {
     border-bottom: 1px solid rgba(100, 116, 139, 0.24);
     color: var(--employee-muted);
     font-size: 11px;
-    font-weight: 800;
+    font-weight: 600;
     letter-spacing: 0.04em;
     line-height: 1.35;
     text-align: center;
@@ -1942,7 +1944,48 @@ body.modal-open {
   color: #92400e;
   border: 1px solid #f59e0b;
   font-size: 11px;
-  font-weight: 800;
+  font-weight: 600;
   line-height: 1.2;
   white-space: nowrap;
+}
+
+.employee-sidebar-toggle:focus-visible,
+.employee-panel-tab:focus-visible,
+.employee-panel-logout:focus-visible,
+.employee-panel-secondary-btn:focus-visible,
+.employee-booking-search-field input:focus-visible,
+.employee-booking-search-clear:focus-visible,
+.employee-blocks-date-field input:focus-visible,
+.employee-slot-tile:focus-visible,
+.employee-calendar-header button:focus-visible,
+.employee-admin-day:focus-visible,
+.employee-btn-block-day:focus-visible,
+.employee-confirm-btn:focus-visible,
+.employee-password-field input:focus-visible,
+.employee-password-toggle:focus-visible {
+  outline: 2px solid var(--employee-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--employee-focus-ring);
+}
+
+.employee-booking-search-clear:active,
+.employee-panel-logout:active,
+.employee-panel-secondary-btn:active,
+.employee-slot-tile:active,
+.employee-calendar-header button:active,
+.employee-admin-day:active,
+.employee-btn-block-day:active,
+.employee-confirm-btn:active {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .employee-panel-body *,
+  .employee-panel-body *::before,
+  .employee-panel-body *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

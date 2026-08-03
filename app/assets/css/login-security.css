@@ -15,8 +15,17 @@
   color: var(--login-primary);
   font: inherit;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 500;
   cursor: pointer;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+
+.login-method-btn:hover:not(.is-active):not(:disabled),
+.login-secondary-btn:hover:not(:disabled) {
+  border-color: var(--login-primary);
+  background: #edf4ff;
+  color: var(--login-primary);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 
 .login-method-btn.is-active {
@@ -25,10 +34,18 @@
   color: #ffffff;
 }
 
+.login-method-btn:active:not(:disabled),
+.login-secondary-btn:active:not(:disabled) {
+  border-color: var(--login-primary-hover);
+  background: var(--login-primary-hover);
+  color: #ffffff;
+}
+
 .login-method-btn:focus-visible,
 .login-secondary-btn:focus-visible {
-  outline: 3px solid rgba(39, 50, 74, 0.22);
+  outline: 2px solid var(--login-primary);
   outline-offset: 2px;
+  box-shadow: 0 0 0 3px rgba(49, 93, 157, 0.22);
 }
 
 .login-method-panel[hidden],
@@ -46,7 +63,7 @@
 
 .login-method-description {
   margin: 0 0 14px;
-  color: var(--login-muted);
+  color: var(--login-text);
   font-size: 13px;
   line-height: 1.5;
 }
@@ -76,12 +93,17 @@
 
 .login-method-btn:disabled,
 .login-secondary-btn:disabled {
+  border-color: var(--login-border);
+  background: var(--login-bg-soft);
+  color: var(--login-muted);
   cursor: not-allowed;
-  opacity: 0.65;
+  opacity: 1;
 }
 
 .error.visible.is-success {
-  color: #166534;
+  border-color: #abefc6;
+  background: #ecfdf3;
+  color: #067647;
 }
 
 @media (max-width: 380px) {

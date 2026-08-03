@@ -57,11 +57,19 @@ section[data-section="email"] .settings-desc {
 }
 
 .email-action-message[data-type="success"] {
-  color: #166534;
+  padding: 10px 12px;
+  color: var(--color-success-text);
+  background: var(--color-success-bg);
+  border: 1px solid var(--color-success-border);
+  border-radius: var(--admin-input-radius, var(--radius-small));
 }
 
 .email-action-message[data-type="error"] {
-  color: #7f1d1d;
+  padding: 10px 12px;
+  color: var(--color-danger-text);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger-border);
+  border-radius: var(--admin-input-radius, var(--radius-small));
 }
 
 .email-action-message[data-type="muted"] {
@@ -74,7 +82,7 @@ section[data-section="email"] .settings-desc {
   border: 1px solid var(--color-border);
   border-radius: var(--admin-input-radius, var(--radius-small));
   color: var(--color-muted);
-  background: color-mix(in srgb, var(--color-card) 94%, var(--color-border));
+  background: var(--color-surface-subtle, var(--color-card-soft));
   font-size: 13px;
   line-height: 1.45;
 }
@@ -137,6 +145,8 @@ section[data-section="email"] #staff-email-template-select {
 
 .email-toolbar button:hover {
   border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
 }
 
 /* Emoji */
@@ -173,53 +183,104 @@ section[data-section="email"] #staff-email-template-select {
 /* Podgląd wiadomości */
 
 .email-preview-box {
-  margin-top: var(--admin-section-gap, 18px);
-  padding: var(--admin-card-padding, 22px);
-  border: var(--admin-card-border, 1px solid var(--color-border));
+  width: min(100%, 760px);
+  margin: var(--admin-section-gap, 18px) auto 0;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong, var(--color-border));
   border-radius: var(--admin-card-radius, var(--radius-main));
-  background: var(--color-card);
+  background: var(--color-surface-sunken, var(--color-bg));
+  box-shadow: var(--shadow-xs);
 }
 
 .email-preview-header {
-  margin-bottom: 10px;
-  color: var(--color-muted);
-  font-size: 14px;
-  font-weight: var(--admin-label-weight, 500);
+  margin: 0;
+  padding: 10px 16px;
+  color: var(--color-text-tertiary, var(--color-muted));
+  background: var(--color-surface-subtle, var(--color-card-soft));
+  border-bottom: 1px solid var(--color-border);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
 }
 
 .email-preview-subject {
-  margin-bottom: 14px;
-  padding-bottom: 10px;
+  margin: 0;
+  padding: 14px 18px;
   color: var(--color-text);
+  background: var(--color-surface-elevated, var(--color-card));
   border-bottom: 1px solid var(--color-border);
   font-size: 16px;
-  font-weight: var(--admin-heading-weight, 500);
+  font-weight: 600;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .email-preview-status {
-  margin-bottom: 12px;
-  color: var(--color-muted);
+  margin: 0;
+  padding: 10px 18px;
+  color: var(--color-info-text);
+  background: var(--color-info-bg);
+  border-bottom: 1px solid var(--color-info-border);
   font-size: 13px;
   line-height: 1.45;
 }
 
 .email-preview-heading {
-  margin-bottom: 12px;
+  margin: 0;
+  padding: 20px 20px 8px;
   color: var(--color-text);
+  background: var(--color-surface-elevated, var(--color-card));
   font-size: 15px;
-  font-weight: var(--admin-heading-weight, 500);
+  font-weight: 600;
   line-height: 1.4;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
 .email-preview-content {
   min-height: 120px;
+  padding: 20px;
   color: var(--color-text);
+  background: var(--color-surface-elevated, var(--color-card));
   font-size: 14px;
   font-weight: 400;
   line-height: 1.55;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.email-preview-heading + .email-preview-content {
+  padding-top: 8px;
+}
+
+.email-preview-content :where(img, video, iframe) {
+  max-width: 100%;
+  height: auto;
+}
+
+.email-preview-content :where(table) {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.email-preview-content :where(pre, code) {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.email-preview-content :where(a) {
+  color: var(--color-primary);
+  overflow-wrap: anywhere;
+}
+
+.email-preview-content > :first-child {
+  margin-top: 0;
+}
+
+.email-preview-content > :last-child {
+  margin-bottom: 0;
 }
 
 /* Hasło SMTP */
@@ -348,5 +409,27 @@ section[data-section="email"] #staff-email-template-select {
 
   section[data-section="email"] .email-actions .btn {
     width: 100%;
+  }
+
+  .email-preview-header {
+    padding: 9px 12px;
+  }
+
+  .email-preview-subject,
+  .email-preview-status {
+    padding-left: 14px;
+    padding-right: 14px;
+  }
+
+  .email-preview-heading {
+    padding: 16px 16px 8px;
+  }
+
+  .email-preview-content {
+    padding: 16px;
+  }
+
+  .email-preview-heading + .email-preview-content {
+    padding-top: 8px;
   }
 }

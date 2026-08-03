@@ -1,67 +1,143 @@
-/* ===== GLOBALNY SYSTEM MOTYWÓW ===== */
+/* ===== GLOBALNY SYSTEM MOTYWÃ“W ===== */
 
-/* JASNY (default) */
 :root,
 body.theme-light {
-  --color-bg: #f6f8fc;
+  --color-bg: #f4f7fb;
   --color-card: #ffffff;
-  --color-card-soft: #f8fafc;
-
-  --color-text: #182133;
+  --color-card-soft: #f7f9fc;
+  --color-surface-elevated: #ffffff;
+  --color-surface-subtle: #f7f9fc;
+  --color-surface-sunken: #eef2f7;
+  --color-text: #172033;
   --color-muted: #667085;
-
-  --color-border: #e6ebf3;
-
+  --color-text-tertiary: #8993a4;
+  --color-border: #e1e7ef;
+  --color-border-strong: #c7d1de;
+  --color-primary: #315d9d;
+  --color-primary-hover: #264b80;
+  --color-primary-soft: #edf4ff;
+  --color-primary-text: #ffffff;
+  --color-info-bg: #eff6ff;
+  --color-info-text: #1d4ed8;
+  --color-info-border: #bfdbfe;
   --color-success-bg: #ecfdf3;
-  --color-success-text: #027a48;
-
-  --color-danger-bg: #fef3f2;
+  --color-success-text: #067647;
+  --color-success-border: #abefc6;
+  --color-warning-bg: #fff8eb;
+  --color-warning-text: #a15c07;
+  --color-warning-border: #fedf89;
+  --color-danger-bg: #fff1f0;
   --color-danger-text: #b42318;
-
-  --color-warning-bg: #fff7ed;
-  --color-warning-text: #b54708;
+  --color-danger-border: #fecdca;
+  --color-focus-ring: rgba(49, 93, 157, 0.22);
+  --shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-sm: 0 5px 16px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 12px 30px rgba(15, 23, 42, 0.09);
+  --shadow-main: var(--shadow-sm);
+  --shadow-soft: var(--shadow-xs);
+  --shadow-inset: inset 0 1px 2px rgba(15, 23, 42, 0.05);
+  --radius-small: 9px;
+  --radius-main: 14px;
+  --radius-large: 18px;
+  --color-btn-danger: #d92d20;
+  --color-btn-danger-hover: #b42318;
+  --color-btn-success: #079455;
+  --color-btn-success-hover: #067647;
+  --color-btn-text: #ffffff;
+  --color-input-bg: var(--color-card);
+  --color-input-text: var(--color-text);
+  --color-input-border: var(--color-border-strong);
+  --color-icon: var(--color-muted);
+  --success-bg: var(--color-success-bg);
+  --success-text: var(--color-success-text);
+  --success-border: var(--color-success-border);
+  --danger: var(--color-danger-text);
+  --muted: var(--color-muted);
+  --border: var(--color-border);
+  --text-main: var(--color-text);
+  --text-muted: var(--color-muted);
 }
 
-/* SZARY (poprawiony — nie wyblak³y) */
 body.theme-gray {
-  --color-bg: #e2e8f0;
-  --color-card: #cbd5e1;
-  --color-card-soft: #dbe3ee;
-
-  --color-text: #0f172a;
-  --color-muted: #334155;
-
-  --color-border: #94a3b8;
-
-  --color-success-bg: #bbf7d0;
-  --color-success-text: #065f46;
-
-  --color-danger-bg: #fecaca;
-  --color-danger-text: #7f1d1d;
-
-  --color-warning-bg: #fde68a;
-  --color-warning-text: #78350f;
+  --color-bg: #b8c1cc;
+  --color-card: #d2d9e1;
+  --color-card-soft: #c7d0da;
+  --color-surface-elevated: #d9dfe6;
+  --color-surface-subtle: #c7d0da;
+  --color-surface-sunken: #adb8c5;
+  --color-text: #152033;
+  --color-muted: #3e4c5e;
+  --color-text-tertiary: #59677a;
+  --color-border: #7f8b99;
+  --color-border-strong: #5f6d7e;
+  --color-primary: #315d9d;
+  --color-primary-hover: #264b80;
+  --color-primary-soft: #b8cbe4;
+  --color-info-bg: #dcecff;
+  --color-info-text: #1e4f91;
+  --color-info-border: #a8c8ef;
+  --color-success-bg: #d9f3e4;
+  --color-success-text: #08643e;
+  --color-success-border: #9ed6b7;
+  --color-warning-bg: #f8ebcf;
+  --color-warning-text: #81510b;
+  --color-warning-border: #ddc184;
+  --color-danger-bg: #f7ddda;
+  --color-danger-text: #8f241d;
+  --color-danger-border: #dfaaa5;
+  --color-focus-ring: rgba(49, 93, 157, 0.32);
+  --shadow-xs: 0 1px 2px rgba(30, 41, 59, 0.12);
+  --shadow-sm: 0 7px 18px rgba(30, 41, 59, 0.15);
+  --shadow-md: 0 14px 32px rgba(30, 41, 59, 0.18);
+  --shadow-main: var(--shadow-sm);
+  --shadow-soft: var(--shadow-xs);
+  --shadow-inset: inset 0 1px 2px rgba(30, 41, 59, 0.08);
+  --color-input-bg: #d5dbe2;
+  --color-input-border: var(--color-border-strong);
 }
 
-/* CIEMNY */
 body.theme-dark {
-  --color-bg: #0b1120;
-  --color-card: #111827;
-  --color-card-soft: #1f2937;
-
-  --color-text: #e5e7eb;
-  --color-muted: #94a3b8;
-
-  --color-border: rgba(148, 163, 184, 0.18);
-
-  --color-success-bg: rgba(34,197,94,0.15);
-  --color-success-text: #22c55e;
-
-  --color-danger-bg: rgba(239,68,68,0.15);
-  --color-danger-text: #ef4444;
-
-  --color-warning-bg: rgba(234,179,8,0.15);
-  --color-warning-text: #eab308;
+  --color-bg: #0e1623;
+  --color-card: #151f2e;
+  --color-card-soft: #1b2738;
+  --color-surface-elevated: #1d293a;
+  --color-surface-subtle: #1a2535;
+  --color-surface-sunken: #101925;
+  --color-text: #e8edf5;
+  --color-muted: #a5b0c0;
+  --color-text-tertiary: #7f8b9d;
+  --color-border: rgba(148, 163, 184, 0.22);
+  --color-border-strong: rgba(148, 163, 184, 0.38);
+  --color-primary: #79a8ef;
+  --color-primary-hover: #95baf2;
+  --color-primary-soft: rgba(59, 130, 246, 0.16);
+  --color-primary-text: #0e1623;
+  --color-info-bg: rgba(59, 130, 246, 0.15);
+  --color-info-text: #93c5fd;
+  --color-info-border: rgba(96, 165, 250, 0.38);
+  --color-success-bg: rgba(16, 185, 129, 0.14);
+  --color-success-text: #6ee7b7;
+  --color-success-border: rgba(52, 211, 153, 0.32);
+  --color-warning-bg: rgba(245, 158, 11, 0.14);
+  --color-warning-text: #fcd34d;
+  --color-warning-border: rgba(251, 191, 36, 0.34);
+  --color-danger-bg: rgba(239, 68, 68, 0.14);
+  --color-danger-text: #fda29b;
+  --color-danger-border: rgba(248, 113, 113, 0.34);
+  --color-focus-ring: rgba(121, 168, 239, 0.28);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 8px 22px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 18px 42px rgba(0, 0, 0, 0.3);
+  --shadow-main: var(--shadow-sm);
+  --shadow-soft: var(--shadow-xs);
+  --shadow-inset: inset 0 1px 2px rgba(0, 0, 0, 0.24);
+  --color-btn-danger: #ef6a61;
+  --color-btn-danger-hover: #f58b84;
+  --color-btn-success: #34d399;
+  --color-btn-success-hover: #6ee7b7;
+  --color-input-bg: var(--color-card-soft);
+  --color-input-border: var(--color-border-strong);
+  --color-icon: var(--color-muted);
 }
 
 /* ===== GLOBALNE NADPISANIA MOTYWU DLA PANELU ADMINA ===== */
@@ -169,7 +245,7 @@ aside a:hover,
 .sidebar button:hover,
 .admin-sidebar button:hover,
 aside button:hover {
-  background: var(--color-card-soft) !important;
+  background: var(--color-primary-soft) !important;
 }
 
 .sidebar .active,
@@ -178,9 +254,9 @@ aside .active,
 .sidebar a.active,
 .admin-sidebar a.active,
 aside a.active {
-  background: var(--color-card-soft) !important;
-  color: var(--color-text) !important;
-  border-color: var(--color-border) !important;
+  background: var(--color-primary-soft) !important;
+  color: var(--color-primary) !important;
+  border-color: var(--color-primary) !important;
 }
 
 /* MODALE */
@@ -234,27 +310,16 @@ hr {
 }
 
 /* === BUTTONS === */
---color-btn-danger: #dc2626;
---color-btn-danger-hover: #b91c1c;
-
---color-btn-success: #16a34a;
---color-btn-success-hover: #15803d;
-
---color-btn-text: #ffffff;
 
 /* === INPUT === */
---color-input-bg: var(--color-card);
---color-input-text: var(--color-text);
---color-input-border: var(--color-border);
 
 /* === ICON === */
---color-icon: var(--color-text);
 
 /* === GLOBAL BUTTON SYSTEM (FINAL) === */
 
 /* === DARK BUTTON STYLE === */
 
-/* === BUTTON SYSTEM – BASE (jak logout) === */
+/* === BUTTON SYSTEM â€“ BASE (jak logout) === */
 
 /* FILE INPUT BUTTON FIX */
 input[type="file"]::file-selector-button {
@@ -274,11 +339,11 @@ select {
 }
 
 /* =========================================================
-   THEME FIX — czytelnoœæ tekstów w motywach, szczególnie dark
-   Dopisane globalnie, ¿eby twarde kolory z modu³ów nie zabija³y widocznoœci
+   THEME FIX â€” czytelnoÅ›Ä‡ tekstÃ³w w motywach, szczegÃ³lnie dark
+   Dopisane globalnie, Å¼eby twarde kolory z moduÅ‚Ã³w nie zabijaÅ‚y widocznoÅ›ci
 ========================================================= */
 
-/* Nag³ówki kart i sekcji */
+/* NagÅ‚Ã³wki kart i sekcji */
 body.theme-dark .settings-card h3,
 body.theme-dark .service-payments-card h3,
 body.theme-dark .integration-card h3,
@@ -306,7 +371,7 @@ body.theme-dark .panel-card:not([data-section="rezerwacje"]) p {
   color: var(--color-muted) !important;
 }
 
-/* Labele i podpisy pól */
+/* Labele i podpisy pÃ³l */
 body.theme-dark .settings-card label,
 body.theme-dark .settings-card .form-group label,
 body.theme-dark .service-payments-form-grid label > span,
@@ -331,7 +396,7 @@ body.theme-dark .account-card textarea {
   border-color: var(--color-border) !important;
 }
 
-/* Focus pól */
+/* Focus pÃ³l */
 body.theme-dark .settings-card input:focus,
 body.theme-dark .settings-card select:focus,
 body.theme-dark .settings-card textarea:focus,
@@ -343,8 +408,8 @@ body.theme-dark .account-card select:focus,
 body.theme-dark .account-card textarea:focus {
   background: var(--color-card-soft) !important;
   color: var(--color-text) !important;
-  border-color: #60a5fa !important;
-  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18) !important;
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
 }
 
 /* Placeholdery */
@@ -380,11 +445,11 @@ body.theme-dark .confirm-title {
 /* Checkboxy */
 body.theme-dark .integration-switch input[type="checkbox"],
 body.theme-dark .service-payments-switch input[type="checkbox"] {
-  accent-color: #60a5fa;
+  accent-color: var(--color-primary);
 }
 
 /* =========================================================
-   THEME FIX — motyw szary
+   THEME FIX â€” motyw szary
 ========================================================= */
 
 body.theme-gray .settings-card h3,
@@ -442,27 +507,29 @@ body.theme-gray .integration-card {
   border-color: var(--color-border) !important;
 }
 
-/* =========================
-   SOFT 3D TEST — LIGHT + GRAY
-   Dark theme intentionally unchanged
-   ========================= */
-
-body.theme-light,
-body.theme-gray {
-  --shadow-main:
-    10px 10px 24px rgba(71, 85, 105, 0.18),
-    -8px -8px 20px rgba(255, 255, 255, 0.42);
-
-  --shadow-soft:
-    6px 6px 14px rgba(71, 85, 105, 0.14),
-    -5px -5px 12px rgba(255, 255, 255, 0.34);
-
-  --shadow-inset:
-    inset 2px 2px 5px rgba(71, 85, 105, 0.13),
-    inset -2px -2px 5px rgba(255, 255, 255, 0.38);
+/* ===== FINALNA WARSTWA POWIERZCHNI SAAS ===== */
+body.theme-light {
+  --shadow-main: var(--shadow-sm);
+  --shadow-soft: var(--shadow-xs);
+  --shadow-inset: inset 0 1px 2px rgba(15, 23, 42, 0.05);
 }
 
-/* Gray — mocniejszy, bardziej stalowy efekt */
+body.theme-gray {
+  --shadow-main: var(--shadow-sm);
+  --shadow-soft: var(--shadow-xs);
+  --shadow-inset: inset 0 1px 2px rgba(30, 41, 59, 0.08);
+}
+
+body.theme-light .admin-card,
+body.theme-light .block-section,
+body.theme-light .panel-card:not([data-section="rezerwacje"]),
+body.theme-light .sidebar,
+body.theme-light .topbar,
+body.theme-light .settings-card,
+body.theme-light .account-card,
+body.theme-light .info-card,
+body.theme-light .service-card,
+body.theme-light .legal-card,
 body.theme-gray .admin-card,
 body.theme-gray .block-section,
 body.theme-gray .panel-card:not([data-section="rezerwacje"]),
@@ -473,156 +540,46 @@ body.theme-gray .account-card,
 body.theme-gray .info-card,
 body.theme-gray .service-card,
 body.theme-gray .legal-card {
-  background:
-    linear-gradient(145deg, rgba(214, 222, 234, 0.96), rgba(190, 202, 218, 0.92)) !important;
-  border-color: rgba(100, 116, 139, 0.62) !important;
+  background: var(--color-card) !important;
+  border-color: var(--color-border) !important;
   box-shadow: var(--shadow-main) !important;
-}
-
-/* Light — subtelniejszy efekt, ¿eby nie bi³o po oczach */
-body.theme-light .admin-card,
-body.theme-light .block-section,
-body.theme-light .panel-card:not([data-section="rezerwacje"]),
-body.theme-light .sidebar,
-body.theme-light .topbar,
-body.theme-light .settings-card,
-body.theme-light .account-card,
-body.theme-light .info-card,
-body.theme-light .service-card,
-body.theme-light .legal-card {
-  background:
-    linear-gradient(145deg, rgba(250, 252, 255, 0.98), rgba(226, 232, 240, 0.94)) !important;
-  border-color: rgba(148, 163, 184, 0.58) !important;
-  box-shadow:
-    8px 8px 20px rgba(71, 85, 105, 0.12),
-    -6px -6px 16px rgba(255, 255, 255, 0.72) !important;
-}
-
-/* Sidebar */
-body.theme-gray .sidebar {
-  box-shadow:
-    12px 12px 28px rgba(71, 85, 105, 0.22),
-    -6px -6px 16px rgba(255, 255, 255, 0.26) !important;
-}
-
-body.theme-light .sidebar {
-  box-shadow:
-    10px 10px 24px rgba(71, 85, 105, 0.12),
-    -6px -6px 16px rgba(255, 255, 255, 0.68) !important;
-}
-
-/* Inputy */
-body.theme-gray input,
-body.theme-gray select,
-body.theme-gray textarea {
-  background:
-    linear-gradient(145deg, rgba(232, 238, 246, 0.98), rgba(208, 217, 229, 0.94)) !important;
-  border-color: rgba(100, 116, 139, 0.62) !important;
-  box-shadow: var(--shadow-inset) !important;
 }
 
 body.theme-light input,
 body.theme-light select,
-body.theme-light textarea {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(235, 240, 247, 0.95)) !important;
-  border-color: rgba(148, 163, 184, 0.58) !important;
-  box-shadow:
-    inset 2px 2px 5px rgba(71, 85, 105, 0.09),
-    inset -2px -2px 5px rgba(255, 255, 255, 0.72) !important;
+body.theme-light textarea,
+body.theme-gray input,
+body.theme-gray select,
+body.theme-gray textarea {
+  background: var(--color-input-bg) !important;
+  border-color: var(--color-input-border) !important;
+  box-shadow: none !important;
 }
 
-body.theme-gray input:focus,
-body.theme-gray select:focus,
-body.theme-gray textarea:focus,
 body.theme-light input:focus,
 body.theme-light select:focus,
-body.theme-light textarea:focus {
-  border-color: rgba(37, 99, 235, 0.55) !important;
-  box-shadow:
-    var(--shadow-inset),
-    0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+body.theme-light textarea:focus,
+body.theme-gray input:focus,
+body.theme-gray select:focus,
+body.theme-gray textarea:focus {
+  border-color: var(--color-primary) !important;
+  box-shadow: 0 0 0 3px var(--color-focus-ring) !important;
+  outline: none;
 }
 
-/* Menu */
-body.theme-gray .menu-item,
-body.theme-light .menu-item {
-  border: 1px solid transparent;
-  transition:
-    transform 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease,
-    border-color 0.16s ease;
-}
-
+body.theme-light .menu-item:hover,
 body.theme-gray .menu-item:hover {
-  transform: translateY(-1px);
-  background:
-    linear-gradient(145deg, rgba(226, 233, 243, 0.92), rgba(197, 209, 224, 0.88)) !important;
-  border-color: rgba(100, 116, 139, 0.42) !important;
-  box-shadow: var(--shadow-soft) !important;
+  background: var(--color-surface-subtle) !important;
+  border-color: var(--color-border) !important;
+  box-shadow: none !important;
+  transform: none;
 }
 
-body.theme-light .menu-item:hover {
-  transform: translateY(-1px);
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(229, 235, 244, 0.92)) !important;
-  border-color: rgba(148, 163, 184, 0.44) !important;
-  box-shadow:
-    5px 5px 12px rgba(71, 85, 105, 0.10),
-    -4px -4px 10px rgba(255, 255, 255, 0.68) !important;
-}
-
+body.theme-light .menu-item.active,
 body.theme-gray .menu-item.active {
-  background:
-    linear-gradient(145deg, rgba(232, 238, 246, 0.98), rgba(197, 209, 224, 0.94)) !important;
-  border-color: rgba(17, 24, 39, 0.72) !important;
-  box-shadow:
-    inset 2px 2px 5px rgba(71, 85, 105, 0.18),
-    inset -2px -2px 5px rgba(255, 255, 255, 0.36) !important;
-}
-
-body.theme-light .menu-item.active {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(226, 232, 240, 0.94)) !important;
-  border-color: rgba(17, 24, 39, 0.62) !important;
-  box-shadow:
-    inset 2px 2px 4px rgba(71, 85, 105, 0.12),
-    inset -2px -2px 4px rgba(255, 255, 255, 0.78) !important;
-}
-
-/* Przyciski */
-body.theme-gray button,
-body.theme-gray .admin-btn,
-body.theme-gray .save-btn,
-body.theme-gray .delete-btn,
-body.theme-gray .booking-view-btn,
-body.theme-gray .booking-history-download-btn,
-body.theme-light button,
-body.theme-light .admin-btn,
-body.theme-light .save-btn,
-body.theme-light .delete-btn,
-body.theme-light .booking-view-btn,
-body.theme-light .booking-history-download-btn {
-  box-shadow: var(--shadow-soft);
-  transition:
-    transform 0.16s ease,
-    box-shadow 0.16s ease,
-    background 0.16s ease,
-    border-color 0.16s ease,
-    color 0.16s ease;
-}
-
-body.theme-gray button:hover,
-body.theme-gray .admin-btn:hover,
-body.theme-gray .save-btn:hover,
-body.theme-gray .delete-btn:hover,
-body.theme-gray .booking-view-btn:hover,
-body.theme-gray .booking-history-download-btn:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    8px 8px 18px rgba(71, 85, 105, 0.20),
-    -6px -6px 14px rgba(255, 255, 255, 0.34);
+  background: var(--color-primary-soft) !important;
+  border-color: transparent !important;
+  box-shadow: inset 3px 0 0 var(--color-primary) !important;
 }
 
 body.theme-light button:hover,
@@ -630,52 +587,40 @@ body.theme-light .admin-btn:hover,
 body.theme-light .save-btn:hover,
 body.theme-light .delete-btn:hover,
 body.theme-light .booking-view-btn:hover,
-body.theme-light .booking-history-download-btn:hover {
-  transform: translateY(-1px);
-  box-shadow:
-    7px 7px 16px rgba(71, 85, 105, 0.13),
-    -5px -5px 12px rgba(255, 255, 255, 0.76);
+body.theme-light .booking-history-download-btn:hover,
+body.theme-gray button:hover,
+body.theme-gray .admin-btn:hover,
+body.theme-gray .save-btn:hover,
+body.theme-gray .delete-btn:hover,
+body.theme-gray .booking-view-btn:hover,
+body.theme-gray .booking-history-download-btn:hover {
+  box-shadow: var(--shadow-xs);
+  transform: none;
 }
 
-body.theme-gray button:active,
-body.theme-gray .admin-btn:active,
-body.theme-gray .save-btn:active,
-body.theme-gray .delete-btn:active,
-body.theme-gray .booking-view-btn:active,
-body.theme-gray .booking-history-download-btn:active,
 body.theme-light button:active,
 body.theme-light .admin-btn:active,
 body.theme-light .save-btn:active,
 body.theme-light .delete-btn:active,
 body.theme-light .booking-view-btn:active,
-body.theme-light .booking-history-download-btn:active {
+body.theme-light .booking-history-download-btn:active,
+body.theme-gray button:active,
+body.theme-gray .admin-btn:active,
+body.theme-gray .save-btn:active,
+body.theme-gray .delete-btn:active,
+body.theme-gray .booking-view-btn:active,
+body.theme-gray .booking-history-download-btn:active {
+  box-shadow: none;
   transform: translateY(1px);
-  box-shadow:
-    inset 3px 3px 7px rgba(71, 85, 105, 0.18),
-    inset -3px -3px 7px rgba(255, 255, 255, 0.38);
 }
 
-/* Tabele — bez zak³adki Rezerwacje, bo ona ma w³asne zmienne kolorów */
+body.theme-light table:not(.rezerwacje-table),
 body.theme-gray table:not(.rezerwacje-table) {
-  background:
-    linear-gradient(145deg, rgba(214, 222, 234, 0.96), rgba(194, 206, 222, 0.92)) !important;
-  box-shadow:
-    inset 1px 1px 0 rgba(255, 255, 255, 0.34);
+  background: var(--color-card) !important;
+  box-shadow: none;
 }
 
-body.theme-light table:not(.rezerwacje-table) {
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(232, 238, 247, 0.94)) !important;
-  box-shadow:
-    inset 1px 1px 0 rgba(255, 255, 255, 0.78);
-}
-
+body.theme-light table:not(.rezerwacje-table) thead th,
 body.theme-gray table:not(.rezerwacje-table) thead th {
-  background:
-    linear-gradient(145deg, rgba(205, 216, 230, 0.98), rgba(184, 198, 216, 0.94)) !important;
-}
-
-body.theme-light table:not(.rezerwacje-table) thead th {
-  background:
-    linear-gradient(145deg, rgba(248, 250, 252, 0.98), rgba(226, 232, 240, 0.94)) !important;
+  background: var(--color-card-soft) !important;
 }

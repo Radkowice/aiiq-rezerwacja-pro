@@ -1,4 +1,4 @@
-/* ===== WSPÓLNE PRZYCISKI SYSTEMOWE ===== */
+/* ===== WSPÃ“LNE PRZYCISKI SYSTEMOWE ===== */
 
 .btn,
 button.btn,
@@ -16,20 +16,20 @@ a.btn {
   padding: 10px 16px;
   margin: 0;
 
-  border: 1px solid var(--color-text);
+  border: 1px solid var(--color-border-strong, var(--color-border));
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--color-card);
   color: var(--color-text);
 
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.2;
   text-decoration: none;
   white-space: nowrap;
 
   cursor: pointer;
   box-sizing: border-box;
-  transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
 }
 
 .btn:hover,
@@ -37,10 +37,10 @@ button.btn:hover,
 input[type="button"].btn:hover,
 input[type="submit"].btn:hover,
 a.btn:hover {
-  background: rgba(128, 0, 32, 0.35);
-  border-color: var(--color-btn-danger);
-  color: #fff;
-  transform: translateY(-1px);
+  background: var(--color-primary-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-xs);
 }
 
 .btn:active,
@@ -48,7 +48,7 @@ button.btn:active,
 input[type="button"].btn:active,
 input[type="submit"].btn:active,
 a.btn:active {
-  transform: translateY(0);
+  box-shadow: none;
 }
 
 .btn:disabled,
@@ -58,4 +58,90 @@ input[type="submit"].btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
   transform: none;
+}
+
+.btn:focus-visible,
+button.btn:focus-visible,
+input[type="button"].btn:focus-visible,
+input[type="submit"].btn:focus-visible,
+a.btn:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 3px var(--color-focus-ring);
+}
+
+.btn-primary,
+.save-btn,
+button.btn-primary,
+button.save-btn {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-text, #fff);
+}
+
+.btn-primary:hover,
+.save-btn:hover,
+button.btn-primary:hover,
+button.save-btn:hover {
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+  color: var(--color-primary-text, #fff);
+}
+
+.btn-secondary,
+button.btn-secondary {
+  background: var(--color-card);
+  border-color: var(--color-border-strong, var(--color-border));
+  color: var(--color-text);
+}
+
+.btn-secondary:hover,
+button.btn-secondary:hover {
+  background: var(--color-card-soft);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.btn-success,
+button.btn-success {
+  background: var(--color-success-bg);
+  border-color: var(--color-success-border);
+  color: var(--color-success-text);
+}
+
+.btn-success:hover,
+button.btn-success:hover {
+  background: var(--color-btn-success);
+  border-color: var(--color-btn-success);
+  color: var(--color-btn-text, #fff);
+}
+
+.btn-danger,
+.delete-btn,
+button.btn-danger,
+button.delete-btn {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text);
+}
+
+.btn-danger:hover,
+.delete-btn:hover,
+button.btn-danger:hover,
+button.delete-btn:hover {
+  background: var(--color-btn-danger);
+  border-color: var(--color-btn-danger);
+  color: var(--color-btn-text, #fff);
+}
+
+@media (max-width: 520px) {
+  .btn,
+  button.btn,
+  input[type="button"].btn,
+  input[type="submit"].btn,
+  a.btn {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
+  }
 }

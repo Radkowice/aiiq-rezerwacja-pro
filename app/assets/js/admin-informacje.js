@@ -1,6 +1,9 @@
 (function () {
   const PRO_PLAN_PRICES_ENDPOINT = '/api/system/subscription-plan-prices.php';
   const PRO_UPGRADE_ORDER_ENDPOINT = '/api/subscriptions/payu-create-order.php';
+  const PRO_UPGRADE_BUTTON_TEXT = 'Kupuję plan Pro z obowiązkiem zapłaty';
+  const PRO_RENEWAL_BUTTON_TEXT = 'Przedłużam plan Pro z obowiązkiem zapłaty';
+  const PRO_PAYMENT_INFO_TEXT = 'Płatność jednorazowa przez PayU. Plan Pro nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.';
   let adminInfoInitialized = false;
   let currentSubscription = null;
   let currentPlanContext = {};
@@ -326,13 +329,11 @@
     }
 
     if (note) {
-      note.textContent = isRenewal
-        ? 'W kolejnym kroku zostaniesz przekierowany do PayU. Okres abonamentu zostanie przedłużony po potwierdzeniu płatności.'
-        : 'W kolejnym kroku zostaniesz przekierowany do PayU. Funkcje Pro zostaną aktywowane po potwierdzeniu płatności.';
+      note.textContent = PRO_PAYMENT_INFO_TEXT;
     }
 
     if (button) {
-      button.textContent = isRenewal ? 'Przedłuż abonament' : 'Przejdź na plan Pro';
+      button.textContent = isRenewal ? PRO_RENEWAL_BUTTON_TEXT : PRO_UPGRADE_BUTTON_TEXT;
     }
 
     if (!isFreePlan(planCode) && !isProPlan(planCode)) {
@@ -418,7 +419,11 @@
 
       if (button) {
         button.disabled = false;
-        button.textContent = originalText || 'Przejdź na plan Pro';
+        button.textContent = originalText || (
+          isProPlan(planCode) || currentPlanContext?.expired_paid_pro === true
+            ? PRO_RENEWAL_BUTTON_TEXT
+            : PRO_UPGRADE_BUTTON_TEXT
+        );
       }
 
       setProUpgradeOptionsState(true);

@@ -106,15 +106,15 @@
           </span>
         </label>
 
+        <p class="pro-upgrade-note" id="pro-upgrade-note">
+          Płatność jednorazowa przez PayU. Plan Pro nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.
+        </p>
+
         <div class="admin-info-actions pro-upgrade-actions">
           <button type="button" class="btn btn-primary" id="pro-upgrade-btn" disabled>
-            Przejdź na plan Pro
+            Kupuję plan Pro z obowiązkiem zapłaty
           </button>
         </div>
-
-        <p class="pro-upgrade-note" id="pro-upgrade-note">
-          W kolejnym kroku zostaniesz przekierowany do PayU. Funkcje Pro zostaną aktywowane po potwierdzeniu płatności.
-        </p>
 
         <p class="pro-upgrade-message" id="pro-upgrade-message" hidden></p>
       </div>
