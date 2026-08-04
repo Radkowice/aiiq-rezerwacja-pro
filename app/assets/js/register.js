@@ -1,4 +1,4 @@
-const PRO_REGISTRATION_PAYMENT_BUTTON_TEXT = 'Zamówienie z obowiązkiem zapłaty';
+const PRO_REGISTRATION_PAYMENT_BUTTON_TEXT = 'Zamawiam z obowiązkiem zapłaty';
 const PRO_PAYMENT_INFO_TEXT = 'Płatność jednorazowa przez PayU. Plan Pro nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.';
 
 document.addEventListener('DOMContentLoaded', async () => {
