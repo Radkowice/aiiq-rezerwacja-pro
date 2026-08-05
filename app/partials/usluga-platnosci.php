@@ -28,6 +28,8 @@
           <input type="text" id="global-service-name" placeholder="np. Konsultacja, Wizyta, Rezerwacja terminu">
         </label>
 
+        <div class="service-global-actions-slot service-global-actions-slot-free full"></div>
+
         <div class="plan-payments-pro-group full">
           <label class="full">
             <span>Globalny opis usługi</span>
@@ -75,9 +77,11 @@
       </div>
       <small>Po tym czasie system może wysłać przypomnienie o nieopłaconej rezerwacji.</small>
     </div>
-    <div class="service-global-actions">
-      <div class="service-action-message" id="global-service-message" hidden></div>
-      <button type="button" class="btn btn-primary" id="global-service-save-btn">Zapisz ustawienia globalne</button>
+    <div class="service-global-actions-slot service-global-actions-slot-paid">
+      <div class="service-global-actions">
+        <div class="service-action-message" id="global-service-message" hidden></div>
+        <button type="button" class="btn btn-primary" id="global-service-save-btn">Zapisz ustawienia globalne</button>
+      </div>
     </div>
   </div>
 

@@ -11,7 +11,15 @@
         <div class="admin-info-list">
           <div class="admin-info-row">
             <span>Plan</span>
-            <strong id="info-plan-name">—</strong>
+            <div class="admin-info-plan-value">
+              <strong id="info-plan-name">—</strong>
+              <a
+                class="btn btn-secondary plan-marketing-cta plan-marketing-cta-info"
+                data-plan-marketing-cta
+                href="https://rezerwacja-ai-iq.pl/"
+                hidden
+              >Poznaj wersję Pro</a>
+            </div>
           </div>
 
           <div class="admin-info-row">
@@ -130,7 +138,7 @@
 
           <div class="admin-info-row">
             <span>Wersja</span>
-            <strong>1.1</strong>
+            <strong>2.0</strong>
           </div>
 
           <div class="admin-info-row">

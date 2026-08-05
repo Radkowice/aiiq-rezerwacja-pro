@@ -348,7 +348,6 @@
     if (!servicePaymentsAllowed()) {
       return {
         service_name: els.globalName.value.trim(),
-        service_description: els.globalDescription.value.trim(),
       };
     }
 

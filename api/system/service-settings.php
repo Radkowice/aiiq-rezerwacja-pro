@@ -403,11 +403,11 @@ $payloadItem = [
     'tenant_id' => $tenantId,
 
     'service_name' => normalizeServiceText($input['service_name'] ?? null, 255),
-    'service_description' => normalizeServiceText($input['service_description'] ?? null, 1500),
     'updated_at' => gmdate('c'),
 ];
 
 if ($servicePaymentsAllowed) {
+    $payloadItem['service_description'] = normalizeServiceText($input['service_description'] ?? null, 1500);
     $payloadItem['price_amount'] = $priceAmount;
     $payloadItem['price_currency'] = $priceCurrency;
     $payloadItem['payment_required'] = !empty($input['payment_required']);

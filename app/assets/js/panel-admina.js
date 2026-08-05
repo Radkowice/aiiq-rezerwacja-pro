@@ -365,6 +365,11 @@ const PLAN_LOCKED_ELEMENTS = [
     title: 'Dostępne w wersji Pro'
   },
   {
+    selector: '.service-payment-deadline-card',
+    featureKey: 'online_payments',
+    title: 'Dostępne w wersji Pro'
+  },
+  {
     selector: '[data-email-card="staff-template"]',
     featureKey: 'staff_module',
     title: 'Dostępne w wersji Pro'
@@ -682,6 +687,23 @@ function restorePlanLockedControls(container) {
   });
 }
 
+function positionGlobalServiceSaveActions() {
+  const actions = document.querySelector('.service-global-actions');
+  const freeSlot = document.querySelector('.service-global-actions-slot-free');
+  const paidSlot = document.querySelector('.service-global-actions-slot-paid');
+  const targetSlot = aiIqIsFreePlan() ? freeSlot : paidSlot;
+
+  if (actions && targetSlot && actions.parentElement !== targetSlot) {
+    targetSlot.appendChild(actions);
+  }
+}
+
+function setPlanMarketingCtasVisible(visible) {
+  document.querySelectorAll('[data-plan-marketing-cta]').forEach(cta => {
+    cta.hidden = !visible;
+  });
+}
+
 function clearPlanLocks() {
   document.querySelectorAll('[data-plan-lock-overlay="true"]').forEach(overlay => {
     overlay.remove();
@@ -698,11 +720,17 @@ function clearPlanLocks() {
   });
 
   const notice = document.getElementById('planUpgradeNotice');
+  const noticeText = document.getElementById('planUpgradeNoticeText');
+
+  if (noticeText) {
+    noticeText.textContent = '';
+  }
 
   if (notice) {
-    notice.textContent = '';
     notice.hidden = true;
   }
+
+  setPlanMarketingCtasVisible(false);
 
   const notificationsRoot = document.getElementById('adminNotifications');
 
@@ -761,12 +789,13 @@ function resolvePlanLockedElement(config) {
 
 function renderPlanUpgradeNotice() {
   const notice = document.getElementById('planUpgradeNotice');
+  const noticeText = document.getElementById('planUpgradeNoticeText');
 
-  if (!notice) {
+  if (!notice || !noticeText) {
     return;
   }
 
-  notice.textContent = resolvePlanLockDescription();
+  noticeText.textContent = resolvePlanLockDescription();
   notice.hidden = false;
 }
 
@@ -779,6 +808,7 @@ function applyPlanLocks() {
   }
 
   document.body.classList.toggle('plan-free', aiIqIsFreePlan());
+  positionGlobalServiceSaveActions();
 
   if (!aiIqIsFreePlan()) {
     return;
@@ -832,6 +862,7 @@ function applyPlanLocks() {
 
   applyAdminNotificationsPlanLock();
   renderPlanUpgradeNotice();
+  setPlanMarketingCtasVisible(true);
 }
 
 function initSidebar() {

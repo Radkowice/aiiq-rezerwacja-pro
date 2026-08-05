@@ -32,7 +32,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/admin-usluga-platnosci.css?v=2">
   <link rel="stylesheet" href="/assets/css/admin-dokumenty-prawne.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-informacje.css?v=2">
-  <link rel="stylesheet" href="/assets/css/plany.css?v=1">
+  <link rel="stylesheet" href="/assets/css/plany.css?v=3">
   <link rel="stylesheet" href="/assets/css/app-loader.css">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
   <title>AI-IQ Admin</title>
@@ -47,11 +47,11 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/admin-email.js?v=smtp-fix-1" defer></script>
   <script src="/assets/js/admin-modal.js" defer></script>
   <script src="/assets/js/admin-kalendarz.js?v=20260615-2" defer></script>
-  <script src="/assets/js/panel-admina.js?v=5" defer></script>
+  <script src="/assets/js/panel-admina.js?v=7" defer></script>
   <script src="/assets/js/admin-personel.js?v=2" defer></script>
   <script src="/assets/js/admin-ustawienia.js" defer></script>
   <script src="/assets/js/admin-integracje.js?v=2"></script>
-  <script src="/assets/js/admin-usluga-platnosci.js?v=20260619-1"></script>
+  <script src="/assets/js/admin-usluga-platnosci.js?v=20260805-1"></script>
   <script src="/assets/js/seo-google.js?v=6" defer></script>
   <script src="/assets/js/admin-dokumenty-prawne.js?v=1" defer></script>
   <script src="/assets/js/admin-informacje.js?v=3" defer></script>
@@ -154,7 +154,15 @@ if (empty($_SESSION['csrf'])) {
             <p>Panel administratora</p>
           </div>
           <div class="plan-upgrade-bar" id="planUpgradeNotice" hidden>
-            Funkcje dostępne w wersji Pro. Aktywuj Plan Pro
+            <span id="planUpgradeNoticeText">Funkcje dostępne w wersji Pro. Aktywuj Plan Pro</span>
+            <a
+              class="btn btn-secondary plan-marketing-cta plan-marketing-cta-topbar"
+              data-plan-marketing-cta
+              href="https://rezerwacja-ai-iq.pl/"
+              target="_blank"
+              rel="noopener noreferrer"
+              hidden
+            >Poznaj wersję Pro</a>
           </div>
           <div class="topbar-actions">
             <div class="admin-notifications" id="adminNotifications">
