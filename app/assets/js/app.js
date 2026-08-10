@@ -302,12 +302,17 @@ function setFieldVisibility(inputId, visible) {
   if (!input) return;
 
   const label = document.querySelector(`label[for="${inputId}"]`);
+  const hint = document.querySelector(`[data-front-field-hint="${inputId}"]`);
 
   input.style.display = visible ? '' : 'none';
   input.disabled = !visible;
 
   if (label) {
     label.style.display = visible ? '' : 'none';
+  }
+
+  if (hint) {
+    hint.style.display = visible ? '' : 'none';
   }
 }
 

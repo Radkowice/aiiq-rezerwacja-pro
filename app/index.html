@@ -95,7 +95,10 @@
     <option value="">Wybierz godzinę *</option>
   </select>
 
- <textarea id="note" placeholder="Twoja wiadomość..."></textarea>
+ <p id="frontNotePrivacyHint" class="helper" data-front-field-hint="note">
+  Wpisz tylko informacje organizacyjne dotyczące rezerwacji. Nie podawaj danych wrażliwych ani informacji o stanie zdrowia.
+ </p>
+ <textarea id="note" placeholder="Twoja wiadomość..." aria-describedby="frontNotePrivacyHint"></textarea>
 
 <label class="front-consent hidden" id="frontLegalConsent" hidden>
   <input type="checkbox" id="termsConsent">

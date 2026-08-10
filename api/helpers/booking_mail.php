@@ -230,6 +230,7 @@ if (!function_exists('booking_mail_send_client_confirmation_with_fallback')) {
         array $booking,
         array $payment = []
     ): bool {
+        unset($booking['notes'], $booking['note'], $booking['message']);
         $hasSmtp = booking_mail_has_usable_smtp($emailSettings);
         $hasTemplate = is_array($emailTemplate) && trim((string)($emailTemplate['body_html'] ?? '')) !== '';
 
@@ -304,7 +305,7 @@ if (!function_exists('booking_mail_system_admin_notification_html')) {
         $time = trim((string)($booking['booking_time'] ?? $booking['time'] ?? ''));
         $serviceName = trim((string)($booking['service_name_snapshot'] ?? $booking['service_name'] ?? ''));
         $staffDisplayName = trim((string)($booking['staff_display_name'] ?? ''));
-        $notes = trim((string)($booking['notes'] ?? $booking['message'] ?? ''));
+        $hasClientMessage = !empty($booking['has_client_message']);
 
         $row = static function (string $icon, string $label, string $value): string {
             if ($value === '') {
@@ -328,7 +329,11 @@ if (!function_exists('booking_mail_system_admin_notification_html')) {
             . $row('🙋', 'Personel', $staffDisplayName)
             . $row('📅', 'Data', $date)
             . $row('🕒', 'Godzina', $time)
-            . $row('📝', 'Wiadomość klienta', $notes)
+            . $row(
+                '📝',
+                'Wiadomość klienta',
+                $hasClientMessage ? 'Wiadomość od klienta zobaczysz w swoim panelu rezerwacji.' : ''
+            )
             . '</table>'
             . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Powiadomienie zostało wysłane z systemowego adresu AI-IQ, ponieważ własna wysyłka SMTP nie jest skonfigurowana lub chwilowo nie zadziałała.</p>';
 
@@ -352,6 +357,10 @@ if (!function_exists('booking_mail_send_admin_notification_with_fallback')) {
         string $tenantAltBody
     ): bool {
         $recipient = trim($recipient);
+        $hasClientMessage = !empty($booking['has_client_message'])
+            || trim((string)($booking['notes'] ?? $booking['note'] ?? $booking['message'] ?? '')) !== '';
+        unset($booking['notes'], $booking['note'], $booking['message']);
+        $booking['has_client_message'] = $hasClientMessage;
 
         if (
             !booking_mail_admin_notification_enabled($emailSettings)
@@ -472,7 +481,6 @@ if (!function_exists('booking_mail_build_client_html')) {
         string $email,
         string $date,
         string $time,
-        string $note,
         array $payment = [],
         string $bookedServiceName = '',
         string $staffDisplayName = ''
@@ -530,15 +538,6 @@ if (!function_exists('booking_mail_build_client_html')) {
                             '<p style="margin:0;font-size:16px;"><strong>🕒 Godzina:</strong> ' . htmlspecialchars($time, ENT_QUOTES, 'UTF-8') . '</p>' .
                             $paymentRows .
                         '</div>' .
-
-                        (
-                            trim($note) !== ''
-                                ? '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">' .
-                                    '<p style="margin:0;font-size:16px;"><strong>💬 Twoja wiadomość:</strong><br>' . nl2br(htmlspecialchars($note, ENT_QUOTES, 'UTF-8')) . '</p>' .
-                                  '</div>'
-                                : ''
-                        ) .
-
                         $rescheduleSection .
 
                         '<p style="font-size:14px;line-height:1.6;color:#4f6478;">W razie pytań po prostu odpowiedz na tę wiadomość.</p>' .
@@ -572,7 +571,6 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
         $name = trim((string)($booking['name'] ?? ''));
         $date = trim((string)($booking['booking_date'] ?? $booking['date'] ?? ''));
         $time = trim((string)($booking['booking_time'] ?? $booking['time'] ?? ''));
-        $note = trim((string)($booking['notes'] ?? $booking['note'] ?? ''));
         $staffDisplayName = trim((string)($booking['staff_display_name'] ?? ''));
 
         $companyName = (string)($tenantData['client_name'] ?? '');
@@ -593,7 +591,7 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
             '{time}'    => $time,
             '{email}'   => $email,
             '{phone}'   => (string)($booking['phone'] ?? ''),
-            '{message}' => $note,
+            '{message}' => '',
         ];
 
         $finalSubject = booking_mail_replace_placeholders((string)($emailTemplate['subject'] ?? ''), $placeholders);
@@ -614,7 +612,6 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
             $email,
             $date,
             $time,
-            $note,
             [
                 'status_label' => (string)($payment['status_label'] ?? ''),
                 'amount_text' => $paymentAmountText,
@@ -635,7 +632,6 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
             ((string)($payment['status_label'] ?? '') !== '' ? "Status płatności: {$payment['status_label']}\n" : '') .
             ($paymentAmountText !== '' ? "Kwota: {$paymentAmountText}\n" : '') .
             ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '') .
-            ($note !== '' ? "Wiadomość: {$note}\n" : '') .
             ((string)($payment['reschedule_url'] ?? '') !== ''
                 ? "\nChcesz zmienić termin?\nJeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.\nPrzełóż rezerwację: {$payment['reschedule_url']}\nLink jest ważny do momentu rozpoczęcia rezerwacji.\n"
                 : '') .
