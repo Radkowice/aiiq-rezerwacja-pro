@@ -477,6 +477,28 @@ function plan_features_fetch_single(
     return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
 }
 
+function plan_features_public_registration_custom_domain_enabled(string $planCode): bool
+{
+    $planCode = strtolower(trim($planCode));
+
+    if ($planCode !== 'vip') {
+        return false;
+    }
+
+    $limit = plan_features_fetch_single(
+        'subscription_plan_limits',
+        'select=' . rawurlencode('plan_code,custom_domain_enabled,is_active')
+            . '&plan_code=eq.vip'
+            . '&is_active=eq.true',
+        plan_features_config()
+    );
+
+    return is_array($limit)
+        && strtolower(trim((string) ($limit['plan_code'] ?? ''))) === 'vip'
+        && ($limit['is_active'] ?? null) === true
+        && ($limit['custom_domain_enabled'] ?? null) === true;
+}
+
 function plan_features_global_limits_select(): string
 {
     return 'plan_code,plan_name,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active';

@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/security.php';
@@ -373,12 +374,22 @@ if ($method === 'GET') {
     }
 
     if ($action === 'plan_prices') {
-        $prices = register_fetch_public_pro_prices();
+        $pricePlanCode = trim((string) ($_GET['plan'] ?? ''));
+
+        if (!is_public_registration_price_plan($pricePlanCode)) {
+            json_response([
+                'success' => false,
+                'error' => 'Nieprawidłowy plan cennika.',
+                'prices' => [],
+            ], 400);
+        }
+
+        $prices = register_fetch_public_paid_plan_prices($pricePlanCode);
 
         if (empty($prices['ok'])) {
             json_response([
                 'success' => false,
-                'error' => $prices['error'] ?? 'Nie udało się pobrać cennika planu Pro.',
+                'error' => $prices['error'] ?? 'Nie udało się pobrać cennika wybranego planu.',
                 'prices' => [],
             ], 503);
         }
@@ -468,7 +479,19 @@ $clientName = trim((string)($data['client_name'] ?? ''));
 $subdomainSlug = normalize_subdomain_slug($data['subdomain_slug'] ?? '');
 $planCode = normalize_registration_plan_code($data['plan_code'] ?? 'free');
 $billingPeriod = normalize_registration_billing_period($data['billing_period'] ?? 'monthly');
-$selectedProPrice = null;
+$selectedPaidPlanPrice = null;
+$customDomainRequested = false;
+
+if (array_key_exists('custom_domain_requested', $data)) {
+    if (!is_bool($data['custom_domain_requested'])) {
+        json_response([
+            'success' => false,
+            'error' => 'Nieprawidłowa wartość żądania własnej domeny.'
+        ], 400);
+    }
+
+    $customDomainRequested = $data['custom_domain_requested'];
+}
 
 $companyFullName = trim((string)($data['company_full_name'] ?? ''));
 $companyOwnerName = trim((string)($data['company_owner_name'] ?? ''));
@@ -498,11 +521,28 @@ if ($planCode === '') {
     ], 400);
 }
 
-if ($planCode === 'pro' && $billingPeriod === '') {
+if (is_paid_public_registration_plan($planCode) && $billingPeriod === '') {
     json_response([
         'success' => false,
-        'error' => 'Wybierz miesięczny albo roczny okres abonamentu Pro.'
+        'error' => 'Wybierz miesięczny albo roczny okres abonamentu.'
     ], 400);
+}
+
+if ($customDomainRequested && $planCode !== 'vip') {
+    json_response([
+        'success' => false,
+        'error' => 'Żądanie własnej domeny jest dostępne wyłącznie dla planu VIP.'
+    ], 400);
+}
+
+if (
+    $customDomainRequested
+    && !plan_features_public_registration_custom_domain_enabled($planCode)
+) {
+    json_response([
+        'success' => false,
+        'error' => 'Nie udało się potwierdzić dostępności własnej domeny dla planu VIP. Spróbuj ponownie później.'
+    ], 503);
 }
 
 if (!is_valid_subdomain_slug($subdomainSlug)) {
@@ -566,13 +606,13 @@ if (!is_valid_polish_phone($companyPhone)) {
     json_response(['success' => false, 'error' => 'Podaj poprawny numer telefonu, np. 123456789 lub +48 123-456-789.'], 400);
 }
 
-if ($planCode === 'pro') {
-    $selectedProPrice = register_fetch_pro_price($billingPeriod);
+if (is_paid_public_registration_plan($planCode)) {
+    $selectedPaidPlanPrice = register_fetch_plan_price($planCode, $billingPeriod);
 
-    if (!is_array($selectedProPrice)) {
+    if (!is_array($selectedPaidPlanPrice)) {
         json_response([
             'success' => false,
-            'error' => 'Nie udało się pobrać aktualnej ceny planu Pro. Spróbuj ponownie później.'
+            'error' => 'Nie udało się pobrać aktualnej ceny wybranego planu. Spróbuj ponownie później.'
         ], 503);
     }
 }
@@ -777,21 +817,21 @@ try {
     $createdDomain = true;
 
     // 4. ABONAMENT
-    $subscriptionPayload = $planCode === 'pro'
+    $subscriptionPayload = is_paid_public_registration_plan($planCode)
         ? [
             'tenant_id' => $tenantId,
-            'plan_code' => 'pro',
-            'plan_name' => 'Pro',
+            'plan_code' => $planCode,
+            'plan_name' => public_registration_plan_name($planCode),
             'billing_period' => $billingPeriod,
             'status' => 'payment_due',
-            'amount' => (float) ($selectedProPrice['amount'] ?? 0),
-            'currency' => (string) ($selectedProPrice['currency'] ?? 'PLN'),
+            'amount' => (float) ($selectedPaidPlanPrice['amount'] ?? 0),
+            'currency' => (string) ($selectedPaidPlanPrice['currency'] ?? 'PLN'),
             'current_period_start' => date('Y-m-d'),
             'current_period_end' => null,
             'next_payment_due_at' => date('Y-m-d'),
             'grace_period_days' => 0,
             'reminder_count' => 0,
-            'notes' => 'Wpis abonamentu utworzony automatycznie przy bezpośredniej rejestracji Pro. Aktywacja po płatności PayU.',
+            'notes' => 'Wpis abonamentu utworzony automatycznie przy bezpośredniej rejestracji planu płatnego. Aktywacja po płatności PayU.',
         ]
         : [
             'tenant_id' => $tenantId,
@@ -871,8 +911,8 @@ try {
     $consentPayload = [
         'tenant_id' => $tenantId,
         'user_id' => $userId,
-        'terms_version' => 'platform_terms_v1',
-        'privacy_version' => 'platform_privacy_v1',
+        'terms_version' => 'platform_terms_v2',
+        'privacy_version' => 'platform_privacy_v2',
         'terms_accepted_at' => $acceptedAt,
         'privacy_accepted_at' => $acceptedAt,
         'ip_address' => get_registration_ip_address(),
@@ -894,11 +934,13 @@ try {
     // 7. AKTYWACJA / PŁATNOŚĆ
     $paymentUrl = '';
 
-    if ($planCode === 'pro') {
-        $payment = register_create_initial_pro_payment(
+    if (is_paid_public_registration_plan($planCode)) {
+        $payment = register_create_initial_paid_plan_payment(
             $tenantId,
+            $planCode,
             $billingPeriod,
-            $selectedProPrice,
+            $selectedPaidPlanPrice,
+            $customDomainRequested,
             [
                 'email' => $email,
                 'owner_name' => $companyOwnerName,
@@ -972,12 +1014,12 @@ try {
 
     $responsePayload = [
         'success' => true,
-        'message' => $planCode === 'pro'
+        'message' => is_paid_public_registration_plan($planCode)
             ? 'Rejestracja została przyjęta.'
             : 'Rejestracja została przyjęta. Sprawdź skrzynkę e-mail.',
     ];
 
-    if ($planCode === 'pro' && $paymentUrl !== '') {
+    if (is_paid_public_registration_plan($planCode) && $paymentUrl !== '') {
         $responsePayload['payment_url'] = $paymentUrl;
     }
 
@@ -986,7 +1028,7 @@ try {
         'user_id' => $userId,
         'email' => is_string($email) ? $email : '',
         'phone' => $companyPhone,
-        'stage' => $planCode === 'pro' ? 'pro_payment_created' : 'activation_mail_sent',
+        'stage' => is_paid_public_registration_plan($planCode) ? 'paid_plan_payment_created' : 'activation_mail_sent',
     ]);
 
     json_response($responsePayload, 201);
@@ -1374,41 +1416,61 @@ function normalize_registration_billing_period($value): string
     return in_array($period, ['monthly', 'yearly'], true) ? $period : '';
 }
 
-function register_format_price_row(array $row): ?array
+function register_format_price_row(array $row, string $expectedPlanCode): ?array
 {
     $period = strtolower(trim((string) ($row['billing_period'] ?? '')));
     $planCode = strtolower(trim((string) ($row['plan_code'] ?? '')));
     $amount = $row['amount'] ?? null;
+    $currency = strtoupper(trim((string) ($row['currency'] ?? '')));
 
-    if ($planCode !== 'pro' || !in_array($period, ['monthly', 'yearly'], true)) {
+    if (
+        !is_paid_public_registration_plan($expectedPlanCode)
+        || $planCode !== $expectedPlanCode
+        || !in_array($period, ['monthly', 'yearly'], true)
+    ) {
         return null;
     }
 
-    if (($row['is_active'] ?? false) !== true || $amount === null || $amount === '') {
+    if (
+        ($row['is_active'] ?? null) !== true
+        || !is_numeric($amount)
+        || (float) $amount <= 0
+        || preg_match('/^[A-Z]{3}$/', $currency) !== 1
+    ) {
         return null;
     }
 
     return [
-        'plan_code' => 'pro',
-        'plan_name' => (string) ($row['plan_name'] ?? 'Pro'),
+        'plan_code' => $planCode,
+        'plan_name' => trim((string) ($row['plan_name'] ?? '')) ?: public_registration_plan_name($planCode),
         'billing_period' => $period,
         'amount' => (float) $amount,
-        'currency' => strtoupper(trim((string) ($row['currency'] ?? 'PLN'))) ?: 'PLN',
+        'currency' => $currency,
         'is_active' => true,
     ];
 }
 
-function register_fetch_public_pro_prices(): array
+function register_fetch_public_paid_plan_prices(string $planCode): array
 {
+    if (!is_public_registration_price_plan($planCode)) {
+        return [
+            'ok' => false,
+            'error' => 'Nieprawidłowy plan cennika.',
+            'prices' => [],
+        ];
+    }
+
     $result = supabase_request(
         'GET',
-        '/rest/v1/subscription_plan_prices?select=plan_code,plan_name,billing_period,amount,currency,is_active&plan_code=eq.pro&is_active=eq.true&billing_period=in.(monthly,yearly)&order=sort_order.asc,billing_period.asc'
+        '/rest/v1/subscription_plan_prices?select=plan_code,plan_name,billing_period,amount,currency,is_active&plan_code=eq.'
+            . rawurlencode($planCode)
+            . '&is_active=eq.true&billing_period=in.(monthly,yearly)&order=sort_order.asc,billing_period.asc'
     );
 
     if (!$result['ok']) {
         return [
             'ok' => false,
-            'error' => 'Cennik planu Pro jest chwilowo niedostępny.',
+            'error' => 'Cennik wybranego planu jest chwilowo niedostępny.',
             'prices' => [],
         ];
     }
@@ -1420,7 +1482,7 @@ function register_fetch_public_pro_prices(): array
             continue;
         }
 
-        $price = register_format_price_row($row);
+        $price = register_format_price_row($row, $planCode);
 
         if ($price !== null) {
             $prices[] = $price;
@@ -1429,27 +1491,33 @@ function register_fetch_public_pro_prices(): array
 
     return [
         'ok' => count($prices) > 0,
-        'error' => count($prices) > 0 ? '' : 'Brak aktywnej ceny planu Pro.',
+        'error' => count($prices) > 0 ? '' : 'Brak aktywnej ceny wybranego planu.',
         'prices' => $prices,
     ];
 }
 
-function register_fetch_pro_price(string $billingPeriod): ?array
+function register_fetch_plan_price(string $planCode, string $billingPeriod): ?array
 {
-    if (!in_array($billingPeriod, ['monthly', 'yearly'], true)) {
+    if (
+        !is_paid_public_registration_plan($planCode)
+        || !in_array($billingPeriod, ['monthly', 'yearly'], true)
+    ) {
         return null;
     }
 
     $result = supabase_request(
         'GET',
-        '/rest/v1/subscription_plan_prices?select=plan_code,plan_name,billing_period,amount,currency,is_active&plan_code=eq.pro&billing_period=eq.' . rawurlencode($billingPeriod) . '&is_active=eq.true&limit=1'
+        '/rest/v1/subscription_plan_prices?select=plan_code,plan_name,billing_period,amount,currency,is_active&plan_code=eq.'
+            . rawurlencode($planCode)
+            . '&billing_period=eq.' . rawurlencode($billingPeriod)
+            . '&is_active=eq.true&limit=1'
     );
 
     if (!$result['ok'] || !is_array($result['data'][0] ?? null)) {
         return null;
     }
 
-    return register_format_price_row($result['data'][0]);
+    return register_format_price_row($result['data'][0], $planCode);
 }
 
 function register_public_base_url(): string
@@ -1469,17 +1537,32 @@ function register_valid_email(string $email): string
     return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
 }
 
-function register_create_initial_pro_payment(string $tenantId, string $billingPeriod, ?array $price, array $buyerContext): array
+function register_create_initial_paid_plan_payment(
+    string $tenantId,
+    string $planCode,
+    string $billingPeriod,
+    ?array $price,
+    bool $customDomainRequested,
+    array $buyerContext
+): array
 {
-    if ($tenantId === '' || !in_array($billingPeriod, ['monthly', 'yearly'], true) || !is_array($price)) {
-        return ['success' => false, 'error' => 'Nieprawidłowe dane płatności Pro.'];
+    if (
+        $tenantId === ''
+        || !is_paid_public_registration_plan($planCode)
+        || !in_array($billingPeriod, ['monthly', 'yearly'], true)
+        || !is_array($price)
+        || ($price['plan_code'] ?? '') !== $planCode
+        || ($price['billing_period'] ?? '') !== $billingPeriod
+        || ($customDomainRequested && $planCode !== 'vip')
+    ) {
+        return ['success' => false, 'error' => 'Nieprawidłowe dane płatności abonamentu.'];
     }
 
     $amount = (float) ($price['amount'] ?? 0);
     $currency = strtoupper(trim((string) ($price['currency'] ?? 'PLN')));
 
     if ($amount <= 0 || !preg_match('/^[A-Z]{3}$/', $currency)) {
-        return ['success' => false, 'error' => 'Nieprawidłowa cena planu Pro.'];
+        return ['success' => false, 'error' => 'Nieprawidłowa cena abonamentu.'];
     }
 
     $payuConfigResult = aiiq_payu_config();
@@ -1492,22 +1575,24 @@ function register_create_initial_pro_payment(string $tenantId, string $billingPe
     $payuCurrency = strtoupper(trim((string) ($payu['currency'] ?? '')));
 
     if ($currency !== $payuCurrency) {
-        aiiq_payu_debug('AI_IQ_REGISTER_PRO_CURRENCY_MISMATCH', [
+        aiiq_payu_debug('AI_IQ_REGISTER_PAID_PLAN_CURRENCY_MISMATCH', [
+            'plan_code' => $planCode,
             'price_currency' => $currency,
             'payu_currency' => $payuCurrency,
         ]);
 
-        return ['success' => false, 'error' => 'Konfiguracja ceny planu Pro jest chwilowo niedostępna.'];
+        return ['success' => false, 'error' => 'Konfiguracja ceny abonamentu jest chwilowo niedostępna.'];
     }
 
     $now = gmdate('c');
     $paymentInsert = supabase_request('POST', '/rest/v1/tenant_subscription_payments', [
         'tenant_id' => $tenantId,
         'payment_type' => 'subscription_initial',
-        'plan_code' => 'pro',
+        'plan_code' => $planCode,
         'billing_period' => $billingPeriod,
         'amount' => $amount,
         'currency' => $currency,
+        'custom_domain_requested' => $customDomainRequested,
         'status' => 'pending',
         'started_at' => $now,
         'created_at' => $now,
@@ -1515,20 +1600,21 @@ function register_create_initial_pro_payment(string $tenantId, string $billingPe
     ]);
 
     if (!$paymentInsert['ok']) {
-        return ['success' => false, 'error' => 'Nie udało się zapisać płatności Pro.'];
+        return ['success' => false, 'error' => 'Nie udało się zapisać płatności abonamentu.'];
     }
 
     $paymentId = extract_inserted_id($paymentInsert['data'] ?? null);
 
     if ($paymentId === '') {
-        return ['success' => false, 'error' => 'Nie udało się ustalić identyfikatora płatności Pro.'];
+        return ['success' => false, 'error' => 'Nie udało się ustalić identyfikatora płatności abonamentu.'];
     }
 
     $timestamp = (string) time();
     $extOrderId = 'subscription-' . $timestamp . '-' . bin2hex(random_bytes(12));
     $amountInMinorUnits = (int) round($amount * 100);
     $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
-    $description = 'AI-IQ Rezerwacja Pro - rejestracja plan Pro ' . $periodLabel;
+    $planName = public_registration_plan_name($planCode);
+    $description = 'AI-IQ Rezerwacja Pro - rejestracja plan ' . $planName . ' ' . $periodLabel;
     $publicBaseUrl = register_public_base_url();
     $buyerEmail = register_valid_email((string) ($buyerContext['email'] ?? ''));
 
@@ -1572,7 +1658,7 @@ function register_create_initial_pro_payment(string $tenantId, string $billingPe
         ]);
         supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId));
 
-        return ['success' => false, 'error' => 'Nie udało się utworzyć płatności PayU za plan Pro.'];
+        return ['success' => false, 'error' => 'Nie udało się utworzyć płatności PayU za abonament.'];
     }
 
     $paymentUrl = (string) ($created['redirect_uri'] ?? '');
@@ -1613,11 +1699,26 @@ function normalize_registration_plan_code($value): string
         return 'free';
     }
 
-    if (in_array($planCode, ['free', 'pro'], true)) {
+    if (in_array($planCode, ['free', 'pro', 'vip'], true)) {
         return $planCode;
     }
 
     return '';
+}
+
+function is_paid_public_registration_plan(string $planCode): bool
+{
+    return in_array($planCode, ['pro', 'vip'], true);
+}
+
+function is_public_registration_price_plan(string $planCode): bool
+{
+    return in_array($planCode, ['pro', 'vip'], true);
+}
+
+function public_registration_plan_name(string $planCode): string
+{
+    return $planCode === 'vip' ? 'VIP' : 'Pro';
 }
 
 function normalize_digits(string $value): string

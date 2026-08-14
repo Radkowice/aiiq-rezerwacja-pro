@@ -93,12 +93,23 @@ function subscription_return_validity_fallback_label(string $period): string
     };
 }
 
-function subscription_return_payment_type_label(string $paymentType): string
+function subscription_return_plan_name(string $planCode): string
 {
+    return match (strtolower(trim($planCode))) {
+        'pro' => 'Pro',
+        'vip' => 'VIP',
+        default => '',
+    };
+}
+
+function subscription_return_payment_type_label(string $paymentType, string $planCode): string
+{
+    $planName = subscription_return_plan_name($planCode);
+
     return match ($paymentType) {
-        'subscription_renewal' => 'Przedłużenie Pro',
-        'subscription_upgrade', 'subscription_initial' => 'Przejście na Pro',
-        default => 'Płatność Pro',
+        'subscription_renewal' => 'Przedłużenie ' . $planName,
+        'subscription_upgrade', 'subscription_initial' => 'Przejście na ' . $planName,
+        default => 'Płatność ' . $planName,
     };
 }
 
@@ -305,6 +316,16 @@ try {
         ]);
     }
 
+    $paymentPlanCode = strtolower(trim((string) ($payment['plan_code'] ?? '')));
+
+    if (subscription_return_plan_name($paymentPlanCode) === '') {
+        subscription_return_security_event('subscription_payment_return_plan_invalid', 'plan_invalid', 422, 'failed', 'high', $tenantId ?? null);
+        subscription_return_json(422, [
+            'success' => false,
+            'error' => 'Nie udało się pobrać danych płatności abonamentu.',
+        ]);
+    }
+
     $brandingUrl = $supabaseUrl
         . '/rest/v1/tenant_branding'
         . '?select=client_name,logo_url_front,favicon_url_front'
@@ -385,13 +406,13 @@ try {
         'success' => true,
         'payment' => [
             'status' => $status,
-            'plan_code' => (string) ($payment['plan_code'] ?? ''),
+            'plan_code' => $paymentPlanCode,
             'billing_period' => $billingPeriod,
             'billing_period_label' => subscription_return_period_label($billingPeriod),
             'subscription_valid_until' => (string) ($payment['subscription_period_end'] ?? ($subscription['current_period_end'] ?? '')),
             'subscription_valid_until_label' => $validUntilLabel,
             'payment_type' => $paymentType,
-            'payment_type_label' => subscription_return_payment_type_label($paymentType),
+            'payment_type_label' => subscription_return_payment_type_label($paymentType, $paymentPlanCode),
             'awaiting_payu_confirmation' => in_array($status, ['', 'pending'], true),
         ],
         'company' => [

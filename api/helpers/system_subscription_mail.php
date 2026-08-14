@@ -99,12 +99,14 @@ function system_subscription_mail_billing_period_label(?string $billingPeriod): 
     };
 }
 
-function system_subscription_mail_payment_type_label(?string $paymentType): string
+function system_subscription_mail_payment_type_label(?string $paymentType, string $planLabel = 'Pro'): string
 {
+    $planLabel = trim($planLabel) !== '' ? trim($planLabel) : 'Pro';
+
     return match (strtolower(trim((string) $paymentType))) {
-        'subscription_renewal' => 'Przedłużenie Pro',
-        'subscription_upgrade' => 'Przejście na Pro',
-        default => 'Aktywacja Pro',
+        'subscription_renewal' => 'Przedłużenie ' . $planLabel,
+        'subscription_upgrade' => 'Przejście na ' . $planLabel,
+        default => 'Aktywacja ' . $planLabel,
     };
 }
 
@@ -236,15 +238,16 @@ function buildRegistrationConfirmationMailHtml(array $data): string
     $panelUrl = system_subscription_mail_admin_login_url($data['panel_domain'] ?? '');
     $activationUrl = trim((string) ($data['activation_url'] ?? ''));
     $activationExpiresLabel = trim((string) ($data['activation_expires_label'] ?? ''));
-    $isPro = $plan === 'pro';
+    $isPaidPlan = in_array($plan, ['pro', 'vip'], true);
+    $planLabel = $plan === 'vip' ? 'VIP' : ($plan === 'pro' ? 'Pro' : 'Free');
 
-    $planLabel = $isPro ? 'Wybrany plan: Pro' : 'Plan: Free';
-    $statusLabel = $isPro
+    $selectedPlanLabel = $isPaidPlan ? 'Wybrany plan: ' . $planLabel : 'Plan: Free';
+    $statusLabel = $isPaidPlan
         ? 'Oczekuje na opłacenie i aktywację po potwierdzeniu PayU'
         : 'Konto Free zostało utworzone';
 
     $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Konto w systemie AI-IQ Rezerwacja Pro zostało utworzone.</p>'
-        . system_subscription_mail_info_card('🧾', 'Plan', $planLabel, $isPro ? 'Plan Pro nie jest jeszcze aktywny. Funkcje Pro zostaną włączone dopiero po poprawnym potwierdzeniu płatności PayU.' : '')
+        . system_subscription_mail_info_card('🧾', 'Plan', $selectedPlanLabel, $isPaidPlan ? 'Plan ' . $planLabel . ' nie jest jeszcze aktywny. Funkcje planu zostaną włączone dopiero po poprawnym potwierdzeniu płatności PayU.' : '')
         . system_subscription_mail_info_card('✅', 'Status', $statusLabel)
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
         . system_subscription_mail_info_card('🔗', 'Panel administratora', $panelUrl)
@@ -293,11 +296,13 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
     $periodText = trim(system_subscription_mail_format_date($periodStart) . ' - ' . system_subscription_mail_format_date($periodEnd));
     $amountText = system_subscription_mail_format_amount($payment['amount'] ?? null, $payment['currency'] ?? 'PLN');
     $billingPeriod = system_subscription_mail_billing_period_label($payment['billing_period'] ?? $subscription['billing_period'] ?? '');
-    $paymentType = system_subscription_mail_payment_type_label($payment['payment_type'] ?? '');
+    $planCode = strtolower(trim((string) ($payment['plan_code'] ?? $subscription['plan_code'] ?? 'pro')));
+    $planLabel = $planCode === 'vip' ? 'VIP' : 'Pro';
+    $paymentType = system_subscription_mail_payment_type_label($payment['payment_type'] ?? '', $planLabel);
 
-    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Funkcje Pro są już aktywne w Twoim panelu.</p>'
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Funkcje planu ' . system_subscription_mail_escape($planLabel) . ' są już aktywne w Twoim panelu.</p>'
         . system_subscription_mail_info_card('✅', 'Status', 'Opłacono')
-        . system_subscription_mail_info_card('🧾', 'Plan', 'Pro', $paymentType)
+        . system_subscription_mail_info_card('🧾', 'Plan', $planLabel, $paymentType)
         . system_subscription_mail_info_card('💳', 'Płatność', $amountText, $billingPeriod !== '' ? 'Płatność rozliczeniowa: ' . $billingPeriod : '')
         . system_subscription_mail_info_card('📅', 'Abonament ważny do', $periodText, system_subscription_mail_format_date($periodEnd) !== '' ? 'Aktywny do: ' . system_subscription_mail_format_date($periodEnd) : '')
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
@@ -305,11 +310,36 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
         . system_subscription_mail_button($panelUrl, 'Przejdź do panelu');
 
     return system_subscription_mail_layout(
-        'Plan Pro aktywny',
+        'Plan ' . $planLabel . ' aktywny',
         'Potwierdzenie płatności abonamentowej AI-IQ Rezerwacja Pro.',
         '💳',
         $body,
         'Ten e-mail dotyczy wyłącznie abonamentu systemowego AI-IQ.'
+    );
+}
+
+function buildVipCustomDomainRequestedMailHtml(array $context): string
+{
+    $companyName = trim((string) ($context['company_name'] ?? ''));
+    $contactEmail = trim((string) ($context['contact_email'] ?? ''));
+    $panelDomain = trim((string) ($context['panel_domain'] ?? ''));
+
+    if (!filter_var($contactEmail, FILTER_VALIDATE_EMAIL)) {
+        $contactEmail = '';
+    }
+
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Klient z aktywnym planem VIP poprosił o podłączenie własnej domeny.</p>'
+        . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
+        . system_subscription_mail_info_card('✉️', 'Kontakt klienta', $contactEmail)
+        . system_subscription_mail_info_card('🔗', 'Techniczna subdomena', $panelDomain)
+        . system_subscription_mail_info_card('✅', 'Status', 'Plan VIP opłacony i aktywny');
+
+    return system_subscription_mail_layout(
+        'Prośba o podłączenie własnej domeny',
+        'Powiadomienie operacyjne AI-IQ Rezerwacja Pro.',
+        '🌐',
+        $body,
+        'Wiadomość nie zawiera danych płatniczych, tokenów ani technicznych identyfikatorów.'
     );
 }
 

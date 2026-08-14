@@ -267,7 +267,7 @@ function activation_fetch_mail_context(string $tenantId, string $adminEmail, str
     return $context;
 }
 
-function activation_build_fallback_pro_mail_html(array $payment, array $subscription, array $context): string
+function activation_build_fallback_paid_plan_mail_html(array $payment, array $subscription, array $context): string
 {
     $companyName = trim((string) ($context['company_name'] ?? ''));
     $panelDomain = trim((string) ($context['panel_domain'] ?? ''));
@@ -278,6 +278,8 @@ function activation_build_fallback_pro_mail_html(array $payment, array $subscrip
     $periodEnd = activation_format_date_pl((string) ($subscription['current_period_end'] ?? ($payment['subscription_period_end'] ?? '')));
     $billingPeriod = strtolower(trim((string) ($subscription['billing_period'] ?? ($payment['billing_period'] ?? ''))));
     $billingLabel = $billingPeriod === 'yearly' ? 'roczny' : ($billingPeriod === 'monthly' ? 'miesięczny' : 'aktywny');
+    $planCode = strtolower(trim((string) ($subscription['plan_code'] ?? $payment['plan_code'] ?? 'pro')));
+    $planName = $planCode === 'vip' ? 'VIP' : 'Pro';
 
     $safeCompany = activation_escape($companyName !== '' ? $companyName : 'Twoja firma');
     $safePanelUrl = activation_escape($panelUrl);
@@ -291,12 +293,12 @@ function activation_build_fallback_pro_mail_html(array $payment, array $subscrip
         . '<div style="text-align:center;margin-bottom:22px;">'
         . '<div style="display:inline-block;background:#0f172a;color:#fff;border-radius:999px;padding:10px 18px;font-weight:700;">AI-IQ</div>'
         . '<div style="font-size:42px;line-height:1;margin:18px 0 0;" aria-hidden="true">💳</div>'
-        . '<h1 style="margin:22px 0 8px;font-size:26px;line-height:1.25;">Plan Pro jest aktywny</h1>'
-        . '<p style="margin:0;color:#475569;line-height:1.5;">Konto administratora zostało aktywowane. Możesz zalogować się do panelu i korzystać z funkcji planu Pro.</p>'
+        . '<h1 style="margin:22px 0 8px;font-size:26px;line-height:1.25;">Plan ' . activation_escape($planName) . ' jest aktywny</h1>'
+        . '<p style="margin:0;color:#475569;line-height:1.5;">Konto administratora zostało aktywowane. Możesz zalogować się do panelu i korzystać z funkcji wybranego planu.</p>'
         . '</div>'
         . '<div style="border:1px solid #dbe5f3;border-radius:14px;overflow:hidden;margin:22px 0;">'
         . '<div style="padding:14px 16px;border-bottom:1px solid #dbe5f3;"><span style="color:#64748b;">Firma</span><br><strong>' . $safeCompany . '</strong></div>'
-        . '<div style="padding:14px 16px;border-bottom:1px solid #dbe5f3;"><span style="color:#64748b;">Plan</span><br><strong>Pro — ' . $safeBilling . '</strong></div>'
+        . '<div style="padding:14px 16px;border-bottom:1px solid #dbe5f3;"><span style="color:#64748b;">Plan</span><br><strong>' . activation_escape($planName) . ' — ' . $safeBilling . '</strong></div>'
         . '<div style="padding:14px 16px;"><span style="color:#64748b;">Abonament ważny do</span><br><strong>' . $safePeriodEnd . '</strong></div>'
         . '</div>'
         . '<p style="text-align:center;margin:28px 0;">'
@@ -306,7 +308,7 @@ function activation_build_fallback_pro_mail_html(array $payment, array $subscrip
         . '</div></div></body></html>';
 }
 
-function activation_send_pro_activated_mail(string $tenantId, string $adminEmail, string $domain): void
+function activation_send_paid_plan_activated_mail(string $tenantId, string $adminEmail, string $domain): void
 {
     if (!function_exists('sendSystemMail')) {
         error_log('AI-IQ activation: sendSystemMail unavailable.');
@@ -323,34 +325,36 @@ function activation_send_pro_activated_mail(string $tenantId, string $adminEmail
     $planCode = strtolower(trim((string) ($subscription['plan_code'] ?? '')));
     $status = strtolower(trim((string) ($subscription['status'] ?? '')));
 
-    if ($planCode !== 'pro' || $status !== 'active') {
+    if (!in_array($planCode, ['pro', 'vip'], true) || $status !== 'active') {
         return;
     }
+
+    $planName = $planCode === 'vip' ? 'VIP' : 'Pro';
 
     $payment = activation_fetch_initial_payment($tenantId);
     $context = activation_fetch_mail_context($tenantId, $adminEmail, $domain);
     $recipient = trim((string) ($context['recipient_email'] ?? ''));
 
     if (!filter_var($recipient, FILTER_VALIDATE_EMAIL)) {
-        error_log('AI-IQ activation: missing recipient for Pro activation mail.');
+        error_log('AI-IQ activation: missing recipient for paid plan activation mail.');
         return;
     }
 
-    $subject = 'Plan Pro aktywny w AI-IQ Rezerwacja Pro';
+    $subject = 'Plan ' . $planName . ' aktywny w AI-IQ Rezerwacja Pro';
 
     if (function_exists('buildSubscriptionProActivatedMailHtml')) {
         $html = (string) buildSubscriptionProActivatedMailHtml($payment, $subscription, $context);
     } else {
-        $html = activation_build_fallback_pro_mail_html($payment, $subscription, $context);
+        $html = activation_build_fallback_paid_plan_mail_html($payment, $subscription, $context);
     }
 
     if (trim($html) === '') {
-        error_log('AI-IQ activation: empty Pro activation mail body.');
+        error_log('AI-IQ activation: empty paid plan activation mail body.');
         return;
     }
 
     if (!sendSystemMail($recipient, $subject, $html)) {
-        error_log('AI-IQ activation: Pro activation mail send failed.');
+        error_log('AI-IQ activation: paid plan activation mail send failed.');
     }
 }
 
@@ -365,8 +369,8 @@ function activation_send_account_activated_mail(string $tenantId, string $adminE
     $planCode = strtolower(trim((string) ($subscription['plan_code'] ?? 'free')));
     $status = strtolower(trim((string) ($subscription['status'] ?? '')));
 
-    if ($planCode === 'pro' && $status === 'active') {
-        activation_send_pro_activated_mail($tenantId, $adminEmail, $domain);
+    if (in_array($planCode, ['pro', 'vip'], true) && $status === 'active') {
+        activation_send_paid_plan_activated_mail($tenantId, $adminEmail, $domain);
         return;
     }
 
@@ -378,7 +382,7 @@ function activation_send_account_activated_mail(string $tenantId, string $adminE
         return;
     }
 
-    $context['plan'] = $planCode === 'pro' ? 'Pro' : 'Free';
+    $context['plan'] = $planCode === 'vip' ? 'VIP' : ($planCode === 'pro' ? 'Pro' : 'Free');
 
     if (!function_exists('buildAccountActivatedMailHtml')) {
         error_log('AI-IQ activation: account activation mail builder unavailable.');

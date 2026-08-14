@@ -127,6 +127,17 @@ function account_info_billing_period_label(?string $value): string
     };
 }
 
+function account_info_plan_name(string $planCode): string
+{
+    return match (strtolower(trim($planCode))) {
+        'free' => 'Free',
+        'pro' => 'Pro',
+        'vip' => 'VIP',
+        'business' => 'Business',
+        default => '',
+    };
+}
+
 function account_info_status_label(?string $value): string
 {
     return match (strtolower(trim((string) $value))) {
@@ -180,6 +191,7 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
     }
 
     $planCode = strtolower(trim((string) ($subscription['plan_code'] ?? 'free')));
+    $activePlanName = account_info_plan_name($planCode);
     $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
     $periodStart = account_info_date_start($subscription['current_period_start'] ?? null);
     $periodEnd = account_info_date_start($subscription['current_period_end'] ?? null);
@@ -204,7 +216,10 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
         ? account_info_format_date_label($subscription['current_period_end'] ?? null)
         : account_info_format_date_label($lastPaidPro['subscription_period_end'] ?? null);
     $graceDaysLabel = account_info_days_label($graceDays);
-    $activeProText = 'Twój plan Pro jest aktywny do ' . $periodEndLabel . '. Po tym terminie, jeśli abonament nie zostanie opłacony, konto zostanie przełączone na plan Free, a funkcje Pro zostaną zablokowane. Dane i konfiguracje Pro będą przechowywane jeszcze przez ' . $graceDaysLabel . ' w okresie ochronnym. Po tym czasie mogą zostać usunięte.';
+    $activePlanSubject = $activePlanName !== '' ? 'Twój plan ' . $activePlanName : 'Twój abonament';
+    $activePlanFeatures = $activePlanName !== '' ? 'funkcje planu ' . $activePlanName : 'funkcje abonamentu';
+    $activePlanData = $activePlanName !== '' ? 'Dane i konfiguracje planu ' . $activePlanName : 'Dane i konfiguracje abonamentu';
+    $activeSubscriptionText = $activePlanSubject . ' jest aktywny do ' . $periodEndLabel . '. Po tym terminie, jeśli abonament nie zostanie opłacony, konto zostanie przełączone na plan Free, a ' . $activePlanFeatures . ' zostaną zablokowane. ' . $activePlanData . ' będą przechowywane jeszcze przez ' . $graceDaysLabel . ' w okresie ochronnym. Po tym czasie mogą zostać usunięte.';
     $notice = [
         'variant' => 'neutral',
         'title' => 'Plan Free jest aktywny',
@@ -333,7 +348,7 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
                 return array_merge($notice, [
                     'variant' => 'success',
                     'title' => 'Brak zaległości w płatnościach',
-                    'text' => $activeProText,
+                    'text' => $activeSubscriptionText,
                     'grace_period_label' => $graceDaysLabel,
                     'grace_period_row_label' => 'Okres ochronny danych po terminie',
                 ]);

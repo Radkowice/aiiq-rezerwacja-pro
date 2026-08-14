@@ -221,12 +221,8 @@
         </p>
 
         <p class="admin-info-desc">
-          Jeżeli chcesz przejść na plan VIP lub Biznes, skontaktuj się z obsługą AI-IQ.
-          Przygotujemy indywidualną ofertę i konfigurację dla Twojej firmy.
-        </p>
-
-        <p class="admin-info-desc">
-          Plany VIP i Biznes są uruchamiane indywidualnie.
+          Jeżeli potrzebujesz planu Business, skontaktuj się z obsługą AI-IQ.
+          Zakres i konfigurację planu Business ustalamy indywidualnie.
         </p>
 
         <div class="admin-info-list">

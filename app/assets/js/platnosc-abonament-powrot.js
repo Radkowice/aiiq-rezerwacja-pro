@@ -1,3 +1,25 @@
+const SUBSCRIPTION_RETURN_PLAN_NAMES = Object.freeze({
+  pro: 'Pro',
+  vip: 'VIP'
+});
+
+function getSubscriptionReturnPlanName(payment) {
+  const planCode = String(payment?.plan_code || '').trim().toLowerCase();
+  return SUBSCRIPTION_RETURN_PLAN_NAMES[planCode] || '';
+}
+
+function getSubscriptionReturnPaymentTypeLabel(paymentType, planName) {
+  if (paymentType === 'subscription_renewal') {
+    return `Przedłużenie ${planName}`;
+  }
+
+  if (paymentType === 'subscription_upgrade' || paymentType === 'subscription_initial') {
+    return `Przejście na ${planName}`;
+  }
+
+  return `Płatność ${planName}`;
+}
+
 function getSubscriptionReturnEl(id) {
   return document.getElementById(id);
 }
@@ -117,9 +139,17 @@ function resolvePrimaryAction(payment, urls) {
 }
 
 function applySubscriptionReturnText(payment, company, urls = {}) {
+  const kickerEl = getSubscriptionReturnEl('subscriptionReturnKicker');
   const titleEl = getSubscriptionReturnEl('subscriptionReturnTitle');
   const leadEl = getSubscriptionReturnEl('subscriptionReturnLead');
   const messageEl = getSubscriptionReturnEl('subscriptionReturnMessage');
+  const planName = getSubscriptionReturnPlanName(payment);
+
+  if (!planName) {
+    applySubscriptionReturnUnavailableText();
+    return;
+  }
+
   const clientName = getSubscriptionCompanyName(company);
   const validUntilLabel = String(
     payment?.subscription_valid_until_label
@@ -128,23 +158,28 @@ function applySubscriptionReturnText(payment, company, urls = {}) {
   ).trim();
   const status = String(payment?.status || '').trim();
   const paymentType = String(payment?.payment_type || '').trim();
-  const paymentTypeLabel = String(payment?.payment_type_label || '').trim();
+
+  document.title = `Plan ${planName} — płatność`;
+
+  if (kickerEl) {
+    kickerEl.textContent = `Plan ${planName}`;
+  }
 
   if (titleEl) {
     titleEl.textContent = 'Dziękujemy';
   }
 
   if (leadEl) {
-    leadEl.textContent = `Płatność za dostęp do planu Pro${companyText(clientName)} została przekazana do PayU.${validityText(validUntilLabel)}`;
+    leadEl.textContent = `Płatność za dostęp do planu ${planName}${companyText(clientName)} została przekazana do PayU.${validityText(validUntilLabel)}`;
   }
 
   if (messageEl) {
     if (status === 'failed' || status === 'cancelled' || status === 'canceled') {
-      messageEl.textContent = 'PayU nie potwierdziło tej płatności jako zakończonej. Plan Pro nie został aktywowany ani przedłużony na podstawie tego powrotu.';
+      messageEl.textContent = `PayU nie potwierdziło tej płatności jako zakończonej. Plan ${planName} nie został aktywowany ani przedłużony na podstawie tego powrotu.`;
     } else if (status === 'paid') {
       messageEl.textContent = 'PayU potwierdziło płatność. Jeśli konto wymaga aktywacji, sprawdź wiadomość e-mail z linkiem aktywacyjnym.';
     } else {
-      messageEl.textContent = 'System oczekuje na potwierdzenie płatności przez PayU. Plan Pro zostanie aktywowany albo przedłużony dopiero po potwierdzeniu płatności.';
+      messageEl.textContent = `System oczekuje na potwierdzenie płatności przez PayU. Plan ${planName} zostanie aktywowany albo przedłużony dopiero po potwierdzeniu płatności.`;
     }
   }
 
@@ -152,7 +187,7 @@ function applySubscriptionReturnText(payment, company, urls = {}) {
   setSubscriptionText('subscriptionReturnCompany', clientName || '—');
   setSubscriptionText(
     'subscriptionReturnType',
-    paymentTypeLabel || (paymentType === 'subscription_renewal' ? 'Przedłużenie Pro' : 'Przejście na Pro')
+    getSubscriptionReturnPaymentTypeLabel(paymentType, planName)
   );
 
   const primaryAction = resolvePrimaryAction(payment, urls);
@@ -160,9 +195,16 @@ function applySubscriptionReturnText(payment, company, urls = {}) {
 }
 
 function applySubscriptionReturnUnavailableText() {
+  const kickerEl = getSubscriptionReturnEl('subscriptionReturnKicker');
   const titleEl = getSubscriptionReturnEl('subscriptionReturnTitle');
   const leadEl = getSubscriptionReturnEl('subscriptionReturnLead');
   const messageEl = getSubscriptionReturnEl('subscriptionReturnMessage');
+
+  document.title = 'Płatność abonamentu';
+
+  if (kickerEl) {
+    kickerEl.textContent = 'Płatność abonamentu';
+  }
 
   if (titleEl) {
     titleEl.textContent = 'Sprawdzamy status płatności';
@@ -178,7 +220,7 @@ function applySubscriptionReturnUnavailableText() {
 
   setSubscriptionText('subscriptionReturnCompany', '—');
   setSubscriptionText('subscriptionReturnPeriod', '—');
-  setSubscriptionText('subscriptionReturnType', 'Plan Pro');
+  setSubscriptionText('subscriptionReturnType', 'Płatność abonamentu');
   setSubscriptionPrimaryButton('/logowanie.html', 'Przejdź do logowania');
 }
 
@@ -206,7 +248,6 @@ async function loadSubscriptionReturnData() {
     const urls = data.urls || {};
     const companyName = getSubscriptionCompanyName(company);
 
-    document.title = 'Plan Pro — płatność';
     setSubscriptionLogo(company.logo_url_front, companyName);
     setSubscriptionFavicon(company.favicon_url_front);
     applySubscriptionReturnText(payment, company, urls);

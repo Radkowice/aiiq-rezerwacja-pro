@@ -50,7 +50,6 @@
           <a class="aiiq-rp-header-link aiiq-rp-header-link--home"
             href="https://ai-iq.pl/instrukcja-rezerwacja-pro/">Instrukcja</a>
           <a class="aiiq-rp-header-link" href="https://ai-iq.pl/kontakt/">Kontakt</a>
-          <a class="aiiq-rp-header-cta" href="/rejestracja.html?plan=free">Załóż konto Free</a>
         </div>
       </div>
     </header>
@@ -63,9 +62,9 @@
           <p class="aiiq-rp-hero-lead">Z AI-IQ Rezerwacja Pro przyjmujesz zapisy online, porządkujesz terminarz,
             zarządzasz personelem i sprawniej obsługujesz Twoich klientów.</p>
           <div class="aiiq-rp-actions">
-            <a class="aiiq-rp-button" href="/rejestracja.html?plan=free">Załóż konto Free</a>
-            <a class="aiiq-rp-button aiiq-rp-button--ghost" href="/rejestracja-pro.html">Załóż
-              konto Pro</a>
+            <a class="aiiq-rp-button" href="/rejestracja-free.html">Załóż konto Free</a>
+            <a class="aiiq-rp-button aiiq-rp-button--ghost" href="/rejestracja-pro.html">Wybierz plan Pro</a>
+            <a class="aiiq-rp-button aiiq-rp-button--ghost" href="/rejestracja-vip.html">Wybierz plan VIP</a>
           </div>
           <div class="aiiq-rp-chips" aria-label="Najważniejsze informacje">
             <span class="aiiq-rp-chip">Plan Free bez opłat</span>
@@ -362,13 +361,24 @@
               <li>Wiadomości dla Twoich klientów</li>
               <li>Wyszukiwanie i eksport CSV</li>
             </ul>
-            <a class="aiiq-rp-button aiiq-rp-button--outline" href="/rejestracja.html?plan=free">Załóż konto Free</a>
+            <a class="aiiq-rp-button aiiq-rp-button--outline" href="/rejestracja-free.html">Załóż konto Free</a>
           </article>
 
-          <article class="aiiq-rp-plan aiiq-rp-plan--pro">
+          <article class="aiiq-rp-plan aiiq-rp-plan--pro" data-offer-plan="pro">
             <h3 class="aiiq-rp-plan-name">Pro</h3>
-            <p class="aiiq-rp-plan-price">100 zł <small>/ miesiąc</small></p>
-            <p class="aiiq-rp-plan-billing">1000 zł rocznie. Płatność jednorazowa, bez automatycznego odnawiania.</p>
+            <p class="aiiq-rp-plan-price">
+              <span data-offer-price="monthly-gross">Cena chwilowo niedostępna</span>
+              <small data-offer-price="monthly-period" hidden>/ miesiąc</small>
+            </p>
+            <p class="aiiq-rp-plan-billing">
+              <span data-offer-price="details" hidden>
+                <small data-offer-price="monthly-net"></small><br>
+                <strong data-offer-price="yearly-gross"></strong><br>
+                <small data-offer-price="yearly-net"></small><br>
+                <span data-offer-price="yearly-savings" hidden></span>
+              </span>
+              Płatność jednorazowa, bez automatycznego odnawiania.
+            </p>
             <p class="aiiq-rp-plan-description">Dla Ciebie, gdy potrzebujesz personelu, wielu usług, płatności online i
               własnego wyglądu strony rezerwacji.</p>
             <p class="aiiq-rp-plan-limits">Do 30 usług · do 20 pracowników</p>
@@ -382,10 +392,20 @@
             <a class="aiiq-rp-button" href="/rejestracja-pro.html">Wybierz plan Pro</a>
           </article>
 
-          <article class="aiiq-rp-plan">
+          <article class="aiiq-rp-plan" data-offer-plan="vip">
             <h3 class="aiiq-rp-plan-name">VIP</h3>
-            <p class="aiiq-rp-plan-price">200 zł <small>/ miesiąc</small></p>
-            <p class="aiiq-rp-plan-billing">2200 zł rocznie — oszczędzasz 200 zł.</p>
+            <p class="aiiq-rp-plan-price">
+              <span data-offer-price="monthly-gross">Cena chwilowo niedostępna</span>
+              <small data-offer-price="monthly-period" hidden>/ miesiąc</small>
+            </p>
+            <p class="aiiq-rp-plan-billing">
+              <span data-offer-price="details" hidden>
+                <small data-offer-price="monthly-net"></small><br>
+                <strong data-offer-price="yearly-gross"></strong><br>
+                <small data-offer-price="yearly-net"></small><br>
+                <span data-offer-price="yearly-savings" hidden></span>
+              </span>
+            </p>
             <p class="aiiq-rp-plan-description">Dla Ciebie, gdy wykorzystujesz pełny zakres Pro i potrzebujesz wyższych
               limitów usług oraz personelu.</p>
             <p class="aiiq-rp-plan-limits">Do 60 usług · do 40 pracowników</p>
@@ -396,7 +416,7 @@
               <li>Zakres dla większego zespołu i oferty</li>
               <li>Możliwość podłączenia własnej domeny</li>
             </ul>
-            <a class="aiiq-rp-button aiiq-rp-button--outline" href="https://ai-iq.pl/kontakt/">Zapytaj o plan VIP</a>
+            <a class="aiiq-rp-button aiiq-rp-button--outline" href="/rejestracja-vip.html">Wybierz plan VIP</a>
           </article>
 
           <article class="aiiq-rp-plan">
@@ -943,7 +963,7 @@
             obsługę Twoich klientów.</p>
         </div>
         <div class="aiiq-rp-actions"><a class="aiiq-rp-button aiiq-rp-button--light"
-            href="/rejestracja.html?plan=free">Załóż konto Free</a><a class="aiiq-rp-button aiiq-rp-button--ghost"
+            href="/rejestracja-free.html">Załóż konto Free</a><a class="aiiq-rp-button aiiq-rp-button--ghost"
             href="/rejestracja-pro.html">Rozpocznij rejestrację Pro</a></div>
       </div>
     </div>
@@ -982,7 +1002,7 @@
               <a href="https://ai-iq.pl/">Producent AI-IQ</a>
               <a href="https://ai-iq.pl/instrukcja-rezerwacja-pro/">Instrukcja</a>
               <a href="https://ai-iq.pl/kontakt/">Kontakt</a>
-              <a href="/rejestracja.html?plan=free">Załóż konto Free</a>
+              <a href="/rejestracja-free.html">Załóż konto Free</a>
               <a href="/rejestracja-pro.html">Wybierz plan Pro</a>
               <a href="/legal/regulamin.html">Regulamin Platformy</a>
               <a href="/legal/polityka-prywatnosci.html">Polityka prywatności Platformy</a>
@@ -998,6 +1018,7 @@
     </footer>
 
   </section>
+  <script src="/sprzedaz/assets/oferta-prices.js?v=1" defer></script>
 </body>
 
 </html>

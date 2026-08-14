@@ -1,5 +1,5 @@
-const PRO_REGISTRATION_PAYMENT_BUTTON_TEXT = 'Zamawiam z obowiązkiem zapłaty';
-const PRO_PAYMENT_INFO_TEXT = 'Płatność jednorazowa przez PayU. Plan Pro nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.';
+const PAID_REGISTRATION_PAYMENT_BUTTON_TEXT = 'Zamawiam z obowiązkiem zapłaty';
+const REGISTER_PRESENTATION_VAT_RATE = 0.23;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('registerForm');
@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   const selectedRegistrationPlan = initSelectedRegistrationPlan();
-  await initProRegistrationOptions(selectedRegistrationPlan);
+  await initPaidRegistrationOptions(selectedRegistrationPlan);
 
   const subdomainAvailability = initSubdomainAvailabilityState();
 
@@ -57,8 +57,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const companyEmail = companyEmailInput || email;
     const passwordResult = evaluateRegisterPasswordStrength(password);
-    const selectedPlan = getSelectedRegistrationPlan();
-    const selectedBillingPeriod = getSelectedProBillingPeriod();
+    const selectedPlan = selectedRegistrationPlan;
+    const selectedBillingPeriod = getSelectedPaidBillingPeriod();
+    const customDomainRequested = selectedPlan.code === 'vip'
+      && document.getElementById('customDomainRequested')?.checked === true;
 
     if (!clientName) {
       showRegisterError('Podaj nazwę publiczną / markę.');
@@ -149,8 +151,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    if (selectedPlan.code === 'pro' && !['monthly', 'yearly'].includes(selectedBillingPeriod)) {
-      showRegisterError('Wybierz miesięczny albo roczny okres abonamentu Pro.');
+    if (isPaidRegistrationPlan(selectedPlan.code) && !['monthly', 'yearly'].includes(selectedBillingPeriod)) {
+      showRegisterError(`Wybierz miesięczny albo roczny okres abonamentu ${selectedPlan.label}.`);
       focusRegisterField('proBillingMonthly');
       return;
     }
@@ -161,7 +163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       if (submitBtn) {
         submitBtn.disabled = true;
-        submitBtn.textContent = selectedPlan.code === 'pro' ? 'Przygotowuję płatność PayU...' : 'Tworzenie konta...';
+        submitBtn.textContent = isPaidRegistrationPlan(selectedPlan.code) ? 'Przygotowuję płatność PayU...' : 'Tworzenie konta...';
       }
 
       const formStartedAtRaw = formStartedAtInput ? formStartedAtInput.value.trim() : '';
@@ -193,7 +195,8 @@ document.addEventListener('DOMContentLoaded', async () => {
           client_name: clientName,
           subdomain_slug: subdomainSlug,
           plan_code: selectedPlan.code,
-          billing_period: selectedPlan.code === 'pro' ? selectedBillingPeriod : null,
+          billing_period: isPaidRegistrationPlan(selectedPlan.code) ? selectedBillingPeriod : null,
+          custom_domain_requested: customDomainRequested,
           email,
           password,
           password_confirm: passwordConfirm,
@@ -227,7 +230,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      if (selectedPlan.code === 'pro') {
+      if (isPaidRegistrationPlan(selectedPlan.code)) {
         if (data.payment_url) {
           window.location.href = data.payment_url;
           return;
@@ -243,8 +246,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     } finally {
       if (submitBtn) {
         submitBtn.disabled = false;
-        submitBtn.textContent = originalBtnText || (selectedPlan.code === 'pro'
-          ? PRO_REGISTRATION_PAYMENT_BUTTON_TEXT
+        submitBtn.textContent = originalBtnText || (isPaidRegistrationPlan(selectedPlan.code)
+          ? PAID_REGISTRATION_PAYMENT_BUTTON_TEXT
           : 'Utwórz konto');
       }
     }
@@ -554,21 +557,42 @@ function formatRegisterMoney(amount, currency) {
   return `${numericAmount.toFixed(2).replace('.', ',')} ${displayCurrency}`.trim();
 }
 
-function getSelectedProBillingPeriod() {
+function formatRegisterNetMoney(grossAmount, currency) {
+  const numericGrossAmount = Number(grossAmount);
+
+  if (!Number.isFinite(numericGrossAmount) || numericGrossAmount < 0) {
+    return '—';
+  }
+
+  return formatRegisterMoney(
+    numericGrossAmount / (1 + REGISTER_PRESENTATION_VAT_RATE),
+    currency
+  );
+}
+
+function isPaidRegistrationPlan(planCode) {
+  return planCode === 'pro' || planCode === 'vip';
+}
+
+function getSelectedPaidBillingPeriod() {
   const selected = document.querySelector('input[name="proBillingPeriod"]:checked');
   return String(selected?.value || 'monthly').trim();
 }
 
-function getProPeriodLabel(period) {
+function getPaidPeriodLabel(period) {
   return period === 'yearly' ? 'roczny' : 'miesięczny';
 }
 
-function getProPeriodDurationLabel(period) {
+function getPaidPeriodDurationLabel(period) {
   return period === 'yearly' ? '12 miesięcy' : '1 miesiąc';
 }
 
-async function fetchPublicProPrices() {
-  const res = await fetch('/api/auth/register.php?action=plan_prices', {
+async function fetchPublicPaidPlanPrices(planCode) {
+  if (!isPaidRegistrationPlan(planCode)) {
+    throw new Error('Nieprawidłowy plan cennika.');
+  }
+
+  const res = await fetch(`/api/auth/register.php?action=plan_prices&plan=${encodeURIComponent(planCode)}`, {
     method: 'GET',
     headers: {
       'Accept': 'application/json'
@@ -585,17 +609,24 @@ async function fetchPublicProPrices() {
   }
 
   if (!res.ok || data?.success !== true) {
-    throw new Error(data?.error || 'Nie udało się pobrać aktualnej ceny planu Pro.');
+    throw new Error(data?.error || 'Nie udało się pobrać aktualnej ceny wybranego planu.');
   }
 
   return Array.isArray(data.prices) ? data.prices : [];
 }
 
-function normalizeProPrice(row) {
+function normalizePaidPlanPrice(row, expectedPlanCode) {
   const period = String(row?.billing_period || '').trim().toLowerCase();
+  const planCode = String(row?.plan_code || '').trim().toLowerCase();
   const amount = row?.amount;
 
-  if (!['monthly', 'yearly'].includes(period) || amount === null || amount === undefined || amount === '') {
+  if (
+    planCode !== expectedPlanCode
+    || !['monthly', 'yearly'].includes(period)
+    || amount === null
+    || amount === undefined
+    || amount === ''
+  ) {
     return null;
   }
 
@@ -603,13 +634,13 @@ function normalizeProPrice(row) {
     billing_period: period,
     amount,
     currency: row?.currency || 'PLN',
-    plan_name: row?.plan_name || 'Pro'
+    plan_name: row?.plan_name || (expectedPlanCode === 'vip' ? 'VIP' : 'Pro')
   };
 }
 
-function pricesByBillingPeriod(prices) {
+function pricesByBillingPeriod(prices, expectedPlanCode) {
   return prices
-    .map(normalizeProPrice)
+    .map((price) => normalizePaidPlanPrice(price, expectedPlanCode))
     .filter(Boolean)
     .reduce((acc, price) => {
       acc[price.billing_period] = price;
@@ -617,28 +648,28 @@ function pricesByBillingPeriod(prices) {
     }, {});
 }
 
-function updateProRegistrationSummary(pricesByPeriod) {
+function updatePaidRegistrationSummary(selectedPlan, pricesByPeriod) {
   const summary = document.getElementById('proRegistrationSummary');
   const submitHint = document.getElementById('proRegistrationSubmitHint');
-  const selectedPeriod = getSelectedProBillingPeriod();
+  const selectedPeriod = getSelectedPaidBillingPeriod();
   const selectedPrice = pricesByPeriod[selectedPeriod];
 
   if (summary) {
     summary.textContent = selectedPrice
-      ? `Wybrany abonament: Pro ${getProPeriodLabel(selectedPeriod)}, kwota: ${formatRegisterMoney(selectedPrice.amount, selectedPrice.currency)}, okres: ${getProPeriodDurationLabel(selectedPeriod)}.`
-      : 'Wybierz okres abonamentu Pro.';
+      ? `Wybrany abonament: ${selectedPlan.label} ${getPaidPeriodLabel(selectedPeriod)}, kwota brutto: ${formatRegisterMoney(selectedPrice.amount, selectedPrice.currency)}, kwota netto: ${formatRegisterNetMoney(selectedPrice.amount, selectedPrice.currency)}, okres: ${getPaidPeriodDurationLabel(selectedPeriod)}.`
+      : `Wybierz okres abonamentu ${selectedPlan.label}.`;
   }
 
   if (submitHint) {
-    submitHint.textContent = PRO_PAYMENT_INFO_TEXT;
+    submitHint.textContent = `Płatność jednorazowa przez PayU. Plan ${selectedPlan.label} nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.`;
   }
 }
 
-async function initProRegistrationOptions(selectedPlan) {
+async function initPaidRegistrationOptions(selectedPlan) {
   const card = document.getElementById('proRegistrationCard');
   const submitBtn = document.querySelector('#registerForm button[type="submit"]');
 
-  if (selectedPlan.code !== 'pro') {
+  if (!isPaidRegistrationPlan(selectedPlan.code)) {
     if (card) {
       card.hidden = true;
     }
@@ -650,40 +681,50 @@ async function initProRegistrationOptions(selectedPlan) {
   }
 
   if (submitBtn) {
-    submitBtn.textContent = PRO_REGISTRATION_PAYMENT_BUTTON_TEXT;
+    submitBtn.textContent = PAID_REGISTRATION_PAYMENT_BUTTON_TEXT;
   }
 
   const monthlyPriceEl = document.getElementById('proRegistrationPriceMonthly');
   const yearlyPriceEl = document.getElementById('proRegistrationPriceYearly');
+  const monthlyNetPriceEl = document.getElementById('proRegistrationNetPriceMonthly');
+  const yearlyNetPriceEl = document.getElementById('proRegistrationNetPriceYearly');
   const messageEl = document.getElementById('proRegistrationPriceMessage');
   const periodInputs = document.querySelectorAll('input[name="proBillingPeriod"]');
 
   periodInputs.forEach((input) => {
     input.addEventListener('change', () => {
-      updateProRegistrationSummary(window.__AIIQ_REGISTER_PRO_PRICES_BY_PERIOD || {});
+      updatePaidRegistrationSummary(selectedPlan, window.__AIIQ_REGISTER_PAID_PRICES_BY_PERIOD || {});
     });
   });
 
   if (messageEl) {
-    messageEl.textContent = 'Pobieram aktualną cenę planu Pro...';
+    messageEl.textContent = `Pobieram aktualną cenę planu ${selectedPlan.label}...`;
     messageEl.classList.remove('is-error');
   }
 
   try {
-    const prices = await fetchPublicProPrices();
-    const byPeriod = pricesByBillingPeriod(prices);
-    window.__AIIQ_REGISTER_PRO_PRICES_BY_PERIOD = byPeriod;
+    const prices = await fetchPublicPaidPlanPrices(selectedPlan.code);
+    const byPeriod = pricesByBillingPeriod(prices, selectedPlan.code);
+    window.__AIIQ_REGISTER_PAID_PRICES_BY_PERIOD = byPeriod;
 
     if (!byPeriod.monthly || !byPeriod.yearly) {
-      throw new Error('Brakuje aktywnej ceny miesięcznej albo rocznej planu Pro.');
+      throw new Error(`Brakuje aktywnej ceny miesięcznej albo rocznej planu ${selectedPlan.label}.`);
     }
 
     if (monthlyPriceEl) {
-      monthlyPriceEl.textContent = formatRegisterMoney(byPeriod.monthly.amount, byPeriod.monthly.currency);
+      monthlyPriceEl.textContent = `${formatRegisterMoney(byPeriod.monthly.amount, byPeriod.monthly.currency)} brutto`;
     }
 
     if (yearlyPriceEl) {
-      yearlyPriceEl.textContent = formatRegisterMoney(byPeriod.yearly.amount, byPeriod.yearly.currency);
+      yearlyPriceEl.textContent = `${formatRegisterMoney(byPeriod.yearly.amount, byPeriod.yearly.currency)} brutto`;
+    }
+
+    if (monthlyNetPriceEl) {
+      monthlyNetPriceEl.textContent = `${formatRegisterNetMoney(byPeriod.monthly.amount, byPeriod.monthly.currency)} netto`;
+    }
+
+    if (yearlyNetPriceEl) {
+      yearlyNetPriceEl.textContent = `${formatRegisterNetMoney(byPeriod.yearly.amount, byPeriod.yearly.currency)} netto`;
     }
 
     if (messageEl) {
@@ -695,15 +736,17 @@ async function initProRegistrationOptions(selectedPlan) {
       input.disabled = false;
     });
 
-    updateProRegistrationSummary(byPeriod);
+    updatePaidRegistrationSummary(selectedPlan, byPeriod);
   } catch (error) {
-    console.error('pro registration prices error:', error);
+    console.error('paid registration prices error:', error);
 
     if (monthlyPriceEl) monthlyPriceEl.textContent = '—';
     if (yearlyPriceEl) yearlyPriceEl.textContent = '—';
+    if (monthlyNetPriceEl) monthlyNetPriceEl.textContent = '—';
+    if (yearlyNetPriceEl) yearlyNetPriceEl.textContent = '—';
 
     if (messageEl) {
-      messageEl.textContent = error.message || 'Nie udało się pobrać aktualnej ceny planu Pro.';
+      messageEl.textContent = error.message || `Nie udało się pobrać aktualnej ceny planu ${selectedPlan.label}.`;
       messageEl.classList.add('is-error');
     }
 
@@ -736,14 +779,20 @@ function initSelectedRegistrationPlan() {
 }
 
 function getSelectedRegistrationPlan() {
-  const params = new URLSearchParams(window.location.search);
-  const entryPlan = document.body?.dataset?.registrationEntry === 'pro' ? 'pro' : '';
-  const rawPlan = String(params.get('plan') || params.get('pakiet') || entryPlan || 'free').trim().toLowerCase();
+  const entryPlan = String(document.body?.dataset?.registrationEntry || '').trim().toLowerCase();
 
-  if (rawPlan === 'pro') {
+  if (entryPlan === 'pro') {
     return {
       code: 'pro',
       label: 'Pro',
+      hint: 'Po wysłaniu formularza przejdziesz do płatności PayU.'
+    };
+  }
+
+  if (entryPlan === 'vip') {
+    return {
+      code: 'vip',
+      label: 'VIP',
       hint: 'Po wysłaniu formularza przejdziesz do płatności PayU.'
     };
   }

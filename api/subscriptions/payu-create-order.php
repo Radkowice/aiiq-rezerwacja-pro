@@ -14,8 +14,8 @@ require_csrf_token();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
-const SUBSCRIPTION_PAYU_TERMS_VERSION = 'platform_terms_v1';
-const SUBSCRIPTION_PAYU_PRIVACY_VERSION = 'platform_privacy_v1';
+const SUBSCRIPTION_PAYU_TERMS_VERSION = 'platform_terms_v2';
+const SUBSCRIPTION_PAYU_PRIVACY_VERSION = 'platform_privacy_v2';
 
 
 function subscription_payu_security_event(
