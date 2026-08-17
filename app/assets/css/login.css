@@ -166,7 +166,7 @@ body {
 .login-toggle-password {
   position: absolute;
   right: 10px;
-  top: 23px;
+  top: 50%;
   transform: translateY(-50%);
   width: 34px;
   height: 34px;
@@ -175,9 +175,11 @@ body {
   background: transparent;
   color: var(--login-primary);
   cursor: pointer;
-  display: inline-flex;
+  display: flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
+  z-index: 2;
   box-shadow: none;
   padding: 0;
   transition:

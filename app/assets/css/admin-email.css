@@ -285,20 +285,30 @@ section[data-section="email"] #staff-email-template-select {
 
 /* Hasło SMTP */
 
-.password-field {
+section[data-section="email"] .password-field {
   position: relative;
   display: flex;
   align-items: center;
 }
 
-.password-field input {
+section[data-section="email"] .password-field input {
   width: 100%;
-  padding-right: 45px;
+  padding-right: 52px;
 }
 
-.password-toggle {
+section[data-section="email"] .password-toggle {
   position: absolute;
   right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  z-index: 2;
   background: transparent;
   border: none;
   cursor: pointer;
@@ -308,8 +318,17 @@ section[data-section="email"] #staff-email-template-select {
   transition: opacity 0.2s ease;
 }
 
-.password-toggle:hover {
+section[data-section="email"] .password-toggle:hover {
   opacity: 1;
+  transform: translateY(-50%);
+}
+
+section[data-section="email"] .password-toggle:focus-visible {
+  transform: translateY(-50%);
+}
+
+section[data-section="email"] .password-toggle:active {
+  transform: translateY(calc(-50% + 1px));
 }
 
 /* Temat wiadomości */

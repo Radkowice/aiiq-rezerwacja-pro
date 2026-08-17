@@ -151,10 +151,11 @@ function markEmailChangeCodesUsed(
     string $tenantId,
     string $userId,
     array $filters = []
-): void {
+): array {
     $url = $supabaseUrl
         . '/rest/v1/email_change_codes'
-        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '?select=code_hash'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&user_id=eq.' . rawurlencode($userId)
         . '&used_at=is.null';
 
@@ -171,11 +172,16 @@ function markEmailChangeCodesUsed(
     ], JSON_UNESCAPED_UNICODE);
 
     if ($payload === false) {
-        return;
+        return ['ok' => false, 'affected' => null];
     }
 
     $ch = curl_init($url);
-    curl_setopt_array($ch, [
+
+    if ($ch === false) {
+        return ['ok' => false, 'affected' => null];
+    }
+
+    $configured = curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST  => 'PATCH',
         CURLOPT_POSTFIELDS     => $payload,
@@ -186,13 +192,122 @@ function markEmailChangeCodesUsed(
             'Authorization: Bearer ' . $serviceRoleKey,
             'Accept-Profile: ' . $schema,
             'Content-Profile: ' . $schema,
-            'Prefer: return=minimal',
+            'Prefer: return=representation',
         ],
         CURLOPT_TIMEOUT        => 20,
     ]);
 
-    curl_exec($ch);
+    if (!$configured) {
+        curl_close($ch);
+
+        return ['ok' => false, 'affected' => null];
+    }
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
+    if ($response === false || $curlError !== '' || $httpCode < 200 || $httpCode >= 300) {
+        return ['ok' => false, 'affected' => null];
+    }
+
+    $rows = json_decode((string) $response, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE || !is_array($rows)) {
+        return ['ok' => false, 'affected' => null];
+    }
+
+    foreach ($rows as $row) {
+        if (!is_array($row)) {
+            return ['ok' => false, 'affected' => null];
+        }
+    }
+
+    return ['ok' => true, 'affected' => count($rows)];
+}
+
+function issueEmailChangeCode(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    string $userId,
+    string $currentEmail,
+    string $newEmail,
+    string $codeHash,
+    string $ipAddress
+): array {
+    $payload = json_encode([
+        'p_tenant_id' => $tenantId,
+        'p_user_id' => $userId,
+        'p_current_email' => $currentEmail,
+        'p_new_email' => $newEmail,
+        'p_code_hash' => $codeHash,
+        'p_ip_address' => $ipAddress,
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if ($payload === false) {
+        return ['ok' => false, 'issued' => false, 'retry_later' => false];
+    }
+
+    $url = $supabaseUrl . '/rest/v1/rpc/issue_email_change_code';
+    $ch = curl_init($url);
+
+    if ($ch === false) {
+        return ['ok' => false, 'issued' => false, 'retry_later' => false];
+    }
+
+    $configured = curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_POSTFIELDS => $payload,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Accept: application/json',
+            'apikey: ' . $serviceRoleKey,
+            'Authorization: Bearer ' . $serviceRoleKey,
+            'Accept-Profile: ' . $schema,
+            'Content-Profile: ' . $schema,
+        ],
+        CURLOPT_TIMEOUT => 20,
+    ]);
+
+    if (!$configured) {
+        curl_close($ch);
+
+        return ['ok' => false, 'issued' => false, 'retry_later' => false];
+    }
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($response === false || $curlError !== '' || $httpCode < 200 || $httpCode >= 300) {
+        return ['ok' => false, 'issued' => false, 'retry_later' => false];
+    }
+
+    $result = json_decode((string) $response, true);
+
+    if (
+        json_last_error() !== JSON_ERROR_NONE
+        || !is_array($result)
+        || !array_key_exists('success', $result)
+        || !is_bool($result['success'])
+    ) {
+        return ['ok' => false, 'issued' => false, 'retry_later' => false];
+    }
+
+    if ($result['success'] === true) {
+        return ['ok' => true, 'issued' => true, 'retry_later' => false];
+    }
+
+    if (($result['reason'] ?? null) === 'retry_later') {
+        return ['ok' => true, 'issued' => false, 'retry_later' => true];
+    }
+
+    return ['ok' => false, 'issued' => false, 'retry_later' => false];
 }
 
 $userUrl = $supabaseUrl
@@ -486,6 +601,63 @@ if ($attemptHttpCode < 200 || $attemptHttpCode >= 300) {
     exit;
 }
 
+$code = (string) random_int(100000, 999999);
+$codeHash = password_hash($code, PASSWORD_DEFAULT);
+
+$issueCodeResult = issueEmailChangeCode(
+    $supabaseUrl,
+    $serviceRoleKey,
+    $schema,
+    $tenantId,
+    $userId,
+    $currentEmail,
+    $newEmail,
+    $codeHash,
+    $clientIp
+);
+
+if (($issueCodeResult['ok'] ?? false) !== true) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (($issueCodeResult['retry_later'] ?? false) === true) {
+    security_log_event('email_change_code_rate_limited', [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+        'email' => $securityEmail,
+        'ip_address' => $clientIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'response_status' => 429,
+        'result' => 'blocked',
+        'details' => [
+            'reason' => 'email_change_code_cooldown',
+        ],
+    ]);
+
+    http_response_code(429);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nowy kod został już niedawno wygenerowany. Spróbuj ponownie za chwilę.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (($issueCodeResult['issued'] ?? false) !== true) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 security_log_event('email_change_request', [
     'tenant_id' => $tenantId,
     'user_id' => $userId,
@@ -501,81 +673,6 @@ security_log_event('email_change_request', [
     ],
 ]);
 
-markEmailChangeCodesUsed(
-    $supabaseUrl,
-    $serviceRoleKey,
-    $schema,
-    $tenantId,
-    $userId
-);
-
-$code = (string) random_int(100000, 999999);
-$codeHash = password_hash($code, PASSWORD_DEFAULT);
-$expiresAt = gmdate('Y-m-d\TH:i:s\Z', time() + 600);
-
-$codePayload = json_encode([
-    'tenant_id'      => $tenantId,
-    'user_id'        => $userId,
-    'current_email'  => $currentEmail,
-    'new_email'      => $newEmail,
-    'code_hash'      => $codeHash,
-    'expires_at'     => $expiresAt,
-    'ip_address'     => $clientIp,
-], JSON_UNESCAPED_UNICODE);
-
-if ($codePayload === false) {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Nie udało się przygotować kodu'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-$codeUrl = $supabaseUrl . '/rest/v1/email_change_codes';
-
-$codeCh = curl_init($codeUrl);
-curl_setopt_array($codeCh, [
-    CURLOPT_RETURNTRANSFER => true,
-    CURLOPT_POST           => true,
-    CURLOPT_HTTPHEADER     => [
-        'Content-Type: application/json',
-        'Accept: application/json',
-        'apikey: ' . $serviceRoleKey,
-        'Authorization: Bearer ' . $serviceRoleKey,
-        'Accept-Profile: ' . $schema,
-        'Content-Profile: ' . $schema,
-        'Prefer: return=minimal',
-    ],
-    CURLOPT_POSTFIELDS     => $codePayload,
-    CURLOPT_TIMEOUT        => 20,
-]);
-
-$codeResponse = curl_exec($codeCh);
-
-if ($codeResponse === false) {
-    curl_close($codeCh);
-
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Nie udało się zapisać kodu potwierdzającego'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
-$codeHttpCode = (int) curl_getinfo($codeCh, CURLINFO_HTTP_CODE);
-curl_close($codeCh);
-
-if ($codeHttpCode < 200 || $codeHttpCode >= 300) {
-    http_response_code(500);
-    echo json_encode([
-        'success' => false,
-        'error' => 'Nie udało się zapisać kodu potwierdzającego'
-    ], JSON_UNESCAPED_UNICODE);
-    exit;
-}
-
 try {
     $mailHtml = buildEmailChangeCodeHtml($code, $currentEmail, $newEmail);
     $mailSent = sendSystemMail($newEmail, 'Kod potwierdzenia zmiany e-maila', $mailHtml);
@@ -584,7 +681,7 @@ try {
 }
 
 if (!$mailSent) {
-    markEmailChangeCodesUsed(
+    $discardCodeResult = markEmailChangeCodesUsed(
         $supabaseUrl,
         $serviceRoleKey,
         $schema,
@@ -595,6 +692,18 @@ if (!$mailSent) {
         ]
     );
 
+    if (
+        ($discardCodeResult['ok'] ?? false) !== true
+        || ($discardCodeResult['affected'] ?? null) !== 1
+    ) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nie udało się obsłużyć prośby. Spróbuj ponownie później.'
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     http_response_code(500);
     echo json_encode([
         'success' => false,
@@ -602,17 +711,6 @@ if (!$mailSent) {
     ], JSON_UNESCAPED_UNICODE);
     exit;
 }
-
-markEmailChangeCodesUsed(
-    $supabaseUrl,
-    $serviceRoleKey,
-    $schema,
-    $tenantId,
-    $userId,
-    [
-        'code_hash=neq.' . rawurlencode($codeHash),
-    ]
-);
 
 security_log_event('email_change_code_sent', [
     'email' => $securityEmail,

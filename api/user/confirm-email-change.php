@@ -56,21 +56,29 @@ function requireUserConfirmEmailChangeCsrf(): void
     }
 }
 
-function markConfirmEmailChangeCodesUsed(
+function patchConfirmEmailChangeCode(
     string $supabaseUrl,
     string $serviceRoleKey,
     string $schema,
     string $tenantId,
     string $userId,
-    array $filters = []
-): void {
+    string $codeHash,
+    array $changes,
+    array $additionalFilters = []
+): array {
+    if ($codeHash === '') {
+        return ['ok' => false, 'affected' => null];
+    }
+
     $url = $supabaseUrl
         . '/rest/v1/email_change_codes'
-        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '?select=code_hash'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&user_id=eq.' . rawurlencode($userId)
+        . '&code_hash=eq.' . rawurlencode($codeHash)
         . '&used_at=is.null';
 
-    foreach ($filters as $filter) {
+    foreach ($additionalFilters as $filter) {
         $filter = trim((string) $filter);
 
         if ($filter !== '') {
@@ -78,16 +86,19 @@ function markConfirmEmailChangeCodesUsed(
         }
     }
 
-    $payload = json_encode([
-        'used_at' => gmdate('Y-m-d\TH:i:s\Z'),
-    ], JSON_UNESCAPED_UNICODE);
+    $payload = json_encode($changes, JSON_UNESCAPED_UNICODE);
 
     if ($payload === false) {
-        return;
+        return ['ok' => false, 'affected' => null];
     }
 
     $ch = curl_init($url);
-    curl_setopt_array($ch, [
+
+    if ($ch === false) {
+        return ['ok' => false, 'affected' => null];
+    }
+
+    $configured = curl_setopt_array($ch, [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST  => 'PATCH',
         CURLOPT_POSTFIELDS     => $payload,
@@ -98,13 +109,84 @@ function markConfirmEmailChangeCodesUsed(
             'Authorization: Bearer ' . $serviceRoleKey,
             'Accept-Profile: ' . $schema,
             'Content-Profile: ' . $schema,
-            'Prefer: return=minimal',
+            'Prefer: return=representation',
         ],
         CURLOPT_TIMEOUT        => 20,
     ]);
 
-    curl_exec($ch);
+    if (!$configured) {
+        curl_close($ch);
+
+        return ['ok' => false, 'affected' => null];
+    }
+
+    $response = curl_exec($ch);
+    $curlError = curl_error($ch);
+    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
     curl_close($ch);
+
+    if ($response === false || $curlError !== '' || $httpCode < 200 || $httpCode >= 300) {
+        return ['ok' => false, 'affected' => null];
+    }
+
+    $rows = json_decode((string) $response, true);
+
+    if (json_last_error() !== JSON_ERROR_NONE || !is_array($rows)) {
+        return ['ok' => false, 'affected' => null];
+    }
+
+    foreach ($rows as $row) {
+        if (
+            !is_array($row)
+            || !isset($row['code_hash'])
+            || !is_string($row['code_hash'])
+            || !hash_equals($codeHash, $row['code_hash'])
+        ) {
+            return ['ok' => false, 'affected' => null];
+        }
+    }
+
+    return ['ok' => true, 'affected' => count($rows)];
+}
+
+function markConfirmEmailChangeCodesUsed(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    string $userId,
+    string $codeHash
+): array {
+    return patchConfirmEmailChangeCode(
+        $supabaseUrl,
+        $serviceRoleKey,
+        $schema,
+        $tenantId,
+        $userId,
+        $codeHash,
+        ['used_at' => gmdate('Y-m-d\TH:i:s\Z')]
+    );
+}
+
+function incrementConfirmEmailChangeAttempts(
+    string $supabaseUrl,
+    string $serviceRoleKey,
+    string $schema,
+    string $tenantId,
+    string $userId,
+    string $codeHash,
+    int $attempts
+): array {
+    return patchConfirmEmailChangeCode(
+        $supabaseUrl,
+        $serviceRoleKey,
+        $schema,
+        $tenantId,
+        $userId,
+        $codeHash,
+        ['attempts' => $attempts + 1],
+        ['attempts=eq.' . rawurlencode((string) $attempts)]
+    );
 }
 
 function confirmEmailChangeLogSecurityEvent(
@@ -282,14 +364,23 @@ $expiresAt = (string) ($row['expires_at'] ?? '');
 
 if ($oldEmail !== '' && mb_strtolower($oldEmail, 'UTF-8') !== mb_strtolower($sessionEmail, 'UTF-8')) {
     if ($codeHash !== '') {
-        markConfirmEmailChangeCodesUsed(
+        $markStaleResult = markConfirmEmailChangeCodesUsed(
             $supabaseUrl,
             $serviceRoleKey,
             $schema,
             $tenantId,
             $userId,
-            ['code_hash=eq.' . rawurlencode($codeHash)]
+            $codeHash
         );
+
+        if (($markStaleResult['ok'] ?? false) !== true || ($markStaleResult['affected'] ?? null) !== 1) {
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Nie udało się potwierdzić zmiany e-maila. Spróbuj ponownie.'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
 
     confirmEmailChangeLogSecurityEvent(
@@ -312,14 +403,23 @@ if ($oldEmail !== '' && mb_strtolower($oldEmail, 'UTF-8') !== mb_strtolower($ses
 
 if ($newEmail === '' || !filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
     if ($codeHash !== '') {
-        markConfirmEmailChangeCodesUsed(
+        $markInvalidResult = markConfirmEmailChangeCodesUsed(
             $supabaseUrl,
             $serviceRoleKey,
             $schema,
             $tenantId,
             $userId,
-            ['code_hash=eq.' . rawurlencode($codeHash)]
+            $codeHash
         );
+
+        if (($markInvalidResult['ok'] ?? false) !== true || ($markInvalidResult['affected'] ?? null) !== 1) {
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Nie udało się potwierdzić zmiany e-maila. Spróbuj ponownie.'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
 
     http_response_code(422);
@@ -332,14 +432,23 @@ if ($newEmail === '' || !filter_var($newEmail, FILTER_VALIDATE_EMAIL)) {
 
 if ($expiresAt === '' || strtotime($expiresAt) < time()) {
     if ($codeHash !== '') {
-        markConfirmEmailChangeCodesUsed(
+        $markExpiredResult = markConfirmEmailChangeCodesUsed(
             $supabaseUrl,
             $serviceRoleKey,
             $schema,
             $tenantId,
             $userId,
-            ['code_hash=eq.' . rawurlencode($codeHash)]
+            $codeHash
         );
+
+        if (($markExpiredResult['ok'] ?? false) !== true || ($markExpiredResult['affected'] ?? null) !== 1) {
+            http_response_code(500);
+            echo json_encode([
+                'success' => false,
+                'error' => 'Nie udało się potwierdzić zmiany e-maila. Spróbuj ponownie.'
+            ], JSON_UNESCAPED_UNICODE);
+            exit;
+        }
     }
 
     http_response_code(410);
@@ -360,39 +469,26 @@ if ($attempts >= 5) {
 }
 
 if ($codeHash === '' || $newEmail === '' || !password_verify($code, $codeHash)) {
-    if ($codeHash !== '') {
-        $attemptPatchUrl = $supabaseUrl
-            . '/rest/v1/email_change_codes'
-            . '?tenant_id=eq.' . rawurlencode($tenantId)
-            . '&user_id=eq.' . rawurlencode($userId)
-            . '&code_hash=eq.' . rawurlencode($codeHash)
-            . '&used_at=is.null';
+    $attemptUpdateResult = incrementConfirmEmailChangeAttempts(
+        $supabaseUrl,
+        $serviceRoleKey,
+        $schema,
+        $tenantId,
+        $userId,
+        $codeHash,
+        $attempts
+    );
 
-        $attemptPatchPayload = json_encode([
-            'attempts' => $attempts + 1
+    if (
+        ($attemptUpdateResult['ok'] ?? false) !== true
+        || ($attemptUpdateResult['affected'] ?? null) !== 1
+    ) {
+        http_response_code(500);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Nie udało się potwierdzić zmiany e-maila. Spróbuj ponownie.'
         ], JSON_UNESCAPED_UNICODE);
-
-        if ($attemptPatchPayload !== false) {
-            $attemptPatchCh = curl_init($attemptPatchUrl);
-            curl_setopt_array($attemptPatchCh, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_CUSTOMREQUEST  => 'PATCH',
-                CURLOPT_POSTFIELDS     => $attemptPatchPayload,
-                CURLOPT_HTTPHEADER     => [
-                    'Content-Type: application/json',
-                    'Accept: application/json',
-                    'apikey: ' . $serviceRoleKey,
-                    'Authorization: Bearer ' . $serviceRoleKey,
-                    'Accept-Profile: ' . $schema,
-                    'Content-Profile: ' . $schema,
-                    'Prefer: return=minimal',
-                ],
-                CURLOPT_TIMEOUT        => 20,
-            ]);
-
-            curl_exec($attemptPatchCh);
-            curl_close($attemptPatchCh);
-        }
+        exit;
     }
 
     confirmEmailChangeLogSecurityEvent(
@@ -448,7 +544,16 @@ if ($conflictResponse === false || $conflictHttpCode < 200 || $conflictHttpCode 
 
 $conflictRows = json_decode($conflictResponse, true);
 
-if (is_array($conflictRows) && !empty($conflictRows)) {
+if (json_last_error() !== JSON_ERROR_NONE || !is_array($conflictRows)) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się potwierdzić zmiany e-maila'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (!empty($conflictRows)) {
     http_response_code(409);
     echo json_encode([
         'success' => false,
@@ -457,9 +562,37 @@ if (is_array($conflictRows) && !empty($conflictRows)) {
     exit;
 }
 
+$consumeCodeResult = markConfirmEmailChangeCodesUsed(
+    $supabaseUrl,
+    $serviceRoleKey,
+    $schema,
+    $tenantId,
+    $userId,
+    $codeHash
+);
+
+if (($consumeCodeResult['ok'] ?? false) !== true) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się potwierdzić zmiany e-maila. Spróbuj ponownie.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+if (($consumeCodeResult['affected'] ?? null) !== 1) {
+    http_response_code(409);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się potwierdzić zmiany e-maila. Wygeneruj nowy kod.'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $userPatchUrl = $supabaseUrl
     . '/rest/v1/users'
-    . '?id=eq.' . rawurlencode($userId)
+    . '?select=id'
+    . '&id=eq.' . rawurlencode($userId)
     . '&tenant_id=eq.' . rawurlencode($tenantId);
 
 $userPatchPayload = json_encode([
@@ -487,14 +620,15 @@ curl_setopt_array($userPatchCh, [
         'Authorization: Bearer ' . $serviceRoleKey,
         'Accept-Profile: ' . $schema,
         'Content-Profile: ' . $schema,
-        'Prefer: return=minimal',
+        'Prefer: return=representation',
     ],
     CURLOPT_TIMEOUT        => 20,
 ]);
 
 $userPatchResponse = curl_exec($userPatchCh);
+$userPatchCurlError = curl_error($userPatchCh);
 
-if ($userPatchResponse === false) {
+if ($userPatchResponse === false || $userPatchCurlError !== '') {
     curl_close($userPatchCh);
 
     http_response_code(500);
@@ -517,16 +651,27 @@ if ($userPatchHttpCode < 200 || $userPatchHttpCode >= 300) {
     exit;
 }
 
-$_SESSION['user']['email'] = $newEmail;
+$userPatchRows = json_decode((string) $userPatchResponse, true);
+$userPatchRow = is_array($userPatchRows) && count($userPatchRows) === 1 && is_array($userPatchRows[0])
+    ? $userPatchRows[0]
+    : null;
 
-markConfirmEmailChangeCodesUsed(
-    $supabaseUrl,
-    $serviceRoleKey,
-    $schema,
-    $tenantId,
-    $userId,
-    ['code_hash=eq.' . rawurlencode($codeHash)]
-);
+if (
+    json_last_error() !== JSON_ERROR_NONE
+    || $userPatchRow === null
+    || !isset($userPatchRow['id'])
+    || !is_string($userPatchRow['id'])
+    || !hash_equals($userId, $userPatchRow['id'])
+) {
+    http_response_code(500);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Nie udało się zapisać nowego e-maila'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
+$_SESSION['user']['email'] = $newEmail;
 
 $userAgent = $_SERVER['HTTP_USER_AGENT'] ?? 'unknown';
 $logPayload = json_encode([
