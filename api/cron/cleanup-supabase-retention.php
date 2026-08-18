@@ -10,6 +10,7 @@ const RETENTION_SUBSCRIPTION_FAILED_PAYMENTS_MONTHS = 6;
 const RETENTION_SUBSCRIPTION_PAID_PAYMENTS_MONTHS = 24;
 const RETENTION_TOKENS_DAYS = 30;
 const RETENTION_EMAIL_CHANGE_CODES_DAYS = 2;
+const RETENTION_ACCOUNT_DELETION_CODES_DAYS = 2;
 const RETENTION_RUNTIME_DIR = '/var/www/data';
 
 function retention_json(array $payload, int $statusCode = 200): void
@@ -474,6 +475,7 @@ try {
     $paidPaymentsCutoff = retention_iso($nowUtc->modify('-' . RETENTION_SUBSCRIPTION_PAID_PAYMENTS_MONTHS . ' months'));
     $tokensCutoff = retention_iso($nowUtc->modify('-' . RETENTION_TOKENS_DAYS . ' days'));
     $emailChangeCodesCutoff = retention_iso($nowUtc->modify('-' . RETENTION_EMAIL_CHANGE_CODES_DAYS . ' days'));
+    $accountDeletionCodesCutoff = retention_iso($nowUtc->modify('-' . RETENTION_ACCOUNT_DELETION_CODES_DAYS . ' days'));
     $nowIso = retention_iso($nowUtc);
 
     $rules = [
@@ -541,6 +543,22 @@ try {
             'retention' => '2 dni od wygaśnięcia',
         ],
         [
+            'key' => 'account_deletion_codes_used_old',
+            'table' => 'account_deletion_codes',
+            'description' => 'Zamknięte kody usunięcia konta starsze niż ustalona retencja.',
+            'filters' => 'used_at=not.is.null'
+                . '&used_at=lt.' . rawurlencode($accountDeletionCodesCutoff),
+            'retention' => '2 dni od zamknięcia',
+        ],
+        [
+            'key' => 'account_deletion_codes_expired_unused_old',
+            'table' => 'account_deletion_codes',
+            'description' => 'Wygasłe, niezamknięte kody usunięcia konta starsze niż ustalona retencja.',
+            'filters' => 'used_at=is.null'
+                . '&expires_at=lt.' . rawurlencode($accountDeletionCodesCutoff),
+            'retention' => '2 dni od wygaśnięcia',
+        ],
+        [
             'key' => 'registration_consents_retention_expired',
             'table' => 'registration_consents',
             'description' => 'Zgody dowodowe po upływie 6-letniego okresu retencji.',
@@ -579,6 +597,7 @@ try {
             'paid_subscription_payments_before' => $paidPaymentsCutoff,
             'tokens_before' => $tokensCutoff,
             'email_change_codes_before' => $emailChangeCodesCutoff,
+            'account_deletion_codes_before' => $accountDeletionCodesCutoff,
         ],
         'total_candidates' => 0,
         'total_deleted' => 0,
