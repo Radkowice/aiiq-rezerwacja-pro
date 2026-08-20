@@ -8,7 +8,7 @@ const RETENTION_BOOKINGS_MONTHS = 3;
 const RETENTION_SUBSCRIPTION_EMAIL_LOGS_MONTHS = 6;
 const RETENTION_SUBSCRIPTION_FAILED_PAYMENTS_MONTHS = 6;
 const RETENTION_SUBSCRIPTION_PAID_PAYMENTS_MONTHS = 24;
-const RETENTION_TOKENS_DAYS = 30;
+const RETENTION_TOKENS_DAYS = 2;
 const RETENTION_EMAIL_CHANGE_CODES_DAYS = 2;
 const RETENTION_ACCOUNT_DELETION_CODES_DAYS = 2;
 const RETENTION_RUNTIME_DIR = '/var/www/data';
@@ -131,6 +131,11 @@ function retention_headers(string $key, string $schema, bool $count = false, boo
     return $headers;
 }
 
+function retention_schema_is_allowed(string $schema): bool
+{
+    return trim($schema) === 'rezerwacja_pro';
+}
+
 function retention_filter_segments(string $filters): ?array
 {
     $filters = trim($filters);
@@ -143,7 +148,7 @@ function retention_filter_segments(string $filters): ?array
     $reservedFields = ['select', 'order', 'limit', 'offset', 'columns', 'on_conflict', 'or', 'and'];
 
     foreach ($segments as $segment) {
-        if (!preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)=([a-zA-Z][a-zA-Z0-9_]*)\.([^&=\s]+)$/', $segment, $matches)) {
+        if (!preg_match('/^([a-zA-Z_][a-zA-Z0-9_]*)=([a-zA-Z][a-zA-Z0-9_]*)\.([^#?&=\s]+)$/', $segment, $matches)) {
             return null;
         }
 
@@ -155,11 +160,44 @@ function retention_filter_segments(string $filters): ?array
     return $segments;
 }
 
+function retention_registration_consents_cutoff_is_safe(string $encodedCutoff): bool
+{
+    if ($encodedCutoff === '' || preg_match('/[#?&=\s]/', $encodedCutoff) === 1) {
+        return false;
+    }
+
+    $cutoffIso = rawurldecode($encodedCutoff);
+
+    if (
+        $cutoffIso === ''
+        || preg_match('/[#?&=\s]/', $cutoffIso) === 1
+        || rawurlencode($cutoffIso) !== $encodedCutoff
+        || preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\+00:00$/', $cutoffIso) !== 1
+    ) {
+        return false;
+    }
+
+    $cutoff = DateTimeImmutable::createFromFormat(DateTimeInterface::ATOM, $cutoffIso);
+    $dateErrors = DateTimeImmutable::getLastErrors();
+
+    if (
+        $cutoff === false
+        || ($dateErrors !== false && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0))
+        || $cutoff->format(DateTimeInterface::ATOM) !== $cutoffIso
+    ) {
+        return false;
+    }
+
+    $nowUtc = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+
+    return $cutoff <= $nowUtc;
+}
+
 function retention_registration_consents_filters_are_safe(string $filters): bool
 {
     $segments = retention_filter_segments($filters);
 
-    if ($segments === null || count($segments) !== 3) {
+    if ($segments === null || count($segments) !== 3 || count(array_unique($segments)) !== 3) {
         return false;
     }
 
@@ -169,10 +207,26 @@ function retention_registration_consents_filters_are_safe(string $filters): bool
         static fn(string $segment): bool => strncmp($segment, $cutoffPrefix, strlen($cutoffPrefix)) === 0
     ));
 
-    return in_array('retention_until=not.is.null', $segments, true)
-        && in_array('legal_hold=eq.false', $segments, true)
-        && count($cutoffSegments) === 1
-        && strlen($cutoffSegments[0]) > strlen($cutoffPrefix);
+    if (
+        !in_array('retention_until=not.is.null', $segments, true)
+        || !in_array('legal_hold=eq.false', $segments, true)
+        || count($cutoffSegments) !== 1
+    ) {
+        return false;
+    }
+
+    $encodedCutoff = substr($cutoffSegments[0], strlen($cutoffPrefix));
+
+    return retention_registration_consents_cutoff_is_safe($encodedCutoff);
+}
+
+function retention_registration_consents_build_filters(DateTimeImmutable $cutoff): string
+{
+    $cutoffIso = retention_iso($cutoff);
+
+    return 'retention_until=not.is.null'
+        . '&retention_until=lt.' . rawurlencode($cutoffIso)
+        . '&legal_hold=eq.false';
 }
 
 function retention_request_guard_error(
@@ -190,6 +244,10 @@ function retention_request_guard_error(
         || trim($filters) === ''
     ) {
         return 'invalid_request';
+    }
+
+    if (!retention_schema_is_allowed($schema)) {
+        return 'invalid_schema';
     }
 
     if (retention_filter_segments($filters) === null) {
@@ -429,7 +487,7 @@ try {
     $supabaseKey = retention_env('SUPABASE_SERVICE_ROLE_KEY');
     $schema = retention_env('SUPABASE_DB_SCHEMA', 'rezerwacja_pro');
 
-    if ($supabaseUrl === '' || $supabaseKey === '') {
+    if ($supabaseUrl === '' || $supabaseKey === '' || !retention_schema_is_allowed($schema)) {
         retention_json([
             'success' => false,
             'error' => 'Błąd konfiguracji retencji.',
@@ -513,18 +571,26 @@ try {
             'key' => 'activation_tokens_used_old',
             'table' => 'user_activation_tokens',
             'description' => 'Zużyte tokeny aktywacyjne starsze niż ustalona retencja.',
-            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
-                . '&used_at=not.is.null',
-            'retention' => '30 dni',
+            'filters' => 'used_at=not.is.null'
+                . '&used_at=lt.' . rawurlencode($tokensCutoff),
+            'retention' => '2 dni od zużycia',
+        ],
+        [
+            'key' => 'activation_tokens_revoked_old',
+            'table' => 'user_activation_tokens',
+            'description' => 'Unieważnione tokeny aktywacyjne starsze niż ustalona retencja.',
+            'filters' => 'revoked_at=not.is.null'
+                . '&revoked_at=lt.' . rawurlencode($tokensCutoff),
+            'retention' => '2 dni od unieważnienia',
         ],
         [
             'key' => 'activation_tokens_expired_old',
             'table' => 'user_activation_tokens',
-            'description' => 'Wygasłe, nieużyte tokeny aktywacyjne starsze niż ustalona retencja.',
-            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
-                . '&used_at=is.null'
-                . '&expires_at=lt.' . rawurlencode($nowIso),
-            'retention' => '30 dni',
+            'description' => 'Wygasłe, nieużyte i nieunieważnione tokeny aktywacyjne starsze niż ustalona retencja.',
+            'filters' => 'used_at=is.null'
+                . '&revoked_at=is.null'
+                . '&expires_at=lt.' . rawurlencode($tokensCutoff),
+            'retention' => '2 dni od wygaśnięcia',
         ],
         [
             'key' => 'email_change_codes_used_old',
@@ -562,27 +628,24 @@ try {
             'key' => 'registration_consents_retention_expired',
             'table' => 'registration_consents',
             'description' => 'Zgody dowodowe po upływie 6-letniego okresu retencji.',
-            'filters' => 'retention_until=not.is.null'
-                . '&retention_until=lt.' . rawurlencode($nowIso)
-                . '&legal_hold=eq.false',
+            'filters' => retention_registration_consents_build_filters($nowUtc),
             'retention' => '6 lat zgodnie z retention_until',
         ],
         [
             'key' => 'password_change_codes_used_old',
             'table' => 'password_change_codes',
             'description' => 'Zużyte kody zmiany hasła starsze niż ustalona retencja.',
-            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
-                . '&used_at=not.is.null',
-            'retention' => '30 dni',
+            'filters' => 'used_at=not.is.null'
+                . '&used_at=lt.' . rawurlencode($tokensCutoff),
+            'retention' => '2 dni od zużycia',
         ],
         [
             'key' => 'password_change_codes_expired_old',
             'table' => 'password_change_codes',
             'description' => 'Wygasłe, nieużyte kody zmiany hasła starsze niż ustalona retencja.',
-            'filters' => 'created_at=lt.' . rawurlencode($tokensCutoff)
-                . '&used_at=is.null'
-                . '&expires_at=lt.' . rawurlencode($nowIso),
-            'retention' => '30 dni',
+            'filters' => 'used_at=is.null'
+                . '&expires_at=lt.' . rawurlencode($tokensCutoff),
+            'retention' => '2 dni od wygaśnięcia',
         ],
     ];
 

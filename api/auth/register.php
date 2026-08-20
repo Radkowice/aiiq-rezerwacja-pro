@@ -709,6 +709,7 @@ $createdDomain = false;
 $createdSubscription = false;
 $createdServiceSettings = false;
 $createdConsent = false;
+$createdConsentId = '';
 $createdActivationToken = false;
 $createdSubscriptionPayment = false;
 
@@ -930,6 +931,11 @@ try {
     }
 
     $createdConsent = true;
+    $createdConsentId = extract_inserted_id($consentInsert['data'] ?? null);
+
+    if ($createdConsentId === '') {
+        throw new Exception('Nie udało się ustalić identyfikatora zgody rejestracyjnej');
+    }
 
     // 7. AKTYWACJA / PŁATNOŚĆ
     $paymentUrl = '';
@@ -1062,8 +1068,55 @@ try {
         supabase_request('DELETE', '/rest/v1/user_activation_tokens?tenant_id=eq.' . rawurlencode($tenantId));
     }
 
-    if (!empty($tenantId) && $createdConsent) {
-        supabase_request('DELETE', '/rest/v1/registration_consents?tenant_id=eq.' . rawurlencode($tenantId));
+    if (!empty($tenantId) && !empty($userId) && $createdConsent && $createdConsentId !== '') {
+        $rollbackConsent = supabase_request(
+            'DELETE',
+            '/rest/v1/registration_consents?select=id&id=eq.' . rawurlencode($createdConsentId)
+                . '&tenant_id=eq.' . rawurlencode($tenantId)
+                . '&user_id=eq.' . rawurlencode($userId)
+                . '&retention_until=is.null'
+                . '&evidence_ended_at=is.null'
+                . '&legal_hold=eq.false',
+            null,
+            false
+        );
+        register_debug_result('ROLLBACK_REGISTRATION_CONSENT', $rollbackConsent);
+
+        $rollbackConsentData = $rollbackConsent['data'] ?? null;
+        $rollbackConsentId = extract_inserted_id($rollbackConsentData);
+        $rollbackConsentComplete = $rollbackConsent['ok']
+            && is_array($rollbackConsentData)
+            && count($rollbackConsentData) === 1
+            && $rollbackConsentId !== ''
+            && hash_equals($createdConsentId, $rollbackConsentId);
+
+        if (!$rollbackConsentComplete) {
+            register_debug('ROLLBACK_REGISTRATION_CONSENT_INCOMPLETE', [
+                'success' => false,
+                'reason' => $rollbackConsent['ok'] ? 'delete_not_confirmed' : 'delete_failed',
+            ]);
+            register_security_event(
+                'auth_register_rollback_incomplete',
+                $rollbackConsent['ok'] ? 'registration_consent_delete_not_confirmed' : 'registration_consent_delete_failed',
+                500,
+                'failed',
+                'high',
+                ['stage' => 'registration_consent_rollback']
+            );
+        }
+    } elseif ($createdConsent) {
+        register_debug('ROLLBACK_REGISTRATION_CONSENT_INCOMPLETE', [
+            'success' => false,
+            'reason' => 'missing_consent_identity',
+        ]);
+        register_security_event(
+            'auth_register_rollback_incomplete',
+            'registration_consent_identity_missing',
+            500,
+            'failed',
+            'high',
+            ['stage' => 'registration_consent_rollback']
+        );
     }
 
     if (!empty($tenantId) && $createdServiceSettings) {
@@ -1119,16 +1172,23 @@ function supabase_headers(bool $minimal = false): array
     ];
 }
 
-function supabase_request(string $method, string $path, ?array $payload = null): array
+function supabase_request(
+    string $method,
+    string $path,
+    ?array $payload = null,
+    ?bool $minimalResponse = null
+): array
 {
     global $SUPABASE_URL;
+
+    $minimalResponse = $minimalResponse ?? ($method === 'DELETE');
 
     $ch = curl_init($SUPABASE_URL . $path);
 
     $opts = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST  => $method,
-        CURLOPT_HTTPHEADER     => supabase_headers($method === 'DELETE'),
+        CURLOPT_HTTPHEADER     => supabase_headers($minimalResponse),
         CURLOPT_TIMEOUT        => 20,
     ];
 
