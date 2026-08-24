@@ -4,9 +4,12 @@
   const PRO_UPGRADE_BUTTON_TEXT = 'Kupuję plan Pro z obowiązkiem zapłaty';
   const PRO_RENEWAL_BUTTON_TEXT = 'Przedłużam plan Pro z obowiązkiem zapłaty';
   const PRO_PAYMENT_INFO_TEXT = 'Płatność jednorazowa przez PayU. Plan Pro nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.';
+  const PRO_PAYMENT_INTENT_STORAGE_KEY = 'aiiq.proPaymentIntent.v1';
   let adminInfoInitialized = false;
   let currentSubscription = null;
   let currentPlanContext = {};
+  let proPaymentIntent = null;
+  let proPaymentRequestInFlight = false;
 
   function formatDate(value) {
     if (!value) return '—';
@@ -53,6 +56,87 @@
 
   function isProPlan(planCode) {
     return String(planCode || '').trim().toLowerCase() === 'pro';
+  }
+
+  function isValidProPaymentIdempotencyKey(value) {
+    return /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{64})$/i.test(String(value || ''));
+  }
+
+  function generateProPaymentIdempotencyKey() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+      return window.crypto.randomUUID();
+    }
+
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+      const bytes = new Uint8Array(32);
+      window.crypto.getRandomValues(bytes);
+      return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    }
+
+    throw new Error('Ta przeglądarka nie pozwala bezpiecznie rozpocząć płatności. Zaktualizuj przeglądarkę i spróbuj ponownie.');
+  }
+
+  function readStoredProPaymentIntent() {
+    try {
+      const stored = JSON.parse(window.sessionStorage.getItem(PRO_PAYMENT_INTENT_STORAGE_KEY) || 'null');
+
+      if (
+        stored
+        && typeof stored.intent === 'string'
+        && isValidProPaymentIdempotencyKey(stored.key)
+      ) {
+        return {
+          intent: stored.intent,
+          key: String(stored.key).toLowerCase()
+        };
+      }
+    } catch {
+      // sessionStorage may be unavailable; the in-memory key still remains stable.
+    }
+
+    return null;
+  }
+
+  function storeProPaymentIntent(intent) {
+    proPaymentIntent = intent;
+
+    try {
+      window.sessionStorage.setItem(PRO_PAYMENT_INTENT_STORAGE_KEY, JSON.stringify(intent));
+    } catch {
+      // The in-memory key is sufficient for retries within the current page.
+    }
+  }
+
+  function getProPaymentIdempotencyKey(intent) {
+    const existing = proPaymentIntent || readStoredProPaymentIntent();
+
+    if (existing?.intent === intent && isValidProPaymentIdempotencyKey(existing.key)) {
+      proPaymentIntent = existing;
+      return existing.key;
+    }
+
+    const next = {
+      intent,
+      key: generateProPaymentIdempotencyKey().toLowerCase()
+    };
+    storeProPaymentIntent(next);
+    return next.key;
+  }
+
+  function clearProPaymentIntent(intent) {
+    const existing = proPaymentIntent || readStoredProPaymentIntent();
+
+    if (existing?.intent !== intent) {
+      return;
+    }
+
+    proPaymentIntent = null;
+
+    try {
+      window.sessionStorage.removeItem(PRO_PAYMENT_INTENT_STORAGE_KEY);
+    } catch {
+      // Nothing else is required when sessionStorage is unavailable.
+    }
   }
 
   function formatCurrentPeriod(subscription) {
@@ -345,6 +429,10 @@
   }
 
   async function handleProUpgradeClick() {
+    if (proPaymentRequestInFlight) {
+      return;
+    }
+
     const button = document.getElementById('pro-upgrade-btn');
     const selected = document.querySelector('input[name="pro-upgrade-period"]:checked');
     const consent = document.getElementById('pro-upgrade-consent');
@@ -353,6 +441,11 @@
     const billingPeriod = String(selected?.value || '').trim();
     const planCode = resolveVisiblePlanCode(currentSubscription, currentPlanContext);
     const originalText = button ? button.textContent : '';
+    const paymentType = isProPlan(planCode) || currentPlanContext?.expired_paid_pro === true
+      ? 'subscription_renewal'
+      : 'subscription_upgrade';
+    const paymentIntent = `${paymentType}:${billingPeriod}`;
+    let keepControlsLocked = false;
 
     if (!isFreePlan(planCode) && !isProPlan(planCode)) {
       setProUpgradeMessage('Zakup albo przedłużenie planu Pro nie jest dostępne dla obecnego planu.', 'error');
@@ -373,6 +466,9 @@
     }
 
     try {
+      const idempotencyKey = getProPaymentIdempotencyKey(paymentIntent);
+      proPaymentRequestInFlight = true;
+
       if (button) {
         button.disabled = true;
         button.textContent = 'Przygotowuję płatność...';
@@ -391,11 +487,10 @@
         },
         body: JSON.stringify({
           billing_period: billingPeriod,
+          idempotency_key: idempotencyKey,
           terms_accepted: termsAccepted,
           privacy_accepted: privacyAccepted,
-          payment_type: isProPlan(planCode) || currentPlanContext?.expired_paid_pro === true
-            ? 'subscription_renewal'
-            : 'subscription_upgrade'
+          payment_type: paymentType
         })
       });
 
@@ -408,25 +503,43 @@
         throw new Error('Serwer zwrócił nieprawidłową odpowiedź.');
       }
 
+      if (data?.unresolved === true || data?.retry_allowed === false) {
+        keepControlsLocked = true;
+        setProUpgradeMessage(
+          data?.error || 'Wynik przygotowania płatności jest nierozstrzygnięty. Nie ponawiaj płatności.',
+          data?.unresolved === true ? 'info' : 'error'
+        );
+        return;
+      }
+
       if (!res.ok || data?.success !== true || !data?.payment_url) {
+        if (data?.new_intent_required === true) {
+          clearProPaymentIntent(paymentIntent);
+        }
+
         throw new Error(data?.error || 'Nie udało się przygotować płatności za plan Pro.');
       }
 
+      keepControlsLocked = true;
       window.location.href = data.payment_url;
     } catch (error) {
       console.error('pro upgrade payment error:', error);
       setProUpgradeMessage(error.message || 'Nie udało się przygotować płatności za plan Pro. Spróbuj ponownie później.', 'error');
+    } finally {
+      proPaymentRequestInFlight = false;
 
-      if (button) {
-        button.disabled = false;
-        button.textContent = originalText || (
-          isProPlan(planCode) || currentPlanContext?.expired_paid_pro === true
-            ? PRO_RENEWAL_BUTTON_TEXT
-            : PRO_UPGRADE_BUTTON_TEXT
-        );
+      if (!keepControlsLocked) {
+        if (button) {
+          button.disabled = false;
+          button.textContent = originalText || (
+            paymentType === 'subscription_renewal'
+              ? PRO_RENEWAL_BUTTON_TEXT
+              : PRO_UPGRADE_BUTTON_TEXT
+          );
+        }
+
+        setProUpgradeOptionsState(true);
       }
-
-      setProUpgradeOptionsState(true);
     }
   }
 

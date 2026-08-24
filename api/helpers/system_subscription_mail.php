@@ -343,6 +343,25 @@ function buildVipCustomDomainRequestedMailHtml(array $context): string
     );
 }
 
+function buildSubscriptionVipCustomDomainRequestedCustomerMailHtml(array $context): string
+{
+    $companyName = trim((string) ($context['company_name'] ?? ''));
+
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Plan VIP jest aktywny w Twoim panelu.</p>'
+        . system_subscription_mail_info_card('✅', 'Status planu', 'Plan VIP aktywny')
+        . system_subscription_mail_info_card('🌐', 'Własna domena', 'Prośba o podłączenie własnej domeny została przyjęta')
+        . system_subscription_mail_info_card('📩', 'Dalsza konfiguracja', 'AI-IQ skontaktuje się z Tobą w sprawie kolejnych kroków')
+        . system_subscription_mail_info_card('🏢', 'Firma', $companyName);
+
+    return system_subscription_mail_layout(
+        'Prośba o podłączenie własnej domeny została przyjęta',
+        'Potwierdzenie dla klienta AI-IQ Rezerwacja Pro.',
+        '🌐',
+        $body,
+        'Wiadomość nie zawiera danych płatniczych ani technicznych identyfikatorów.'
+    );
+}
+
 function buildSubscriptionReminderMailHtml(array $subscription, array $context, int $daysLeft): string
 {
     $panelUrl = system_subscription_mail_panel_url($context);

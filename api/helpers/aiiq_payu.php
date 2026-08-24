@@ -1,6 +1,44 @@
 <?php
 declare(strict_types=1);
 
+const AI_IQ_PAYU_ORDER_RESULT_LOCAL_FAILURE = 'local_failure';
+const AI_IQ_PAYU_ORDER_RESULT_DEFINITIVE_FAILURE = 'definitive_failure';
+const AI_IQ_PAYU_ORDER_RESULT_CREATED = 'order_created';
+const AI_IQ_PAYU_ORDER_RESULT_UNKNOWN = 'result_unknown';
+
+function aiiq_payu_order_result_kinds(): array
+{
+    // definitive_failure is reserved for a response proven by the PayU
+    // integration contract. HTTP status alone must never select it.
+    return [
+        AI_IQ_PAYU_ORDER_RESULT_LOCAL_FAILURE,
+        AI_IQ_PAYU_ORDER_RESULT_DEFINITIVE_FAILURE,
+        AI_IQ_PAYU_ORDER_RESULT_CREATED,
+        AI_IQ_PAYU_ORDER_RESULT_UNKNOWN,
+    ];
+}
+
+function aiiq_payu_unknown_order_error_code(array $result, string $orderId, string $redirectUri): string
+{
+    if (($result['error'] ?? '') !== '') {
+        return 'transport_error';
+    }
+
+    if (empty($result['json_valid'])) {
+        return 'malformed_response';
+    }
+
+    if (!in_array((int) ($result['http_code'] ?? 0), [200, 201, 302], true)) {
+        return 'unverified_http_response';
+    }
+
+    if ($orderId === '' || $redirectUri === '') {
+        return 'incomplete_response';
+    }
+
+    return 'provider_result_unknown';
+}
+
 function aiiq_payu_debug(string $tag, $data = null): void
 {
     $line = date('Y-m-d H:i:s') . ' [' . $tag . ']';
@@ -105,12 +143,42 @@ function aiiq_payu_http_request(
     bool $followRedirects = false
 ): array {
     $responseHeaders = [];
+
+    if (!function_exists('curl_init')) {
+        return [
+            'http_code' => 0,
+            'response' => false,
+            'error' => 'curl_missing',
+            'effective_url' => '',
+            'headers' => [],
+            'location' => '',
+            'data' => null,
+            'json_valid' => false,
+            'request_attempted' => false,
+        ];
+    }
+
     $ch = curl_init($url);
+
+    if ($ch === false) {
+        return [
+            'http_code' => 0,
+            'response' => false,
+            'error' => 'curl_init_error',
+            'effective_url' => '',
+            'headers' => [],
+            'location' => '',
+            'data' => null,
+            'json_valid' => false,
+            'request_attempted' => false,
+        ];
+    }
 
     $options = [
         CURLOPT_RETURNTRANSFER => true,
         CURLOPT_CUSTOMREQUEST => $method,
         CURLOPT_HTTPHEADER => $headers,
+        CURLOPT_CONNECTTIMEOUT => 5,
         CURLOPT_TIMEOUT => 30,
         CURLOPT_FOLLOWLOCATION => $followRedirects,
         CURLOPT_HEADER => false,
@@ -147,6 +215,14 @@ function aiiq_payu_http_request(
 
     curl_close($ch);
 
+    $decoded = null;
+    $jsonValid = false;
+
+    if (is_string($response) && $response !== '') {
+        $decoded = json_decode($response, true);
+        $jsonValid = json_last_error() === JSON_ERROR_NONE;
+    }
+
     return [
         'http_code' => $httpCode,
         'response' => $response,
@@ -154,7 +230,9 @@ function aiiq_payu_http_request(
         'effective_url' => $effectiveUrl,
         'headers' => $responseHeaders,
         'location' => $responseHeaders['location'] ?? '',
-        'data' => json_decode((string) $response, true),
+        'data' => $decoded,
+        'json_valid' => $jsonValid,
+        'request_attempted' => true,
     ];
 }
 
@@ -284,6 +362,21 @@ function aiiq_payu_create_order(array $payu, array $orderPayload): array
         return [
             'success' => false,
             'error' => $tokenResult['error'] ?? 'Nie udało się pobrać tokena PayU platformy.',
+            'result_kind' => AI_IQ_PAYU_ORDER_RESULT_LOCAL_FAILURE,
+            'order_request_sent' => false,
+            'error_code' => 'access_token_unavailable',
+        ];
+    }
+
+    $encodedPayload = json_encode($orderPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if ($encodedPayload === false) {
+        return [
+            'success' => false,
+            'error' => 'Nie udało się przygotować żądania PayU.',
+            'result_kind' => AI_IQ_PAYU_ORDER_RESULT_LOCAL_FAILURE,
+            'order_request_sent' => false,
+            'error_code' => 'payload_encode_error',
         ];
     }
 
@@ -295,7 +388,7 @@ function aiiq_payu_create_order(array $payu, array $orderPayload): array
             'Accept: application/json',
             'Authorization: Bearer ' . $tokenResult['access_token'],
         ],
-        json_encode($orderPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+        $encodedPayload,
         false
     );
 
@@ -309,10 +402,6 @@ function aiiq_payu_create_order(array $payu, array $orderPayload): array
         $redirectUri = $location;
     }
 
-    if ($orderId === '' && !empty($orderPayload['extOrderId'])) {
-        $orderId = (string) $orderPayload['extOrderId'];
-    }
-
     $diagnostics = aiiq_payu_response_diagnostics($result, $payu);
     $diagnostics['order_id_set'] = $orderId !== '';
     $diagnostics['redirect_uri_set'] = $redirectUri !== '';
@@ -323,20 +412,42 @@ function aiiq_payu_create_order(array $payu, array $orderPayload): array
         !$result['error']
         && in_array($result['http_code'], [200, 201, 302], true)
         && $redirectUri !== ''
+        && $orderId !== ''
     ) {
         return [
             'success' => true,
+            'result_kind' => AI_IQ_PAYU_ORDER_RESULT_CREATED,
+            'order_request_sent' => true,
+            'error_code' => '',
             'order_id' => $orderId,
             'redirect_uri' => $redirectUri,
             'payu_status' => $statusCode,
             'http_code' => $result['http_code'],
+            'response_sha256' => hash('sha256', (string) ($result['response'] ?? '')),
+        ];
+    }
+
+    if (empty($result['request_attempted'])) {
+        return [
+            'success' => false,
+            'error' => 'Nie udało się lokalnie wysłać żądania PayU.',
+            'result_kind' => AI_IQ_PAYU_ORDER_RESULT_LOCAL_FAILURE,
+            'order_request_sent' => false,
+            'error_code' => 'local_transport_unavailable',
+            'payu_status' => $statusCode,
+            'http_code' => (int) ($result['http_code'] ?? 0),
+            'response_sha256' => '',
         ];
     }
 
     return [
         'success' => false,
-        'error' => $result['error'] ? 'Błąd połączenia z PayU.' : 'PayU nie utworzyło zamówienia.',
+        'error' => 'Wynik utworzenia zamówienia PayU jest niejednoznaczny.',
+        'result_kind' => AI_IQ_PAYU_ORDER_RESULT_UNKNOWN,
+        'order_request_sent' => true,
+        'error_code' => aiiq_payu_unknown_order_error_code($result, $orderId, $redirectUri),
         'payu_status' => $statusCode,
         'http_code' => $result['http_code'],
+        'response_sha256' => hash('sha256', (string) ($result['response'] ?? '')),
     ];
 }

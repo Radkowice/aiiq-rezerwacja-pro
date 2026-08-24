@@ -1,12 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/security.php';
-require_once __DIR__ . '/../helpers/system_subscription_mail.php';
-require_once __DIR__ . '/../helpers/activation_link.php';
-
 
 function subscription_payu_notify_security_event(
     string $eventKey,
@@ -14,7 +11,6 @@ function subscription_payu_notify_security_event(
     int $responseStatus,
     string $result = 'failed',
     string $severity = 'medium',
-    ?string $tenantId = null,
     ?string $stage = null
 ): void {
     $details = ['reason' => $reason];
@@ -28,7 +24,7 @@ function subscription_payu_notify_security_event(
         'endpoint' => '/api/subscriptions/payu-notify.php',
         'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'POST',
         'actor_type' => 'payu_webhook',
-        'tenant_id' => $tenantId,
+        'tenant_id' => null,
         'severity' => $severity,
         'response_status' => $responseStatus,
         'result' => $result,
@@ -112,1049 +108,97 @@ function subscription_payu_notify_verify_signature(string $rawBody, string $seco
     return hash_equals($expectedSignature, $incomingSignature);
 }
 
-function subscription_payu_notify_request(string $method, string $url, array $headers, ?array $payload = null): array
+function subscription_payu_notify_valid_id($value): bool
 {
-    $ch = curl_init($url);
-
-    $options = [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_TIMEOUT => 20,
-        CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_CUSTOMREQUEST => $method,
-    ];
-
-    if ($payload !== null) {
-        $options[CURLOPT_POSTFIELDS] = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-    }
-
-    curl_setopt_array($ch, $options);
-
-    $response = curl_exec($ch);
-    $curlError = curl_error($ch);
-    $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-    curl_close($ch);
-
-    return [
-        'ok' => $response !== false && $curlError === '' && $httpCode >= 200 && $httpCode < 300,
-        'http_code' => $httpCode,
-        'error' => $curlError ?: null,
-        'data' => json_decode((string) $response, true),
-        'raw' => $response,
-    ];
+    return is_string($value)
+        && $value !== ''
+        && strlen($value) <= 160
+        && preg_match('/^[A-Za-z0-9_-]+$/D', $value) === 1;
 }
 
-function subscription_payu_notify_hash(string $value): string
+function subscription_payu_notify_amount_minor($value): ?int
 {
-    $value = trim($value);
-
-    if ($value === '') {
-        return '';
+    if (is_int($value)) {
+        return $value >= 0 ? $value : null;
     }
 
-    return substr(hash('sha256', $value), 0, 16);
-}
-
-function subscription_payu_notify_safe_payload(array $payload, bool $signatureVerified = false): array
-{
-    $order = is_array($payload['order'] ?? null) ? $payload['order'] : [];
-    $orderId = trim((string) ($order['orderId'] ?? ''));
-    $extOrderId = trim((string) ($order['extOrderId'] ?? ''));
-    $status = trim((string) ($order['status'] ?? ''));
-
-    return [
-        'order_id_set' => $orderId !== '',
-        'order_hash' => subscription_payu_notify_hash($orderId),
-        'ext_order_id_set' => $extOrderId !== '',
-        'ext_order_hash' => subscription_payu_notify_hash($extOrderId),
-        'payu_status' => $status !== '' ? strtoupper($status) : 'UNKNOWN',
-        'notify_received_at' => gmdate('c'),
-        'signature_verified' => $signatureVerified,
-    ];
-}
-
-function subscription_payu_notify_find_payment(
-    string $supabaseUrl,
-    array $headers,
-    string $orderId,
-    string $extOrderId
-): ?array {
-    $filters = [];
-
-    if ($orderId !== '') {
-        $filters[] = 'payu_order_id.eq.' . rawurlencode($orderId);
-        $filters[] = 'payu_ext_order_id.eq.' . rawurlencode($orderId);
-    }
-
-    if ($extOrderId !== '') {
-        $filters[] = 'payu_ext_order_id.eq.' . rawurlencode($extOrderId);
-    }
-
-    $filters = array_values(array_unique($filters));
-
-    if (!$filters) {
+    if (!is_string($value) || preg_match('/^[0-9]+$/D', $value) !== 1) {
         return null;
     }
 
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/tenant_subscription_payments'
-        . '?select=id,tenant_id,payment_type,plan_code,billing_period,amount,currency,status,payu_order_id,payu_ext_order_id,paid_at,processed_at,subscription_period_start,subscription_period_end,activation_email_sent_at,custom_domain_requested'
-        . '&or=(' . implode(',', $filters) . ')'
-        . '&limit=1';
+    $canonical = ltrim($value, '0');
 
-    $result = subscription_payu_notify_request('GET', $url, $headers);
-
-    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_PAYMENT_FETCH_ERROR', [
-            'http_code' => $result['http_code'],
-            'has_error' => $result['error'] !== null,
-            'order_id_set' => $orderId !== '',
-            'order_hash' => subscription_payu_notify_hash($orderId),
-            'ext_order_id_set' => $extOrderId !== '',
-            'ext_order_hash' => subscription_payu_notify_hash($extOrderId),
-        ]);
-
-        return null;
+    if ($canonical === '') {
+        return 0;
     }
 
-    return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
-}
-
-function subscription_payu_notify_fetch_subscription(string $supabaseUrl, array $headers, string $tenantId): ?array
-{
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/tenant_subscriptions'
-        . '?select=tenant_id,plan_code,plan_name,billing_period,status,amount,currency,current_period_start,current_period_end,next_payment_due_at,grace_period_days,last_payment_at'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&limit=1';
-
-    $result = subscription_payu_notify_request('GET', $url, $headers);
-
-    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_SUBSCRIPTION_FETCH_ERROR', [
-            'tenant_hash' => subscription_payu_notify_hash($tenantId),
-            'http_code' => $result['http_code'],
-            'has_error' => $result['error'] !== null,
-        ]);
-
-        return null;
-    }
-
-    return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
-}
-
-function subscription_payu_notify_fetch_last_paid_pro_period(string $supabaseUrl, array $headers, string $tenantId): ?array
-{
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/tenant_subscription_payments'
-        . '?select=paid_at,subscription_period_start,subscription_period_end'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&plan_code=eq.pro'
-        . '&status=eq.paid'
-        . '&order=subscription_period_end.desc.nullslast'
-        . '&limit=1';
-
-    $result = subscription_payu_notify_request('GET', $url, $headers);
-
-    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
-        return null;
-    }
-
-    return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
-}
-
-function subscription_payu_notify_fetch_email_context(string $supabaseUrl, array $headers, string $tenantId): array
-{
-    $context = [
-        'recipient_email' => '',
-        'company_name' => '',
-        'panel_domain' => '',
-    ];
-
-    $settingsUrl = rtrim($supabaseUrl, '/')
-        . '/rest/v1/tenant_service_settings'
-        . '?select=company_full_name,company_email'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&limit=1';
-    $settingsResult = subscription_payu_notify_request('GET', $settingsUrl, $headers);
-    $settings = $settingsResult['ok'] && is_array($settingsResult['data'][0] ?? null)
-        ? $settingsResult['data'][0]
-        : [];
-
-    $context['company_name'] = trim((string) ($settings['company_full_name'] ?? ''));
-    $companyEmail = trim((string) ($settings['company_email'] ?? ''));
-
-    $domainUrl = rtrim($supabaseUrl, '/')
-        . '/rest/v1/tenant_domains'
-        . '?select=domain'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&is_active=eq.true'
-        . '&order=is_primary.desc'
-        . '&limit=1';
-    $domainResult = subscription_payu_notify_request('GET', $domainUrl, $headers);
-
-    if ($domainResult['ok'] && is_array($domainResult['data'][0] ?? null)) {
-        $context['panel_domain'] = trim((string) ($domainResult['data'][0]['domain'] ?? ''));
-    }
-
-    $userUrl = rtrim($supabaseUrl, '/')
-        . '/rest/v1/users'
-        . '?select=email'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&role=in.(administrator,admin)'
-        . '&order=created_at.asc'
-        . '&limit=1';
-    $userResult = subscription_payu_notify_request('GET', $userUrl, $headers);
-
-    if ($userResult['ok'] && is_array($userResult['data'][0] ?? null)) {
-        $context['recipient_email'] = trim((string) ($userResult['data'][0]['email'] ?? ''));
-    }
-
-    if (!filter_var($context['recipient_email'], FILTER_VALIDATE_EMAIL) && filter_var($companyEmail, FILTER_VALIDATE_EMAIL)) {
-        $context['recipient_email'] = $companyEmail;
-    }
-
-    return $context;
-}
-
-function subscription_payu_notify_fetch_email_log(
-    string $supabaseUrl,
-    array $headers,
-    string $tenantId,
-    string $paymentId,
-    string $emailType
-): ?array {
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/subscription_email_logs'
-        . '?select=id,status'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&payment_id=eq.' . rawurlencode($paymentId)
-        . '&email_type=eq.' . rawurlencode($emailType)
-        . '&limit=1';
-    $result = subscription_payu_notify_request('GET', $url, $headers);
-
-    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
-        return null;
-    }
-
-    return is_array($result['data'][0] ?? null) ? $result['data'][0] : [];
-}
-
-function subscription_payu_notify_create_email_log(
-    string $supabaseUrl,
-    array $headers,
-    string $tenantId,
-    string $paymentId,
-    string $emailType,
-    string $recipientEmail
-): ?array {
-    $now = gmdate('c');
-    $url = rtrim($supabaseUrl, '/') . '/rest/v1/subscription_email_logs';
-    $insertHeaders = array_values(array_filter(
-        $headers,
-        static fn ($header): bool => stripos((string) $header, 'Prefer:') !== 0
-    ));
-    $insertHeaders[] = 'Prefer: return=representation';
-
-    $result = subscription_payu_notify_request('POST', $url, $insertHeaders, [
-        'tenant_id' => $tenantId,
-        'payment_id' => $paymentId,
-        'email_type' => $emailType,
-        'recipient_email' => $recipientEmail,
-        'status' => 'pending',
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
-
-    if (!$result['ok'] || !is_array($result['data'] ?? null)) {
-        return null;
-    }
-
-    return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
-}
-
-function subscription_payu_notify_update_email_log(
-    string $supabaseUrl,
-    array $headers,
-    string $logId,
-    array $payload
-): bool {
-    $payload['updated_at'] = gmdate('c');
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/subscription_email_logs'
-        . '?id=eq.' . rawurlencode($logId);
-
-    return subscription_payu_notify_request('PATCH', $url, $headers, $payload)['ok'];
-}
-
-function subscription_payu_notify_prepare_email_log(
-    string $supabaseUrl,
-    array $headers,
-    string $tenantId,
-    string $paymentId,
-    string $emailType,
-    string $recipientEmail
-): array {
-    if (
-        preg_match('/^subscription_[a-z0-9_]{1,80}$/', $emailType) !== 1
-        || !filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)
-    ) {
-        return [
-            'ok' => false,
-            'send_allowed' => false,
-            'reason' => 'invalid_email_log_data',
-        ];
-    }
-
-    $existing = subscription_payu_notify_fetch_email_log($supabaseUrl, $headers, $tenantId, $paymentId, $emailType);
-
-    if ($existing === null) {
-        return [
-            'ok' => false,
-            'send_allowed' => false,
-            'reason' => 'log_fetch_failed',
-        ];
-    }
-
-    if (is_array($existing) && !empty($existing)) {
-        $status = strtolower(trim((string) ($existing['status'] ?? '')));
-
-        if ($status === 'sent') {
-            return [
-                'ok' => true,
-                'send_allowed' => false,
-                'idempotent' => true,
-                'reason' => 'sent',
-                'log_id' => trim((string) ($existing['id'] ?? '')),
-            ];
-        }
-
-        if ($status === 'pending') {
-            return [
-                'ok' => true,
-                'send_allowed' => false,
-                'idempotent' => true,
-                'reason' => 'pending',
-                'log_id' => trim((string) ($existing['id'] ?? '')),
-            ];
-        }
-
-        if ($status === 'failed') {
-            return [
-                'ok' => false,
-                'send_allowed' => false,
-                'reason' => 'failed',
-                'log_id' => trim((string) ($existing['id'] ?? '')),
-            ];
-        }
-    }
-
-    $created = subscription_payu_notify_create_email_log(
-        $supabaseUrl,
-        $headers,
-        $tenantId,
-        $paymentId,
-        $emailType,
-        $recipientEmail
-    );
-
-    if (is_array($created) && trim((string) ($created['id'] ?? '')) !== '') {
-        return [
-            'ok' => true,
-            'send_allowed' => true,
-            'idempotent' => false,
-            'reason' => 'created',
-            'log_id' => trim((string) $created['id']),
-        ];
-    }
-
-    $afterCreate = subscription_payu_notify_fetch_email_log($supabaseUrl, $headers, $tenantId, $paymentId, $emailType);
-
-    if (is_array($afterCreate) && !empty($afterCreate)) {
-        return [
-            'ok' => true,
-            'send_allowed' => false,
-            'idempotent' => true,
-            'reason' => strtolower(trim((string) ($afterCreate['status'] ?? 'existing'))),
-            'log_id' => trim((string) ($afterCreate['id'] ?? '')),
-        ];
-    }
-
-    return [
-        'ok' => false,
-        'send_allowed' => false,
-        'reason' => 'log_unavailable',
-    ];
-}
-
-
-function subscription_payu_notify_fetch_admin_user(string $supabaseUrl, array $headers, string $tenantId): ?array
-{
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/users'
-        . '?select=id,email,is_active'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&role=in.(administrator,admin)'
-        . '&order=created_at.asc'
-        . '&limit=1';
-
-    $result = subscription_payu_notify_request('GET', $url, $headers);
-
-    if (!$result['ok'] || !is_array($result['data'][0] ?? null)) {
-        return null;
-    }
-
-    return $result['data'][0];
-}
-
-function subscription_payu_notify_create_activation_url(
-    string $supabaseUrl,
-    array $headers,
-    string $tenantId,
-    string $userId,
-    string $email
-): string {
-    if ($tenantId === '' || $userId === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        return '';
-    }
-
-    $now = gmdate('c');
-
-    subscription_payu_notify_request(
-        'PATCH',
-        rtrim($supabaseUrl, '/')
-            . '/rest/v1/user_activation_tokens'
-            . '?tenant_id=eq.' . rawurlencode($tenantId)
-            . '&user_id=eq.' . rawurlencode($userId)
-            . '&used_at=is.null'
-            . '&revoked_at=is.null',
-        $headers,
-        [
-            'revoked_at' => $now,
-        ]
-    );
-
-    try {
-        $token = bin2hex(random_bytes(32));
-    } catch (Throwable $e) {
-        return '';
-    }
-
-    $insertHeaders = $headers;
-    $insertHeaders[] = 'Prefer: return=representation';
-    $insert = subscription_payu_notify_request(
-        'POST',
-        rtrim($supabaseUrl, '/') . '/rest/v1/user_activation_tokens',
-        $insertHeaders,
-        [
-            'tenant_id' => $tenantId,
-            'user_id' => $userId,
-            'email' => $email,
-            'token_hash' => hash('sha256', $token),
-            'expires_at' => gmdate('c', time() + (48 * 60 * 60)),
-            'used_at' => null,
-            'revoked_at' => null,
-            'created_at' => $now,
-            'ip_address' => null,
-            'user_agent' => 'PayU notify - direct paid registration',
-        ]
-    );
-
-    if (!$insert['ok']) {
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_INITIAL_PRO_ACTIVATION_TOKEN_ERROR', [
-            'tenant_hash' => subscription_payu_notify_hash($tenantId),
-            'user_hash' => subscription_payu_notify_hash($userId),
-            'http_code' => $insert['http_code'],
-        ]);
-
-        return '';
-    }
-
-    $activationRef = activation_link_build_ref($token, $tenantId, $userId);
-
-    if ($activationRef === '') {
-        return '';
-    }
-
-    return 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token=' . rawurlencode($token)
-        . '&ref=' . rawurlencode($activationRef);
-}
-
-function subscription_payu_notify_build_initial_registration_mail(
-    string $supabaseUrl,
-    array $headers,
-    array $payment,
-    array $subscription,
-    array $context
-): array {
-    $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
-    $adminUser = $tenantId !== '' ? subscription_payu_notify_fetch_admin_user($supabaseUrl, $headers, $tenantId) : null;
-
-    if (!is_array($adminUser)) {
-        return [
-            'ok' => false,
-            'error' => 'admin_user_missing',
-        ];
-    }
-
-    $userId = trim((string) ($adminUser['id'] ?? ''));
-    $email = trim((string) ($adminUser['email'] ?? ''));
-    $planCode = strtolower(trim((string) ($payment['plan_code'] ?? '')));
-
-    if (!in_array($planCode, ['pro', 'vip'], true)) {
-        return [
-            'ok' => false,
-            'error' => 'plan_invalid',
-        ];
-    }
-
-    $planName = $planCode === 'vip' ? 'VIP' : 'Pro';
-    $activationUrl = subscription_payu_notify_create_activation_url($supabaseUrl, $headers, $tenantId, $userId, $email);
-
-    if ($activationUrl === '') {
-        return [
-            'ok' => false,
-            'error' => 'activation_url_missing',
-        ];
-    }
-
-    $html = buildRegistrationConfirmationMailHtml([
-        'company_name' => trim((string) ($context['company_name'] ?? '')),
-        'plan' => $planName,
-        'panel_domain' => trim((string) ($context['panel_domain'] ?? '')),
-        'activation_url' => $activationUrl,
-        'activation_expires_label' => 'przez 48 godzin',
-    ]);
-
-    return [
-        'ok' => true,
-        'subject' => 'Potwierdzenie rejestracji ' . $planName . ' w AI-IQ Rezerwacja Pro',
-        'html' => $html,
-    ];
-}
-
-function subscription_payu_notify_send_activation_email_if_needed(
-    string $supabaseUrl,
-    array $headers,
-    array $payment,
-    array $subscription
-): array {
-    $paymentId = trim((string) ($payment['id'] ?? ''));
-    $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
-    $planCode = strtolower(trim((string) ($payment['plan_code'] ?? '')));
-
-    if (!in_array($planCode, ['pro', 'vip'], true)) {
-        return [
-            'ok' => false,
-            'error' => 'plan_invalid',
-        ];
-    }
-
-    $planName = $planCode === 'vip' ? 'VIP' : 'Pro';
-
-    if (trim((string) ($payment['activation_email_sent_at'] ?? '')) !== '') {
-        return [
-            'ok' => true,
-            'sent' => false,
-            'idempotent' => true,
-        ];
-    }
-
-    if ($paymentId === '' || $tenantId === '') {
-        return [
-            'ok' => false,
-            'error' => 'invalid_payment',
-        ];
-    }
-
-    $context = subscription_payu_notify_fetch_email_context($supabaseUrl, $headers, $tenantId);
-    $recipientEmail = trim((string) ($context['recipient_email'] ?? ''));
-
-    if (!filter_var($recipientEmail, FILTER_VALIDATE_EMAIL)) {
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_ACTIVATION_EMAIL_RECIPIENT_MISSING', [
-            'payment_hash' => subscription_payu_notify_hash($paymentId),
-            'tenant_hash' => subscription_payu_notify_hash($tenantId),
-        ]);
-
-        return [
-            'ok' => false,
-            'error' => 'recipient_missing',
-        ];
-    }
-
-    $logState = subscription_payu_notify_prepare_email_log(
-        $supabaseUrl,
-        $headers,
-        $tenantId,
-        $paymentId,
-        $planCode === 'vip' ? 'subscription_vip_activated' : 'subscription_pro_activated',
-        $recipientEmail
-    );
-
-    if (empty($logState['ok'])) {
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_ACTIVATION_EMAIL_LOG_BLOCKED', [
-            'payment_hash' => subscription_payu_notify_hash($paymentId),
-            'tenant_hash' => subscription_payu_notify_hash($tenantId),
-            'reason' => (string) ($logState['reason'] ?? 'unknown'),
-        ]);
-
-        return [
-            'ok' => false,
-            'error' => 'log_blocked',
-            'reason' => (string) ($logState['reason'] ?? 'unknown'),
-        ];
-    }
-
-    if (empty($logState['send_allowed'])) {
-        if (($logState['reason'] ?? '') === 'sent') {
-            $now = gmdate('c');
-            $marked = subscription_payu_notify_update_payment($supabaseUrl, $headers, $paymentId, $tenantId, [
-                'activation_email_sent_at' => $now,
-                'updated_at' => $now,
-            ]);
-
-            if (!$marked) {
-                return [
-                    'ok' => false,
-                    'sent' => false,
-                    'idempotent' => true,
-                    'reason' => 'sent_log_marker_backfill_failed',
-                    'marker_backfilled' => false,
-                ];
-            }
-
-            return [
-                'ok' => true,
-                'sent' => false,
-                'idempotent' => true,
-                'reason' => 'sent',
-                'log_already_sent' => true,
-                'marker_backfilled' => true,
-            ];
-        }
-
-        return [
-            'ok' => true,
-            'sent' => false,
-            'idempotent' => true,
-            'reason' => (string) ($logState['reason'] ?? 'blocked'),
-        ];
-    }
-
-    $logId = trim((string) ($logState['log_id'] ?? ''));
-
-    if ($logId === '') {
-        return [
-            'ok' => false,
-            'error' => 'log_missing',
-        ];
-    }
-
-    $paymentType = strtolower(trim((string) ($payment['payment_type'] ?? '')));
-
-    if ($paymentType === 'subscription_initial') {
-        $mail = subscription_payu_notify_build_initial_registration_mail(
-            $supabaseUrl,
-            $headers,
-            $payment,
-            $subscription,
-            $context
-        );
-    } else {
-        $mail = [
-            'ok' => true,
-            'subject' => 'Plan ' . $planName . ' aktywny w AI-IQ Rezerwacja Pro',
-            'html' => buildSubscriptionProActivatedMailHtml($payment, $subscription, $context),
-        ];
-    }
-
-    if (empty($mail['ok']) || trim((string) ($mail['html'] ?? '')) === '') {
-        subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
-            'status' => 'failed',
-            'failed_at' => gmdate('c'),
-        ]);
-
-        return [
-            'ok' => false,
-            'error' => (string) ($mail['error'] ?? 'mail_build_failed'),
-        ];
-    }
-
-    if (!sendSystemMail($recipientEmail, (string) ($mail['subject'] ?? 'AI-IQ Rezerwacja Pro'), (string) $mail['html'])) {
-        subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
-            'status' => 'failed',
-            'failed_at' => gmdate('c'),
-        ]);
-
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_ACTIVATION_EMAIL_SEND_FAILED', [
-            'payment_hash' => subscription_payu_notify_hash($paymentId),
-            'tenant_hash' => subscription_payu_notify_hash($tenantId),
-        ]);
-
-        return [
-            'ok' => false,
-            'error' => 'send_failed',
-        ];
-    }
-
-    $now = gmdate('c');
-    $logMarkedSent = subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
-        'status' => 'sent',
-        'sent_at' => $now,
-    ]);
-
-    if (!$logMarkedSent) {
-        return [
-            'ok' => false,
-            'sent' => false,
-            'error' => 'log_mark_sent_failed',
-        ];
-    }
-
-    $marked = subscription_payu_notify_update_payment($supabaseUrl, $headers, $paymentId, $tenantId, [
-        'activation_email_sent_at' => $now,
-        'updated_at' => $now,
-    ]);
-
-    if (!$marked) {
-        return [
-            'ok' => false,
-            'error' => 'mark_failed',
-        ];
-    }
-
-    return [
-        'ok' => true,
-        'sent' => true,
-        'idempotent' => false,
-    ];
-}
-
-function subscription_payu_notify_send_custom_domain_email_if_needed(
-    string $supabaseUrl,
-    array $headers,
-    array $payment,
-    array $subscription
-): array {
-    $paymentId = trim((string) ($payment['id'] ?? ''));
-    $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
-    $planCode = strtolower(trim((string) ($payment['plan_code'] ?? '')));
-    $customDomainRequested = ($payment['custom_domain_requested'] ?? null) === true;
-    $subscriptionPlanCode = strtolower(trim((string) ($subscription['plan_code'] ?? '')));
-    $subscriptionStatus = strtolower(trim((string) ($subscription['status'] ?? '')));
+    $maximum = (string) PHP_INT_MAX;
 
     if (
-        $planCode !== 'vip'
-        || !$customDomainRequested
-        || $subscriptionPlanCode !== 'vip'
-        || $subscriptionStatus !== 'active'
+        strlen($canonical) > strlen($maximum)
+        || (strlen($canonical) === strlen($maximum) && strcmp($canonical, $maximum) > 0)
     ) {
-        return [
-            'ok' => true,
-            'sent' => false,
-            'skipped' => true,
-        ];
+        return null;
     }
 
-    if ($paymentId === '' || $tenantId === '') {
-        return [
-            'ok' => false,
-            'error' => 'invalid_payment',
-        ];
-    }
-
-    $recipientEmail = 'kontakt@ai-iq.pl';
-    $logState = subscription_payu_notify_prepare_email_log(
-        $supabaseUrl,
-        $headers,
-        $tenantId,
-        $paymentId,
-        'subscription_vip_custom_domain_requested',
-        $recipientEmail
-    );
-
-    if (empty($logState['ok'])) {
-        return [
-            'ok' => false,
-            'error' => 'log_blocked',
-            'reason' => (string) ($logState['reason'] ?? 'unknown'),
-        ];
-    }
-
-    if (empty($logState['send_allowed'])) {
-        return [
-            'ok' => true,
-            'sent' => false,
-            'idempotent' => true,
-            'reason' => (string) ($logState['reason'] ?? 'blocked'),
-        ];
-    }
-
-    $logId = trim((string) ($logState['log_id'] ?? ''));
-
-    if ($logId === '') {
-        return [
-            'ok' => false,
-            'error' => 'log_missing',
-        ];
-    }
-
-    $context = subscription_payu_notify_fetch_email_context($supabaseUrl, $headers, $tenantId);
-    $html = buildVipCustomDomainRequestedMailHtml([
-        'company_name' => trim((string) ($context['company_name'] ?? '')),
-        'contact_email' => trim((string) ($context['recipient_email'] ?? '')),
-        'panel_domain' => trim((string) ($context['panel_domain'] ?? '')),
-    ]);
-
-    if (trim($html) === '') {
-        subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
-            'status' => 'failed',
-            'failed_at' => gmdate('c'),
-        ]);
-
-        return [
-            'ok' => false,
-            'error' => 'mail_build_failed',
-        ];
-    }
-
-    if (!sendSystemMail($recipientEmail, 'Klient VIP prosi o podłączenie własnej domeny', $html)) {
-        subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
-            'status' => 'failed',
-            'failed_at' => gmdate('c'),
-        ]);
-
-        return [
-            'ok' => false,
-            'error' => 'send_failed',
-        ];
-    }
-
-    if (!subscription_payu_notify_update_email_log($supabaseUrl, $headers, $logId, [
-        'status' => 'sent',
-        'sent_at' => gmdate('c'),
-    ])) {
-        return [
-            'ok' => false,
-            'sent' => true,
-            'error' => 'log_mark_sent_failed',
-        ];
-    }
-
-    return [
-        'ok' => true,
-        'sent' => true,
-        'idempotent' => false,
-    ];
+    return (int) $canonical;
 }
 
-function subscription_payu_notify_update_payment(
-    string $supabaseUrl,
-    array $headers,
-    string $paymentId,
-    string $tenantId,
-    array $payload
-): bool {
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/tenant_subscription_payments'
-        . '?id=eq.' . rawurlencode($paymentId)
-        . '&tenant_id=eq.' . rawurlencode($tenantId);
-
-    $result = subscription_payu_notify_request('PATCH', $url, $headers, $payload);
-
-    if ($result['ok']) {
-        return true;
-    }
-
-    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_PAYMENT_UPDATE_ERROR', [
-        'payment_hash' => subscription_payu_notify_hash($paymentId),
-        'tenant_hash' => subscription_payu_notify_hash($tenantId),
-        'http_code' => $result['http_code'],
-        'has_error' => $result['error'] !== null,
-    ]);
-
-    return false;
-}
-
-function subscription_payu_notify_save_subscription(
-    string $supabaseUrl,
-    array $headers,
-    string $tenantId,
-    array $payload,
-    bool $exists
-): bool {
-    if ($exists) {
-        $url = rtrim($supabaseUrl, '/')
-            . '/rest/v1/tenant_subscriptions'
-            . '?tenant_id=eq.' . rawurlencode($tenantId);
-
-        $result = subscription_payu_notify_request('PATCH', $url, $headers, $payload);
-    } else {
-        $url = rtrim($supabaseUrl, '/') . '/rest/v1/tenant_subscriptions';
-        $result = subscription_payu_notify_request('POST', $url, $headers, array_merge(['tenant_id' => $tenantId], $payload));
-    }
-
-    if ($result['ok']) {
-        return true;
-    }
-
-    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_SUBSCRIPTION_SAVE_ERROR', [
-        'tenant_hash' => subscription_payu_notify_hash($tenantId),
-        'exists' => $exists,
-        'http_code' => $result['http_code'],
-        'has_error' => $result['error'] !== null,
-    ]);
-
-    return false;
-}
-
-function subscription_payu_notify_update_branding_plan(
-    string $supabaseUrl,
-    array $headers,
-    string $tenantId,
-    string $planCode
-): bool {
-    $planCode = strtolower(trim($planCode));
-
-    if ($tenantId === '' || !in_array($planCode, ['free', 'pro', 'vip'], true)) {
+function subscription_payu_notify_valid_rpc_data($data): bool
+{
+    if (!is_array($data)) {
         return false;
     }
 
-    $url = rtrim($supabaseUrl, '/')
-        . '/rest/v1/tenant_branding'
-        . '?tenant_id=eq.' . rawurlencode($tenantId);
+    $processed = $data['processed'] ?? null;
+    $idempotent = $data['idempotent'] ?? null;
+    $status = $data['status'] ?? null;
 
-    $result = subscription_payu_notify_request('PATCH', $url, $headers, [
-        'plan' => $planCode,
-    ]);
-
-    if ($result['ok']) {
-        return true;
+    if (!is_bool($processed) || !is_bool($idempotent) || $processed === $idempotent) {
+        return false;
     }
 
-    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_BRANDING_PLAN_UPDATE_ERROR', [
-        'tenant_hash' => subscription_payu_notify_hash($tenantId),
-        'plan_code' => $planCode,
-        'http_code' => $result['http_code'],
-        'has_error' => $result['error'] !== null,
-    ]);
-
-    return false;
-}
-
-function subscription_payu_notify_map_status(string $payuStatus): string
-{
-    return match (strtoupper(trim($payuStatus))) {
-        'COMPLETED' => 'paid',
-        'CANCELED' => 'canceled',
-        'REJECTED' => 'failed',
-        'EXPIRED' => 'expired',
-        default => 'pending',
-    };
-}
-
-function subscription_payu_notify_date_start(?string $value): ?DateTimeImmutable
-{
-    $value = trim((string) $value);
-
-    if ($value === '') {
-        return null;
-    }
-
-    try {
-        return (new DateTimeImmutable($value))->setTime(0, 0, 0);
-    } catch (Throwable $e) {
-        return null;
-    }
-}
-
-function subscription_payu_notify_period(array $payment, ?array $subscription, ?string $fallbackPaidAt = null): array
-{
-    $billingPeriod = strtolower(trim((string) ($payment['billing_period'] ?? '')));
-    $storedPaidAt = trim((string) ($payment['paid_at'] ?? ''));
-    $paidAtSource = $storedPaidAt !== '' ? $storedPaidAt : trim((string) $fallbackPaidAt);
-    $paidDate = subscription_payu_notify_date_start($paidAtSource);
-
-    if (!$paidDate) {
-        $paidDate = new DateTimeImmutable('today', new DateTimeZone('UTC'));
-    }
-
-    $start = $paidDate;
-
-    if (is_array($subscription)) {
-        $currentEnd = subscription_payu_notify_date_start($subscription['current_period_end'] ?? null);
-
-        if ($currentEnd && $paidDate <= $currentEnd) {
-            $start = $currentEnd->modify('+1 day');
-        }
-    }
-
-    $end = match ($billingPeriod) {
-        'monthly' => $start->modify('+1 month'),
-        'yearly' => $start->modify('+1 year'),
-        default => $start,
-    };
-
-    return [
-        'start' => $start->format('Y-m-d'),
-        'end' => $end->format('Y-m-d'),
-    ];
-}
-
-function subscription_payu_notify_valid_id(string $value): bool
-{
-    return $value === '' || preg_match('/^[a-zA-Z0-9_-]{1,160}$/', $value) === 1;
+    return is_string($status)
+        && in_array($status, ['pending', 'paid', 'canceled', 'failed', 'expired'], true);
 }
 
 try {
     if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
         header('Allow: POST');
-        subscription_payu_notify_security_event('subscription_payu_notify_method_not_allowed', 'method_not_allowed', 405);
         subscription_payu_notify_json(405, [
             'success' => false,
-            'error' => 'Metoda niedozwolona.',
+            'error' => 'Method not allowed.',
         ]);
     }
 
-    $rawBody = file_get_contents('php://input') ?: '';
+    $rawBody = file_get_contents('php://input');
+
+    if (!is_string($rawBody) || $rawBody === '') {
+        subscription_payu_notify_security_event(
+            'subscription_payu_notify_body_missing',
+            'body_missing',
+            400
+        );
+        subscription_payu_notify_json(400, [
+            'success' => false,
+            'error' => 'Nieprawidłowe powiadomienie PayU.',
+        ]);
+    }
+
     $data = json_decode($rawBody, true);
 
-    if (!is_array($data)) {
-        subscription_payu_notify_security_event('subscription_payu_notify_invalid_json', 'invalid_json', 400, 'failed', 'medium', null, 'parse');
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_INVALID_JSON', [
+    if (json_last_error() !== JSON_ERROR_NONE || !is_array($data)) {
+        subscription_payu_notify_security_event(
+            'subscription_payu_notify_json_invalid',
+            'json_invalid',
+            400
+        );
+        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_JSON_INVALID', [
             'body_length' => strlen($rawBody),
-            'json_error' => json_last_error_msg(),
         ]);
-
         subscription_payu_notify_json(400, [
             'success' => false,
-            'error' => 'Nieprawidłowy JSON.',
-        ]);
-    }
-
-    $order = is_array($data['order'] ?? null) ? $data['order'] : [];
-    $orderId = trim((string) ($order['orderId'] ?? ''));
-    $extOrderId = trim((string) ($order['extOrderId'] ?? ''));
-    $payuStatus = trim((string) ($order['status'] ?? ''));
-
-    if (!subscription_payu_notify_valid_id($orderId) || !subscription_payu_notify_valid_id($extOrderId)) {
-        subscription_payu_notify_security_event('subscription_payu_notify_invalid_order_identifier', 'invalid_order_identifier', 400);
-        subscription_payu_notify_json(400, [
-            'success' => false,
-            'error' => 'Nieprawidłowy identyfikator płatności.',
-        ]);
-    }
-
-    if ($orderId === '' && $extOrderId === '') {
-        subscription_payu_notify_security_event('subscription_payu_notify_order_id_missing', 'order_id_missing', 400);
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_ORDER_ID_MISSING', [
-            'body_length' => strlen($rawBody),
-            'has_order' => is_array($data['order'] ?? null),
-        ]);
-
-        subscription_payu_notify_json(400, [
-            'success' => false,
-            'error' => 'Brak orderId/extOrderId.',
+            'error' => 'Nieprawidłowe powiadomienie PayU.',
         ]);
     }
 
@@ -1162,410 +206,148 @@ try {
     $signatureHeader = subscription_payu_notify_header('OpenPayu-Signature');
 
     if (!subscription_payu_notify_verify_signature($rawBody, $secondKey, $signatureHeader)) {
-        subscription_payu_notify_security_event('subscription_payu_notify_signature_invalid', 'signature_invalid', 401, 'denied', 'high');
+        subscription_payu_notify_security_event(
+            'subscription_payu_notify_signature_invalid',
+            'signature_invalid',
+            401,
+            'denied',
+            'high'
+        );
         aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_SIGNATURE_INVALID', [
-            'order_id_set' => $orderId !== '',
-            'order_hash' => subscription_payu_notify_hash($orderId),
-            'ext_order_id_set' => $extOrderId !== '',
-            'ext_order_hash' => subscription_payu_notify_hash($extOrderId),
+            'body_length' => strlen($rawBody),
             'signature_header_set' => $signatureHeader !== '',
             'second_key_set' => $secondKey !== '',
         ]);
-
         subscription_payu_notify_json(401, [
             'success' => false,
             'error' => 'Nieprawidłowy podpis PayU.',
         ]);
     }
 
-    $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
-    $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
-    $schema = (string) (getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro');
+    $order = $data['order'] ?? null;
 
-    if ($supabaseUrl === '' || $supabaseKey === '') {
-        subscription_payu_notify_security_event('subscription_payu_notify_env_missing', 'env_missing', 500, 'error', 'critical');
-        subscription_payu_notify_json(500, [
-            'success' => false,
-            'error' => 'Brak konfiguracji bazy danych.',
-        ]);
-    }
-
-    $headers = supabaseHeaders($supabaseKey, $schema);
-    $headers[] = 'Content-Type: application/json';
-
-    $payment = subscription_payu_notify_find_payment($supabaseUrl, $headers, $orderId, $extOrderId);
-
-    if (!is_array($payment)) {
-        subscription_payu_notify_security_event('subscription_payu_notify_payment_not_found', 'payment_not_found', 404);
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_PAYMENT_NOT_FOUND', [
-            'order_id_set' => $orderId !== '',
-            'order_hash' => subscription_payu_notify_hash($orderId),
-            'ext_order_id_set' => $extOrderId !== '',
-            'ext_order_hash' => subscription_payu_notify_hash($extOrderId),
-            'payu_status' => $payuStatus,
-        ]);
-
-        subscription_payu_notify_json(404, [
-            'success' => false,
-            'error' => 'Nie znaleziono płatności abonamentu.',
-        ]);
-    }
-
-    $paymentId = trim((string) ($payment['id'] ?? ''));
-    $tenantId = trim((string) ($payment['tenant_id'] ?? ''));
-    $paymentPlanCode = strtolower(trim((string) ($payment['plan_code'] ?? '')));
-    $customDomainRequestedValue = $payment['custom_domain_requested'] ?? null;
-
-    if ($paymentId === '' || $tenantId === '') {
-        subscription_payu_notify_security_event('subscription_payu_notify_payment_invalid', 'payment_invalid', 422, 'failed', 'high', $tenantId ?: null);
-        subscription_payu_notify_json(422, [
-            'success' => false,
-            'error' => 'Nieprawidłowy rekord płatności abonamentu.',
-        ]);
-    }
-
-    if (!in_array($paymentPlanCode, ['pro', 'vip'], true)) {
-        subscription_payu_notify_security_event('subscription_payu_notify_plan_invalid', 'plan_invalid', 422, 'failed', 'high', $tenantId);
-        subscription_payu_notify_json(422, [
-            'success' => false,
-            'error' => 'Nieprawidłowy plan w rekordzie płatności abonamentu.',
-        ]);
-    }
-
-    if (!is_bool($customDomainRequestedValue) || ($customDomainRequestedValue && $paymentPlanCode !== 'vip')) {
-        subscription_payu_notify_security_event('subscription_payu_notify_custom_domain_invalid', 'custom_domain_invalid', 422, 'failed', 'high', $tenantId);
-        subscription_payu_notify_json(422, [
-            'success' => false,
-            'error' => 'Nieprawidłowe żądanie własnej domeny w rekordzie płatności.',
-        ]);
-    }
-
-    $paymentPlanName = $paymentPlanCode === 'vip' ? 'VIP' : 'Pro';
-
-    $mappedStatus = subscription_payu_notify_map_status($payuStatus);
-    $now = gmdate('c');
-    $safeNotify = subscription_payu_notify_safe_payload($data, true);
-    $alreadyProcessed = strtolower(trim((string) ($payment['status'] ?? ''))) === 'paid'
-        && $mappedStatus === 'paid'
-        && trim((string) ($payment['processed_at'] ?? '')) !== '';
-
-    if ($alreadyProcessed) {
-        $sanitized = subscription_payu_notify_update_payment(
-            $supabaseUrl,
-            $headers,
-            $paymentId,
-            $tenantId,
-            [
-                'payment_url' => null,
-                'payu_status' => 'COMPLETED',
-                'raw_notify' => $safeNotify,
-                'updated_at' => $now,
-            ]
-        );
-
-        if (!$sanitized) {
-            subscription_payu_notify_security_event(
-                'subscription_payu_notify_sanitization_failed',
-                'sanitization_failed',
-                500,
-                'error',
-                'high',
-                $tenantId,
-                'already_processed'
-            );
-            subscription_payu_notify_json(500, [
-                'success' => false,
-                'error' => 'Nie udało się zanonimizować danych zakończonej płatności.',
-            ]);
-        }
-
-        $activationEmailResult = ['ok' => true, 'sent' => false, 'idempotent' => true];
-
-        if ($mappedStatus === 'paid') {
-            $subscription = subscription_payu_notify_fetch_subscription($supabaseUrl, $headers, $tenantId);
-
-            if (is_array($subscription)) {
-                $customDomainEmailResult = subscription_payu_notify_send_custom_domain_email_if_needed(
-                    $supabaseUrl,
-                    $headers,
-                    $payment,
-                    $subscription
-                );
-
-                if (empty($customDomainEmailResult['ok'])) {
-                    subscription_payu_notify_security_event(
-                        'subscription_payu_notify_custom_domain_email_failed',
-                        'custom_domain_email_failed',
-                        200,
-                        'failed',
-                        'medium',
-                        $tenantId,
-                        'idempotent_email'
-                    );
-                }
-
-                $activationEmailResult = subscription_payu_notify_send_activation_email_if_needed(
-                    $supabaseUrl,
-                    $headers,
-                    $payment,
-                    $subscription
-                );
-
-                if (empty($activationEmailResult['ok'])) {
-                    subscription_payu_notify_security_event('subscription_payu_notify_activation_email_failed', 'activation_email_failed', 500, 'error', 'medium', $tenantId, 'idempotent_email');
-                    subscription_payu_notify_json(500, [
-                        'success' => false,
-                        'error' => 'Nie udało się wysłać potwierdzenia aktywacji planu dla przetworzonej płatności.',
-                    ]);
-                }
-            }
-        }
-
-        subscription_payu_notify_security_event('subscription_payu_notify_already_processed', 'already_processed', 200, 'success', 'low', $tenantId);
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_ALREADY_PROCESSED', [
-            'payment_hash' => subscription_payu_notify_hash($paymentId),
-            'tenant_hash' => subscription_payu_notify_hash($tenantId),
-            'payu_status' => $payuStatus,
-            'activation_email_sent' => !empty($activationEmailResult['sent']),
-        ]);
-
-        subscription_payu_notify_json(200, [
-            'success' => true,
-            'status' => 'paid',
-            'processed' => false,
-            'idempotent' => true,
-            'activation_email_sent' => !empty($activationEmailResult['sent']),
-        ]);
-    }
-
-    if ($mappedStatus !== 'paid') {
-        $statusPayload = [
-            'status' => $mappedStatus,
-            'payu_status' => $payuStatus !== '' ? strtoupper($payuStatus) : 'UNKNOWN',
-            'raw_notify' => $safeNotify,
-            'updated_at' => $now,
-        ];
-
-        if (in_array($mappedStatus, ['failed', 'canceled', 'expired'], true)) {
-            $statusPayload['payment_url'] = null;
-            $statusPayload[$mappedStatus . '_at'] = $now;
-        }
-
-        $updated = subscription_payu_notify_update_payment(
-            $supabaseUrl,
-            $headers,
-            $paymentId,
-            $tenantId,
-            $statusPayload
-        );
-
-        if (!$updated) {
-            subscription_payu_notify_security_event('subscription_payu_notify_status_update_failed', 'status_update_failed', 500, 'error', 'high', $tenantId, 'non_paid_status');
-            subscription_payu_notify_json(500, [
-                'success' => false,
-                'error' => 'Nie udało się zaktualizować płatności abonamentu.',
-            ]);
-        }
-
-        subscription_payu_notify_security_event('subscription_payu_notify_status_update_success', 'status_update_success', 200, 'success', 'low', $tenantId, 'non_paid_status');
-        subscription_payu_notify_json(200, [
-            'success' => true,
-            'status' => $mappedStatus,
-            'processed' => false,
-        ]);
-    }
-
-    $billingPeriod = strtolower(trim((string) ($payment['billing_period'] ?? '')));
-
-    if (!in_array($billingPeriod, ['monthly', 'yearly'], true)) {
-        subscription_payu_notify_security_event('subscription_payu_notify_billing_period_invalid', 'billing_period_invalid', 422, 'failed', 'high', $tenantId);
-        subscription_payu_notify_json(422, [
-            'success' => false,
-            'error' => 'Nieprawidłowy okres rozliczeniowy płatności.',
-        ]);
-    }
-
-    $subscription = subscription_payu_notify_fetch_subscription($supabaseUrl, $headers, $tenantId);
-
-    if (is_array($subscription) && trim((string) ($subscription['current_period_end'] ?? '')) === '') {
-        $lastPaidProPeriod = subscription_payu_notify_fetch_last_paid_pro_period($supabaseUrl, $headers, $tenantId);
-
-        if (is_array($lastPaidProPeriod) && trim((string) ($lastPaidProPeriod['subscription_period_end'] ?? '')) !== '') {
-            $subscription['current_period_end'] = $lastPaidProPeriod['subscription_period_end'];
-        }
-    }
-
-    $storedPeriodStart = trim((string) ($payment['subscription_period_start'] ?? ''));
-    $storedPeriodEnd = trim((string) ($payment['subscription_period_end'] ?? ''));
-    $period = ($storedPeriodStart !== '' && $storedPeriodEnd !== '')
-        ? ['start' => $storedPeriodStart, 'end' => $storedPeriodEnd]
-        : subscription_payu_notify_period($payment, $subscription, $now);
-    $subscriptionExists = is_array($subscription);
-
-    if ($storedPeriodStart !== '' && $storedPeriodEnd !== '') {
-        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_RETRY_WITH_STORED_PERIOD', [
-            'payment_hash' => subscription_payu_notify_hash($paymentId),
-            'tenant_hash' => subscription_payu_notify_hash($tenantId),
-            'billing_period' => $billingPeriod,
-            'period_start' => $period['start'],
-            'period_end' => $period['end'],
-        ]);
-    }
-
-    if ($storedPeriodStart === '' || $storedPeriodEnd === '') {
-        $paymentPrepared = subscription_payu_notify_update_payment($supabaseUrl, $headers, $paymentId, $tenantId, [
-            'status' => 'paid',
-            'payu_status' => 'COMPLETED',
-            'paid_at' => $now,
-            'payment_url' => null,
-            'raw_notify' => $safeNotify,
-            'subscription_period_start' => $period['start'],
-            'subscription_period_end' => $period['end'],
-            'updated_at' => $now,
-        ]);
-
-        if (!$paymentPrepared) {
-            subscription_payu_notify_security_event('subscription_payu_notify_payment_prepare_failed', 'payment_prepare_failed', 500, 'error', 'high', $tenantId);
-            subscription_payu_notify_json(500, [
-                'success' => false,
-                'error' => 'Nie udało się przygotować płatności abonamentu do przetworzenia.',
-            ]);
-        }
-    }
-
-    $subscriptionPayload = [
-        'plan_code' => $paymentPlanCode,
-        'plan_name' => $paymentPlanName,
-        'billing_period' => $billingPeriod,
-        'status' => 'active',
-        'amount' => $payment['amount'] ?? null,
-        'currency' => (string) ($payment['currency'] ?? 'PLN'),
-        'current_period_start' => $period['start'],
-        'current_period_end' => $period['end'],
-        'next_payment_due_at' => $period['end'],
-        'last_payment_at' => $now,
-        'updated_at' => $now,
-    ];
-
-    if (!$subscriptionExists) {
-        $subscriptionPayload['grace_period_days'] = 0;
-    }
-
-    $subscriptionSaved = subscription_payu_notify_save_subscription(
-        $supabaseUrl,
-        $headers,
-        $tenantId,
-        $subscriptionPayload,
-        $subscriptionExists
-    );
-
-    if (!$subscriptionSaved) {
-        subscription_payu_notify_security_event('subscription_payu_notify_subscription_save_failed', 'subscription_save_failed', 500, 'error', 'high', $tenantId);
-        subscription_payu_notify_json(500, [
-            'success' => false,
-            'error' => 'Nie udało się zaktualizować abonamentu.',
-        ]);
-    }
-
-    $brandingUpdated = subscription_payu_notify_update_branding_plan($supabaseUrl, $headers, $tenantId, $paymentPlanCode);
-
-    if (!$brandingUpdated) {
-        subscription_payu_notify_security_event('subscription_payu_notify_branding_plan_update_failed', 'branding_plan_update_failed', 500, 'error', 'high', $tenantId);
-        subscription_payu_notify_json(500, [
-            'success' => false,
-            'error' => 'Nie udało się zaktualizować planu firmy.',
-        ]);
-    }
-
-    $paymentUpdated = subscription_payu_notify_update_payment($supabaseUrl, $headers, $paymentId, $tenantId, [
-        'status' => 'paid',
-        'payu_status' => 'COMPLETED',
-        'paid_at' => $payment['paid_at'] ?? $now,
-        'processed_at' => $now,
-        'payment_url' => null,
-        'raw_notify' => $safeNotify,
-        'subscription_period_start' => $period['start'],
-        'subscription_period_end' => $period['end'],
-        'updated_at' => $now,
-    ]);
-
-    if (!$paymentUpdated) {
-        subscription_payu_notify_security_event('subscription_payu_notify_payment_update_failed', 'payment_update_failed', 500, 'error', 'high', $tenantId);
-        subscription_payu_notify_json(500, [
-            'success' => false,
-            'error' => 'Abonament został zaktualizowany, ale nie udało się oznaczyć płatności jako przetworzonej.',
-        ]);
-    }
-
-    $paymentForEmail = array_merge($payment, [
-        'status' => 'paid',
-        'payu_status' => 'COMPLETED',
-        'paid_at' => $payment['paid_at'] ?? $now,
-        'processed_at' => $now,
-        'subscription_period_start' => $period['start'],
-        'subscription_period_end' => $period['end'],
-    ]);
-    $subscriptionForEmail = array_merge($subscriptionPayload, [
-        'tenant_id' => $tenantId,
-    ]);
-
-    $customDomainEmailResult = subscription_payu_notify_send_custom_domain_email_if_needed(
-        $supabaseUrl,
-        $headers,
-        $paymentForEmail,
-        $subscriptionForEmail
-    );
-
-    if (empty($customDomainEmailResult['ok'])) {
+    if (!is_array($order)) {
         subscription_payu_notify_security_event(
-            'subscription_payu_notify_custom_domain_email_failed',
-            'custom_domain_email_failed',
-            200,
-            'failed',
-            'medium',
-            $tenantId,
-            'final_email'
+            'subscription_payu_notify_order_invalid',
+            'order_invalid',
+            400
         );
-    }
-
-    $activationEmailResult = subscription_payu_notify_send_activation_email_if_needed(
-        $supabaseUrl,
-        $headers,
-        $paymentForEmail,
-        $subscriptionForEmail
-    );
-
-    if (empty($activationEmailResult['ok'])) {
-        subscription_payu_notify_security_event('subscription_payu_notify_activation_email_failed', 'activation_email_failed', 500, 'error', 'medium', $tenantId, 'final_email');
-        subscription_payu_notify_json(500, [
+        subscription_payu_notify_json(400, [
             'success' => false,
-            'error' => 'Abonament został aktywowany, ale nie udało się wysłać potwierdzenia aktywacji planu.',
+            'error' => 'Nieprawidłowe powiadomienie PayU.',
         ]);
     }
 
-    subscription_payu_notify_security_event('subscription_payu_notify_processed', 'subscription_payu_notify_processed', 200, 'success', 'medium', $tenantId);
+    $orderId = $order['orderId'] ?? null;
+    $extOrderId = $order['extOrderId'] ?? null;
+    $payuStatus = $order['status'] ?? null;
+    $totalAmountMinor = subscription_payu_notify_amount_minor($order['totalAmount'] ?? null);
+    $currency = $order['currencyCode'] ?? null;
+
+    if (
+        !subscription_payu_notify_valid_id($orderId)
+        || !subscription_payu_notify_valid_id($extOrderId)
+        || !is_string($payuStatus)
+        || !in_array(
+            $payuStatus,
+            ['PENDING', 'WAITING_FOR_CONFIRMATION', 'COMPLETED', 'CANCELED', 'REJECTED', 'EXPIRED'],
+            true
+        )
+        || $totalAmountMinor === null
+        || !is_string($currency)
+        || preg_match('/^[A-Z]{3}$/D', $currency) !== 1
+    ) {
+        subscription_payu_notify_security_event(
+            'subscription_payu_notify_fields_invalid',
+            'fields_invalid',
+            400
+        );
+        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_FIELDS_INVALID', [
+            'order_id_valid' => subscription_payu_notify_valid_id($orderId),
+            'ext_order_id_valid' => subscription_payu_notify_valid_id($extOrderId),
+            'status_valid' => is_string($payuStatus),
+            'amount_valid' => $totalAmountMinor !== null,
+            'currency_valid' => is_string($currency) && preg_match('/^[A-Z]{3}$/D', $currency) === 1,
+        ]);
+        subscription_payu_notify_json(400, [
+            'success' => false,
+            'error' => 'Nieprawidłowe powiadomienie PayU.',
+        ]);
+    }
+
+    $rpcResult = payment_lifecycle_v3_rpc(
+        'subscription_payment_apply_payu_notification',
+        [
+            'p_ext_order_id' => $extOrderId,
+            'p_order_id' => $orderId,
+            'p_payu_status' => $payuStatus,
+            'p_total_amount_minor' => $totalAmountMinor,
+            'p_currency' => $currency,
+            'p_payload_sha256_hex' => hash('sha256', $rawBody),
+        ]
+    );
+
+    if (empty($rpcResult['ok'])) {
+        subscription_payu_notify_security_event(
+            'subscription_payu_notify_rpc_failed',
+            'rpc_failed',
+            500,
+            'error',
+            'high',
+            'rpc'
+        );
+        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_RPC_FAILED', [
+            'error_kind' => (string) ($rpcResult['error_kind'] ?? 'unknown'),
+            'http_status' => (int) ($rpcResult['status'] ?? 0),
+        ]);
+        subscription_payu_notify_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się obsłużyć powiadomienia PayU.',
+        ]);
+    }
+
+    $rpcData = $rpcResult['data'] ?? null;
+
+    if (!subscription_payu_notify_valid_rpc_data($rpcData)) {
+        subscription_payu_notify_security_event(
+            'subscription_payu_notify_rpc_result_invalid',
+            'rpc_result_invalid',
+            500,
+            'error',
+            'critical',
+            'rpc_response'
+        );
+        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_RPC_RESULT_INVALID');
+        subscription_payu_notify_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się obsłużyć powiadomienia PayU.',
+        ]);
+    }
+
+    subscription_payu_notify_security_event(
+        'subscription_payu_notify_processed',
+        'subscription_payu_notify_processed',
+        200,
+        'success'
+    );
     aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_PROCESSED', [
-        'payment_hash' => subscription_payu_notify_hash($paymentId),
-        'tenant_hash' => subscription_payu_notify_hash($tenantId),
-        'billing_period' => $billingPeriod,
-        'period_start' => $period['start'],
-        'period_end' => $period['end'],
-        'activation_email_sent' => !empty($activationEmailResult['sent']),
+        'processed' => $rpcData['processed'],
+        'idempotent' => $rpcData['idempotent'],
+        'status' => $rpcData['status'],
     ]);
 
     subscription_payu_notify_json(200, [
         'success' => true,
-        'status' => 'paid',
-        'processed' => true,
-        'period_start' => $period['start'],
-        'period_end' => $period['end'],
-        'activation_email_sent' => !empty($activationEmailResult['sent']),
     ]);
 } catch (Throwable $e) {
-    subscription_payu_notify_security_event('subscription_payu_notify_fatal', 'fatal', 500, 'error', 'critical', $tenantId ?? null);
-    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_FATAL', [
-        'exception_type' => get_class($e),
-    ]);
+    subscription_payu_notify_security_event(
+        'subscription_payu_notify_fatal',
+        'fatal',
+        500,
+        'error',
+        'critical'
+    );
+    aiiq_payu_debug('AI_IQ_SUBSCRIPTION_PAYU_NOTIFY_FATAL');
 
     subscription_payu_notify_json(500, [
         'success' => false,
