@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
@@ -251,6 +252,8 @@ if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE
         'error' => 'Sesja nie pasuje do domeny',
     ], 401);
 }
+
+require_csrf_token();
 
 $tenantId = (string) $_SESSION['user']['tenant_id'];
 

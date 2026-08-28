@@ -1098,7 +1098,8 @@
     const res = await fetch('/api/booking/blocked.php', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -1781,7 +1782,8 @@
     const res = await fetch('/api/booking/exception.php', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -1801,7 +1803,8 @@
     const res = await fetch('/api/booking/exception.php', {
       method: 'DELETE',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -2015,7 +2018,8 @@
     const res = await fetch('/api/booking/blocked.php', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -2045,7 +2049,8 @@
     const res = await fetch('/api/booking/blocked.php', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -2075,7 +2080,8 @@
     const res = await fetch('/api/booking/blocked.php', {
       method: 'DELETE',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -2098,7 +2104,8 @@
     const res = await fetch('/api/booking/blocked.php', {
       method: 'DELETE',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -2120,7 +2127,8 @@
     await fetch('/api/booking/blocked.php', {
       method: 'DELETE',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'X-CSRF-Token': window.CSRF_TOKEN || ''
       },
       credentials: 'include',
       body: JSON.stringify({
@@ -2681,7 +2689,8 @@
           const res = await fetch('/api/booking/exception.php', {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json'
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': window.CSRF_TOKEN || ''
             },
             credentials: 'include',
             body: JSON.stringify({ date })

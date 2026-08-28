@@ -4,7 +4,9 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
@@ -992,6 +994,7 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
 }
 
 $adminUser = booking_staff_require_admin_session();
+require_csrf_token();
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
@@ -1041,6 +1044,22 @@ if ($tenantId === '') {
         'success' => false,
         'error' => 'Nieprawidłowa sesja'
     ], 401);
+}
+
+if (!tenant_has_feature($tenantId, 'staff_module')) {
+    booking_staff_security_event(
+        'booking_staff_update_feature_denied',
+        'staff_module_unavailable',
+        403,
+        'denied',
+        'medium',
+        $tenantId
+    );
+
+    booking_staff_json([
+        'success' => false,
+        'error' => 'Moduł personelu jest niedostępny w bieżącym planie.'
+    ], 403);
 }
 
 $rawInput = file_get_contents('php://input');

@@ -26,6 +26,11 @@ if (session_status() !== PHP_SESSION_ACTIVE) {
 
 header('Content-Type: application/json; charset=utf-8');
 
+if (in_array($method, ['POST', 'DELETE'], true)) {
+    require_once __DIR__ . '/../helpers/csrf.php';
+    require_csrf_token();
+}
+
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 
@@ -420,11 +425,28 @@ if ($method === 'POST') {
     $action = trim((string)($input['action'] ?? ''));
 
     if ($action === 'saveBlockSettings') {
+        foreach (['block_saturdays', 'block_sundays', 'block_holidays'] as $field) {
+            if (!array_key_exists($field, $input) || !is_bool($input[$field])) {
+                booking_blocked_security_event('booking_block_settings_validation_failed', [
+                    'reason' => 'validation_failed',
+                    'stage' => 'block_settings',
+                    'response_status' => 400,
+                    'result' => 'failed',
+                    'severity' => 'medium',
+                ]);
+
+                json_response([
+                    'success' => false,
+                    'error' => 'Nieprawidłowe dane wejściowe',
+                ], 400);
+            }
+        }
+
         $payload = [
             'tenant_id' => $TENANT_ID,
-            'block_saturdays' => filter_var($input['block_saturdays'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            'block_sundays' => filter_var($input['block_sundays'] ?? false, FILTER_VALIDATE_BOOLEAN),
-            'block_holidays' => filter_var($input['block_holidays'] ?? false, FILTER_VALIDATE_BOOLEAN),
+            'block_saturdays' => $input['block_saturdays'],
+            'block_sundays' => $input['block_sundays'],
+            'block_holidays' => $input['block_holidays'],
         ];
 
         $result = supabase_request(

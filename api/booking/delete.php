@@ -1,5 +1,6 @@
 <?php
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/security.php';
 
@@ -64,6 +65,8 @@ if (empty($_SESSION['user']['id']) || empty($_SESSION['user']['tenant_id'])) {
         'error' => 'Brak autoryzacji'
     ], 401);
 }
+
+require_csrf_token();
 
 $SUPABASE_URL = rtrim(getenv('SUPABASE_URL') ?: '', '/');
 $SUPABASE_KEY = getenv('SUPABASE_SERVICE_ROLE_KEY') ?: '';
