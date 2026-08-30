@@ -623,16 +623,18 @@
   .topbar-actions {
     width: 100%;
     align-items: stretch;
+    position: relative;
   }
 
   .admin-notifications {
     flex: 0 0 auto;
+    position: static;
   }
 
   .admin-notifications-dropdown {
-    right: auto;
     left: 0;
-    width: min(360px, calc(100vw - 28px));
+    right: 0;
+    width: 100%;
   }
 }
 
@@ -652,9 +654,9 @@
   }
 
   .admin-notifications-dropdown {
-    left: auto;
+    left: 0;
     right: 0;
-    width: min(360px, calc(100vw - 20px));
+    width: 100%;
   }
 }
 
