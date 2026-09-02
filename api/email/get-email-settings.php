@@ -23,6 +23,16 @@ if (!isset($_SESSION['user']['tenant_id'])) {
     exit;
 }
 
+$sessionRole = strtolower(trim((string) ($_SESSION['user']['role'] ?? '')));
+if (!in_array($sessionRole, ['admin', 'administrator'], true)) {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Brak uprawnień'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $tenantId = (string) $_SESSION['user']['tenant_id'];
 
 $supabaseUrl = rtrim(getenv('SUPABASE_URL') ?: '', '/');

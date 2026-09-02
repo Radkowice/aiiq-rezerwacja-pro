@@ -441,13 +441,39 @@ if (!function_exists('booking_mail_configure_mailer')) {
             throw new Exception('Nieprawidłowy adres nadawcy SMTP');
         }
 
+        if (!in_array($smtpPort, booking_mail_v7_allowed_tenant_smtp_ports(), true)) {
+            throw new Exception('Niedozwolony port SMTP');
+        }
+
+        $smtpTarget = booking_mail_v7_public_smtp_target($smtpHost);
+        if (empty($smtpTarget['ok'])) {
+            throw new Exception('Niedozwolony host SMTP');
+        }
+
         $mail->isSMTP();
-        $mail->Host = $smtpHost;
-        $mail->Port = $smtpPort > 0 ? $smtpPort : 587;
+        $mail->Host = (string) $smtpTarget['connect_host'];
+        $mail->Port = $smtpPort;
         $mail->SMTPAuth = $smtpUser !== '' || $smtpPass !== '';
         $mail->Username = $smtpUser;
         $mail->Password = $smtpPass;
         $mail->CharSet = 'UTF-8';
+        $mail->Timeout = 12;
+        $mail->SMTPDebug = 0;
+        $mail->Debugoutput = static function (): void {
+            // Nie logujemy transcriptu SMTP: może zawierać PII i dane uwierzytelniające.
+        };
+        $mail->SMTPKeepAlive = false;
+        $mail->SMTPAutoTLS = false;
+        $mail->getSMTPInstance()->Timelimit = 20;
+        $mail->SMTPOptions = [
+            'ssl' => [
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+                'allow_self_signed' => false,
+                'peer_name' => (string) $smtpTarget['peer_name'],
+                'SNI_enabled' => true,
+            ],
+        ];
 
         $encryption = strtolower(trim((string) ($emailSettings['smtp_encryption'] ?? 'tls')));
 
@@ -455,9 +481,8 @@ if (!function_exists('booking_mail_configure_mailer')) {
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
         } elseif ($encryption === 'tls' || $encryption === '') {
             $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        } elseif ($encryption === 'none') {
-            $mail->SMTPSecure = false;
-            $mail->SMTPAutoTLS = false;
+        } else {
+            throw new Exception('Niedozwolone szyfrowanie SMTP');
         }
 
         $mail->setFrom($fromEmail, $fromName !== '' ? $fromName : $fromEmail);
@@ -1092,5 +1117,753 @@ if (!function_exists('booking_mail_send_booking_reminder_with_fallback')) {
         }
 
         return booking_mail_send_system_booking_reminder($tenantData, $booking, $type, $emailSettings);
+    }
+}
+
+/*
+ * Booking V7 SMTP transport adapter.
+ * Dormant until a DB-claim worker calls booking_mail_v7_deliver().
+ * Legacy mail flows above remain unchanged.
+ */
+if (!class_exists('BookingMailV7TrackedSMTP', false)) {
+    class BookingMailV7TrackedSMTP extends \PHPMailer\PHPMailer\SMTP
+    {
+        private string $v7DataState = 'not_started';
+        private int $v7DataSmtpCode = 0;
+        private bool $v7AuthAttempted = false;
+        private bool $v7AuthAccepted = false;
+        private int $v7AuthSmtpCode = 0;
+        private bool $v7RecipientAttempted = false;
+        private bool $v7RecipientAccepted = false;
+        private int $v7RecipientSmtpCode = 0;
+
+        public function authenticate($username, $password, $authtype = null, $OAuth = null)
+        {
+            $this->v7AuthAttempted = true;
+            $ok = parent::authenticate($username, $password, $authtype, $OAuth);
+            $this->v7AuthAccepted = $ok;
+            if (!$ok) {
+                $error = $this->getError();
+                $this->v7AuthSmtpCode = (int)($error['smtp_code'] ?? 0);
+            }
+
+            return $ok;
+        }
+
+        public function recipient($address, $dsn = '')
+        {
+            $this->v7RecipientAttempted = true;
+            $ok = parent::recipient($address, $dsn);
+            $this->v7RecipientAccepted = $ok;
+            if (!$ok) {
+                $error = $this->getError();
+                $this->v7RecipientSmtpCode = (int)($error['smtp_code'] ?? 0);
+            }
+
+            return $ok;
+        }
+
+        public function data($msg_data)
+        {
+            $this->v7DataState = 'data_started';
+            $this->v7DataSmtpCode = 0;
+
+            try {
+                $ok = parent::data($msg_data);
+            } catch (\Throwable $e) {
+                $this->v7DataState = 'result_unknown';
+                throw $e;
+            }
+
+            if ($ok) {
+                $this->v7DataState = 'accepted';
+                return true;
+            }
+
+            $error = $this->getError();
+            $errorName = trim((string)($error['error'] ?? ''));
+            $smtpCode = (int)($error['smtp_code'] ?? 0);
+            $this->v7DataSmtpCode = $smtpCode;
+
+            if (str_starts_with($errorName, 'DATA command failed')) {
+                $this->v7DataState = 'data_command_rejected';
+            } elseif (
+                str_starts_with($errorName, 'DATA END command failed')
+                && $smtpCode >= 400
+                && $smtpCode <= 599
+            ) {
+                $this->v7DataState = 'data_end_rejected';
+            } else {
+                $this->v7DataState = 'result_unknown';
+            }
+
+            return false;
+        }
+
+        public function v7DataState(): string
+        {
+            return $this->v7DataState;
+        }
+
+        public function v7DataSmtpCode(): int
+        {
+            return $this->v7DataSmtpCode;
+        }
+
+        public function v7AuthFailureSmtpCode(): int
+        {
+            return $this->v7AuthAttempted && !$this->v7AuthAccepted
+                ? $this->v7AuthSmtpCode
+                : 0;
+        }
+
+        public function v7RecipientFailureSmtpCode(): int
+        {
+            return $this->v7RecipientAttempted && !$this->v7RecipientAccepted
+                ? $this->v7RecipientSmtpCode
+                : 0;
+        }
+    }
+}
+
+if (!function_exists('booking_mail_v7_result')) {
+    function booking_mail_v7_result(
+        string $result,
+        string $errorCode = '',
+        ?string $deliverySource = null
+    ): array {
+        $allowedResults = ['sent', 'failed', 'blocked'];
+        $allowedCodes = [
+            '',
+            'mail_input_invalid',
+            'mail_delivery_channel_invalid',
+            'mail_tenant_binding_invalid',
+            'smtp_configuration_missing',
+            'smtp_configuration_invalid',
+            'smtp_insecure_configuration',
+            'smtp_host_invalid',
+            'smtp_host_not_public',
+            'smtp_host_unresolved',
+            'smtp_transport_failure',
+            'smtp_temporary_reject',
+            'smtp_permanent_reject',
+            'delivery_result_unknown',
+            'mail_adapter_failed',
+        ];
+        $allowedSources = [null, 'tenant_smtp', 'system_smtp'];
+
+        if (
+            !in_array($result, $allowedResults, true)
+            || !in_array($errorCode, $allowedCodes, true)
+            || !in_array($deliverySource, $allowedSources, true)
+            || ($result === 'sent' && $errorCode !== '')
+        ) {
+            return [
+                'result' => 'blocked',
+                'error_code' => 'mail_adapter_failed',
+                'delivery_source' => null,
+            ];
+        }
+
+        return [
+            'result' => $result,
+            'error_code' => $errorCode,
+            'delivery_source' => $deliverySource,
+        ];
+    }
+}
+
+if (!function_exists('booking_mail_v7_valid_identifier')) {
+    function booking_mail_v7_valid_identifier(string $value, int $maxBytes = 128): bool
+    {
+        return $value !== ''
+            && $value === trim($value)
+            && strlen($value) <= $maxBytes
+            && preg_match('/[\x00-\x1F\x7F]/', $value) !== 1;
+    }
+}
+
+if (!function_exists('booking_mail_v7_allowed_tenant_smtp_ports')) {
+    function booking_mail_v7_allowed_tenant_smtp_ports(): array
+    {
+        $default = [25, 465, 587, 2525];
+        $raw = trim((string)getenv('SMTP_TENANT_ALLOWED_PORTS'));
+
+        if ($raw === '') {
+            return $default;
+        }
+
+        $ports = [];
+        foreach (explode(',', $raw) as $part) {
+            $part = trim($part);
+            if ($part === '' || !ctype_digit($part)) {
+                continue;
+            }
+
+            $port = (int)$part;
+            if ($port >= 1 && $port <= 65535) {
+                $ports[$port] = $port;
+            }
+
+            if (count($ports) >= 16) {
+                break;
+            }
+        }
+
+        return $ports !== [] ? array_values($ports) : $default;
+    }
+}
+
+if (!function_exists('booking_mail_v7_public_smtp_target')) {
+    function booking_mail_v7_public_smtp_target(string $host): array
+    {
+        $host = strtolower(rtrim(trim($host), '.'));
+
+        if (
+            $host === ''
+            || strlen($host) > 253
+            || preg_match('/[\x00-\x20\x7F]/', $host) === 1
+            || str_contains($host, '://')
+            || str_contains($host, '/')
+            || str_contains($host, '\\')
+            || str_contains($host, '@')
+        ) {
+            return ['ok' => false, 'retryable' => false, 'error_code' => 'smtp_host_invalid'];
+        }
+
+        $literal = trim($host, '[]');
+        if (filter_var($literal, FILTER_VALIDATE_IP) !== false) {
+            if (
+                filter_var(
+                    $literal,
+                    FILTER_VALIDATE_IP,
+                    FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+                ) === false
+            ) {
+                return ['ok' => false, 'retryable' => false, 'error_code' => 'smtp_host_not_public'];
+            }
+
+            return [
+                'ok' => true,
+                'retryable' => false,
+                'error_code' => '',
+                'connect_host' => str_contains($literal, ':') ? '[' . $literal . ']' : $literal,
+                'peer_name' => $literal,
+            ];
+        }
+
+        if (
+            !PHPMailer::isValidHost($host)
+            || !str_contains($host, '.')
+            || $host === 'localhost'
+            || str_ends_with($host, '.localhost')
+        ) {
+            return ['ok' => false, 'retryable' => false, 'error_code' => 'smtp_host_invalid'];
+        }
+
+        $ips = [];
+        $ipv4 = @gethostbynamel($host);
+        if (is_array($ipv4)) {
+            foreach ($ipv4 as $ip) {
+                if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+                    $ips[$ip] = $ip;
+                }
+            }
+        }
+
+        if (function_exists('dns_get_record') && defined('DNS_AAAA')) {
+            $ipv6Records = @dns_get_record($host, DNS_AAAA);
+            if (is_array($ipv6Records)) {
+                foreach ($ipv6Records as $record) {
+                    $ip = $record['ipv6'] ?? null;
+                    if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+                        $ips[$ip] = $ip;
+                    }
+                }
+            }
+        }
+
+        if ($ips === []) {
+            return ['ok' => false, 'retryable' => true, 'error_code' => 'smtp_host_unresolved'];
+        }
+
+        foreach ($ips as $ip) {
+            if (
+                filter_var(
+                    $ip,
+                    FILTER_VALIDATE_IP,
+                    FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+                ) === false
+            ) {
+                return ['ok' => false, 'retryable' => false, 'error_code' => 'smtp_host_not_public'];
+            }
+        }
+
+        $selected = null;
+        foreach ($ips as $ip) {
+            if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+                $selected = $ip;
+                break;
+            }
+        }
+        if ($selected === null) {
+            $selected = reset($ips);
+        }
+
+        return [
+            'ok' => true,
+            'retryable' => false,
+            'error_code' => '',
+            'connect_host' => str_contains((string)$selected, ':') ? '[' . $selected . ']' : (string)$selected,
+            'peer_name' => $host,
+        ];
+    }
+}
+
+if (!function_exists('booking_mail_v7_validate_message')) {
+    function booking_mail_v7_validate_message(
+        string $tenantId,
+        string $recipientEmail,
+        string $subject,
+        string $html,
+        string &$altBody
+    ): ?array {
+        if (!booking_mail_v7_valid_identifier($tenantId)) {
+            return booking_mail_v7_result('blocked', 'mail_input_invalid');
+        }
+
+        $recipientEmail = trim($recipientEmail);
+        if (
+            $recipientEmail === ''
+            || strlen($recipientEmail) > 254
+            || preg_match('/[\r\n\x00]/', $recipientEmail) === 1
+            || filter_var($recipientEmail, FILTER_VALIDATE_EMAIL) === false
+        ) {
+            return booking_mail_v7_result('blocked', 'mail_input_invalid');
+        }
+
+        $subject = trim($subject);
+        if (
+            $subject === ''
+            || strlen($subject) > 255
+            || preg_match('/[\r\n\x00]/', $subject) === 1
+        ) {
+            return booking_mail_v7_result('blocked', 'mail_input_invalid');
+        }
+
+        if ($html === '' || strlen($html) > 262144 || str_contains($html, "\0")) {
+            return booking_mail_v7_result('blocked', 'mail_input_invalid');
+        }
+
+        if ($altBody === '') {
+            $altBody = trim(
+                html_entity_decode(
+                    strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $html)),
+                    ENT_QUOTES | ENT_HTML5,
+                    'UTF-8'
+                )
+            );
+        }
+
+        if (strlen($altBody) > 131072 || str_contains($altBody, "\0")) {
+            return booking_mail_v7_result('blocked', 'mail_input_invalid');
+        }
+
+        return null;
+    }
+}
+
+if (!function_exists('booking_mail_v7_classify_send')) {
+    function booking_mail_v7_classify_send(
+        BookingMailV7TrackedSMTP $smtp,
+        string $deliverySource
+    ): array {
+        $dataState = $smtp->v7DataState();
+        if ($dataState === 'accepted') {
+            return booking_mail_v7_result('sent', '', $deliverySource);
+        }
+
+        if ($dataState === 'result_unknown' || $dataState === 'data_started') {
+            return booking_mail_v7_result('blocked', 'delivery_result_unknown', $deliverySource);
+        }
+
+        $smtpCode = $smtp->v7DataSmtpCode();
+        if ($smtpCode === 0) {
+            $smtpCode = $smtp->v7RecipientFailureSmtpCode();
+        }
+        if ($smtpCode === 0) {
+            $smtpCode = $smtp->v7AuthFailureSmtpCode();
+        }
+        if ($smtpCode === 0) {
+            $error = $smtp->getError();
+            $smtpCode = (int)($error['smtp_code'] ?? 0);
+        }
+
+        if ($smtpCode >= 500 && $smtpCode <= 599) {
+            return booking_mail_v7_result('blocked', 'smtp_permanent_reject', $deliverySource);
+        }
+
+        if ($smtpCode >= 400 && $smtpCode <= 499) {
+            return booking_mail_v7_result('failed', 'smtp_temporary_reject', $deliverySource);
+        }
+
+        return booking_mail_v7_result('failed', 'smtp_transport_failure', $deliverySource);
+    }
+}
+
+if (!function_exists('booking_mail_v7_send_configured')) {
+    function booking_mail_v7_send_configured(
+        PHPMailer $mail,
+        BookingMailV7TrackedSMTP $smtp,
+        string $deliverySource
+    ): array {
+        try {
+            $mail->send();
+        } catch (\Throwable $e) {
+            // Never log or return PHPMailer/cURL/SMTP raw errors; they may contain PII or credentials.
+        }
+
+        return booking_mail_v7_classify_send($smtp, $deliverySource);
+    }
+}
+
+if (!function_exists('booking_mail_v7_prepare_common_mailer')) {
+    function booking_mail_v7_prepare_common_mailer(
+        PHPMailer $mail,
+        BookingMailV7TrackedSMTP $smtp,
+        string $connectHost,
+        string $peerName,
+        int $port,
+        string $encryption,
+        bool $smtpAuth,
+        string $username,
+        string $password,
+        string $fromEmail,
+        string $fromName,
+        string $recipientEmail,
+        string $subject,
+        string $html,
+        string $altBody,
+        ?string $replyToEmail,
+        string $replyToName,
+        int $timeout,
+        int $timeLimit
+    ): void {
+        $mail->setSMTPInstance($smtp);
+        $mail->isSMTP();
+        $mail->Host = $connectHost;
+        $mail->Port = $port;
+        $mail->SMTPAuth = $smtpAuth;
+        $mail->Username = $smtpAuth ? $username : '';
+        $mail->Password = $smtpAuth ? $password : '';
+        $mail->CharSet = 'UTF-8';
+        $mail->Timeout = $timeout;
+        $mail->SMTPDebug = 0;
+        $mail->Debugoutput = static function (): void {
+            // Intentionally discard SMTP transcript to prevent credential/PII leakage.
+        };
+        $mail->SMTPKeepAlive = false;
+        $mail->SMTPAutoTLS = false;
+        $smtp->Timelimit = $timeLimit;
+
+        $mail->SMTPOptions = [
+            'ssl' => [
+                'verify_peer' => true,
+                'verify_peer_name' => true,
+                'allow_self_signed' => false,
+                'peer_name' => $peerName,
+                'SNI_enabled' => true,
+            ],
+        ];
+
+        if ($encryption === 'ssl') {
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;
+        } else {
+            $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
+        }
+
+        $mail->setFrom($fromEmail, $fromName !== '' ? $fromName : $fromEmail);
+        $mail->addAddress($recipientEmail);
+
+        if ($replyToEmail !== null && $replyToEmail !== '') {
+            $mail->addReplyTo($replyToEmail, $replyToName !== '' ? $replyToName : $replyToEmail);
+        }
+
+        $mail->isHTML(true);
+        $mail->Subject = $subject;
+        $mail->Body = $html;
+        $mail->AltBody = $altBody;
+    }
+}
+
+if (!function_exists('booking_mail_v7_send_tenant_smtp')) {
+    function booking_mail_v7_send_tenant_smtp(
+        string $tenantId,
+        array $emailSettings,
+        string $recipientEmail,
+        string $subject,
+        string $html,
+        string $altBody
+    ): array {
+        if (($emailSettings['tenant_id'] ?? null) !== $tenantId) {
+            return booking_mail_v7_result('blocked', 'mail_tenant_binding_invalid');
+        }
+
+        if (array_key_exists('is_active', $emailSettings) && $emailSettings['is_active'] !== true) {
+            return booking_mail_v7_result('blocked', 'smtp_configuration_missing', 'tenant_smtp');
+        }
+
+        $host = trim((string)($emailSettings['smtp_host'] ?? ''));
+        $port = (int)($emailSettings['smtp_port'] ?? 0);
+        $encryption = strtolower(trim((string)($emailSettings['smtp_encryption'] ?? 'tls')));
+        $smtpAuth = array_key_exists('smtp_auth', $emailSettings)
+            ? (bool)$emailSettings['smtp_auth']
+            : true;
+        $username = trim((string)($emailSettings['smtp_username'] ?? $emailSettings['smtp_user'] ?? ''));
+        $password = (string)($emailSettings['smtp_password'] ?? $emailSettings['smtp_pass'] ?? '');
+        $fromEmail = trim((string)($emailSettings['from_email'] ?? $emailSettings['smtp_email'] ?? ''));
+        $fromName = trim((string)($emailSettings['from_name'] ?? $emailSettings['smtp_name'] ?? ''));
+        $replyToEmail = trim((string)($emailSettings['reply_to_email'] ?? ''));
+        $replyToName = trim((string)($emailSettings['reply_to_name'] ?? ''));
+
+        if (
+            $host === ''
+            || !in_array($port, booking_mail_v7_allowed_tenant_smtp_ports(), true)
+            || !in_array($encryption, ['ssl', 'tls'], true)
+            || ($smtpAuth && ($username === '' || $password === ''))
+            || strlen($username) > 255
+            || strlen($password) > 4096
+            || preg_match('/[\r\n\x00]/', $username) === 1
+            || str_contains($password, "\0")
+            || $fromEmail === ''
+            || strlen($fromEmail) > 254
+            || preg_match('/[\r\n\x00]/', $fromEmail) === 1
+            || filter_var($fromEmail, FILTER_VALIDATE_EMAIL) === false
+            || strlen($fromName) > 255
+            || preg_match('/[\r\n\x00]/', $fromName) === 1
+            || strlen($replyToName) > 255
+            || preg_match('/[\r\n\x00]/', $replyToName) === 1
+        ) {
+            $error = $encryption === 'none'
+                ? 'smtp_insecure_configuration'
+                : 'smtp_configuration_invalid';
+            return booking_mail_v7_result('blocked', $error, 'tenant_smtp');
+        }
+
+        if ($replyToEmail !== '') {
+            if (
+                strlen($replyToEmail) > 254
+                || preg_match('/[\r\n\x00]/', $replyToEmail) === 1
+                || filter_var($replyToEmail, FILTER_VALIDATE_EMAIL) === false
+            ) {
+                return booking_mail_v7_result('blocked', 'smtp_configuration_invalid', 'tenant_smtp');
+            }
+        }
+
+        $target = booking_mail_v7_public_smtp_target($host);
+        if (($target['ok'] ?? false) !== true) {
+            return booking_mail_v7_result(
+                !empty($target['retryable']) ? 'failed' : 'blocked',
+                (string)($target['error_code'] ?? 'smtp_host_invalid'),
+                'tenant_smtp'
+            );
+        }
+
+        try {
+            $mail = new PHPMailer(true);
+            $smtp = new BookingMailV7TrackedSMTP();
+            booking_mail_v7_prepare_common_mailer(
+                $mail,
+                $smtp,
+                (string)$target['connect_host'],
+                (string)$target['peer_name'],
+                $port,
+                $encryption,
+                $smtpAuth,
+                $username,
+                $password,
+                $fromEmail,
+                $fromName,
+                $recipientEmail,
+                $subject,
+                $html,
+                $altBody,
+                $replyToEmail !== '' ? $replyToEmail : null,
+                $replyToName,
+                15,
+                15
+            );
+
+            return booking_mail_v7_send_configured($mail, $smtp, 'tenant_smtp');
+        } catch (\Throwable $e) {
+            return booking_mail_v7_result('blocked', 'smtp_configuration_invalid', 'tenant_smtp');
+        }
+    }
+}
+
+if (!function_exists('booking_mail_v7_send_system_smtp')) {
+    function booking_mail_v7_send_system_smtp(
+        string $recipientEmail,
+        string $subject,
+        string $html,
+        string $altBody,
+        ?array $emailSettings = null
+    ): array {
+        $host = trim(systemMailEnv('SMTP_SYSTEM_HOST'));
+        $port = (int)systemMailEnv('SMTP_SYSTEM_PORT', '587');
+        $username = trim(systemMailEnv('SMTP_SYSTEM_USER'));
+        $password = systemMailEnv('SMTP_SYSTEM_PASS');
+        $fromEmail = trim(systemMailEnv('SMTP_SYSTEM_FROM'));
+        $fromName = trim(systemMailEnv('SMTP_SYSTEM_NAME', 'AI-IQ'));
+        $encryption = strtolower(trim(systemMailEnv('SMTP_SYSTEM_ENCRYPTION', 'tls')));
+        $timeout = max(5, min(30, (int)systemMailEnv('SMTP_SYSTEM_TIMEOUT', '20')));
+        $timeLimit = max(5, min(30, (int)systemMailEnv('SMTP_SYSTEM_TIMELIMIT', '20')));
+
+        $replyToEmail = '';
+        $replyToName = '';
+        if (is_array($emailSettings)) {
+            $candidate = trim((string)($emailSettings['reply_to_email'] ?? $emailSettings['from_email'] ?? ''));
+            if ($candidate !== '' && filter_var($candidate, FILTER_VALIDATE_EMAIL) !== false) {
+                $replyToEmail = $candidate;
+                $replyToName = trim((string)($emailSettings['reply_to_name'] ?? $emailSettings['from_name'] ?? ''));
+            }
+        }
+
+        if (
+            $host === ''
+            || $port < 1
+            || $port > 65535
+            || $username === ''
+            || $password === ''
+            || strlen($username) > 255
+            || strlen($password) > 4096
+            || preg_match('/[\r\n\x00]/', $username) === 1
+            || str_contains($password, "\0")
+            || !in_array($encryption, ['ssl', 'smtps', 'tls', 'starttls'], true)
+            || $fromEmail === ''
+            || strlen($fromEmail) > 254
+            || preg_match('/[\r\n\x00]/', $fromEmail) === 1
+            || filter_var($fromEmail, FILTER_VALIDATE_EMAIL) === false
+            || strlen($fromName) > 255
+            || preg_match('/[\r\n\x00]/', $fromName) === 1
+            || strlen($replyToName) > 255
+            || preg_match('/[\r\n\x00]/', $replyToName) === 1
+        ) {
+            return booking_mail_v7_result('blocked', 'smtp_configuration_missing', 'system_smtp');
+        }
+
+        $target = booking_mail_v7_public_smtp_target($host);
+        if (($target['ok'] ?? false) !== true) {
+            return booking_mail_v7_result(
+                !empty($target['retryable']) ? 'failed' : 'blocked',
+                (string)($target['error_code'] ?? 'smtp_host_invalid'),
+                'system_smtp'
+            );
+        }
+
+        try {
+            $mail = new PHPMailer(true);
+            $smtp = new BookingMailV7TrackedSMTP();
+            booking_mail_v7_prepare_common_mailer(
+                $mail,
+                $smtp,
+                (string)$target['connect_host'],
+                (string)$target['peer_name'],
+                $port,
+                in_array($encryption, ['ssl', 'smtps'], true) ? 'ssl' : 'tls',
+                true,
+                $username,
+                $password,
+                $fromEmail,
+                $fromName,
+                $recipientEmail,
+                $subject,
+                $html,
+                $altBody,
+                $replyToEmail !== '' ? $replyToEmail : null,
+                $replyToName,
+                $timeout,
+                $timeLimit
+            );
+
+            return booking_mail_v7_send_configured($mail, $smtp, 'system_smtp');
+        } catch (\Throwable $e) {
+            return booking_mail_v7_result('blocked', 'smtp_configuration_invalid', 'system_smtp');
+        }
+    }
+}
+
+if (!function_exists('booking_mail_v7_deliver')) {
+    function booking_mail_v7_deliver(
+        string $tenantId,
+        string $deliveryChannel,
+        string $recipientEmail,
+        string $subject,
+        string $html,
+        string $altBody = '',
+        ?array $emailSettings = null
+    ): array {
+        $tenantId = trim($tenantId);
+        $deliveryChannel = trim($deliveryChannel);
+        $recipientEmail = trim($recipientEmail);
+        $subject = trim($subject);
+
+        $validation = booking_mail_v7_validate_message(
+            $tenantId,
+            $recipientEmail,
+            $subject,
+            $html,
+            $altBody
+        );
+        if ($validation !== null) {
+            return $validation;
+        }
+
+        if (!in_array($deliveryChannel, ['tenant_smtp_with_system_fallback', 'system_smtp'], true)) {
+            return booking_mail_v7_result('blocked', 'mail_delivery_channel_invalid');
+        }
+
+        if ($deliveryChannel === 'system_smtp') {
+            return booking_mail_v7_send_system_smtp(
+                $recipientEmail,
+                $subject,
+                $html,
+                $altBody,
+                $emailSettings
+            );
+        }
+
+        if (is_array($emailSettings) && ($emailSettings['tenant_id'] ?? null) !== $tenantId) {
+            return booking_mail_v7_result('blocked', 'mail_tenant_binding_invalid');
+        }
+
+        if (is_array($emailSettings)) {
+            $tenantResult = booking_mail_v7_send_tenant_smtp(
+                $tenantId,
+                $emailSettings,
+                $recipientEmail,
+                $subject,
+                $html,
+                $altBody
+            );
+
+            if (($tenantResult['result'] ?? null) === 'sent') {
+                return $tenantResult;
+            }
+
+            if (($tenantResult['error_code'] ?? null) === 'delivery_result_unknown') {
+                // SMTP may already have accepted the message: never send a fallback duplicate.
+                return $tenantResult;
+            }
+        }
+
+        // Safe fallback is allowed only when tenant SMTP has definitely not accepted the message.
+        return booking_mail_v7_send_system_smtp(
+            $recipientEmail,
+            $subject,
+            $html,
+            $altBody,
+            $emailSettings
+        );
     }
 }

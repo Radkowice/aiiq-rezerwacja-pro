@@ -14,6 +14,12 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'subscription_email_claim',
         'subscription_email_record_result',
         'subscription_activation_consume',
+        'booking_calendar_claim',
+        'booking_calendar_record_result',
+        'booking_email_claim',
+        'booking_email_record_result',
+        'booking_payment_reconciliation_claim',
+        'booking_payment_reconciliation_record_result',
     ];
 }
 

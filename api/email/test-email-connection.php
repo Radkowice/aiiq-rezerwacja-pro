@@ -67,78 +67,130 @@ function smtp_test_json(int $status, array $payload): void
     exit;
 }
 
-function smtp_test_ends_with(string $value, string $suffix): bool
+function smtp_test_allowed_ports(): array
 {
-    if ($suffix === '') {
-        return true;
+    $default = [25, 465, 587, 2525];
+    $raw = trim((string) getenv('SMTP_TENANT_ALLOWED_PORTS'));
+
+    if ($raw === '') {
+        return $default;
     }
 
-    return substr($value, -strlen($suffix)) === $suffix;
-}
-
-function smtp_test_is_private_or_reserved_ip(string $ip): bool
-{
-    return filter_var(
-        $ip,
-        FILTER_VALIDATE_IP,
-        FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
-    ) === false;
-}
-
-function smtp_test_is_allowed_host(string $host): bool
-{
-    $normalized = trim($host, " \t\n\r\0\x0B[]");
-    $lower = strtolower(rtrim($normalized, '.'));
-
-    if ($lower === '') {
-        return false;
-    }
-
-    $blockedHosts = [
-        'localhost',
-        'localhost.localdomain',
-    ];
-
-    if (in_array($lower, $blockedHosts, true)) {
-        return false;
-    }
-
-    $blockedSuffixes = [
-        '.localhost',
-        '.local',
-        '.internal',
-        '.lan',
-    ];
-
-    foreach ($blockedSuffixes as $suffix) {
-        if (smtp_test_ends_with($lower, $suffix)) {
-            return false;
+    $ports = [];
+    foreach (explode(',', $raw) as $part) {
+        $part = trim($part);
+        if ($part === '' || !ctype_digit($part)) {
+            continue;
+        }
+        $port = (int) $part;
+        if ($port >= 1 && $port <= 65535) {
+            $ports[$port] = $port;
+        }
+        if (count($ports) >= 16) {
+            break;
         }
     }
 
-    if (filter_var($normalized, FILTER_VALIDATE_IP)) {
-        return !smtp_test_is_private_or_reserved_ip($normalized);
+    return $ports !== [] ? array_values($ports) : $default;
+}
+
+function smtp_test_public_target(string $host): array
+{
+    $host = strtolower(rtrim(trim($host), '.'));
+
+    if (
+        $host === ''
+        || strlen($host) > 253
+        || preg_match('/[\x00-\x20\x7F]/', $host) === 1
+        || str_contains($host, '://')
+        || str_contains($host, '/')
+        || str_contains($host, '\\')
+        || str_contains($host, '@')
+    ) {
+        return ['ok' => false];
     }
 
-    if (!filter_var($lower, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)) {
-        return false;
+    $literal = trim($host, '[]');
+    if (filter_var($literal, FILTER_VALIDATE_IP) !== false) {
+        if (filter_var(
+            $literal,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        ) === false) {
+            return ['ok' => false];
+        }
+
+        return [
+            'ok' => true,
+            'connect_host' => str_contains($literal, ':') ? '[' . $literal . ']' : $literal,
+            'peer_name' => $literal,
+        ];
     }
 
-    $records = @dns_get_record($lower, DNS_A + DNS_AAAA);
-
-    if (!is_array($records) || empty($records)) {
-        return false;
+    if (
+        !PHPMailer::isValidHost($host)
+        || !str_contains($host, '.')
+        || $host === 'localhost'
+        || str_ends_with($host, '.localhost')
+        || str_ends_with($host, '.local')
+        || str_ends_with($host, '.internal')
+        || str_ends_with($host, '.lan')
+    ) {
+        return ['ok' => false];
     }
 
-    foreach ($records as $record) {
-        $ip = (string) ($record['ip'] ?? $record['ipv6'] ?? '');
-
-        if ($ip !== '' && smtp_test_is_private_or_reserved_ip($ip)) {
-            return false;
+    $ips = [];
+    $ipv4 = @gethostbynamel($host);
+    if (is_array($ipv4)) {
+        foreach ($ipv4 as $ip) {
+            if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+                $ips[$ip] = $ip;
+            }
         }
     }
 
-    return true;
+    if (function_exists('dns_get_record') && defined('DNS_AAAA')) {
+        $ipv6Records = @dns_get_record($host, DNS_AAAA);
+        if (is_array($ipv6Records)) {
+            foreach ($ipv6Records as $record) {
+                $ip = $record['ipv6'] ?? null;
+                if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+                    $ips[$ip] = $ip;
+                }
+            }
+        }
+    }
+
+    if ($ips === []) {
+        return ['ok' => false];
+    }
+
+    foreach ($ips as $ip) {
+        if (filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        ) === false) {
+            return ['ok' => false];
+        }
+    }
+
+    $selected = null;
+    foreach ($ips as $ip) {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+            $selected = $ip;
+            break;
+        }
+    }
+    if ($selected === null) {
+        $selected = reset($ips);
+    }
+
+    return [
+        'ok' => true,
+        'connect_host' => str_contains((string) $selected, ':') ? '[' . $selected . ']' : (string) $selected,
+        'peer_name' => $host,
+    ];
 }
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
@@ -154,6 +206,15 @@ if (empty($_SESSION['user']['tenant_id'])) {
     smtp_test_json(401, [
         'success' => false,
         'error' => 'Brak autoryzacji.'
+    ]);
+}
+
+$sessionRole = strtolower(trim((string) ($_SESSION['user']['role'] ?? '')));
+if (!in_array($sessionRole, ['admin', 'administrator'], true)) {
+    smtp_test_security_event('email_smtp_test_forbidden', 'forbidden_role', 403, 'denied', 'high');
+    smtp_test_json(403, [
+        'success' => false,
+        'error' => 'Brak uprawnień.'
     ]);
 }
 
@@ -216,18 +277,19 @@ if ($smtpHost === '' || $smtpPort <= 0 || $smtpUsername === '') {
     ]);
 }
 
-$allowedPorts = [25, 465, 587, 2525];
+$allowedPorts = smtp_test_allowed_ports();
 
 if (!in_array($smtpPort, $allowedPorts, true)) {
     smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'smtp_port');
     smtp_test_json(422, [
         'success' => false,
-        'error' => 'Dozwolone porty SMTP to 25, 465, 587 albo 2525.'
+        'error' => 'Port SMTP jest niedozwolony.'
     ]);
 }
 
-if (!smtp_test_is_allowed_host($smtpHost)) {
-    smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'medium', $tenantId, $userId, 'smtp_host');
+$smtpTarget = smtp_test_public_target($smtpHost);
+if (empty($smtpTarget['ok'])) {
+    smtp_test_security_event('email_smtp_test_validation_failed', 'validation_failed', 422, 'failed', 'high', $tenantId, $userId, 'smtp_host');
     smtp_test_json(422, [
         'success' => false,
         'error' => 'Host SMTP jest nieprawidłowy albo niedozwolony.'
@@ -306,13 +368,28 @@ try {
     $mail = new PHPMailer(true);
 
     $mail->isSMTP();
-    $mail->Host = $smtpHost;
+    $mail->Host = (string) $smtpTarget['connect_host'];
     $mail->Port = $smtpPort;
     $mail->SMTPAuth = true;
     $mail->Username = $smtpUsername;
     $mail->Password = $smtpPassword;
     $mail->CharSet = 'UTF-8';
     $mail->Timeout = 12;
+    $mail->SMTPAutoTLS = false;
+    $mail->SMTPDebug = 0;
+    $mail->Debugoutput = static function (): void {
+        // Celowo odrzucamy transcript SMTP, aby nie logować PII ani credentiali.
+    };
+    $mail->getSMTPInstance()->Timelimit = 20;
+    $mail->SMTPOptions = [
+        'ssl' => [
+            'verify_peer' => true,
+            'verify_peer_name' => true,
+            'allow_self_signed' => false,
+            'peer_name' => (string) $smtpTarget['peer_name'],
+            'SNI_enabled' => true,
+        ],
+    ];
 
     if ($smtpPort === 465) {
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_SMTPS;

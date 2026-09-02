@@ -97,6 +97,111 @@ function email_settings_text($value, int $maxLength, bool $required = false): ?s
     return $text;
 }
 
+function email_settings_allowed_smtp_ports(): array
+{
+    $default = [25, 465, 587, 2525];
+    $raw = trim((string) getenv('SMTP_TENANT_ALLOWED_PORTS'));
+
+    if ($raw === '') {
+        return $default;
+    }
+
+    $ports = [];
+    foreach (explode(',', $raw) as $part) {
+        $part = trim($part);
+        if ($part === '' || !ctype_digit($part)) {
+            continue;
+        }
+
+        $port = (int) $part;
+        if ($port >= 1 && $port <= 65535) {
+            $ports[$port] = $port;
+        }
+
+        if (count($ports) >= 16) {
+            break;
+        }
+    }
+
+    return $ports !== [] ? array_values($ports) : $default;
+}
+
+function email_settings_public_smtp_host(string $host): ?string
+{
+    $host = strtolower(rtrim(trim($host), '.'));
+
+    if (
+        $host === ''
+        || strlen($host) > 253
+        || preg_match('/[\x00-\x20\x7F]/', $host) === 1
+        || str_contains($host, '://')
+        || str_contains($host, '/')
+        || str_contains($host, '\\')
+        || str_contains($host, '@')
+    ) {
+        return null;
+    }
+
+    $literal = trim($host, '[]');
+    if (filter_var($literal, FILTER_VALIDATE_IP) !== false) {
+        return filter_var(
+            $literal,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        ) !== false ? $literal : null;
+    }
+
+    if (
+        !filter_var($host, FILTER_VALIDATE_DOMAIN, FILTER_FLAG_HOSTNAME)
+        || !str_contains($host, '.')
+        || $host === 'localhost'
+        || str_ends_with($host, '.localhost')
+        || str_ends_with($host, '.local')
+        || str_ends_with($host, '.internal')
+        || str_ends_with($host, '.lan')
+    ) {
+        return null;
+    }
+
+    $ips = [];
+    $ipv4 = @gethostbynamel($host);
+    if (is_array($ipv4)) {
+        foreach ($ipv4 as $ip) {
+            if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) !== false) {
+                $ips[$ip] = $ip;
+            }
+        }
+    }
+
+    if (function_exists('dns_get_record') && defined('DNS_AAAA')) {
+        $ipv6Records = @dns_get_record($host, DNS_AAAA);
+        if (is_array($ipv6Records)) {
+            foreach ($ipv6Records as $record) {
+                $ip = $record['ipv6'] ?? null;
+                if (is_string($ip) && filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) !== false) {
+                    $ips[$ip] = $ip;
+                }
+            }
+        }
+    }
+
+    if ($ips === []) {
+        return null;
+    }
+
+    foreach ($ips as $ip) {
+        if (filter_var(
+            $ip,
+            FILTER_VALIDATE_IP,
+            FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE
+        ) === false) {
+            return null;
+        }
+    }
+
+    return $host;
+}
+
 function email_settings_request(
     string $method,
     string $url,
@@ -159,6 +264,15 @@ if (empty($_SESSION['user']['tenant_id'])) {
     ], 401);
 }
 
+$sessionRole = strtolower(trim((string) ($_SESSION['user']['role'] ?? '')));
+if (!in_array($sessionRole, ['admin', 'administrator'], true)) {
+    email_settings_security_event('email_settings_forbidden', 'forbidden_role', 403, 'denied', 'high');
+    email_settings_json([
+        'success' => false,
+        'error' => 'Brak uprawnień.'
+    ], 403);
+}
+
 $tenantId = (string) $_SESSION['user']['tenant_id'];
 $userId = (string) ($_SESSION['user']['id'] ?? '');
 $input = json_decode(file_get_contents('php://input') ?: '{}', true);
@@ -202,17 +316,26 @@ if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)
 }
 
 if ($section === 'all' || $section === 'smtp') {
-    $smtpHost = email_settings_text($input['smtp_host'] ?? null, 255, true);
+    $smtpHostInput = email_settings_text($input['smtp_host'] ?? null, 255, true);
+    $smtpHost = email_settings_public_smtp_host((string) $smtpHostInput);
     $smtpPort = (int) ($input['smtp_port'] ?? 587);
     $smtpUsername = email_settings_text($input['smtp_user'] ?? null, 255, true);
     $fromEmail = email_settings_text($input['smtp_email'] ?? null, 255, true);
     $fromName = email_settings_text($input['smtp_name'] ?? null, 255, true);
 
-    if ($smtpPort <= 0 || $smtpPort > 65535) {
-        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'low', $tenantId, $userId, 'smtp_port');
+    if ($smtpHost === null) {
+        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'high', $tenantId, $userId, 'smtp_host');
         email_settings_json([
             'success' => false,
-            'error' => 'Podaj poprawny port SMTP.'
+            'error' => 'Host SMTP jest nieprawidłowy albo niedozwolony.'
+        ], 422);
+    }
+
+    if (!in_array($smtpPort, email_settings_allowed_smtp_ports(), true)) {
+        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'medium', $tenantId, $userId, 'smtp_port');
+        email_settings_json([
+            'success' => false,
+            'error' => 'Port SMTP jest niedozwolony.'
         ], 422);
     }
 
@@ -246,11 +369,27 @@ if ($section === 'all' || $section === 'smtp') {
         ? $newSmtpPassword
         : (string) ($existingEmailSettings['smtp_password'] ?? '');
 
+    $smtpEncryption = strtolower(trim((string) (
+        $input['smtp_encryption']
+        ?? $existingEmailSettings['smtp_encryption']
+        ?? 'tls'
+    )));
+    if ($smtpEncryption === '') {
+        $smtpEncryption = 'tls';
+    }
+    if (!in_array($smtpEncryption, ['tls', 'ssl'], true)) {
+        email_settings_security_event('email_settings_validation_failed', 'validation_failed', 422, 'failed', 'high', $tenantId, $userId, 'smtp_encryption');
+        email_settings_json([
+            'success' => false,
+            'error' => 'Dozwolone jest wyłącznie szyfrowane połączenie SMTP.'
+        ], 422);
+    }
+
     $emailSettingsPayload = [[
         'tenant_id' => $tenantId,
         'smtp_host' => $smtpHost,
         'smtp_port' => $smtpPort,
-        'smtp_encryption' => $input['smtp_encryption'] ?? ($existingEmailSettings['smtp_encryption'] ?? 'tls'),
+        'smtp_encryption' => $smtpEncryption,
         'smtp_auth' => isset($input['smtp_auth']) ? (bool) $input['smtp_auth'] : true,
         'smtp_username' => $smtpUsername,
         'smtp_password' => $smtpPasswordToSave,
