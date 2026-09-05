@@ -592,7 +592,7 @@ try {
 
         $html = buildSubscriptionReminderMailHtml(subscription_reminder_mail_subscription_payload($subscription), $context, $daysLeft);
 
-        if (!sendSystemMail($recipientEmail, 'Przypomnienie o abonamencie AI-IQ Rezerwacja Pro', $html)) {
+        if (!sendSystemMail($recipientEmail, 'Przypomnienie o abonamencie RezerwIQ', $html)) {
             subscription_reminder_update_log($supabaseUrl, $headers, $logId, [
                 'status' => 'failed',
                 'failed_at' => gmdate('c'),

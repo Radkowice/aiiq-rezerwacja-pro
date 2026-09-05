@@ -110,7 +110,7 @@
           <span>
             Akceptuję <a href="https://rezerwacja-ai-iq.pl/legal/regulamin.html" target="_blank" rel="noopener noreferrer">Regulamin</a>
             oraz <a href="https://rezerwacja-ai-iq.pl/legal/polityka-prywatnosci.html" target="_blank" rel="noopener noreferrer">Politykę prywatności</a>
-            usługi AI-IQ Rezerwacja Pro.
+            usługi RezerwIQ.
           </span>
         </label>
 
@@ -133,7 +133,7 @@
         <div class="admin-info-list">
           <div class="admin-info-row">
             <span>System</span>
-            <strong>AI-IQ Rezerwacja Pro</strong>
+            <strong>RezerwIQ</strong>
           </div>
 
           <div class="admin-info-row">

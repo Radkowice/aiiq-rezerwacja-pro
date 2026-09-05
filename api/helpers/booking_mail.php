@@ -5,6 +5,7 @@ require_once __DIR__ . '/../PHPMailer/src/Exception.php';
 require_once __DIR__ . '/../PHPMailer/src/PHPMailer.php';
 require_once __DIR__ . '/../PHPMailer/src/SMTP.php';
 require_once __DIR__ . '/php_mail.php';
+require_once __DIR__ . '/crypto.php';
 
 use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
@@ -184,13 +185,13 @@ if (!function_exists('booking_mail_system_confirmation_html')) {
             . $row('📞', 'Twój telefon', $phone)
             . $row('📬', 'Kontakt do firmy', $companyEmail)
             . '</table>'
-            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">To jest automatyczna wiadomość wysłana przez system AI-IQ Rezerwacja Pro.</p>'
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">To jest automatyczna wiadomość wysłana przez system RezerwIQ.</p>'
             . '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">Odpowiedzi na ten adres mogą nie być obsługiwane.</p>'
             . '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">W sprawie rezerwacji skontaktuj się z firmą: <strong>' . htmlspecialchars($companyEmail !== '' ? $companyEmail : 'brak adresu kontaktowego', ENT_QUOTES, 'UTF-8') . '</strong>.</p>';
 
         return buildSystemMailLayout(
             'Potwierdzenie rezerwacji',
-            'Podstawowe potwierdzenie rezerwacji wysłane przez AI-IQ Rezerwacja Pro.',
+            'Podstawowe potwierdzenie rezerwacji wysłane przez RezerwIQ.',
             $message,
             'Wiadomość została wysłana awaryjnie, ponieważ firma nie skonfigurowała własnej wysyłki e-mail lub szablonu wiadomości.'
         );
@@ -411,11 +412,11 @@ if (!function_exists('booking_mail_configure_mailer')) {
             ?? ''
         ));
 
-        $smtpPass = (string) (
+        $smtpPass = decrypt_smtp_password_secret((string) (
             $emailSettings['smtp_pass']
             ?? $emailSettings['smtp_password']
             ?? ''
-        );
+        ));
 
         $fromEmail = trim((string) (
             $emailSettings['smtp_email']
@@ -958,7 +959,7 @@ if (!function_exists('booking_mail_send_system_booking_reminder')) {
             $subject,
             'Przypomnienie o rezerwacji.',
             $message,
-            'To przypomnienie zostało wysłane przez system AI-IQ Rezerwacja Pro.'
+            'To przypomnienie zostało wysłane przez system RezerwIQ.'
         );
 
         return sendSystemMail(
@@ -1620,7 +1621,7 @@ if (!function_exists('booking_mail_v7_send_tenant_smtp')) {
             ? (bool)$emailSettings['smtp_auth']
             : true;
         $username = trim((string)($emailSettings['smtp_username'] ?? $emailSettings['smtp_user'] ?? ''));
-        $password = (string)($emailSettings['smtp_password'] ?? $emailSettings['smtp_pass'] ?? '');
+        $password = decrypt_smtp_password_secret((string)($emailSettings['smtp_password'] ?? $emailSettings['smtp_pass'] ?? ''));
         $fromEmail = trim((string)($emailSettings['from_email'] ?? $emailSettings['smtp_email'] ?? ''));
         $fromName = trim((string)($emailSettings['from_name'] ?? $emailSettings['smtp_name'] ?? ''));
         $replyToEmail = trim((string)($emailSettings['reply_to_email'] ?? ''));

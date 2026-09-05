@@ -2501,7 +2501,7 @@ if ($tenantLookupStatus === 'found' && !empty($tenantLookup['tenant_id'])) {
     json_response([
         'success' => false,
         'error' => 'tenant_not_found',
-        'message' => 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.',
+        'message' => 'Ten adres nie jest zarejestrowany w RezerwIQ.',
     ], 404);
 } else {
     $tenantLookupHttpCode = (int)($tenantLookup['http_code'] ?? 503);

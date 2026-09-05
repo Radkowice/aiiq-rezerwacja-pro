@@ -1,17 +1,16 @@
 (() => {
   'use strict';
 
-  const VAT_DIVISOR = 1.23;
   const PLAN_CODES = ['pro', 'vip'];
 
-  function formatMoney(amount, currency, forceTwoDecimals = false) {
+  function formatMoney(amount, currency) {
     const numericAmount = Number(amount);
 
     if (!Number.isFinite(numericAmount)) {
       return '';
     }
 
-    const fractionDigits = forceTwoDecimals || !Number.isInteger(numericAmount) ? 2 : 0;
+    const fractionDigits = Number.isInteger(numericAmount) ? 0 : 2;
     const formattedAmount = numericAmount.toFixed(fractionDigits).replace('.', ',');
     const displayCurrency = currency === 'PLN' ? 'zł' : currency;
 
@@ -56,13 +55,13 @@
   }
 
   function showUnavailable(card) {
-    const monthlyGross = findPriceElement(card, 'monthly-gross');
+    const monthlyNet = findPriceElement(card, 'monthly-net');
     const monthlyPeriod = findPriceElement(card, 'monthly-period');
     const details = findPriceElement(card, 'details');
     const yearlySavings = findPriceElement(card, 'yearly-savings');
 
-    if (monthlyGross) {
-      monthlyGross.textContent = 'Cena chwilowo niedostępna';
+    if (monthlyNet) {
+      monthlyNet.textContent = 'Cena chwilowo niedostępna';
     }
 
     if (monthlyPeriod) {
@@ -80,33 +79,29 @@
   }
 
   function renderPrices(card, prices) {
-    const monthlyGross = findPriceElement(card, 'monthly-gross');
-    const monthlyPeriod = findPriceElement(card, 'monthly-period');
     const monthlyNet = findPriceElement(card, 'monthly-net');
-    const yearlyGross = findPriceElement(card, 'yearly-gross');
+    const monthlyPeriod = findPriceElement(card, 'monthly-period');
     const yearlyNet = findPriceElement(card, 'yearly-net');
     const details = findPriceElement(card, 'details');
     const yearlySavings = findPriceElement(card, 'yearly-savings');
     const monthly = prices.monthly;
     const yearly = prices.yearly;
 
-    if (!monthlyGross || !monthlyPeriod || !monthlyNet || !yearlyGross || !yearlyNet || !details) {
+    if (!monthlyNet || !monthlyPeriod || !yearlyNet || !details) {
       showUnavailable(card);
       return;
     }
 
-    monthlyGross.textContent = `${formatMoney(monthly.amount, monthly.currency)} brutto`;
+    monthlyNet.textContent = formatMoney(monthly.amount, monthly.currency);
     monthlyPeriod.hidden = false;
-    monthlyNet.textContent = `${formatMoney(monthly.amount / VAT_DIVISOR, monthly.currency, true)} netto / miesiąc`;
-    yearlyGross.textContent = `${formatMoney(yearly.amount, yearly.currency)} brutto / rok`;
-    yearlyNet.textContent = `${formatMoney(yearly.amount / VAT_DIVISOR, yearly.currency, true)} netto / rok`;
+    yearlyNet.textContent = `${formatMoney(yearly.amount, yearly.currency)} / rok`;
     details.hidden = false;
 
     if (yearlySavings) {
       const savings = monthly.amount * 12 - yearly.amount;
 
       if (monthly.currency === yearly.currency && savings > 0) {
-        yearlySavings.textContent = `Przy płatności rocznej oszczędzasz ${formatMoney(savings, yearly.currency)} brutto.`;
+        yearlySavings.textContent = `Przy płatności rocznej oszczędzasz ${formatMoney(savings, yearly.currency)}.`;
         yearlySavings.hidden = false;
       } else {
         yearlySavings.textContent = '';

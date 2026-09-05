@@ -1007,7 +1007,7 @@ try {
             'activation_expires_label' => 'przez 48 godzin',
         ]);
 
-        if (!sendSystemMail($email, 'Potwierdzenie rejestracji w AI-IQ Rezerwacja Pro', $registrationMailHtml)) {
+        if (!sendSystemMail($email, 'Potwierdzenie rejestracji w RezerwIQ', $registrationMailHtml)) {
             throw new Exception('Nie udało się wysłać wiadomości aktywacyjnej.');
         }
 
@@ -1674,7 +1674,7 @@ function register_create_initial_paid_plan_payment(
     $amountInMinorUnits = (int) round($amount * 100);
     $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
     $planName = public_registration_plan_name($planCode);
-    $description = 'AI-IQ Rezerwacja Pro - rejestracja plan ' . $planName . ' ' . $periodLabel;
+    $description = 'RezerwIQ - rejestracja plan ' . $planName . ' ' . $periodLabel;
     $publicBaseUrl = register_public_base_url();
     $buyerEmail = register_valid_email((string) ($buyerContext['email'] ?? ''));
 

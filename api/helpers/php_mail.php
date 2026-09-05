@@ -74,7 +74,7 @@ function buildSystemMailLayout(string $title, string $intro, string $messageHtml
         . '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:0 0 24px 0;">'
         . '<div style="font-size:16px;line-height:1.8;color:#17324d;">' . $messageHtml . '</div>'
         . '</div>'
-        . '<p style="margin:24px 0 0 0;font-size:14px;line-height:1.6;color:#4f6478;">🔒 Wiadomość systemowa AI-IQ Rezerwacja Pro. Prosimy nie odpowiadać na tę wiadomość.</p>'
+        . '<p style="margin:24px 0 0 0;font-size:14px;line-height:1.6;color:#4f6478;">🔒 Wiadomość systemowa RezerwIQ. Prosimy nie odpowiadać na tę wiadomość.</p>'
         . $footerHtml
         . '</div>'
         . '<div style="background:#eef3f8;padding:18px 24px;font-size:12px;color:#607284;text-align:center;">'

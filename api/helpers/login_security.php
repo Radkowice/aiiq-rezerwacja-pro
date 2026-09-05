@@ -742,10 +742,10 @@ function login_security_send_code(string $email, string $actorType, string $code
         . '<p style="margin:0;">Jeśli to nie Ty próbujesz się zalogować, zignoruj tę wiadomość.</p>';
     $html = buildSystemMailLayout(
         'Kod logowania',
-        'Bezpieczne logowanie do AI-IQ Rezerwacja Pro.',
+        'Bezpieczne logowanie do RezerwIQ.',
         $message,
         'Nie przekazuj kodu innej osobie.'
     );
 
-    return sendSystemMail($email, 'Kod logowania do AI-IQ Rezerwacja Pro', $html);
+    return sendSystemMail($email, 'Kod logowania do RezerwIQ', $html);
 }

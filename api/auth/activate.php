@@ -304,7 +304,7 @@ function activation_build_fallback_paid_plan_mail_html(array $payment, array $su
         . '<p style="text-align:center;margin:28px 0;">'
         . '<a href="' . $safePanelUrl . '" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:999px;padding:14px 24px;font-weight:700;">Przejdź do panelu</a>'
         . '</p>'
-        . '<p style="margin:20px 0 0;color:#64748b;font-size:13px;line-height:1.5;text-align:center;">To wiadomość systemowa AI-IQ Rezerwacja Pro. Prosimy nie odpowiadać na tę wiadomość.</p>'
+        . '<p style="margin:20px 0 0;color:#64748b;font-size:13px;line-height:1.5;text-align:center;">To wiadomość systemowa RezerwIQ. Prosimy nie odpowiadać na tę wiadomość.</p>'
         . '</div></div></body></html>';
 }
 
@@ -340,7 +340,7 @@ function activation_send_paid_plan_activated_mail(string $tenantId, string $admi
         return;
     }
 
-    $subject = 'Plan ' . $planName . ' aktywny w AI-IQ Rezerwacja Pro';
+    $subject = 'Plan ' . $planName . ' aktywny w RezerwIQ';
 
     if (function_exists('buildSubscriptionProActivatedMailHtml')) {
         $html = (string) buildSubscriptionProActivatedMailHtml($payment, $subscription, $context);
@@ -396,7 +396,7 @@ function activation_send_account_activated_mail(string $tenantId, string $adminE
         return;
     }
 
-    if (!sendSystemMail($recipient, 'Konto administratora aktywne w AI-IQ Rezerwacja Pro', $html)) {
+    if (!sendSystemMail($recipient, 'Konto administratora aktywne w RezerwIQ', $html)) {
         error_log('AI-IQ activation: account activation mail send failed.');
     }
 }

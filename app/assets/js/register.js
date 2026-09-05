@@ -1,5 +1,4 @@
 const PAID_REGISTRATION_PAYMENT_BUTTON_TEXT = 'Zamawiam z obowiązkiem zapłaty';
-const REGISTER_PRESENTATION_VAT_RATE = 0.23;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('registerForm');
@@ -550,24 +549,12 @@ function formatRegisterMoney(amount, currency) {
   const numericAmount = Number(amount);
   const displayCurrency = currency === 'PLN' ? 'zł' : (currency || '');
 
-  if (Number.isNaN(numericAmount)) {
-    return `${amount} ${displayCurrency}`.trim();
-  }
-
-  return `${numericAmount.toFixed(2).replace('.', ',')} ${displayCurrency}`.trim();
-}
-
-function formatRegisterNetMoney(grossAmount, currency) {
-  const numericGrossAmount = Number(grossAmount);
-
-  if (!Number.isFinite(numericGrossAmount) || numericGrossAmount < 0) {
+  if (!Number.isFinite(numericAmount) || numericAmount < 0) {
     return '—';
   }
 
-  return formatRegisterMoney(
-    numericGrossAmount / (1 + REGISTER_PRESENTATION_VAT_RATE),
-    currency
-  );
+  const fractionDigits = Number.isInteger(numericAmount) ? 0 : 2;
+  return `${numericAmount.toFixed(fractionDigits).replace('.', ',')} ${displayCurrency}`.trim();
 }
 
 function isPaidRegistrationPlan(planCode) {
@@ -618,14 +605,15 @@ async function fetchPublicPaidPlanPrices(planCode) {
 function normalizePaidPlanPrice(row, expectedPlanCode) {
   const period = String(row?.billing_period || '').trim().toLowerCase();
   const planCode = String(row?.plan_code || '').trim().toLowerCase();
-  const amount = row?.amount;
+  const amount = Number(row?.amount);
+  const currency = String(row?.currency || '').trim().toUpperCase();
 
   if (
     planCode !== expectedPlanCode
     || !['monthly', 'yearly'].includes(period)
-    || amount === null
-    || amount === undefined
-    || amount === ''
+    || !Number.isFinite(amount)
+    || amount <= 0
+    || !/^[A-Z]{3}$/.test(currency)
   ) {
     return null;
   }
@@ -633,8 +621,8 @@ function normalizePaidPlanPrice(row, expectedPlanCode) {
   return {
     billing_period: period,
     amount,
-    currency: row?.currency || 'PLN',
-    plan_name: row?.plan_name || (expectedPlanCode === 'vip' ? 'VIP' : 'Pro')
+    currency,
+    plan_name: expectedPlanCode === 'vip' ? 'VIP' : 'Pro'
   };
 }
 
@@ -656,12 +644,12 @@ function updatePaidRegistrationSummary(selectedPlan, pricesByPeriod) {
 
   if (summary) {
     summary.textContent = selectedPrice
-      ? `Wybrany abonament: ${selectedPlan.label} ${getPaidPeriodLabel(selectedPeriod)}, kwota brutto: ${formatRegisterMoney(selectedPrice.amount, selectedPrice.currency)}, kwota netto: ${formatRegisterNetMoney(selectedPrice.amount, selectedPrice.currency)}, okres: ${getPaidPeriodDurationLabel(selectedPeriod)}.`
+      ? `Wybrany abonament: ${selectedPlan.label} ${getPaidPeriodLabel(selectedPeriod)}, cena: ${formatRegisterMoney(selectedPrice.amount, selectedPrice.currency)}, okres: ${getPaidPeriodDurationLabel(selectedPeriod)}.`
       : `Wybierz okres abonamentu ${selectedPlan.label}.`;
   }
 
   if (submitHint) {
-    submitHint.textContent = `Płatność jednorazowa przez PayU. Plan ${selectedPlan.label} nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.`;
+    submitHint.textContent = `Płatność jednorazowa za wybrany okres przez PayU. Plan ${selectedPlan.label} nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.`;
   }
 }
 
@@ -686,8 +674,6 @@ async function initPaidRegistrationOptions(selectedPlan) {
 
   const monthlyPriceEl = document.getElementById('proRegistrationPriceMonthly');
   const yearlyPriceEl = document.getElementById('proRegistrationPriceYearly');
-  const monthlyNetPriceEl = document.getElementById('proRegistrationNetPriceMonthly');
-  const yearlyNetPriceEl = document.getElementById('proRegistrationNetPriceYearly');
   const messageEl = document.getElementById('proRegistrationPriceMessage');
   const periodInputs = document.querySelectorAll('input[name="proBillingPeriod"]');
 
@@ -712,19 +698,11 @@ async function initPaidRegistrationOptions(selectedPlan) {
     }
 
     if (monthlyPriceEl) {
-      monthlyPriceEl.textContent = `${formatRegisterMoney(byPeriod.monthly.amount, byPeriod.monthly.currency)} brutto`;
+      monthlyPriceEl.textContent = formatRegisterMoney(byPeriod.monthly.amount, byPeriod.monthly.currency);
     }
 
     if (yearlyPriceEl) {
-      yearlyPriceEl.textContent = `${formatRegisterMoney(byPeriod.yearly.amount, byPeriod.yearly.currency)} brutto`;
-    }
-
-    if (monthlyNetPriceEl) {
-      monthlyNetPriceEl.textContent = `${formatRegisterNetMoney(byPeriod.monthly.amount, byPeriod.monthly.currency)} netto`;
-    }
-
-    if (yearlyNetPriceEl) {
-      yearlyNetPriceEl.textContent = `${formatRegisterNetMoney(byPeriod.yearly.amount, byPeriod.yearly.currency)} netto`;
+      yearlyPriceEl.textContent = formatRegisterMoney(byPeriod.yearly.amount, byPeriod.yearly.currency);
     }
 
     if (messageEl) {
@@ -742,8 +720,6 @@ async function initPaidRegistrationOptions(selectedPlan) {
 
     if (monthlyPriceEl) monthlyPriceEl.textContent = '—';
     if (yearlyPriceEl) yearlyPriceEl.textContent = '—';
-    if (monthlyNetPriceEl) monthlyNetPriceEl.textContent = '—';
-    if (yearlyNetPriceEl) yearlyNetPriceEl.textContent = '—';
 
     if (messageEl) {
       messageEl.textContent = error.message || `Nie udało się pobrać aktualnej ceny planu ${selectedPlan.label}.`;

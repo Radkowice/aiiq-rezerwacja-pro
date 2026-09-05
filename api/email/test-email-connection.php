@@ -6,6 +6,7 @@ require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/crypto.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../PHPMailer/src/Exception.php';
 require_once __DIR__ . '/../PHPMailer/src/PHPMailer.php';
@@ -353,7 +354,28 @@ if ($smtpPassword === '') {
     }
 
     $rows = json_decode((string) $response, true);
-    $smtpPassword = (string) ($rows[0]['smtp_password'] ?? '');
+    $storedSmtpPassword = (string) ($rows[0]['smtp_password'] ?? '');
+
+    if ($storedSmtpPassword !== '') {
+        try {
+            $smtpPassword = decrypt_smtp_password_secret($storedSmtpPassword);
+        } catch (Throwable $e) {
+            smtp_test_security_event(
+                'email_smtp_test_password_decrypt_failed',
+                'password_decrypt_failed',
+                500,
+                'error',
+                'high',
+                $tenantId,
+                $userId,
+                'stored_credentials_decrypt'
+            );
+            smtp_test_json(500, [
+                'success' => false,
+                'error' => 'Nie udało się użyć zapisanego hasła SMTP.'
+            ]);
+        }
+    }
 }
 
 if ($smtpPassword === '') {
@@ -402,12 +424,12 @@ try {
     $mail->addReplyTo($fromEmail, $fromName !== '' ? $fromName : $fromEmail);
 
     $mail->isHTML(true);
-    $mail->Subject = 'Test połączenia SMTP — AI-IQ Rezerwacja Pro';
+    $mail->Subject = 'Test połączenia SMTP — RezerwIQ';
     $mail->Body = ''
         . '<p><strong>📩 Test połączenia SMTP</strong></p>'
-        . '<p>To jest testowa wiadomość SMTP z panelu AI-IQ Rezerwacja Pro.</p>'
+        . '<p>To jest testowa wiadomość SMTP z panelu RezerwIQ.</p>'
         . '<p>Jeśli ją widzisz, konfiguracja poczty działa poprawnie.</p>';
-    $mail->AltBody = "To jest testowa wiadomość SMTP z panelu AI-IQ Rezerwacja Pro.\nJeśli ją widzisz, konfiguracja poczty działa poprawnie.";
+    $mail->AltBody = "To jest testowa wiadomość SMTP z panelu RezerwIQ.\nJeśli ją widzisz, konfiguracja poczty działa poprawnie.";
 
     $mail->send();
 

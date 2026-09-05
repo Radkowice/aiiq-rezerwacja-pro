@@ -4,6 +4,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/csrf.php';
+require_once __DIR__ . '/../helpers/crypto.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
@@ -365,9 +366,27 @@ if ($section === 'all' || $section === 'smtp') {
 
     $existingEmailSettings = $emailSettingsReadResult['json'][0] ?? [];
     $newSmtpPassword = trim((string) ($input['smtp_pass'] ?? ''));
-    $smtpPasswordToSave = $newSmtpPassword !== ''
-        ? $newSmtpPassword
-        : (string) ($existingEmailSettings['smtp_password'] ?? '');
+
+    try {
+        $smtpPasswordToSave = $newSmtpPassword !== ''
+            ? encrypt_smtp_password_secret($newSmtpPassword)
+            : (string) ($existingEmailSettings['smtp_password'] ?? '');
+    } catch (Throwable $e) {
+        email_settings_security_event(
+            'email_settings_smtp_secret_failed',
+            'smtp_secret_encryption_failed',
+            500,
+            'error',
+            'high',
+            $tenantId,
+            $userId,
+            'smtp_password'
+        );
+        email_settings_json([
+            'success' => false,
+            'error' => 'Nie udało się bezpiecznie zapisać hasła SMTP.'
+        ], 500);
+    }
 
     $smtpEncryption = strtolower(trim((string) (
         $input['smtp_encryption']

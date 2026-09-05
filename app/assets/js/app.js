@@ -390,7 +390,7 @@ async function loadFrontBranding() {
 
   if (res.status === 404 && data?.error === 'tenant_not_found') {
     setFrontRobotsIndexing(false);
-    showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.');
+    showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w RezerwIQ.');
     return false;
   }
 
@@ -2644,7 +2644,7 @@ async function loadFrontBootstrap() {
 
   if (res.status === 404 && data?.error === 'tenant_not_found') {
     setFrontRobotsIndexing(false);
-    showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.');
+    showTenantNotFoundView(data.message || 'Ten adres nie jest zarejestrowany w RezerwIQ.');
     return 'tenant_not_found';
   }
 

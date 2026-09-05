@@ -1145,7 +1145,7 @@ function google_calendar_build_event(array $booking, array $settings, string $te
         : 'Rezerwacja: ' . $summaryName;
 
     $descriptionLines = [
-        'Rezerwacja z AI-IQ Rezerwacja Pro',
+        'Rezerwacja z RezerwIQ',
         '',
         'Rezerwacja:',
     ];

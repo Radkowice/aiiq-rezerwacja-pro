@@ -35,7 +35,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/plany.css?v=3">
   <link rel="stylesheet" href="/assets/css/app-loader.css">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
-  <title>AI-IQ Admin</title>
+  <title>RezerwIQ Admin</title>
  
 
   <script src="/assets/js/app-loader.js"></script>
@@ -70,7 +70,7 @@ if (empty($_SESSION['csrf'])) {
 
       <aside class="sidebar">
         <div class="sidebar-header">
-  <div class="sidebar-logo">AI-IQ</div>
+  <div class="sidebar-logo">RezerwIQ</div>
   <button id="sidebarToggle" class="sidebar-toggle">☰</button>
 </div>
 
@@ -150,7 +150,7 @@ if (empty($_SESSION['csrf'])) {
       <div class="main-content">
         <header class="topbar">
           <div class="topbar-left">
-            <h1>AI-IQ Kalendarz Rezerwacji Pro</h1>
+            <h1>RezerwIQ</h1>
             <p>Panel administratora</p>
           </div>
           <div class="plan-upgrade-bar" id="planUpgradeNotice" hidden>

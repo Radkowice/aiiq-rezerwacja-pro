@@ -20,7 +20,7 @@ header('X-Robots-Tag: noindex, nofollow');
 <body>
   <main class="unregistered-page">
     <section class="unregistered-card" aria-labelledby="unregisteredTitle">
-      <h1 id="unregisteredTitle">Ten adres nie jest<br>zarejestrowany w AI-IQ<br>Rezerwacja Pro.</h1>
+      <h1 id="unregisteredTitle">Ten adres nie jest<br>zarejestrowany w<br>RezerwIQ.</h1>
       <p>Sprawdź poprawność adresu albo utwórz nowe konto.</p>
       <div class="unregistered-actions">
         <a href="https://rezerwacja-ai-iq.pl/rejestracja.html">Utwórz konto Free</a>

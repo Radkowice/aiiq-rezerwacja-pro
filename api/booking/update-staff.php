@@ -491,7 +491,7 @@ function booking_staff_build_client_mail_html(array $booking, string $action, st
             '🔁 Zmiana specjalisty przy rezerwacji',
             'Do Twojej rezerwacji został przypisany nowy specjalista.',
             $message,
-            'Wiadomość została wysłana automatycznie przez system AI-IQ Rezerwacja Pro.'
+            'Wiadomość została wysłana automatycznie przez system RezerwIQ.'
         );
     }
 
@@ -510,7 +510,7 @@ function booking_staff_build_client_mail_html(array $booking, string $action, st
         '👤 Aktualizacja specjalisty przy rezerwacji',
         'Twój Specjalista nie zajmie się Twoją rezerwacją.',
         $message,
-        'Wiadomość została wysłana automatycznie przez system AI-IQ Rezerwacja Pro.'
+        'Wiadomość została wysłana automatycznie przez system RezerwIQ.'
     );
 }
 

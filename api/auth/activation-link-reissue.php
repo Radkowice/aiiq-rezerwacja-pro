@@ -424,7 +424,7 @@ try {
 
     unset($activationToken, $activationRef, $activationUrl);
 
-    if (!sendSystemMail($email, 'Nowy link aktywacyjny w AI-IQ Rezerwacja Pro', $mailHtml)) {
+    if (!sendSystemMail($email, 'Nowy link aktywacyjny w RezerwIQ', $mailHtml)) {
         activation_reissue_security_event('activation_reissue_mail_send_failed', 'mail_send_failed', 500, 'failed', 'high', [
             'tenant_id' => $tenantId,
             'user_id' => $userId,

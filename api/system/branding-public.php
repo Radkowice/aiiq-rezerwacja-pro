@@ -232,7 +232,7 @@ if (($tenantLookup['status'] ?? '') === 'not_found') {
     branding_public_json([
         'success' => false,
         'error' => 'tenant_not_found',
-        'message' => 'Ten adres nie jest zarejestrowany w AI-IQ Rezerwacja Pro.'
+        'message' => 'Ten adres nie jest zarejestrowany w RezerwIQ.'
     ], 404);
 }
 

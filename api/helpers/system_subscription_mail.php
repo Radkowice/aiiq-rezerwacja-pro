@@ -41,7 +41,7 @@ function buildSubscriptionDowngradedToFreeMailHtml(array $subscription, array $l
 
     return system_subscription_mail_layout(
         'Twój plan Pro został zmieniony na Free',
-        'Informacja abonamentowa AI-IQ Rezerwacja Pro.',
+        'Informacja abonamentowa RezerwIQ.',
         '⚠️',
         $body,
         'Ten e-mail został wysłany po zakończeniu opłaconego okresu Pro. Dane premium nie zostały usunięte; obowiązuje okres ochronny liczony od końca tego okresu.'
@@ -220,7 +220,7 @@ function system_subscription_mail_layout(string $headline, string $intro, string
         . '</div>'
         . '<div style="padding:32px 24px;">'
         . $bodyHtml
-        . '<p style="margin:24px 0 0 0;font-size:14px;line-height:1.6;color:#4f6478;">To wiadomość systemowa AI-IQ Rezerwacja Pro. Prosimy nie odpowiadać na tę wiadomość.</p>'
+        . '<p style="margin:24px 0 0 0;font-size:14px;line-height:1.6;color:#4f6478;">To wiadomość systemowa RezerwIQ. Prosimy nie odpowiadać na tę wiadomość.</p>'
         . $footerHtml
         . '</div>'
         . '<div style="background:#eef3f8;padding:18px 24px;font-size:12px;color:#607284;text-align:center;">'
@@ -246,7 +246,7 @@ function buildRegistrationConfirmationMailHtml(array $data): string
         ? 'Oczekuje na opłacenie i aktywację po potwierdzeniu PayU'
         : 'Konto Free zostało utworzone';
 
-    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Konto w systemie AI-IQ Rezerwacja Pro zostało utworzone.</p>'
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Konto w systemie RezerwIQ zostało utworzone.</p>'
         . system_subscription_mail_info_card('🧾', 'Plan', $selectedPlanLabel, $isPaidPlan ? 'Plan ' . $planLabel . ' nie jest jeszcze aktywny. Funkcje planu zostaną włączone dopiero po poprawnym potwierdzeniu płatności PayU.' : '')
         . system_subscription_mail_info_card('✅', 'Status', $statusLabel)
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
@@ -258,7 +258,7 @@ function buildRegistrationConfirmationMailHtml(array $data): string
 
     return system_subscription_mail_layout(
         'Konto zostało utworzone',
-        'Potwierdzenie rejestracji w AI-IQ Rezerwacja Pro.',
+        'Potwierdzenie rejestracji w RezerwIQ.',
         '✅',
         $body,
         'Jeśli nie zakładałeś tego konta, zignoruj tę wiadomość.'
@@ -271,7 +271,7 @@ function buildAccountActivatedMailHtml(array $context): string
     $companyName = trim((string) ($context['company_name'] ?? ''));
     $plan = trim((string) ($context['plan'] ?? 'Free'));
 
-    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Konto administratora zostało aktywowane. Możesz zalogować się do panelu i rozpocząć korzystanie z AI-IQ Rezerwacja Pro.</p>'
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Konto administratora zostało aktywowane. Możesz zalogować się do panelu i rozpocząć korzystanie z RezerwIQ.</p>'
         . system_subscription_mail_info_card('✅', 'Status', 'Konto aktywne')
         . system_subscription_mail_info_card('🧾', 'Plan', $plan)
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
@@ -280,7 +280,7 @@ function buildAccountActivatedMailHtml(array $context): string
 
     return system_subscription_mail_layout(
         'Konto administratora aktywne',
-        'Potwierdzenie aktywacji konta w AI-IQ Rezerwacja Pro.',
+        'Potwierdzenie aktywacji konta w RezerwIQ.',
         '✅',
         $body,
         'Jeśli nie aktywowałeś tego konta, skontaktuj się z obsługą AI-IQ.'
@@ -311,7 +311,7 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
 
     return system_subscription_mail_layout(
         'Plan ' . $planLabel . ' aktywny',
-        'Potwierdzenie płatności abonamentowej AI-IQ Rezerwacja Pro.',
+        'Potwierdzenie płatności abonamentowej RezerwIQ.',
         '💳',
         $body,
         'Ten e-mail dotyczy wyłącznie abonamentu systemowego AI-IQ.'
@@ -336,7 +336,7 @@ function buildVipCustomDomainRequestedMailHtml(array $context): string
 
     return system_subscription_mail_layout(
         'Prośba o podłączenie własnej domeny',
-        'Powiadomienie operacyjne AI-IQ Rezerwacja Pro.',
+        'Powiadomienie operacyjne RezerwIQ.',
         '🌐',
         $body,
         'Wiadomość nie zawiera danych płatniczych, tokenów ani technicznych identyfikatorów.'
@@ -355,7 +355,7 @@ function buildSubscriptionVipCustomDomainRequestedCustomerMailHtml(array $contex
 
     return system_subscription_mail_layout(
         'Prośba o podłączenie własnej domeny została przyjęta',
-        'Potwierdzenie dla klienta AI-IQ Rezerwacja Pro.',
+        'Potwierdzenie dla klienta RezerwIQ.',
         '🌐',
         $body,
         'Wiadomość nie zawiera danych płatniczych ani technicznych identyfikatorów.'
@@ -380,7 +380,7 @@ function buildSubscriptionReminderMailHtml(array $subscription, array $context, 
         ? 'Abonament kończy się dzisiaj'
         : 'Abonament kończy się za ' . $daysLeft . ' ' . ($daysLeft === 1 ? 'dzień' : 'dni');
 
-    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">To przypomnienie o kończącym się abonamencie w AI-IQ Rezerwacja Pro.</p>'
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">To przypomnienie o kończącym się abonamencie w RezerwIQ.</p>'
         . system_subscription_mail_info_card('⏰', 'Przypomnienie', $title)
         . system_subscription_mail_info_card('🧾', 'Plan', $planName, $billingPeriod !== '' ? 'Płatność rozliczeniowa: ' . $billingPeriod : '')
         . system_subscription_mail_info_card('📅', 'Termin końca abonamentu', $periodEndLabel)
@@ -391,7 +391,7 @@ function buildSubscriptionReminderMailHtml(array $subscription, array $context, 
 
     return system_subscription_mail_layout(
         $title,
-        'Przypomnienie abonamentowe AI-IQ Rezerwacja Pro.',
+        'Przypomnienie abonamentowe RezerwIQ.',
         '⏰',
         $body,
         'Na tym etapie system nie przełącza automatycznie planu na Free.'

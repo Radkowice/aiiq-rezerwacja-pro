@@ -29,7 +29,7 @@ function render_app_footer(array $options = []): void
     ?>
     <footer class="<?= htmlspecialchars($class, ENT_QUOTES, 'UTF-8') ?>">
       <span class="app-footer-main">
-        © <?= htmlspecialchars($year, ENT_QUOTES, 'UTF-8') ?> System Rezerwacji Pro · Obsługiwane przez
+        © <?= htmlspecialchars($year, ENT_QUOTES, 'UTF-8') ?> RezerwIQ by
         <a href="https://www.ai-iq.pl" target="_blank" rel="noopener noreferrer">AI-IQ</a>
          <span aria-hidden="true">•</span>
       </span>

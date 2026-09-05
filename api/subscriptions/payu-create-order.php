@@ -592,7 +592,7 @@ try {
 
     $providerPostGranted = true;
     $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesieczny';
-    $description = 'AI-IQ Rezerwacja Pro - plan Pro ' . $periodLabel;
+    $description = 'RezerwIQ - plan Pro ' . $periodLabel;
     $orderPayload = [
         'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',
         'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html',
