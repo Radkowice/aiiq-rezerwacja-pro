@@ -17,6 +17,19 @@ if (!function_exists('booking_mail_replace_placeholders')) {
     }
 }
 
+if (!function_exists('booking_mail_replace_html_placeholders')) {
+    function booking_mail_replace_html_placeholders(string $html, array $data): string
+    {
+        $escaped = [];
+
+        foreach ($data as $placeholder => $value) {
+            $escaped[(string)$placeholder] = htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+        }
+
+        return booking_mail_replace_placeholders($html, $escaped);
+    }
+}
+
 if (!function_exists('booking_mail_system_footer')) {
     function booking_mail_system_footer(): string
     {
@@ -621,7 +634,7 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
         ];
 
         $finalSubject = booking_mail_replace_placeholders((string)($emailTemplate['subject'] ?? ''), $placeholders);
-        $introHtml = booking_mail_replace_placeholders((string)($emailTemplate['body_html'] ?? ''), $placeholders);
+        $introHtml = booking_mail_replace_html_placeholders((string)($emailTemplate['body_html'] ?? ''), $placeholders);
         $footerHtml = booking_mail_build_footer($plan, $footerMode, $footerCustom);
 
         $paymentAmountText = booking_mail_format_amount(

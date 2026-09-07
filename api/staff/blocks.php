@@ -4,12 +4,14 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
+require_csrf_token();
 
 
 function staff_blocks_security_event(
@@ -448,6 +450,41 @@ if ($accountResult['response'] === false || $accountResult['error'] !== '' || $a
 
 if (empty($accountRows[0]['id'])) {
     staff_blocks_security_event('staff_blocks_session_invalidated', 'inactive_staff_account', 401, 'denied', 'medium', $tenantId, $accountId, $staffId);
+    staff_blocks_clear_session();
+    staff_blocks_json([
+        'success' => false,
+        'error' => 'Sesja personelu jest nieaktywna.',
+    ], 401);
+}
+
+$staffUrl = $supabaseUrl
+    . '/rest/v1/staff_profiles'
+    . '?select=id'
+    . '&tenant_id=eq.' . rawurlencode($tenantId)
+    . '&id=eq.' . rawurlencode($staffId)
+    . '&is_active=eq.true'
+    . '&limit=1';
+
+$staffResult = staff_blocks_request('GET', $staffUrl, $supabaseKey, $schema);
+
+if (
+    $staffResult['response'] === false
+    || $staffResult['error'] !== ''
+    || $staffResult['httpCode'] < 200
+    || $staffResult['httpCode'] >= 300
+    || !is_array($staffResult['data'] ?? null)
+) {
+    staff_blocks_security_event('staff_blocks_failed', 'supabase_failed', 500, 'failed', 'high', $tenantId, $accountId, $staffId, 'staff_profile');
+    staff_blocks_json([
+        'success' => false,
+        'error' => 'Nie udało się sprawdzić profilu personelu.',
+    ], 500);
+}
+
+$staffRows = $staffResult['data'];
+
+if (empty($staffRows[0]['id'])) {
+    staff_blocks_security_event('staff_blocks_session_invalidated', 'inactive_staff_profile', 401, 'denied', 'medium', $tenantId, $accountId, $staffId);
     staff_blocks_clear_session();
     staff_blocks_json([
         'success' => false,

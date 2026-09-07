@@ -320,7 +320,7 @@ if (!is_array($staff) || empty($staff['id'])) {
     staff_login_fail();
 }
 
-$staffIsActive = filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN);
+$staffIsActive = filter_var($staff['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN);
 
 if (!$staffIsActive) {
     security_log_event('staff_login_inactive_profile', [
@@ -377,6 +377,7 @@ if (!login_security_is_trusted_device(
 }
 
 session_regenerate_id(true);
+$_SESSION['csrf'] = bin2hex(random_bytes(32));
 
 unset($_SESSION['user']);
 $_SESSION['staff_user'] = [

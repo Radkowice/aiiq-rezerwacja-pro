@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
 require_once __DIR__ . '/../helpers/security.php';
@@ -419,7 +420,7 @@ $tokenHash = hash('sha256', $token);
 $now = gmdate('c');
 $tokenResult = activation_request(
     'GET',
-    '/rest/v1/user_activation_tokens?select=id,tenant_id,user_id'
+    '/rest/v1/user_activation_tokens?select=id,tenant_id,user_id,lifecycle_version,source_email_log_id'
     . '&token_hash=eq.' . rawurlencode($tokenHash)
     . '&used_at=is.null&revoked_at=is.null'
     . '&expires_at=gt.' . rawurlencode($now)
@@ -469,12 +470,15 @@ if (!$tokenResult['ok'] || empty($tokenResult['data'][0])) {
     activation_redirect_error('token_not_found_or_expired', [], 'auth_activation_token_not_found_or_expired', 400);
 }
 
-unset($token, $tokenHash, $activationRef);
-
 $activationState = $tokenResult['data'][0];
 $stateId = trim((string) ($activationState['id'] ?? ''));
 $tenantId = trim((string) ($activationState['tenant_id'] ?? ''));
 $userId = trim((string) ($activationState['user_id'] ?? ''));
+$lifecycleVersion = is_numeric($activationState['lifecycle_version'] ?? null)
+    ? (int) $activationState['lifecycle_version']
+    : 0;
+$sourceEmailLogId = trim((string) ($activationState['source_email_log_id'] ?? ''));
+
 activation_security_context([
     'tenant_id' => $tenantId,
     'user_id' => $userId,
@@ -485,8 +489,121 @@ if (
     || $tenantId === ''
     || !activation_is_uuid($userId)
 ) {
+    unset($token, $tokenHash, $activationRef);
     activation_redirect_error('token_state_invalid', [], 'auth_activation_token_state_invalid', 400);
 }
+
+if ($lifecycleVersion === 1) {
+    if (!activation_is_uuid($sourceEmailLogId)) {
+        unset($token, $tokenHash, $activationRef);
+        activation_redirect_error(
+            'activation_email_context_invalid',
+            ['stage' => 'lifecycle_v1_preconsume'],
+            'auth_activation_context_invalid',
+            400
+        );
+    }
+
+    $refContext = activation_link_parse_ref($token, $activationRef);
+    $refTenantId = is_array($refContext) ? trim((string) ($refContext['tenant_id'] ?? '')) : '';
+    $refUserId = is_array($refContext) ? trim((string) ($refContext['user_id'] ?? '')) : '';
+
+    if (
+        !is_array($refContext)
+        || !hash_equals(strtolower($tenantId), strtolower($refTenantId))
+        || !hash_equals(strtolower($userId), strtolower($refUserId))
+    ) {
+        unset($token, $tokenHash, $activationRef, $refContext);
+        activation_redirect_error(
+            'activation_ref_invalid',
+            ['stage' => 'lifecycle_v1_preconsume'],
+            'auth_activation_ref_invalid',
+            400
+        );
+    }
+
+    $consumeResult = payment_lifecycle_v3_rpc(
+        'subscription_activation_consume',
+        ['p_token_hash' => $tokenHash]
+    );
+
+    unset($token, $tokenHash, $activationRef, $refContext);
+
+    if (empty($consumeResult['ok']) || !is_array($consumeResult['data'] ?? null)) {
+        $consumeHttpStatus = (int) ($consumeResult['status'] ?? 0);
+        $publicStatus = $consumeHttpStatus >= 400 && $consumeHttpStatus < 500 ? 400 : 500;
+
+        activation_redirect_error(
+            'activation_consume_failed',
+            ['stage' => 'lifecycle_v1_consume'],
+            'auth_activation_consume_failed',
+            $publicStatus
+        );
+    }
+
+    $consumeData = $consumeResult['data'];
+    $consumeTenantId = trim((string) ($consumeData['tenant_id'] ?? ''));
+    $consumeUserId = trim((string) ($consumeData['user_id'] ?? ''));
+    $activated = filter_var($consumeData['activated'] ?? false, FILTER_VALIDATE_BOOLEAN);
+    $idempotent = filter_var($consumeData['idempotent'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+    if (
+        !$activated
+        || !hash_equals(strtolower($tenantId), strtolower($consumeTenantId))
+        || !hash_equals(strtolower($userId), strtolower($consumeUserId))
+    ) {
+        activation_redirect_error(
+            'activation_consume_context_mismatch',
+            ['stage' => 'lifecycle_v1_postconsume'],
+            'auth_activation_context_invalid',
+            500
+        );
+    }
+
+    $user = activation_fetch_user($tenantId, $userId);
+    if (!is_array($user) || !filter_var($user['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
+        activation_redirect_error(
+            'activation_user_state_invalid',
+            ['stage' => 'lifecycle_v1_postconsume'],
+            'auth_activation_user_state_invalid',
+            500
+        );
+    }
+
+    $adminEmail = trim((string) ($user['email'] ?? ''));
+    activation_security_context(['email' => $adminEmail]);
+
+    $domain = activation_fetch_active_domain($tenantId);
+    if ($domain === '') {
+        activation_redirect_error(
+            'domain_unavailable',
+            ['stage' => 'lifecycle_v1_postconsume'],
+            'auth_activation_domain_unavailable',
+            500
+        );
+    }
+
+    if (!$idempotent) {
+        activation_send_account_activated_mail($tenantId, $adminEmail, $domain);
+    }
+
+    activation_security_event(
+        'auth_activation_success',
+        $idempotent ? 'account_already_active' : 'account_activated',
+        302,
+        'success',
+        'low',
+        ['tenant_id' => $tenantId, 'user_id' => $userId, 'email' => $adminEmail]
+    );
+
+    if ($idempotent) {
+        activation_redirect_already_active($tenantId);
+    }
+
+    activation_redirect('https://' . $domain . '/logowanie.html?activated=1');
+}
+
+unset($token, $tokenHash, $activationRef);
 
 $user = activation_fetch_user($tenantId, $userId);
 if (!is_array($user)) {

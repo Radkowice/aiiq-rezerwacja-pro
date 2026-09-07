@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
+require_once __DIR__ . '/../helpers/activation_link.php';
 require_once __DIR__ . '/../helpers/security.php';
 
 const SUBSCRIPTION_EMAIL_WORKER_LIMIT = 5;
@@ -81,7 +82,8 @@ function subscription_email_worker_log(string $event): void
         'malformed_claim',
         'payment_context_missing',
         'unsupported_email_type',
-        'activation_flow_not_supported',
+        'activation_context_invalid',
+        'activation_ref_failed',
         'recipient_invalid',
         'smtp_send_failed',
         'record_result_failed',
@@ -324,9 +326,16 @@ try {
         $claimToken = trim((string) ($claim['claim_token'] ?? ''));
         $tenantId = trim((string) ($claim['tenant_id'] ?? ''));
         $paymentId = trim((string) ($claim['payment_id'] ?? ''));
+        $userId = trim((string) ($claim['user_id'] ?? ''));
         $emailType = strtolower(trim((string) ($claim['email_type'] ?? '')));
         $recipientEmail = trim((string) ($claim['recipient_email'] ?? ''));
         $activationRequired = $claim['activation_required'] ?? null;
+        $activationToken = $activationRequired === true
+            ? trim((string) ($claim['activation_token'] ?? ''))
+            : '';
+        $activationExpiresAt = $activationRequired === true
+            ? trim((string) ($claim['activation_expires_at'] ?? ''))
+            : '';
         unset($claim['activation_token'], $claim['activation_expires_at']);
 
         if (
@@ -339,10 +348,14 @@ try {
             break;
         }
 
+        $isActivationReissue = $emailType === 'subscription_activation_reissue';
+
         if (
             $tenantId === ''
-            || security_uuid_or_null($paymentId) === null
+            || security_uuid_or_null($userId) === null
             || !is_bool($activationRequired)
+            || (!$isActivationReissue && security_uuid_or_null($paymentId) === null)
+            || ($isActivationReissue && $paymentId !== '')
         ) {
             subscription_email_worker_log('malformed_claim');
             $failed++;
@@ -364,6 +377,7 @@ try {
             'subscription_pro_activated',
             'subscription_vip_activated',
             'subscription_vip_custom_domain_requested',
+            'subscription_activation_reissue',
         ], true)) {
             subscription_email_worker_log('unsupported_email_type');
             $failed++;
@@ -381,14 +395,41 @@ try {
             continue;
         }
 
-        if ($activationRequired) {
-            subscription_email_worker_log('activation_flow_not_supported');
+        if (
+            $activationRequired
+            && !in_array($emailType, [
+                'subscription_pro_activated',
+                'subscription_vip_activated',
+                'subscription_activation_reissue',
+            ], true)
+        ) {
+            subscription_email_worker_log('activation_context_invalid');
             $failed++;
 
             if (!subscription_email_worker_fail_claim(
                 $emailLogId,
                 $claimToken,
-                'activation_flow_not_supported'
+                'activation_context_invalid'
+            )) {
+                subscription_email_worker_log('record_result_failed');
+                $runFailed = true;
+                break;
+            }
+
+            continue;
+        }
+
+        if (
+            !$activationRequired
+            && $emailType === 'subscription_activation_reissue'
+        ) {
+            subscription_email_worker_log('activation_context_invalid');
+            $failed++;
+
+            if (!subscription_email_worker_fail_claim(
+                $emailLogId,
+                $claimToken,
+                'activation_context_invalid'
             )) {
                 subscription_email_worker_log('record_result_failed');
                 $runFailed = true;
@@ -415,55 +456,62 @@ try {
             continue;
         }
 
-        $paymentResult = subscription_email_worker_fetch_payment($config, $paymentId, $tenantId);
-
-        if (empty($paymentResult['ok']) || !is_array($paymentResult['payment'] ?? null)) {
-            subscription_email_worker_log('payment_context_missing');
-            $failed++;
-
-            if (!subscription_email_worker_fail_claim(
-                $emailLogId,
-                $claimToken,
-                'payment_context_missing'
-            )) {
-                subscription_email_worker_log('record_result_failed');
-                $runFailed = true;
-                break;
-            }
-
-            continue;
-        }
-
-        $payment = $paymentResult['payment'];
+        $payment = null;
+        $subscription = null;
         $isVipCustomDomainRequest = $emailType === 'subscription_vip_custom_domain_requested';
-        $expectedPlanCode = in_array($emailType, [
-            'subscription_vip_activated',
-            'subscription_vip_custom_domain_requested',
-        ], true) ? 'vip' : 'pro';
+        $expectedPlanCode = null;
 
-        if (($payment['plan_code'] ?? '') !== $expectedPlanCode) {
-            subscription_email_worker_log('payment_context_missing');
-            $failed++;
+        if (!$isActivationReissue) {
+            $paymentResult = subscription_email_worker_fetch_payment($config, $paymentId, $tenantId);
 
-            if (!subscription_email_worker_fail_claim(
-                $emailLogId,
-                $claimToken,
-                'payment_context_invalid'
-            )) {
-                subscription_email_worker_log('record_result_failed');
-                $runFailed = true;
-                break;
+            if (empty($paymentResult['ok']) || !is_array($paymentResult['payment'] ?? null)) {
+                subscription_email_worker_log('payment_context_missing');
+                $failed++;
+
+                if (!subscription_email_worker_fail_claim(
+                    $emailLogId,
+                    $claimToken,
+                    'payment_context_missing'
+                )) {
+                    subscription_email_worker_log('record_result_failed');
+                    $runFailed = true;
+                    break;
+                }
+
+                continue;
             }
 
-            continue;
+            $payment = $paymentResult['payment'];
+            $expectedPlanCode = in_array($emailType, [
+                'subscription_vip_activated',
+                'subscription_vip_custom_domain_requested',
+            ], true) ? 'vip' : 'pro';
+
+            if (($payment['plan_code'] ?? '') !== $expectedPlanCode) {
+                subscription_email_worker_log('payment_context_missing');
+                $failed++;
+
+                if (!subscription_email_worker_fail_claim(
+                    $emailLogId,
+                    $claimToken,
+                    'payment_context_invalid'
+                )) {
+                    subscription_email_worker_log('record_result_failed');
+                    $runFailed = true;
+                    break;
+                }
+
+                continue;
+            }
+
+            $subscription = [
+                'plan_code' => $payment['plan_code'],
+                'billing_period' => $payment['billing_period'],
+                'current_period_start' => trim((string) ($payment['subscription_period_start'] ?? '')),
+                'current_period_end' => trim((string) ($payment['subscription_period_end'] ?? '')),
+            ];
         }
 
-        $subscription = [
-            'plan_code' => $payment['plan_code'],
-            'billing_period' => $payment['billing_period'],
-            'current_period_start' => trim((string) ($payment['subscription_period_start'] ?? '')),
-            'current_period_end' => trim((string) ($payment['subscription_period_end'] ?? '')),
-        ];
         $context = [
             'company_name' => is_scalar($claim['company_name'] ?? null)
                 ? trim((string) $claim['company_name'])
@@ -472,7 +520,96 @@ try {
                 ? trim((string) $claim['panel_domain'])
                 : '',
         ];
-        if ($isVipCustomDomainRequest) {
+
+        if ($activationRequired) {
+            $activationExpiry = null;
+
+            try {
+                $activationExpiry = $activationExpiresAt !== ''
+                    ? new DateTimeImmutable($activationExpiresAt)
+                    : null;
+            } catch (Throwable $e) {
+                $activationExpiry = null;
+            }
+
+            if (
+                preg_match('/^[a-f0-9]{64}$/i', $activationToken) !== 1
+                || !$activationExpiry instanceof DateTimeImmutable
+                || $activationExpiry <= new DateTimeImmutable('now')
+            ) {
+                subscription_email_worker_log('activation_context_invalid');
+                $failed++;
+
+                if (!subscription_email_worker_fail_claim(
+                    $emailLogId,
+                    $claimToken,
+                    'activation_context_invalid'
+                )) {
+                    subscription_email_worker_log('record_result_failed');
+                    $runFailed = true;
+                    break;
+                }
+
+                unset($activationToken, $activationExpiresAt, $activationExpiry);
+                continue;
+            }
+
+            $activationRef = activation_link_build_ref(
+                $activationToken,
+                $tenantId,
+                $userId
+            );
+
+            if ($activationRef === '') {
+                subscription_email_worker_log('activation_ref_failed');
+                $failed++;
+
+                if (!subscription_email_worker_fail_claim(
+                    $emailLogId,
+                    $claimToken,
+                    'activation_ref_failed'
+                )) {
+                    subscription_email_worker_log('record_result_failed');
+                    $runFailed = true;
+                    break;
+                }
+
+                unset($activationToken, $activationExpiresAt, $activationExpiry);
+                continue;
+            }
+
+            $activationUrl = 'https://rezerwacja-ai-iq.pl/api/auth/activate.php?token='
+                . rawurlencode($activationToken)
+                . '&ref=' . rawurlencode($activationRef);
+
+            $planCodeForMail = $isActivationReissue
+                ? strtolower(trim((string) ($claim['plan_code'] ?? 'free')))
+                : (string) ($payment['plan_code'] ?? 'free');
+
+            if (!in_array($planCodeForMail, ['free', 'pro', 'vip'], true)) {
+                $planCodeForMail = 'free';
+            }
+
+            $subject = $isActivationReissue
+                ? 'Nowy link aktywacyjny w RezerwIQ'
+                : 'Aktywuj konto administratora w RezerwIQ';
+            $html = buildSubscriptionActivationRequiredMailHtml([
+                'company_name' => $context['company_name'],
+                'panel_domain' => $context['panel_domain'],
+                'plan' => $planCodeForMail,
+                'activation_url' => $activationUrl,
+                'activation_expires_label' => 'przez 48 godzin',
+                'is_reissue' => $isActivationReissue,
+            ]);
+
+            unset(
+                $activationToken,
+                $activationExpiresAt,
+                $activationExpiry,
+                $activationRef,
+                $activationUrl
+            );
+        } elseif ($isVipCustomDomainRequest) {
             $subject = 'Prośba o podłączenie własnej domeny została przyjęta';
             $html = buildSubscriptionVipCustomDomainRequestedCustomerMailHtml($context);
         } else {

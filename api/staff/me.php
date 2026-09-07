@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
 
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
@@ -228,7 +229,7 @@ if (
 $staffRows = is_array($staffResult['data'] ?? null) ? $staffResult['data'] : [];
 $staff = is_array($staffRows[0] ?? null) ? $staffRows[0] : null;
 
-if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN)) {
+if (!is_array($staff) || empty($staff['id']) || !filter_var($staff['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
     staff_me_clear_session('inactive_staff_profile', 401);
     staff_me_json([
         'success' => false,
@@ -248,8 +249,13 @@ $_SESSION['staff_user']['display_name'] = $displayName;
 $company = staff_me_fetch_company($supabaseUrl, $supabaseKey, $schema, $sessionTenantId);
 $refSecret = public_response_ref_secret($supabaseKey);
 
+if (empty($_SESSION['csrf'])) {
+    $_SESSION['csrf'] = bin2hex(random_bytes(32));
+}
+
 staff_me_json([
     'success' => true,
+    'csrf_token' => (string) $_SESSION['csrf'],
     'company' => $company,
     'staff' => [
         'staff_ref' => public_response_staff_ref($sessionTenantId, $staffId, $refSecret),

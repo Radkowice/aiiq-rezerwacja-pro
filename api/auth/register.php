@@ -3,6 +3,7 @@ header('Content-Type: application/json; charset=utf-8');
 require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/system_subscription_mail.php';
 require_once __DIR__ . '/../helpers/aiiq_payu.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/activation_link.php';
 require_once __DIR__ . '/../helpers/public_response.php';
@@ -479,7 +480,6 @@ $clientName = trim((string)($data['client_name'] ?? ''));
 $subdomainSlug = normalize_subdomain_slug($data['subdomain_slug'] ?? '');
 $planCode = normalize_registration_plan_code($data['plan_code'] ?? 'free');
 $billingPeriod = normalize_registration_billing_period($data['billing_period'] ?? 'monthly');
-$selectedPaidPlanPrice = null;
 $customDomainRequested = false;
 
 if (array_key_exists('custom_domain_requested', $data)) {
@@ -606,16 +606,6 @@ if (!is_valid_polish_phone($companyPhone)) {
     json_response(['success' => false, 'error' => 'Podaj poprawny numer telefonu, np. 123456789 lub +48 123-456-789.'], 400);
 }
 
-if (is_paid_public_registration_plan($planCode)) {
-    $selectedPaidPlanPrice = register_fetch_plan_price($planCode, $billingPeriod);
-
-    if (!is_array($selectedPaidPlanPrice)) {
-        json_response([
-            'success' => false,
-            'error' => 'Nie udało się pobrać aktualnej ceny wybranego planu. Spróbuj ponownie później.'
-        ], 503);
-    }
-}
 
 if ($domain === '') {
     json_response([
@@ -629,6 +619,73 @@ if (!is_valid_domain($domain)) {
         'success' => false,
         'error' => 'Nieprawidłowy adres panelu.'
     ], 400);
+}
+
+if (is_paid_public_registration_plan($planCode)) {
+    $paidRegistration = register_create_initial_paid_plan_payment([
+        'idempotency_key' => $data['idempotency_key'] ?? null,
+        'email' => $email,
+        'password' => $password,
+        'client_name' => $clientName,
+        'subdomain_slug' => $subdomainSlug,
+        'domain' => $domain,
+        'plan_code' => $planCode,
+        'billing_period' => $billingPeriod,
+        'custom_domain_requested' => $customDomainRequested,
+        'company_full_name' => $companyFullName,
+        'company_owner_name' => $companyOwnerName,
+        'company_tax_id' => $companyTaxId,
+        'company_address' => $companyAddress,
+        'company_email' => $companyEmail,
+        'company_phone' => $companyPhone,
+    ]);
+
+    $paidStatus = (int) ($paidRegistration['http_status'] ?? 500);
+    if ($paidStatus < 100 || $paidStatus > 599) {
+        $paidStatus = 500;
+    }
+
+    if (!empty($paidRegistration['success'])) {
+        $tenantId = register_paid_scalar_string($paidRegistration['tenant_id'] ?? '');
+        $userId = register_paid_scalar_string($paidRegistration['user_id'] ?? '');
+
+        register_security_context([
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+        ]);
+        register_security_event('auth_register_success', 'registration_accepted', 201, 'success', 'low', [
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'email' => is_string($email) ? $email : '',
+            'phone' => $companyPhone,
+            'stage' => 'paid_plan_payment_created',
+        ]);
+
+        json_response([
+            'success' => true,
+            'message' => 'Rejestracja została przyjęta.',
+            'payment_url' => (string) ($paidRegistration['payment_url'] ?? ''),
+        ], 201);
+    }
+
+    register_security_event('auth_register_paid_flow_failed', (string) ($paidRegistration['reason'] ?? 'paid_flow_failed'), $paidStatus, 'failed', $paidStatus === 202 ? 'high' : 'medium', [
+        'email' => is_string($email) ? $email : '',
+        'phone' => $companyPhone,
+        'stage' => 'paid_registration_lifecycle',
+    ]);
+
+    $paidResponse = [
+        'success' => false,
+        'error' => (string) ($paidRegistration['error'] ?? 'Nie udało się przygotować płatnej rejestracji.'),
+    ];
+
+    foreach (['retry_allowed', 'unresolved', 'new_intent_required'] as $flag) {
+        if (array_key_exists($flag, $paidRegistration)) {
+            $paidResponse[$flag] = ($paidRegistration[$flag] === true);
+        }
+    }
+
+    json_response($paidResponse, $paidStatus);
 }
 
 register_debug('CHECK_RESERVED_SUBDOMAIN_BEFORE');
@@ -711,7 +768,6 @@ $createdServiceSettings = false;
 $createdConsent = false;
 $createdConsentId = '';
 $createdActivationToken = false;
-$createdSubscriptionPayment = false;
 
 try {
     register_debug('GENERATE_IDS_BEFORE');
@@ -818,37 +874,21 @@ try {
     $createdDomain = true;
 
     // 4. ABONAMENT
-    $subscriptionPayload = is_paid_public_registration_plan($planCode)
-        ? [
-            'tenant_id' => $tenantId,
-            'plan_code' => $planCode,
-            'plan_name' => public_registration_plan_name($planCode),
-            'billing_period' => $billingPeriod,
-            'status' => 'payment_due',
-            'amount' => (float) ($selectedPaidPlanPrice['amount'] ?? 0),
-            'currency' => (string) ($selectedPaidPlanPrice['currency'] ?? 'PLN'),
-            'current_period_start' => date('Y-m-d'),
-            'current_period_end' => null,
-            'next_payment_due_at' => date('Y-m-d'),
-            'grace_period_days' => 0,
-            'reminder_count' => 0,
-            'notes' => 'Wpis abonamentu utworzony automatycznie przy bezpośredniej rejestracji planu płatnego. Aktywacja po płatności PayU.',
-        ]
-        : [
-            'tenant_id' => $tenantId,
-            'plan_code' => 'free',
-            'plan_name' => 'Free',
-            'billing_period' => 'monthly',
-            'status' => 'active',
-            'amount' => 0.00,
-            'currency' => 'PLN',
-            'current_period_start' => date('Y-m-d'),
-            'current_period_end' => null,
-            'next_payment_due_at' => null,
-            'grace_period_days' => 0,
-            'reminder_count' => 0,
-            'notes' => 'Wpis abonamentu utworzony automatycznie przy rejestracji Free.',
-        ];
+    $subscriptionPayload = [
+        'tenant_id' => $tenantId,
+        'plan_code' => 'free',
+        'plan_name' => 'Free',
+        'billing_period' => 'monthly',
+        'status' => 'active',
+        'amount' => 0.00,
+        'currency' => 'PLN',
+        'current_period_start' => date('Y-m-d'),
+        'current_period_end' => null,
+        'next_payment_due_at' => null,
+        'grace_period_days' => 0,
+        'reminder_count' => 0,
+        'notes' => 'Wpis abonamentu utworzony automatycznie przy rejestracji Free.',
+    ];
 
     register_debug('INSERT_TENANT_SUBSCRIPTION_BEFORE');
 
@@ -937,30 +977,7 @@ try {
         throw new Exception('Nie udało się ustalić identyfikatora zgody rejestracyjnej');
     }
 
-    // 7. AKTYWACJA / PŁATNOŚĆ
-    $paymentUrl = '';
-
-    if (is_paid_public_registration_plan($planCode)) {
-        $payment = register_create_initial_paid_plan_payment(
-            $tenantId,
-            $planCode,
-            $billingPeriod,
-            $selectedPaidPlanPrice,
-            $customDomainRequested,
-            [
-                'email' => $email,
-                'owner_name' => $companyOwnerName,
-                'company_name' => $companyFullName !== '' ? $companyFullName : $clientName,
-            ]
-        );
-
-        if (empty($payment['success']) || empty($payment['payment_url'])) {
-            throw new Exception($payment['error'] ?? 'Nie udało się przygotować płatności PayU.');
-        }
-
-        $createdSubscriptionPayment = true;
-        $paymentUrl = (string) $payment['payment_url'];
-    } else {
+    // 7. AKTYWACJA FREE
         $activationToken = bin2hex(random_bytes(32));
         $activationTokenHash = hash('sha256', $activationToken);
         $activationCreatedAt = gmdate('c');
@@ -1012,7 +1029,6 @@ try {
         }
 
         unset($activationToken, $activationRef, $activationUrl);
-    }
 
     register_debug('SUCCESS', [
         'created' => true
@@ -1020,21 +1036,15 @@ try {
 
     $responsePayload = [
         'success' => true,
-        'message' => is_paid_public_registration_plan($planCode)
-            ? 'Rejestracja została przyjęta.'
-            : 'Rejestracja została przyjęta. Sprawdź skrzynkę e-mail.',
+        'message' => 'Rejestracja została przyjęta. Sprawdź skrzynkę e-mail.',
     ];
-
-    if (is_paid_public_registration_plan($planCode) && $paymentUrl !== '') {
-        $responsePayload['payment_url'] = $paymentUrl;
-    }
 
     register_security_event('auth_register_success', 'registration_accepted', 201, 'success', 'low', [
         'tenant_id' => $tenantId,
         'user_id' => $userId,
         'email' => is_string($email) ? $email : '',
         'phone' => $companyPhone,
-        'stage' => is_paid_public_registration_plan($planCode) ? 'paid_plan_payment_created' : 'activation_mail_sent',
+        'stage' => 'activation_mail_sent',
     ]);
 
     json_response($responsePayload, 201);
@@ -1055,14 +1065,10 @@ try {
         'createdSubscription' => $createdSubscription,
         'createdServiceSettings' => $createdServiceSettings,
         'createdActivationToken' => $createdActivationToken,
-        'createdSubscriptionPayment' => $createdSubscriptionPayment,
         'exception_type' => get_class($e),
         'exception_message' => '[redacted]'
     ]);
 
-    if (!empty($tenantId) && $createdSubscriptionPayment) {
-        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?tenant_id=eq.' . rawurlencode($tenantId));
-    }
 
     if (!empty($tenantId) && $createdActivationToken) {
         supabase_request('DELETE', '/rest/v1/user_activation_tokens?tenant_id=eq.' . rawurlencode($tenantId));
@@ -1556,30 +1562,6 @@ function register_fetch_public_paid_plan_prices(string $planCode): array
     ];
 }
 
-function register_fetch_plan_price(string $planCode, string $billingPeriod): ?array
-{
-    if (
-        !is_paid_public_registration_plan($planCode)
-        || !in_array($billingPeriod, ['monthly', 'yearly'], true)
-    ) {
-        return null;
-    }
-
-    $result = supabase_request(
-        'GET',
-        '/rest/v1/subscription_plan_prices?select=plan_code,plan_name,billing_period,amount,currency,is_active&plan_code=eq.'
-            . rawurlencode($planCode)
-            . '&billing_period=eq.' . rawurlencode($billingPeriod)
-            . '&is_active=eq.true&limit=1'
-    );
-
-    if (!$result['ok'] || !is_array($result['data'][0] ?? null)) {
-        return null;
-    }
-
-    return register_format_price_row($result['data'][0], $planCode);
-}
-
 function register_public_base_url(): string
 {
     $host = normalize_domain($_SERVER['HTTP_X_FORWARDED_HOST'] ?? $_SERVER['HTTP_HOST'] ?? '');
@@ -1597,159 +1579,705 @@ function register_valid_email(string $email): string
     return filter_var($email, FILTER_VALIDATE_EMAIL) ? $email : '';
 }
 
-function register_create_initial_paid_plan_payment(
-    string $tenantId,
-    string $planCode,
-    string $billingPeriod,
-    ?array $price,
-    bool $customDomainRequested,
-    array $buyerContext
-): array
+function register_paid_scalar_string($value): string
 {
-    if (
-        $tenantId === ''
-        || !is_paid_public_registration_plan($planCode)
-        || !in_array($billingPeriod, ['monthly', 'yearly'], true)
-        || !is_array($price)
-        || ($price['plan_code'] ?? '') !== $planCode
-        || ($price['billing_period'] ?? '') !== $billingPeriod
-        || ($customDomainRequested && $planCode !== 'vip')
-    ) {
-        return ['success' => false, 'error' => 'Nieprawidłowe dane płatności abonamentu.'];
-    }
+    return is_scalar($value) ? trim((string) $value) : '';
+}
 
-    $amount = (float) ($price['amount'] ?? 0);
-    $currency = strtoupper(trim((string) ($price['currency'] ?? 'PLN')));
+function register_paid_valid_uuid(string $value): bool
+{
+    return preg_match(
+        '/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i',
+        $value
+    ) === 1;
+}
 
-    if ($amount <= 0 || !preg_match('/^[A-Z]{3}$/', $currency)) {
-        return ['success' => false, 'error' => 'Nieprawidłowa cena abonamentu.'];
-    }
+function register_paid_valid_idempotency_key(string $value): bool
+{
+    return preg_match(
+        '/^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{64})$/i',
+        $value
+    ) === 1;
+}
 
-    $payuConfigResult = aiiq_payu_config();
+function register_paid_rpc(string $functionName, array $payload): ?array
+{
+    $result = payment_lifecycle_v3_rpc($functionName, $payload);
 
-    if (empty($payuConfigResult['success'])) {
-        return ['success' => false, 'error' => 'Płatność PayU jest chwilowo niedostępna.'];
-    }
-
-    $payu = $payuConfigResult['config'];
-    $payuCurrency = strtoupper(trim((string) ($payu['currency'] ?? '')));
-
-    if ($currency !== $payuCurrency) {
-        aiiq_payu_debug('AI_IQ_REGISTER_PAID_PLAN_CURRENCY_MISMATCH', [
-            'plan_code' => $planCode,
-            'price_currency' => $currency,
-            'payu_currency' => $payuCurrency,
+    if (empty($result['ok']) || !is_array($result['data'] ?? null)) {
+        register_debug('PAID_REGISTRATION_RPC_ERROR', [
+            'rpc' => $functionName,
+            'error_kind' => register_paid_scalar_string($result['error_kind'] ?? ''),
+            'error_code' => register_paid_scalar_string($result['error'] ?? ''),
+            'http_status' => (int) ($result['status'] ?? 0),
         ]);
 
-        return ['success' => false, 'error' => 'Konfiguracja ceny abonamentu jest chwilowo niedostępna.'];
+        return null;
     }
 
-    $now = gmdate('c');
-    $paymentInsert = supabase_request('POST', '/rest/v1/tenant_subscription_payments', [
-        'tenant_id' => $tenantId,
-        'payment_type' => 'subscription_initial',
-        'plan_code' => $planCode,
-        'billing_period' => $billingPeriod,
-        'amount' => $amount,
-        'currency' => $currency,
-        'custom_domain_requested' => $customDomainRequested,
-        'status' => 'pending',
-        'started_at' => $now,
-        'created_at' => $now,
-        'updated_at' => $now,
-    ]);
+    return $result['data'];
+}
 
-    if (!$paymentInsert['ok']) {
-        return ['success' => false, 'error' => 'Nie udało się zapisać płatności abonamentu.'];
+function register_paid_provider_http_status($value): ?int
+{
+    $status = is_numeric($value) ? (int) $value : 0;
+
+    return $status >= 100 && $status <= 599 ? $status : null;
+}
+
+function register_paid_provider_status($value): ?string
+{
+    $status = register_paid_scalar_string($value);
+
+    if ($status === '' || strlen($status) > 64 || preg_match('/^[A-Za-z0-9_.:-]+$/', $status) !== 1) {
+        return null;
     }
 
-    $paymentId = extract_inserted_id($paymentInsert['data'] ?? null);
+    return $status;
+}
 
-    if ($paymentId === '') {
-        return ['success' => false, 'error' => 'Nie udało się ustalić identyfikatora płatności abonamentu.'];
+function register_paid_provider_error_code($value): ?string
+{
+    $errorCode = strtolower(register_paid_scalar_string($value));
+
+    if ($errorCode === '' || strlen($errorCode) > 80 || preg_match('/^[a-z0-9_.:-]+$/', $errorCode) !== 1) {
+        return null;
     }
 
-    $timestamp = (string) time();
-    $extOrderId = 'subscription-' . $timestamp . '-' . bin2hex(random_bytes(12));
-    $amountInMinorUnits = (int) round($amount * 100);
-    $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
-    $planName = public_registration_plan_name($planCode);
-    $description = 'RezerwIQ - rejestracja plan ' . $planName . ' ' . $periodLabel;
-    $publicBaseUrl = register_public_base_url();
-    $buyerEmail = register_valid_email((string) ($buyerContext['email'] ?? ''));
+    return $errorCode;
+}
 
-    if ($buyerEmail === '') {
-        return ['success' => false, 'error' => 'Nie udało się ustalić adresu e-mail kupującego.'];
-    }
+function register_paid_provider_payload_hash($value): ?string
+{
+    $hash = strtolower(register_paid_scalar_string($value));
 
-    $orderPayload = [
-        'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',
-        'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html',
-        'customerIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
-        'merchantPosId' => $payu['pos_id'],
-        'description' => $description,
-        'currencyCode' => $currency,
-        'totalAmount' => (string) $amountInMinorUnits,
-        'extOrderId' => $extOrderId,
-        'buyer' => [
-            'email' => $buyerEmail,
-            'language' => 'pl',
-        ],
-        'products' => [[
-            'name' => $description,
-            'unitPrice' => (string) $amountInMinorUnits,
-            'quantity' => '1',
-        ]],
-    ];
+    return preg_match('/^[a-f0-9]{64}$/', $hash) === 1 ? $hash : null;
+}
 
-    $buyerName = trim((string) ($buyerContext['owner_name'] ?? ''));
-    if ($buyerName !== '') {
-        $orderPayload['buyer']['firstName'] = mb_substr($buyerName, 0, 80);
-    }
-
-    $created = aiiq_payu_create_order($payu, $orderPayload);
-
-    if (empty($created['success'])) {
-        supabase_request('PATCH', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId), [
-            'status' => 'failed',
-            'payu_ext_order_id' => $extOrderId,
-            'payu_status' => (string) ($created['payu_status'] ?? 'CREATE_ORDER_FAILED'),
-            'updated_at' => gmdate('c'),
-        ]);
-        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId));
-
-        return ['success' => false, 'error' => 'Nie udało się utworzyć płatności PayU za abonament.'];
-    }
-
-    $paymentUrl = (string) ($created['redirect_uri'] ?? '');
-    $payuOrderId = (string) ($created['order_id'] ?? '');
-    $payuStatus = (string) ($created['payu_status'] ?? '');
-
-    if ($paymentUrl === '') {
-        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId));
-        return ['success' => false, 'error' => 'PayU nie zwróciło linku do płatności.'];
-    }
-
-    $paymentUpdate = supabase_request('PATCH', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId), [
-        'payu_order_id' => $payuOrderId,
-        'payu_ext_order_id' => $extOrderId,
-        'payment_url' => $paymentUrl,
-        'payu_status' => $payuStatus,
-        'updated_at' => gmdate('c'),
-    ]);
-
-    if (!$paymentUpdate['ok']) {
-        supabase_request('DELETE', '/rest/v1/tenant_subscription_payments?id=eq.' . rawurlencode($paymentId) . '&tenant_id=eq.' . rawurlencode($tenantId));
-        return ['success' => false, 'error' => 'Zamówienie PayU utworzone, ale nie udało się zapisać danych płatności.'];
-    }
-
-    register_store_subscription_return_handoff($tenantId, $paymentId);
-
+function register_paid_failure(
+    int $httpStatus,
+    string $error,
+    string $reason,
+    bool $retryAllowed = false,
+    bool $unresolved = false,
+    bool $newIntentRequired = false
+): array {
     return [
-        'success' => true,
-        'payment_url' => $paymentUrl,
+        'success' => false,
+        'http_status' => $httpStatus,
+        'error' => $error,
+        'reason' => $reason,
+        'retry_allowed' => $retryAllowed,
+        'unresolved' => $unresolved,
+        'new_intent_required' => $newIntentRequired,
     ];
 }
+
+function register_paid_unresolved(string $reason): array
+{
+    return register_paid_failure(
+        202,
+        'Wynik przygotowania płatności jest nierozstrzygnięty. Nie ponawiaj płatności. Sprawdź jej status później albo skontaktuj się z obsługą.',
+        $reason,
+        false,
+        true,
+        false
+    );
+}
+
+function register_paid_terminal(string $status): array
+{
+    return register_paid_failure(
+        409,
+        'Ta płatność rejestracyjna została zakończona bez aktywacji konta. Nie rozpoczynaj ponownie rejestracji z tymi samymi danymi; skontaktuj się z obsługą.',
+        'terminal_' . ($status !== '' ? $status : 'unknown'),
+        false,
+        false,
+        false
+    );
+}
+
+function register_paid_initial_preflight(string $email, string $subdomainSlug, string $domain): ?array
+{
+    $reservedSubdomain = supabase_request(
+        'GET',
+        '/rest/v1/reserved_subdomain_names?select=*'
+    );
+
+    if (!$reservedSubdomain['ok']) {
+        return register_paid_failure(
+            503,
+            'Nie udało się sprawdzić dostępności adresu panelu. Spróbuj ponownie.',
+            'reserved_subdomain_check_failed',
+            true
+        );
+    }
+
+    if (is_reserved_subdomain_slug($reservedSubdomain['data'] ?? [], $subdomainSlug)) {
+        return register_paid_failure(
+            409,
+            'Ta nazwa adresu jest zarezerwowana. Wybierz inną.',
+            'reserved_subdomain'
+        );
+    }
+
+    $emailExists = supabase_request(
+        'GET',
+        '/rest/v1/users?select=id,email&email=eq.' . rawurlencode($email) . '&limit=1'
+    );
+
+    if (!$emailExists['ok']) {
+        return register_paid_failure(
+            503,
+            'Nie udało się sprawdzić dostępności adresu e-mail. Spróbuj ponownie.',
+            'email_check_failed',
+            true
+        );
+    }
+
+    if (!empty($emailExists['data'])) {
+        return register_paid_failure(
+            409,
+            'Email jest już zarejestrowany',
+            'email_exists'
+        );
+    }
+
+    $domainExists = supabase_request(
+        'GET',
+        '/rest/v1/tenant_domains?select=id,domain&domain=eq.' . rawurlencode($domain) . '&limit=1'
+    );
+
+    if (!$domainExists['ok']) {
+        return register_paid_failure(
+            503,
+            'Nie udało się sprawdzić dostępności adresu panelu. Spróbuj ponownie.',
+            'domain_check_failed',
+            true
+        );
+    }
+
+    if (!empty($domainExists['data'])) {
+        return register_paid_failure(
+            409,
+            'Ten adres panelu jest już zajęty. Wybierz inną nazwę.',
+            'domain_exists'
+        );
+    }
+
+    return null;
+}
+
+function register_paid_fetch_initial_payment_context(
+    string $tenantId,
+    string $paymentId,
+    string $planCode,
+    string $billingPeriod,
+    string $expectedExtOrderId
+): ?array {
+    $result = supabase_request(
+        'GET',
+        '/rest/v1/tenant_subscription_payments'
+            . '?select=id,tenant_id,requested_by_user_id,payment_type,plan_code,billing_period,lifecycle_version,status,provider_state,payu_ext_order_id'
+            . '&id=eq.' . rawurlencode($paymentId)
+            . '&tenant_id=eq.' . rawurlencode($tenantId)
+            . '&payment_type=eq.subscription_initial'
+            . '&lifecycle_version=eq.1'
+            . '&limit=2'
+    );
+
+    if (!$result['ok'] || !is_array($result['data'] ?? null) || count($result['data']) !== 1) {
+        return null;
+    }
+
+    $row = $result['data'][0];
+
+    if (!is_array($row)) {
+        return null;
+    }
+
+    $rowPaymentId = register_paid_scalar_string($row['id'] ?? '');
+    $rowTenantId = register_paid_scalar_string($row['tenant_id'] ?? '');
+    $userId = register_paid_scalar_string($row['requested_by_user_id'] ?? '');
+    $rowPlanCode = strtolower(register_paid_scalar_string($row['plan_code'] ?? ''));
+    $rowBillingPeriod = strtolower(register_paid_scalar_string($row['billing_period'] ?? ''));
+    $rowExtOrderId = register_paid_scalar_string($row['payu_ext_order_id'] ?? '');
+
+    if (
+        !hash_equals($paymentId, $rowPaymentId)
+        || !hash_equals($tenantId, $rowTenantId)
+        || !register_paid_valid_uuid($userId)
+        || $rowPlanCode !== $planCode
+        || $rowBillingPeriod !== $billingPeriod
+        || $rowExtOrderId === ''
+        || !hash_equals($expectedExtOrderId, $rowExtOrderId)
+    ) {
+        return null;
+    }
+
+    return [
+        'user_id' => $userId,
+        'status' => strtolower(register_paid_scalar_string($row['status'] ?? '')),
+        'provider_state' => register_paid_scalar_string($row['provider_state'] ?? ''),
+        'ext_order_id' => $rowExtOrderId,
+    ];
+}
+
+function register_paid_existing_state_result(
+    string $providerState,
+    string $status,
+    string $tenantId,
+    string $userId,
+    string $paymentId,
+    string $idempotencyKey
+): array {
+    if (in_array($providerState, ['request_in_flight', 'result_unknown'], true)) {
+        return register_paid_unresolved('provider_state_' . $providerState);
+    }
+
+    if ($providerState === 'terminal') {
+        return register_paid_terminal($status);
+    }
+
+    if ($providerState === 'order_created') {
+        $recorded = register_paid_rpc('subscription_payment_record_provider_result', [
+            'p_tenant_id' => $tenantId,
+            'p_user_id' => $userId,
+            'p_payment_id' => $paymentId,
+            'p_idempotency_key' => $idempotencyKey,
+            'p_result_kind' => AI_IQ_PAYU_ORDER_RESULT_CREATED,
+            'p_payu_order_id' => null,
+            'p_payment_url' => null,
+            'p_payu_status' => null,
+            'p_http_status' => null,
+            'p_error_code' => null,
+            'p_payload_sha256_hex' => null,
+        ]);
+
+        if ($recorded === null) {
+            return register_paid_unresolved('order_created_replay_read_failed');
+        }
+
+        $recordedState = register_paid_scalar_string($recorded['provider_state'] ?? '');
+        $paymentUrl = register_paid_scalar_string($recorded['payment_url'] ?? '');
+        $orderId = register_paid_scalar_string($recorded['order_id'] ?? '');
+
+        if ($recordedState !== 'order_created' || $paymentUrl === '' || $orderId === '') {
+            return register_paid_unresolved('order_created_replay_invalid');
+        }
+
+        register_store_subscription_return_handoff($tenantId, $paymentId);
+
+        return [
+            'success' => true,
+            'http_status' => 201,
+            'payment_url' => $paymentUrl,
+            'tenant_id' => $tenantId,
+            'user_id' => $userId,
+            'payment_id' => $paymentId,
+            'reason' => 'order_created_replay',
+        ];
+    }
+
+    return register_paid_failure(
+        500,
+        'Nie udało się bezpiecznie ustalić stanu płatności.',
+        'provider_state_invalid'
+    );
+}
+
+function register_create_initial_paid_plan_payment(array $context): array
+{
+    $providerPostGranted = false;
+    $tenantId = '';
+    $userId = '';
+    $paymentId = '';
+
+    try {
+        $idempotencyKey = strtolower(register_paid_scalar_string($context['idempotency_key'] ?? ''));
+        $email = register_valid_email(register_paid_scalar_string($context['email'] ?? ''));
+        $password = (string) ($context['password'] ?? '');
+        $clientName = register_paid_scalar_string($context['client_name'] ?? '');
+        $subdomainSlug = normalize_subdomain_slug($context['subdomain_slug'] ?? '');
+        $planCode = strtolower(register_paid_scalar_string($context['plan_code'] ?? ''));
+        $billingPeriod = strtolower(register_paid_scalar_string($context['billing_period'] ?? ''));
+        $customDomainRequested = ($context['custom_domain_requested'] ?? null) === true;
+        $companyFullName = register_paid_scalar_string($context['company_full_name'] ?? '');
+        $companyOwnerName = register_paid_scalar_string($context['company_owner_name'] ?? '');
+        $companyTaxId = normalize_digits(register_paid_scalar_string($context['company_tax_id'] ?? ''));
+        $companyAddress = register_paid_scalar_string($context['company_address'] ?? '');
+        $companyEmail = register_valid_email(register_paid_scalar_string($context['company_email'] ?? ''));
+        $companyPhone = normalize_polish_phone(register_paid_scalar_string($context['company_phone'] ?? ''));
+        $domain = register_paid_scalar_string($context['domain'] ?? '');
+
+        if (!register_paid_valid_idempotency_key($idempotencyKey)) {
+            return register_paid_failure(
+                400,
+                'Nie udało się przygotować bezpiecznego identyfikatora rejestracji. Odśwież stronę i spróbuj ponownie.',
+                'invalid_idempotency_key'
+            );
+        }
+
+        if (
+            $email === ''
+            || $password === ''
+            || $clientName === ''
+            || !is_valid_subdomain_slug($subdomainSlug)
+            || !is_paid_public_registration_plan($planCode)
+            || !in_array($billingPeriod, ['monthly', 'yearly'], true)
+            || ($customDomainRequested && $planCode !== 'vip')
+            || $companyFullName === ''
+            || $companyOwnerName === ''
+            || $companyTaxId === ''
+            || $companyAddress === ''
+            || $companyEmail === ''
+            || $companyPhone === ''
+            || $domain === ''
+        ) {
+            return register_paid_failure(400, 'Nieprawidłowe dane płatnej rejestracji.', 'invalid_registration_context');
+        }
+
+        $payuConfigResult = aiiq_payu_config();
+
+        if (empty($payuConfigResult['success']) || !is_array($payuConfigResult['config'] ?? null)) {
+            return register_paid_failure(
+                503,
+                'Płatność PayU jest chwilowo niedostępna.',
+                'payu_config_unavailable',
+                true
+            );
+        }
+
+        $payu = $payuConfigResult['config'];
+        $payuCurrency = strtoupper(register_paid_scalar_string($payu['currency'] ?? ''));
+
+        if (preg_match('/^[A-Z]{3}$/', $payuCurrency) !== 1) {
+            return register_paid_failure(503, 'Płatność PayU jest chwilowo niedostępna.', 'payu_currency_invalid', true);
+        }
+
+        $publicBaseUrl = register_public_base_url();
+
+        if ($publicBaseUrl === '') {
+            return register_paid_failure(500, 'Nie udało się przygotować adresu płatności.', 'public_base_url_invalid');
+        }
+
+        try {
+            $credentialFingerprint = payment_lifecycle_v3_credential_fingerprint($password);
+        } catch (Throwable $e) {
+            register_debug('PAID_REGISTRATION_CREDENTIAL_FINGERPRINT_FAILED', [
+                'exception_type' => get_class($e),
+            ]);
+
+            return register_paid_failure(
+                503,
+                'Nie udało się bezpiecznie przygotować rejestracji. Spróbuj ponownie później.',
+                'credential_fingerprint_unavailable',
+                true
+            );
+        }
+
+        $intentPayload = [
+            'p_idempotency_key' => $idempotencyKey,
+            'p_credential_fingerprint_hex' => $credentialFingerprint,
+            'p_email' => $email,
+            'p_client_name' => $clientName,
+            'p_subdomain' => $subdomainSlug,
+            'p_plan_code' => $planCode,
+            'p_billing_period' => $billingPeriod,
+            'p_custom_domain_requested' => $customDomainRequested,
+            'p_company_full_name' => $companyFullName,
+            'p_company_owner_name' => $companyOwnerName,
+            'p_company_tax_id' => $companyTaxId,
+            'p_company_address' => $companyAddress,
+            'p_company_email' => $companyEmail,
+            'p_company_phone' => $companyPhone,
+            'p_terms_version' => 'platform_terms_v2',
+            'p_privacy_version' => 'platform_privacy_v2',
+            'p_terms_accepted' => true,
+            'p_privacy_accepted' => true,
+        ];
+
+        $begin = register_paid_rpc('subscription_registration_attempt_begin', $intentPayload);
+
+        if ($begin === null) {
+            return register_paid_failure(
+                503,
+                'Nie udało się bezpiecznie rozpocząć rejestracji. Spróbuj ponownie z tym samym formularzem.',
+                'registration_begin_failed',
+                true
+            );
+        }
+
+        $beginState = strtolower(register_paid_scalar_string($begin['state'] ?? ''));
+        $paymentId = register_paid_scalar_string($begin['payment_id'] ?? '');
+        $extOrderId = register_paid_scalar_string($begin['ext_order_id'] ?? '');
+        $beginPlanCode = strtolower(register_paid_scalar_string($begin['plan_code'] ?? ''));
+        $beginBillingPeriod = strtolower(register_paid_scalar_string($begin['billing_period'] ?? ''));
+
+        if (
+            !in_array($beginState, ['begun', 'committed'], true)
+            || !register_paid_valid_uuid($paymentId)
+            || $extOrderId === ''
+            || strlen($extOrderId) > 160
+            || preg_match('/^[A-Za-z0-9_-]+$/', $extOrderId) !== 1
+            || $beginPlanCode !== $planCode
+            || $beginBillingPeriod !== $billingPeriod
+        ) {
+            return register_paid_failure(500, 'Nie udało się bezpiecznie ustalić stanu rejestracji.', 'registration_begin_invalid');
+        }
+
+        if ($beginState === 'begun') {
+            $preflightFailure = register_paid_initial_preflight($email, $subdomainSlug, $domain);
+
+            if ($preflightFailure !== null) {
+                return $preflightFailure;
+            }
+        }
+
+        $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+
+        if (!is_string($passwordHash) || $passwordHash === '') {
+            return register_paid_failure(500, 'Nie udało się bezpiecznie przygotować konta.', 'password_hash_failed');
+        }
+
+        $commit = register_paid_rpc('subscription_registration_commit_initial', array_merge($intentPayload, [
+            'p_password_hash' => $passwordHash,
+            'p_ip_address' => get_registration_ip_address(),
+            'p_user_agent' => get_registration_user_agent(),
+        ]));
+
+        unset($passwordHash, $credentialFingerprint);
+
+        if ($commit === null) {
+            return register_paid_failure(
+                503,
+                'Nie udało się bezpiecznie zakończyć rejestracji. Nie zmieniaj danych formularza i spróbuj ponownie.',
+                'registration_commit_failed',
+                true
+            );
+        }
+
+        $commitState = strtolower(register_paid_scalar_string($commit['state'] ?? ''));
+        $tenantId = register_paid_scalar_string($commit['tenant_id'] ?? '');
+        $commitPaymentId = register_paid_scalar_string($commit['payment_id'] ?? '');
+        $commitExtOrderId = register_paid_scalar_string($commit['ext_order_id'] ?? '');
+        $commitPlanCode = strtolower(register_paid_scalar_string($commit['plan_code'] ?? ''));
+        $commitBillingPeriod = strtolower(register_paid_scalar_string($commit['billing_period'] ?? ''));
+
+        if (
+            $commitState !== 'committed'
+            || !register_paid_valid_uuid($tenantId)
+            || !register_paid_valid_uuid($commitPaymentId)
+            || !hash_equals($paymentId, $commitPaymentId)
+            || $commitExtOrderId === ''
+            || !hash_equals($extOrderId, $commitExtOrderId)
+            || $commitPlanCode !== $planCode
+            || $commitBillingPeriod !== $billingPeriod
+        ) {
+            return register_paid_unresolved('registration_commit_invalid');
+        }
+
+        register_security_context(['tenant_id' => $tenantId]);
+
+        $paymentContext = register_paid_fetch_initial_payment_context(
+            $tenantId,
+            $paymentId,
+            $planCode,
+            $billingPeriod,
+            $extOrderId
+        );
+
+        if ($paymentContext === null) {
+            return register_paid_unresolved('payment_context_missing');
+        }
+
+        $userId = register_paid_scalar_string($paymentContext['user_id'] ?? '');
+        register_security_context(['user_id' => $userId]);
+
+        $marked = register_paid_rpc('subscription_payment_mark_provider_started', [
+            'p_tenant_id' => $tenantId,
+            'p_user_id' => $userId,
+            'p_payment_id' => $paymentId,
+            'p_idempotency_key' => $idempotencyKey,
+        ]);
+
+        if ($marked === null) {
+            return register_paid_unresolved('provider_start_rpc_failed');
+        }
+
+        if (($marked['may_post'] ?? null) !== true) {
+            return register_paid_existing_state_result(
+                register_paid_scalar_string($marked['provider_state'] ?? ''),
+                strtolower(register_paid_scalar_string($marked['status'] ?? '')),
+                $tenantId,
+                $userId,
+                $paymentId,
+                $idempotencyKey
+            );
+        }
+
+        $markedPaymentId = register_paid_scalar_string($marked['payment_id'] ?? '');
+        $markedExtOrderId = register_paid_scalar_string($marked['ext_order_id'] ?? '');
+        $markedPlanCode = strtolower(register_paid_scalar_string($marked['plan_code'] ?? ''));
+        $markedBillingPeriod = strtolower(register_paid_scalar_string($marked['billing_period'] ?? ''));
+        $amountMinor = register_paid_scalar_string($marked['amount_minor'] ?? '');
+        $currency = strtoupper(register_paid_scalar_string($marked['currency'] ?? ''));
+
+        if (
+            !hash_equals($paymentId, $markedPaymentId)
+            || !hash_equals($extOrderId, $markedExtOrderId)
+            || $markedPlanCode !== $planCode
+            || $markedBillingPeriod !== $billingPeriod
+            || preg_match('/^[1-9][0-9]*$/', $amountMinor) !== 1
+            || preg_match('/^[A-Z]{3}$/', $currency) !== 1
+            || !hash_equals($payuCurrency, $currency)
+        ) {
+            return register_paid_unresolved('provider_start_payload_invalid');
+        }
+
+        $providerPostGranted = true;
+        $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
+        $planName = public_registration_plan_name($planCode);
+        $description = 'RezerwIQ - rejestracja plan ' . $planName . ' ' . $periodLabel;
+
+        $orderPayload = [
+            'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',
+            'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html',
+            'customerIp' => $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1',
+            'merchantPosId' => $payu['pos_id'],
+            'description' => $description,
+            'currencyCode' => $currency,
+            'totalAmount' => $amountMinor,
+            'extOrderId' => $extOrderId,
+            'buyer' => [
+                'email' => $email,
+                'language' => 'pl',
+            ],
+            'products' => [[
+                'name' => $description,
+                'unitPrice' => $amountMinor,
+                'quantity' => '1',
+            ]],
+        ];
+
+        if ($companyOwnerName !== '') {
+            $orderPayload['buyer']['firstName'] = mb_substr($companyOwnerName, 0, 80);
+        }
+
+        $created = aiiq_payu_create_order($payu, $orderPayload);
+        $resultKind = register_paid_scalar_string($created['result_kind'] ?? '');
+        $orderRequestSent = ($created['order_request_sent'] ?? null) === true;
+
+        if ($resultKind === AI_IQ_PAYU_ORDER_RESULT_LOCAL_FAILURE && !$orderRequestSent) {
+            return register_paid_failure(
+                503,
+                'Nie udało się wysłać zamówienia do PayU. Ze względów bezpieczeństwa nie ponawiaj tej płatności automatycznie.',
+                'provider_local_failure',
+                false
+            );
+        }
+
+        $payuOrderId = register_paid_scalar_string($created['order_id'] ?? '');
+        $paymentUrl = register_paid_scalar_string($created['redirect_uri'] ?? '');
+        $recordKind = $resultKind;
+        $recordErrorCode = register_paid_provider_error_code($created['error_code'] ?? null);
+
+        if (
+            !$orderRequestSent
+            || !in_array($recordKind, [
+                AI_IQ_PAYU_ORDER_RESULT_DEFINITIVE_FAILURE,
+                AI_IQ_PAYU_ORDER_RESULT_CREATED,
+                AI_IQ_PAYU_ORDER_RESULT_UNKNOWN,
+            ], true)
+        ) {
+            return register_paid_unresolved('provider_contract_invalid');
+        }
+
+        if (
+            $recordKind === AI_IQ_PAYU_ORDER_RESULT_CREATED
+            && (
+                ($created['success'] ?? null) !== true
+                || $payuOrderId === ''
+                || $paymentUrl === ''
+            )
+        ) {
+            $recordKind = AI_IQ_PAYU_ORDER_RESULT_UNKNOWN;
+            $recordErrorCode = 'invalid_order_created_contract';
+        }
+
+        if ($recordKind !== AI_IQ_PAYU_ORDER_RESULT_CREATED) {
+            $payuOrderId = '';
+            $paymentUrl = '';
+        }
+
+        $recorded = register_paid_rpc('subscription_payment_record_provider_result', [
+            'p_tenant_id' => $tenantId,
+            'p_user_id' => $userId,
+            'p_payment_id' => $paymentId,
+            'p_idempotency_key' => $idempotencyKey,
+            'p_result_kind' => $recordKind,
+            'p_payu_order_id' => $payuOrderId !== '' ? $payuOrderId : null,
+            'p_payment_url' => $paymentUrl !== '' ? $paymentUrl : null,
+            'p_payu_status' => register_paid_provider_status($created['payu_status'] ?? null),
+            'p_http_status' => register_paid_provider_http_status($created['http_code'] ?? null),
+            'p_error_code' => $recordErrorCode,
+            'p_payload_sha256_hex' => register_paid_provider_payload_hash($created['response_sha256'] ?? null),
+        ]);
+
+        if ($recorded === null) {
+            return register_paid_unresolved('provider_result_rpc_failed');
+        }
+
+        $recordedState = register_paid_scalar_string($recorded['provider_state'] ?? '');
+        $recordedStatus = strtolower(register_paid_scalar_string($recorded['status'] ?? ''));
+
+        if ($recordedState === 'order_created') {
+            $storedPaymentUrl = register_paid_scalar_string($recorded['payment_url'] ?? '');
+            $storedOrderId = register_paid_scalar_string($recorded['order_id'] ?? '');
+
+            if ($storedPaymentUrl === '' || $storedOrderId === '') {
+                return register_paid_unresolved('provider_result_created_invalid');
+            }
+
+            register_store_subscription_return_handoff($tenantId, $paymentId);
+
+            return [
+                'success' => true,
+                'http_status' => 201,
+                'payment_url' => $storedPaymentUrl,
+                'tenant_id' => $tenantId,
+                'user_id' => $userId,
+                'payment_id' => $paymentId,
+                'reason' => 'order_created',
+            ];
+        }
+
+        if ($recordedState === 'terminal') {
+            return register_paid_terminal($recordedStatus);
+        }
+
+        return register_paid_unresolved('provider_result_recorded_unresolved');
+    } catch (Throwable $e) {
+        register_debug('PAID_REGISTRATION_FATAL', [
+            'provider_post_granted' => $providerPostGranted,
+            'exception_type' => get_class($e),
+        ]);
+
+        if ($providerPostGranted) {
+            return register_paid_unresolved('fatal_after_provider_start');
+        }
+
+        return register_paid_failure(
+            500,
+            'Błąd przygotowania płatnej rejestracji.',
+            'paid_registration_fatal',
+            true
+        );
+    } finally {
+        unset($password);
+    }
+}
+
 
 function normalize_registration_plan_code($value): string
 {

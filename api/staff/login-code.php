@@ -282,6 +282,7 @@ if ($displayName === '') {
 }
 
 session_regenerate_id(true);
+$_SESSION['csrf'] = bin2hex(random_bytes(32));
 unset($_SESSION['user']);
 $_SESSION['staff_user'] = [
     'account_id' => $accountId,

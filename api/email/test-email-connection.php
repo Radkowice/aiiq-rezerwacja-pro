@@ -252,6 +252,59 @@ if (empty($planContext['is_paid_plan_active'])) {
     ]);
 }
 
+$rateLimit = security_rate_limit_check(
+    'email_smtp_test',
+    [
+        'tenant_id' => $tenantId,
+        'user_id' => $userId,
+    ],
+    [
+        'endpoint' => '/api/email/test-email-connection.php',
+        'http_method' => 'POST',
+        'metadata' => [
+            'operation' => 'smtp_connection_test',
+        ],
+    ]
+);
+
+if (empty($rateLimit['ok'])) {
+    smtp_test_security_event(
+        'email_smtp_test_rate_limit_unavailable',
+        'rate_limit_unavailable',
+        503,
+        'error',
+        'high',
+        $tenantId,
+        $userId,
+        'rate_limit'
+    );
+    smtp_test_json(503, [
+        'success' => false,
+        'error' => 'Usługa testu SMTP jest chwilowo niedostępna. Spróbuj ponownie później.',
+    ]);
+}
+
+if (empty($rateLimit['allowed'])) {
+    $retryAfter = max(1, (int) ($rateLimit['retry_after_seconds'] ?? 60));
+    header('Retry-After: ' . $retryAfter);
+
+    smtp_test_security_event(
+        'email_smtp_test_rate_limited',
+        'rate_limited',
+        429,
+        'denied',
+        'high',
+        $tenantId,
+        $userId,
+        'rate_limit'
+    );
+    smtp_test_json(429, [
+        'success' => false,
+        'error' => 'Zbyt wiele prób. Spróbuj ponownie za chwilę.',
+        'retry_after_seconds' => $retryAfter,
+    ]);
+}
+
 $data = json_decode(file_get_contents('php://input'), true);
 
 if (!is_array($data)) {

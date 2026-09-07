@@ -265,6 +265,53 @@ function buildRegistrationConfirmationMailHtml(array $data): string
     );
 }
 
+
+function buildSubscriptionActivationRequiredMailHtml(array $context): string
+{
+    $companyName = trim((string) ($context['company_name'] ?? ''));
+    $plan = strtolower(trim((string) ($context['plan'] ?? 'free')));
+    $panelUrl = system_subscription_mail_admin_login_url($context['panel_domain'] ?? '');
+    $activationUrl = trim((string) ($context['activation_url'] ?? ''));
+    $activationExpiresLabel = trim((string) ($context['activation_expires_label'] ?? ''));
+    $isReissue = ($context['is_reissue'] ?? false) === true;
+    $planLabel = $plan === 'vip' ? 'VIP' : ($plan === 'pro' ? 'Pro' : 'Free');
+
+    $intro = $isReissue
+        ? 'Wygenerowaliśmy nowy link aktywacyjny do konta administratora.'
+        : 'Płatność została potwierdzona. Aby zalogować się jako administrator, aktywuj konto przyciskiem poniżej.';
+
+    $body = '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">'
+        . system_subscription_mail_escape($intro)
+        . '</p>'
+        . system_subscription_mail_info_card('🧾', 'Plan', $planLabel)
+        . system_subscription_mail_info_card(
+            '✅',
+            'Status',
+            $plan === 'free' ? 'Konto oczekuje na aktywację administratora' : 'Plan aktywny — konto administratora oczekuje na aktywację'
+        )
+        . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
+        . system_subscription_mail_info_card('🔗', 'Panel administratora', $panelUrl)
+        . system_subscription_mail_info_card(
+            '🔐',
+            'Aktywacja konta',
+            'Wymagana aktywacja konta administratora',
+            $activationExpiresLabel !== ''
+                ? 'Link aktywacyjny jest ważny ' . $activationExpiresLabel . '.'
+                : ''
+        )
+        . system_subscription_mail_button($activationUrl, 'Aktywuj konto');
+
+    return system_subscription_mail_layout(
+        $isReissue ? 'Nowy link aktywacyjny' : 'Aktywuj konto administratora',
+        $isReissue
+            ? 'Nowy link aktywacyjny do RezerwIQ.'
+            : 'Płatność została potwierdzona — pozostała aktywacja konta administratora.',
+        '🔐',
+        $body,
+        'Jeśli nie zakładałeś tego konta ani nie prosiłeś o link aktywacyjny, zignoruj tę wiadomość.'
+    );
+}
+
 function buildAccountActivatedMailHtml(array $context): string
 {
     $panelUrl = system_subscription_mail_admin_login_url($context['panel_domain'] ?? '');

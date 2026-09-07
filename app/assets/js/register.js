@@ -1,8 +1,11 @@
 const PAID_REGISTRATION_PAYMENT_BUTTON_TEXT = 'Zamawiam z obowiązkiem zapłaty';
+const PAID_REGISTRATION_INTENT_STORAGE_KEY = 'aiiq_paid_registration_intent_v1';
+let paidRegistrationIntentMemory = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
   const form = document.getElementById('registerForm');
   const passwordInput = document.getElementById('password');
+  const passwordConfirmInput = document.getElementById('passwordConfirm');
   const subdomainInput = document.getElementById('subdomainSlug');
   const websiteInput = document.getElementById('registerWebsite');
   const formStartedAtInput = document.getElementById('registerFormStartedAt');
@@ -28,6 +31,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   initSubdomainPreview(subdomainInput, subdomainAvailability);
   initSubdomainAvailabilityCheck(subdomainInput, subdomainAvailability);
   initPasswordVisibilityToggles();
+
+  [passwordInput, passwordConfirmInput].forEach((input) => {
+    input?.addEventListener('input', clearPaidRegistrationIntentKey);
+  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -76,12 +83,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    const availabilityResult = await ensureSubdomainAvailability(subdomainSlug, subdomainAvailability);
+    if (!isPaidRegistrationPlan(selectedPlan.code)) {
+      const availabilityResult = await ensureSubdomainAvailability(subdomainSlug, subdomainAvailability);
 
-    if (!availabilityResult.available) {
-      showRegisterError(availabilityResult.message || 'Ten adres panelu nie jest dostępny.');
-      focusRegisterField('subdomainSlug');
-      return;
+      if (!availabilityResult.available) {
+        showRegisterError(availabilityResult.message || 'Ten adres panelu nie jest dostępny.');
+        focusRegisterField('subdomainSlug');
+        return;
+      }
     }
 
     if (!email) {
@@ -185,35 +194,63 @@ document.addEventListener('DOMContentLoaded', async () => {
         ? Date.now() - formStartedAt
         : '';
 
+      const requestPayload = {
+        client_name: clientName,
+        subdomain_slug: subdomainSlug,
+        plan_code: selectedPlan.code,
+        billing_period: isPaidRegistrationPlan(selectedPlan.code) ? selectedBillingPeriod : null,
+        custom_domain_requested: customDomainRequested,
+        email,
+        password,
+        password_confirm: passwordConfirm,
+        terms_accepted: registrationConsent,
+        privacy_accepted: registrationConsent,
+        website: websiteInput ? websiteInput.value.trim() : '',
+        form_started_at: formStartedAtRaw,
+        form_fill_time_ms: Number.isFinite(formFillTimeMs) && formFillTimeMs >= 0
+          ? formFillTimeMs
+          : '',
+
+        company_full_name: companyFullName,
+        company_owner_name: companyOwnerName,
+        company_tax_id: normalizePolishNip(companyTaxId),
+        company_address: companyAddress,
+        company_email: companyEmail,
+        company_phone: normalizePolishPhone(companyPhone)
+      };
+
+      if (isPaidRegistrationPlan(selectedPlan.code)) {
+        const idempotencyKey = await getPaidRegistrationIdempotencyKey({
+          client_name: clientName,
+          subdomain_slug: subdomainSlug,
+          plan_code: selectedPlan.code,
+          billing_period: selectedBillingPeriod,
+          custom_domain_requested: customDomainRequested,
+          email: email.toLowerCase(),
+          terms_accepted: registrationConsent,
+          privacy_accepted: registrationConsent,
+          company_full_name: companyFullName,
+          company_owner_name: companyOwnerName,
+          company_tax_id: normalizePolishNip(companyTaxId),
+          company_address: companyAddress,
+          company_email: companyEmail.toLowerCase(),
+          company_phone: normalizePolishPhone(companyPhone)
+        });
+
+        if (!idempotencyKey) {
+          showRegisterError('Przeglądarka nie pozwala bezpiecznie przygotować identyfikatora płatności. Odśwież stronę lub użyj aktualnej przeglądarki.');
+          return;
+        }
+
+        requestPayload.idempotency_key = idempotencyKey;
+      }
+
       const res = await fetch('/api/auth/register.php', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          client_name: clientName,
-          subdomain_slug: subdomainSlug,
-          plan_code: selectedPlan.code,
-          billing_period: isPaidRegistrationPlan(selectedPlan.code) ? selectedBillingPeriod : null,
-          custom_domain_requested: customDomainRequested,
-          email,
-          password,
-          password_confirm: passwordConfirm,
-          terms_accepted: registrationConsent,
-          privacy_accepted: registrationConsent,
-          website: websiteInput ? websiteInput.value.trim() : '',
-          form_started_at: formStartedAtRaw,
-          form_fill_time_ms: Number.isFinite(formFillTimeMs) && formFillTimeMs >= 0
-            ? formFillTimeMs
-            : '',
-
-          company_full_name: companyFullName,
-          company_owner_name: companyOwnerName,
-          company_tax_id: normalizePolishNip(companyTaxId),
-          company_address: companyAddress,
-          company_email: companyEmail,
-          company_phone: normalizePolishPhone(companyPhone)
-        })
+        body: JSON.stringify(requestPayload)
       });
 
       let data = null;
@@ -225,6 +262,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (!res.ok || !data?.success) {
+        if (data?.new_intent_required === true) {
+          clearPaidRegistrationIntentKey();
+        }
+
         showRegisterError(data?.error || 'Nie udało się utworzyć konta.');
         return;
       }
@@ -252,6 +293,158 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 });
+
+
+function isValidPaidRegistrationIdempotencyKey(value) {
+  return /^(?:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|[0-9a-f]{64})$/i.test(String(value || '').trim());
+}
+
+function generatePaidRegistrationIdempotencyKey() {
+  if (!window.crypto) {
+    return '';
+  }
+
+  if (typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+
+  if (typeof window.crypto.getRandomValues !== 'function') {
+    return '';
+  }
+
+  const bytes = new Uint8Array(32);
+  window.crypto.getRandomValues(bytes);
+
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+async function paidRegistrationIntentMarker(intent) {
+  const serialized = JSON.stringify(intent);
+
+  if (
+    window.crypto?.subtle
+    && typeof TextEncoder === 'function'
+  ) {
+    try {
+      const digest = await window.crypto.subtle.digest(
+        'SHA-256',
+        new TextEncoder().encode(serialized)
+      );
+
+      const marker = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+      return { marker, serialized: '' };
+    } catch (error) {
+      // Fall back to page-memory matching only. Raw form data is never persisted.
+    }
+  }
+
+  return { marker: '', serialized };
+}
+
+function readPaidRegistrationIntentStorage() {
+  try {
+    const raw = window.sessionStorage?.getItem(PAID_REGISTRATION_INTENT_STORAGE_KEY) || '';
+    const parsed = raw ? JSON.parse(raw) : null;
+
+    if (
+      parsed
+      && typeof parsed === 'object'
+      && typeof parsed.marker === 'string'
+      && /^[a-f0-9]{64}$/i.test(parsed.marker)
+      && isValidPaidRegistrationIdempotencyKey(parsed.key)
+    ) {
+      return {
+        marker: parsed.marker.toLowerCase(),
+        key: String(parsed.key).toLowerCase()
+      };
+    }
+  } catch (error) {
+    // Storage can be disabled. In that case we keep the key only in page memory.
+  }
+
+  return null;
+}
+
+function writePaidRegistrationIntentStorage(marker, key) {
+  if (!/^[a-f0-9]{64}$/i.test(marker) || !isValidPaidRegistrationIdempotencyKey(key)) {
+    return;
+  }
+
+  try {
+    window.sessionStorage?.setItem(
+      PAID_REGISTRATION_INTENT_STORAGE_KEY,
+      JSON.stringify({ marker: marker.toLowerCase(), key: String(key).toLowerCase() })
+    );
+  } catch (error) {
+    // Storage is optional; page-memory idempotency still remains active.
+  }
+}
+
+function clearPaidRegistrationIntentKey() {
+  paidRegistrationIntentMemory = null;
+
+  try {
+    window.sessionStorage?.removeItem(PAID_REGISTRATION_INTENT_STORAGE_KEY);
+  } catch (error) {
+    // No-op when storage is unavailable.
+  }
+}
+
+async function getPaidRegistrationIdempotencyKey(intent) {
+  const intentState = await paidRegistrationIntentMarker(intent);
+
+  if (intentState.marker) {
+    const stored = readPaidRegistrationIntentStorage();
+
+    if (stored && stored.marker === intentState.marker) {
+      paidRegistrationIntentMemory = stored;
+      return stored.key;
+    }
+
+    if (
+      paidRegistrationIntentMemory
+      && paidRegistrationIntentMemory.marker === intentState.marker
+      && isValidPaidRegistrationIdempotencyKey(paidRegistrationIntentMemory.key)
+    ) {
+      return paidRegistrationIntentMemory.key;
+    }
+
+    const key = generatePaidRegistrationIdempotencyKey();
+
+    if (!isValidPaidRegistrationIdempotencyKey(key)) {
+      return '';
+    }
+
+    paidRegistrationIntentMemory = {
+      marker: intentState.marker,
+      key: key.toLowerCase()
+    };
+    writePaidRegistrationIntentStorage(intentState.marker, key);
+
+    return key.toLowerCase();
+  }
+
+  if (
+    paidRegistrationIntentMemory
+    && paidRegistrationIntentMemory.serialized === intentState.serialized
+    && isValidPaidRegistrationIdempotencyKey(paidRegistrationIntentMemory.key)
+  ) {
+    return paidRegistrationIntentMemory.key;
+  }
+
+  const key = generatePaidRegistrationIdempotencyKey();
+
+  if (!isValidPaidRegistrationIdempotencyKey(key)) {
+    return '';
+  }
+
+  paidRegistrationIntentMemory = {
+    serialized: intentState.serialized,
+    key: key.toLowerCase()
+  };
+
+  return key.toLowerCase();
+}
 
 function getRegisterValue(id) {
   return document.getElementById(id)?.value?.trim() || '';

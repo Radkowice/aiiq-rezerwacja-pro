@@ -16,6 +16,7 @@
     'Lipiec', 'Sierpień', 'Wrzesień', 'Październik', 'Listopad', 'Grudzień'
   ];
 
+  let staffCsrfToken = '';
   let employeeBlocksViewDate = new Date();
   let employeeSelectedBlocksDate = '';
   let employeeCalendarDays = {};
@@ -1033,6 +1034,11 @@
   }
 
   async function saveEmployeeBlockAction(method, payload, successMessage) {
+    if (!staffCsrfToken) {
+      setBlocksMessage('Nie udało się wykonać operacji. Odśwież stronę i spróbuj ponownie.', 'error');
+      return;
+    }
+
     setBlocksMessage('', '');
 
     try {
@@ -1041,7 +1047,8 @@
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Accept': 'application/json'
+          'Accept': 'application/json',
+          'X-CSRF-Token': staffCsrfToken
         },
         body: JSON.stringify(payload)
       });
@@ -1079,6 +1086,8 @@
   }
 
   async function loadStaffSession() {
+    staffCsrfToken = '';
+
     try {
       let response = await fetch(BOOTSTRAP_ENDPOINT, {
         method: 'GET',
@@ -1112,6 +1121,9 @@
         redirectToLogin();
         return null;
       }
+
+      staffCsrfToken = typeof data.csrf_token === 'string' ? data.csrf_token.trim() : '';
+      delete data.csrf_token;
 
       if (!window.AIIQ_STAFF_BOOTSTRAP) {
         window.AIIQ_STAFF_BOOTSTRAP = {

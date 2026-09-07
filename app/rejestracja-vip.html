@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="pl">
+
 <head>
   <meta charset="UTF-8">
   <link rel="icon" type="image/png" href="/favicon.png">
@@ -9,6 +10,7 @@
   <link rel="stylesheet" href="assets/css/rejestracja.css?v=4">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
+
 <body data-registration-entry="vip">
   <div class="auth-page">
     <div class="auth-intro">
@@ -26,22 +28,10 @@
       <h2>Utwórz konto administratora</h2>
 
       <form id="registerForm">
-        <input
-          type="text"
-          name="website"
-          id="registerWebsite"
-          class="registration-honeypot"
-          tabindex="-1"
-          autocomplete="off"
-          aria-hidden="true"
-        >
+        <input type="text" name="website" id="registerWebsite" class="registration-honeypot" tabindex="-1"
+          autocomplete="off" aria-hidden="true">
 
-        <input
-          type="hidden"
-          name="form_started_at"
-          id="registerFormStartedAt"
-          value=""
-        >
+        <input type="hidden" name="form_started_at" id="registerFormStartedAt" value="">
 
         <div class="register-section pro-registration-card" id="proRegistrationCard">
           <h3>Plan VIP</h3>
@@ -69,7 +59,7 @@
             </label>
           </div>
 
-          <small class="field-hint">* Ceny są kwotami netto.</small>
+          <small class="field-hint">* Ceny netto.</small>
 
           <p class="pro-registration-summary" id="proRegistrationSummary" aria-live="polite">
             Pobieram aktualną cenę planu VIP...
@@ -81,17 +71,21 @@
         <div class="register-section">
           <h3>Dane firmy</h3>
 
-          <input type="text" id="registerClientName" placeholder="Nazwa publiczna / marka" autocomplete="organization" required>
+          <input type="text" id="registerClientName" placeholder="Nazwa publiczna / marka" autocomplete="organization"
+            required>
           <input type="text" id="companyFullName" placeholder="Pełna nazwa firmy" autocomplete="organization" required>
-          <input type="text" id="companyOwnerName" placeholder="Imię i nazwisko osoby kontaktowej" autocomplete="name" required>
+          <input type="text" id="companyOwnerName" placeholder="Imię i nazwisko osoby kontaktowej" autocomplete="name"
+            required>
 
           <small class="field-hint">Wpisz imię i nazwisko</small>
 
-          <input type="text" id="companyTaxId" placeholder="NIP 1111111111 lub 111-111-11-11" inputmode="numeric" autocomplete="off" required>
+          <input type="text" id="companyTaxId" placeholder="NIP 1111111111 lub 111-111-11-11" inputmode="numeric"
+            autocomplete="off" required>
 
           <small class="field-hint">Wpisz NIP</small>
 
-          <textarea id="companyAddress" placeholder="Adres firmy: ulica i numer, miejscowość, kod pocztowy XX-XXX" rows="3" autocomplete="street-address" required></textarea>
+          <textarea id="companyAddress" placeholder="Adres firmy: ulica i numer, miejscowość, kod pocztowy XX-XXX"
+            rows="3" autocomplete="street-address" required></textarea>
 
           <small class="field-hint">ulica nr, Miejscowość, xx-xxx</small>
 
@@ -99,7 +93,8 @@
 
           <small class="field-hint">Jeśli zostawisz puste, użyjemy e-maila administratora</small>
 
-          <input type="tel" id="companyPhone" placeholder="Telefon firmy: 123456789 lub +48 123-456-789" inputmode="tel" autocomplete="tel" required>
+          <input type="tel" id="companyPhone" placeholder="Telefon firmy: 123456789 lub +48 123-456-789" inputmode="tel"
+            autocomplete="tel" required>
 
           <small class="field-hint">Dozwolone formaty: 123456789, +48123456789, 123-456-789 lub +48 123-456-789</small>
         </div>
@@ -110,7 +105,8 @@
           <label for="subdomainSlug">Adres panelu</label>
 
           <div class="subdomain-address-field">
-            <input type="text" id="subdomainSlug" placeholder="salon-anna" autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="subdomainAvailabilityMessage" required>
+            <input type="text" id="subdomainSlug" placeholder="salon-anna" autocomplete="off" autocapitalize="none"
+              spellcheck="false" aria-describedby="subdomainAvailabilityMessage" required>
             <span class="subdomain-address-suffix">.rezerwacja-ai-iq.pl</span>
           </div>
 
@@ -118,7 +114,8 @@
             Sprawdź dostępność
           </button>
 
-          <small class="field-hint subdomain-availability-message" id="subdomainAvailabilityMessage" aria-live="polite"></small>
+          <small class="field-hint subdomain-availability-message" id="subdomainAvailabilityMessage"
+            aria-live="polite"></small>
 
           <label class="password-toggle-row">
             <input type="checkbox" id="customDomainRequested" aria-describedby="customDomainRequestedHint">
@@ -126,7 +123,9 @@
           </label>
 
           <small class="field-hint" id="customDomainRequestedHint">
-            Po utworzeniu konta skontaktujemy się z Tobą w sprawie podłączenia własnej domeny. Konto VIP zawsze otrzymuje techniczną subdomenę AI-IQ. Po prawidłowym uruchomieniu własnej domeny dostęp przez techniczną subdomenę zostanie zablokowany.
+            Po utworzeniu konta skontaktujemy się z Tobą w sprawie podłączenia własnej domeny. Konto VIP zawsze
+            otrzymuje techniczną subdomenę AI-IQ. Po prawidłowym uruchomieniu własnej domeny dostęp przez techniczną
+            subdomenę zostanie zablokowany.
           </small>
         </div>
 
@@ -137,15 +136,18 @@
 
           <div class="login-password-field">
             <input type="password" id="password" placeholder="Hasło" autocomplete="new-password" required>
-            <button type="button" class="login-toggle-password" data-password-toggle="password" aria-label="Pokaż hasło">
+            <button type="button" class="login-toggle-password" data-password-toggle="password"
+              aria-label="Pokaż hasło">
               <span class="password-eye password-eye-open">👁️</span>
               <span class="password-eye password-eye-closed">🙈</span>
             </button>
           </div>
 
           <div class="login-password-field">
-            <input type="password" id="passwordConfirm" placeholder="Powtórz hasło" autocomplete="new-password" required>
-            <button type="button" class="login-toggle-password" data-password-toggle="passwordConfirm" aria-label="Pokaż powtórzone hasło">
+            <input type="password" id="passwordConfirm" placeholder="Powtórz hasło" autocomplete="new-password"
+              required>
+            <button type="button" class="login-toggle-password" data-password-toggle="passwordConfirm"
+              aria-label="Pokaż powtórzone hasło">
               <span class="password-eye password-eye-open">👁️</span>
               <span class="password-eye password-eye-closed">🙈</span>
             </button>
@@ -159,12 +161,14 @@
             <input type="checkbox" id="registrationConsent" required>
             <span>
               Akceptuję <a href="/legal/regulamin.html" target="_blank" rel="noopener noreferrer">Regulamin</a>
-              oraz <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener noreferrer">Politykę prywatności</a>.
+              oraz <a href="/legal/polityka-prywatnosci.html" target="_blank" rel="noopener noreferrer">Politykę
+                prywatności</a>.
             </span>
           </label>
 
           <p class="pro-registration-submit-hint" id="proRegistrationSubmitHint">
-            Płatność jednorazowa za wybrany okres przez PayU. Plan VIP nie odnawia się automatycznie. Aktywacja lub przedłużenie nastąpi po potwierdzeniu płatności.
+            Płatność jednorazowa za wybrany okres przez PayU. Plan VIP nie odnawia się automatycznie. Aktywacja lub
+            przedłużenie nastąpi po potwierdzeniu płatności.
           </p>
         </div>
 
@@ -177,7 +181,8 @@
     <div class="auth-footer app-footer" data-app-footer></div>
   </div>
 
-  <script src="assets/js/register.js?v=14"></script>
+  <script src="assets/js/register.js?v=15"></script>
   <script src="/assets/js/app-footer.js?v=2" defer></script>
 </body>
+
 </html>

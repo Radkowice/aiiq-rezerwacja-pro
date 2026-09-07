@@ -264,6 +264,8 @@ function staff_bookings_public_booking(array $booking, string $tenantId, string 
         'phone' => (string) ($booking['phone'] ?? ''),
         'notes' => (string) ($booking['notes'] ?? ''),
         'status' => (string) ($booking['status'] ?? ''),
+        'payment_required' => filter_var($booking['payment_required'] ?? false, FILTER_VALIDATE_BOOLEAN),
+        'payment_status' => (string) ($booking['payment_status'] ?? ''),
         'service_ref' => $serviceRef,
         'service_name_snapshot' => (string) ($booking['service_name_snapshot'] ?? ''),
         'staff_ref' => $staffRef,
@@ -347,7 +349,7 @@ function staff_bookings_fetch_by_ids(
 
     $url = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=id,booking_date,booking_time,name,email,phone,notes,status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id'
+        . '?select=id,booking_date,booking_time,name,email,phone,notes,status,payment_required,payment_status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&id=in.(' . rawurlencode(implode(',', $quotedIds)) . ')'
         . '&order=booking_date.asc'
@@ -370,7 +372,7 @@ function staff_bookings_fetch_by_ids(
 
 $currentBookingsUrl = $supabaseUrl
     . '/rest/v1/bookings'
-    . '?select=id,booking_date,booking_time,name,email,phone,notes,status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id'
+    . '?select=id,booking_date,booking_time,name,email,phone,notes,status,payment_required,payment_status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id'
     . '&tenant_id=eq.' . rawurlencode($sessionTenantId)
     . '&staff_id=eq.' . rawurlencode($sessionStaffId)
     . '&booking_date=gte.' . rawurlencode($today)

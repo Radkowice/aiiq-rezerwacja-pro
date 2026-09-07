@@ -197,7 +197,7 @@ if (!$staffResult['ok']) {
 
 $staff = staff_bootstrap_first_row($staffResult);
 
-if (empty($staff['id']) || !filter_var($staff['is_active'] ?? true, FILTER_VALIDATE_BOOLEAN)) {
+if (empty($staff['id']) || !filter_var($staff['is_active'] ?? false, FILTER_VALIDATE_BOOLEAN)) {
     staff_bootstrap_clear_session();
     staff_bootstrap_json([
         'success' => false,
@@ -218,8 +218,13 @@ $planContext = plan_features_get_context($sessionTenantId);
 $company = staff_bootstrap_fetch_company($supabaseUrl, $supabaseKey, $schema, $sessionTenantId);
 $refSecret = public_response_ref_secret($supabaseKey);
 
+if (empty($_SESSION['csrf'])) {
+    $_SESSION['csrf'] = bin2hex(random_bytes(32));
+}
+
 staff_bootstrap_json([
     'success' => true,
+    'csrf_token' => (string) $_SESSION['csrf'],
     'company' => $company,
     'staff' => [
         'staff_ref' => public_response_staff_ref($sessionTenantId, $staffId, $refSecret),
