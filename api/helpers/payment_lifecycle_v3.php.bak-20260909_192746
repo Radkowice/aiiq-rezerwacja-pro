@@ -10,7 +10,6 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'subscription_payment_mark_provider_started',
         'subscription_payment_record_provider_result',
         'subscription_payment_apply_payu_notification',
-        'subscription_payment_apply_payu_reconciliation',
         'subscription_activation_reissue_enqueue',
         'subscription_email_claim',
         'subscription_email_record_result',

@@ -224,37 +224,7 @@ function applySubscriptionReturnUnavailableText() {
   setSubscriptionPrimaryButton('/logowanie.html', 'Przejdź do logowania');
 }
 
-async function reconcileSubscriptionReturnPayment() {
-  try {
-    const res = await fetch('/api/subscriptions/payment-return-status.php', {
-      method: 'POST',
-      cache: 'no-store',
-      credentials: 'same-origin',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      },
-      body: '{}'
-    });
-
-    const data = await res.json().catch(() => null);
-
-    if (!res.ok || data?.success !== true) {
-      console.warn('Nie udało się uzgodnić statusu płatności abonamentu z PayU.', {
-        status: res.status,
-        success: data?.success
-      });
-    }
-  } catch (error) {
-    console.warn('Błąd frontu podczas uzgadniania płatności abonamentu.', {
-      message: error?.message || String(error)
-    });
-  }
-}
-
 async function loadSubscriptionReturnData() {
-  await reconcileSubscriptionReturnPayment();
-
   try {
     const res = await fetch('/api/subscriptions/payment-return-status.php', {
       cache: 'no-store',

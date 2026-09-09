@@ -5,6 +5,8 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/branding-assets.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/aiiq_payu.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -28,10 +30,15 @@ function subscription_return_security_event(
         $details['stage'] = $stage;
     }
 
+    $httpMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'GET'));
+    $actionKey = $httpMethod === 'POST'
+        ? 'payment_return_reconciliation'
+        : 'subscription_payment_return_status';
+
     security_log_event($eventKey, [
-        'action_key' => 'subscription_payment_return_status',
+        'action_key' => $actionKey,
         'endpoint' => '/api/subscriptions/payment-return-status.php',
-        'http_method' => $_SERVER['REQUEST_METHOD'] ?? 'GET',
+        'http_method' => $httpMethod,
         'actor_type' => 'tenant_user',
         'tenant_id' => $tenantId,
         'severity' => $severity,
@@ -187,6 +194,467 @@ function subscription_return_build_url(string $domain, string $path): string
 }
 
 
+
+function subscription_return_post_request_allowed(): bool
+{
+    $contentTypeRaw = strtolower(trim((string) ($_SERVER['CONTENT_TYPE'] ?? '')));
+    $contentType = trim(explode(';', $contentTypeRaw, 2)[0] ?? '');
+
+    if ($contentType !== 'application/json') {
+        return false;
+    }
+
+    $rawBody = file_get_contents('php://input');
+
+    if (!is_string($rawBody) || strlen($rawBody) > 32) {
+        return false;
+    }
+
+    $decodedBody = json_decode($rawBody);
+
+    if (
+        json_last_error() !== JSON_ERROR_NONE
+        || !is_object($decodedBody)
+        || get_object_vars($decodedBody) !== []
+    ) {
+        return false;
+    }
+
+    $secFetchSite = strtolower(trim((string) ($_SERVER['HTTP_SEC_FETCH_SITE'] ?? '')));
+
+    if ($secFetchSite !== '' && $secFetchSite !== 'same-origin') {
+        return false;
+    }
+
+    $origin = trim((string) ($_SERVER['HTTP_ORIGIN'] ?? ''));
+
+    if ($origin === '') {
+        return true;
+    }
+
+    $originParts = parse_url($origin);
+
+    if (
+        !is_array($originParts)
+        || strtolower((string) ($originParts['scheme'] ?? '')) !== 'https'
+    ) {
+        return false;
+    }
+
+    $originHost = subscription_return_normalize_domain(
+        (string) ($originParts['host'] ?? '')
+    );
+
+    $requestHostRaw = (string) ($_SERVER['HTTP_HOST'] ?? '');
+    $requestHostRaw = trim($requestHostRaw);
+    $requestHost = subscription_return_normalize_domain($requestHostRaw);
+
+    return $originHost !== ''
+        && $requestHost !== ''
+        && hash_equals($requestHost, $originHost);
+}
+
+function subscription_return_reconciliation_rpc_data_valid($data): bool
+{
+    if (!is_array($data)) {
+        return false;
+    }
+
+    if (
+        !array_key_exists('recorded', $data)
+        || !is_bool($data['recorded'])
+        || !array_key_exists('idempotent', $data)
+        || !is_bool($data['idempotent'])
+        || !array_key_exists('review_required', $data)
+        || !is_bool($data['review_required'])
+    ) {
+        return false;
+    }
+
+    $status = (string) ($data['status'] ?? '');
+    $providerState = (string) ($data['provider_state'] ?? '');
+    $processingResult = (string) ($data['processing_result'] ?? '');
+
+    return in_array(
+        $status,
+        ['pending', 'paid', 'failed', 'canceled', 'expired'],
+        true
+    )
+        && in_array(
+            $providerState,
+            [
+                'not_started',
+                'request_in_flight',
+                'order_created',
+                'result_unknown',
+                'terminal',
+            ],
+            true
+        )
+        && in_array(
+            $processingResult,
+            [
+                'paid',
+                'pending',
+                'canceled',
+                'ignored_terminal_regression',
+                'replay',
+                'review_required',
+                'result_unknown',
+                'transport_failure',
+            ],
+            true
+        );
+}
+
+function subscription_return_provider_http_status($value): ?int
+{
+    $status = is_numeric($value) ? (int) $value : 0;
+
+    return $status >= 100 && $status <= 599 ? $status : null;
+}
+
+function subscription_return_provider_error_code($value): string
+{
+    $errorCode = strtolower(trim((string) $value));
+
+    if (
+        $errorCode === ''
+        || strlen($errorCode) > 80
+        || preg_match('/^[a-z0-9_.:-]+$/', $errorCode) !== 1
+    ) {
+        return 'provider_result_unknown';
+    }
+
+    return $errorCode;
+}
+
+function subscription_return_handle_reconciliation(
+    string $supabaseUrl,
+    array $headers,
+    string $tenantId,
+    string $paymentId
+): void {
+    $paymentUrl = $supabaseUrl
+        . '/rest/v1/tenant_subscription_payments'
+        . '?select=id,lifecycle_version,status,provider_state,payu_order_id'
+        . '&id=eq.' . rawurlencode($paymentId)
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&limit=1';
+
+    $paymentResult = subscription_return_request($paymentUrl, $headers);
+
+    if (!$paymentResult['ok']) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_fetch_failed',
+            'payment_fetch_failed',
+            500,
+            'error',
+            'high',
+            $tenantId,
+            'payment_fetch'
+        );
+        subscription_return_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się sprawdzić płatności abonamentu.',
+        ]);
+    }
+
+    $payment = $paymentResult['data'][0] ?? null;
+
+    if (!is_array($payment)) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_not_found',
+            'payment_not_found',
+            404,
+            'failed',
+            'high',
+            $tenantId,
+            'payment_fetch'
+        );
+        subscription_return_json(404, [
+            'success' => false,
+            'error' => 'Nie znaleziono płatności abonamentu.',
+        ]);
+    }
+
+    if ((int) ($payment['lifecycle_version'] ?? 0) !== 1) {
+        subscription_return_json(200, [
+            'success' => true,
+        ]);
+    }
+
+    $localStatus = trim((string) ($payment['status'] ?? ''));
+    $providerState = trim((string) ($payment['provider_state'] ?? ''));
+
+    if ($localStatus === 'paid' && $providerState === 'terminal') {
+        subscription_return_json(200, [
+            'success' => true,
+        ]);
+    }
+
+    $orderId = trim((string) ($payment['payu_order_id'] ?? ''));
+
+    if (
+        $orderId === ''
+        || strlen($orderId) > 160
+        || preg_match('/^[A-Za-z0-9_-]+$/', $orderId) !== 1
+    ) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_order_unavailable',
+            'order_unavailable',
+            200,
+            'skipped',
+            'medium',
+            $tenantId,
+            'local_context'
+        );
+        subscription_return_json(200, [
+            'success' => true,
+        ]);
+    }
+
+    $sessionId = session_id();
+
+    if (!is_string($sessionId) || trim($sessionId) === '') {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_session_missing',
+            'session_missing',
+            503,
+            'error',
+            'high',
+            $tenantId,
+            'rate_limit'
+        );
+        subscription_return_json(503, [
+            'success' => false,
+            'error' => 'Nie udało się teraz sprawdzić płatności abonamentu.',
+        ]);
+    }
+
+    $rateLimit = security_rate_limit_check(
+        'payment_return_reconciliation',
+        [
+            'session_id' => $sessionId,
+        ],
+        [
+            'endpoint' => '/api/subscriptions/payment-return-status.php',
+            'http_method' => 'POST',
+            'metadata' => [
+                'stage' => 'payu_retrieve',
+            ],
+        ]
+    );
+
+    $rateRaw = is_array($rateLimit['raw'] ?? null)
+        ? $rateLimit['raw']
+        : [];
+    $rateRuleFound = ($rateRaw['rule_found'] ?? false) === true;
+
+    if (empty($rateLimit['ok']) || !$rateRuleFound) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_rate_limit_unavailable',
+            'rate_limit_unavailable',
+            503,
+            'error',
+            'critical',
+            $tenantId,
+            'rate_limit'
+        );
+        subscription_return_json(503, [
+            'success' => false,
+            'error' => 'Nie udało się teraz sprawdzić płatności abonamentu.',
+        ]);
+    }
+
+    if (empty($rateLimit['allowed'])) {
+        $retryAfter = isset($rateLimit['retry_after_seconds'])
+            && is_numeric($rateLimit['retry_after_seconds'])
+            ? max(0, (int) $rateLimit['retry_after_seconds'])
+            : 0;
+
+        if ($retryAfter > 0) {
+            header('Retry-After: ' . $retryAfter);
+        }
+
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_rate_limited',
+            'rate_limited',
+            429,
+            'blocked',
+            'high',
+            $tenantId,
+            'rate_limit'
+        );
+        subscription_return_json(
+            429,
+            security_neutral_rate_limit_response($rateLimit)
+        );
+    }
+
+    $payuConfigResult = aiiq_payu_config();
+
+    if (
+        empty($payuConfigResult['success'])
+        || !is_array($payuConfigResult['config'] ?? null)
+    ) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_payu_config_failed',
+            'payu_config_failed',
+            503,
+            'error',
+            'critical',
+            $tenantId,
+            'payu_config'
+        );
+        subscription_return_json(503, [
+            'success' => false,
+            'error' => 'Nie udało się teraz sprawdzić płatności abonamentu.',
+        ]);
+    }
+
+    $retrieveResult = aiiq_payu_retrieve_order(
+        $payuConfigResult['config'],
+        $orderId
+    );
+
+    $resultKind = (string) ($retrieveResult['result_kind'] ?? '');
+
+    if (
+        !in_array(
+            $resultKind,
+            [
+                AI_IQ_PAYU_RECONCILIATION_RESULT_PROVIDER,
+                AI_IQ_PAYU_RECONCILIATION_RESULT_UNKNOWN,
+                AI_IQ_PAYU_RECONCILIATION_RESULT_TRANSPORT,
+            ],
+            true
+        )
+    ) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_provider_result_invalid',
+            'provider_result_invalid',
+            502,
+            'error',
+            'critical',
+            $tenantId,
+            'payu_retrieve'
+        );
+        subscription_return_json(502, [
+            'success' => false,
+            'error' => 'Nie udało się teraz potwierdzić płatności abonamentu.',
+        ]);
+    }
+
+    $responseHash = strtolower(trim(
+        (string) ($retrieveResult['response_sha256'] ?? '')
+    ));
+
+    if (preg_match('/^[a-f0-9]{64}$/', $responseHash) !== 1) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_hash_invalid',
+            'provider_hash_invalid',
+            502,
+            'error',
+            'critical',
+            $tenantId,
+            'payu_retrieve'
+        );
+        subscription_return_json(502, [
+            'success' => false,
+            'error' => 'Nie udało się teraz potwierdzić płatności abonamentu.',
+        ]);
+    }
+
+    $providerResult = $resultKind === AI_IQ_PAYU_RECONCILIATION_RESULT_PROVIDER;
+
+    $rpcResult = payment_lifecycle_v3_rpc(
+        'subscription_payment_apply_payu_reconciliation',
+        [
+            'p_tenant_id' => $tenantId,
+            'p_payment_id' => $paymentId,
+            'p_result_kind' => $resultKind,
+            'p_payu_status' => $providerResult
+                ? (string) ($retrieveResult['payu_status'] ?? '')
+                : null,
+            'p_ext_order_id' => $providerResult
+                ? (string) ($retrieveResult['ext_order_id'] ?? '')
+                : null,
+            'p_order_id' => $providerResult
+                ? (string) ($retrieveResult['order_id'] ?? '')
+                : null,
+            'p_total_amount_minor' => $providerResult
+                ? (int) ($retrieveResult['amount_minor'] ?? -1)
+                : null,
+            'p_currency' => $providerResult
+                ? (string) ($retrieveResult['currency'] ?? '')
+                : null,
+            'p_payload_sha256_hex' => $responseHash,
+            'p_http_status' => subscription_return_provider_http_status(
+                $retrieveResult['http_code'] ?? null
+            ),
+            'p_error_code' => $providerResult
+                ? null
+                : subscription_return_provider_error_code(
+                    $retrieveResult['error_code'] ?? ''
+                ),
+        ]
+    );
+
+    if (empty($rpcResult['ok'])) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_rpc_failed',
+            'rpc_failed',
+            500,
+            'error',
+            'critical',
+            $tenantId,
+            'rpc'
+        );
+        aiiq_payu_debug('AI_IQ_SUBSCRIPTION_RECONCILIATION_RPC_FAILED', [
+            'error_kind' => (string) ($rpcResult['error_kind'] ?? 'unknown'),
+            'http_status' => (int) ($rpcResult['status'] ?? 0),
+        ]);
+        subscription_return_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się teraz potwierdzić płatności abonamentu.',
+        ]);
+    }
+
+    $rpcData = $rpcResult['data'] ?? null;
+
+    if (!subscription_return_reconciliation_rpc_data_valid($rpcData)) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_rpc_result_invalid',
+            'rpc_result_invalid',
+            500,
+            'error',
+            'critical',
+            $tenantId,
+            'rpc_response'
+        );
+        subscription_return_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się teraz potwierdzić płatności abonamentu.',
+        ]);
+    }
+
+    subscription_return_security_event(
+        'subscription_payment_reconciliation_processed',
+        'reconciliation_processed',
+        200,
+        'success',
+        !empty($rpcData['review_required']) ? 'high' : 'medium',
+        $tenantId,
+        'complete'
+    );
+
+    subscription_return_json(200, [
+        'success' => true,
+    ]);
+}
+
+
 function subscription_return_session_handoff(): array
 {
     $handoff = $_SESSION['subscription_payment_return_handoff'] ?? null;
@@ -239,12 +707,37 @@ function subscription_return_session_payment_id(string $tenantId): string
 }
 
 try {
-    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET') {
-        header('Allow: GET');
-        subscription_return_security_event('subscription_payment_return_method_not_allowed', 'method_not_allowed', 405);
+    $requestMethod = strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? ''));
+
+    if (!in_array($requestMethod, ['GET', 'POST'], true)) {
+        header('Allow: GET, POST');
+        subscription_return_security_event(
+            'subscription_payment_return_method_not_allowed',
+            'method_not_allowed',
+            405
+        );
         subscription_return_json(405, [
             'success' => false,
             'error' => 'Metoda niedozwolona.',
+        ]);
+    }
+
+    if (
+        $requestMethod === 'POST'
+        && !subscription_return_post_request_allowed()
+    ) {
+        subscription_return_security_event(
+            'subscription_payment_reconciliation_request_denied',
+            'request_denied',
+            403,
+            'blocked',
+            'high',
+            null,
+            'request_validation'
+        );
+        subscription_return_json(403, [
+            'success' => false,
+            'error' => 'Żądanie zostało odrzucone.',
         ]);
     }
 
@@ -262,6 +755,34 @@ try {
 
     $headers = supabaseHeaders($supabaseKey, $schema);
     $sessionHandoff = subscription_return_session_handoff();
+
+    if ($requestMethod === 'POST') {
+        if ($sessionHandoff === []) {
+            subscription_return_security_event(
+                'subscription_payment_reconciliation_handoff_missing',
+                'handoff_missing',
+                400,
+                'failed',
+                'high',
+                null,
+                'handoff'
+            );
+            subscription_return_json(400, [
+                'success' => false,
+                'error' => 'Brak aktywnej płatności abonamentu do sprawdzenia.',
+            ]);
+        }
+
+        $tenantId = $sessionHandoff['tenant_id'];
+        $paymentId = $sessionHandoff['payment_id'];
+
+        subscription_return_handle_reconciliation(
+            $supabaseUrl,
+            $headers,
+            $tenantId,
+            $paymentId
+        );
+    }
 
     if ($sessionHandoff !== []) {
         $tenantId = $sessionHandoff['tenant_id'];
