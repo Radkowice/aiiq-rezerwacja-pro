@@ -345,3 +345,349 @@ function payu_create_order(array $payu, array $orderPayload): array
         'location' => $location,
     ];
 }
+
+function payu_parse_minor_amount($value): ?int
+{
+    if (is_int($value)) {
+        return $value > 0 ? $value : null;
+    }
+
+    if (!is_string($value)) {
+        return null;
+    }
+
+    $text = trim($value);
+
+    if ($text === '' || preg_match('/^\d+$/', $text) !== 1) {
+        return null;
+    }
+
+    $normalized = ltrim($text, '0');
+
+    if ($normalized === '') {
+        return null;
+    }
+
+    $max = (string) PHP_INT_MAX;
+
+    if (
+        strlen($normalized) > strlen($max)
+        || (
+            strlen($normalized) === strlen($max)
+            && strcmp($normalized, $max) > 0
+        )
+    ) {
+        return null;
+    }
+
+    return (int) $normalized;
+}
+
+function payu_retrieve_order(array $payu, string $orderId): array
+{
+    $orderId = trim($orderId);
+
+    if (
+        $orderId === ''
+        || strlen($orderId) > 128
+        || preg_match('/^[A-Za-z0-9_-]+$/', $orderId) !== 1
+    ) {
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'local_order_id_invalid',
+            'request_attempted' => false,
+            'http_code' => 0,
+            'response_sha256' => hash('sha256', ''),
+        ];
+    }
+
+    $tokenResult = payu_get_access_token($payu);
+
+    if (empty($tokenResult['success'])) {
+        return [
+            'success' => false,
+            'result_kind' => 'transport_failure',
+            'error_code' => 'access_token_unavailable',
+            'request_attempted' => false,
+            'http_code' => 0,
+            'response_sha256' => hash('sha256', ''),
+        ];
+    }
+
+    if (!function_exists('curl_init')) {
+        return [
+            'success' => false,
+            'result_kind' => 'transport_failure',
+            'error_code' => 'curl_missing',
+            'request_attempted' => false,
+            'http_code' => 0,
+            'response_sha256' => hash('sha256', ''),
+        ];
+    }
+
+    $url = rtrim((string) ($payu['base_url'] ?? ''), '/')
+        . '/api/v2_1/orders/'
+        . rawurlencode($orderId);
+
+    if (!preg_match(
+        '#^https://secure(?:\.snd)?\.payu\.com/api/v2_1/orders/[A-Za-z0-9_%.-]+$#',
+        $url
+    )) {
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'provider_url_invalid',
+            'request_attempted' => false,
+            'http_code' => 0,
+            'response_sha256' => hash('sha256', ''),
+        ];
+    }
+
+    $last = null;
+
+    for ($attempt = 1; $attempt <= 2; $attempt++) {
+        $ch = curl_init($url);
+
+        if ($ch === false) {
+            return [
+                'success' => false,
+                'result_kind' => 'transport_failure',
+                'error_code' => 'curl_init_error',
+                'request_attempted' => false,
+                'http_code' => 0,
+                'response_sha256' => hash('sha256', ''),
+            ];
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_CUSTOMREQUEST => 'GET',
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 12,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Authorization: Bearer ' . (string) $tokenResult['access_token'],
+            ],
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+
+        curl_close($ch);
+
+        $rawResponse = is_string($response) ? $response : '';
+        $decoded = json_decode($rawResponse, true);
+        $jsonValid = json_last_error() === JSON_ERROR_NONE;
+
+        $last = [
+            'http_code' => $httpCode,
+            'error' => $curlError,
+            'response' => $rawResponse,
+            'data' => $decoded,
+            'json_valid' => $jsonValid,
+            'request_attempted' => true,
+        ];
+
+        $retryable = $curlError !== ''
+            || $httpCode === 0
+            || in_array($httpCode, [500, 502, 503, 504], true);
+
+        if ($retryable && $attempt < 2) {
+            payu_debug('PAYU_RETRIEVE_ORDER_RETRY', [
+                'attempt' => $attempt,
+                'http_code' => $httpCode,
+                'transport_error' => $curlError !== '',
+                'mode' => (string) ($payu['mode'] ?? ''),
+            ]);
+
+            continue;
+        }
+
+        break;
+    }
+
+    $result = is_array($last) ? $last : [];
+    $httpCode = (int) ($result['http_code'] ?? 0);
+    $transportError = (string) ($result['error'] ?? '');
+    $rawResponse = (string) ($result['response'] ?? '');
+    $responseSha256 = hash('sha256', $rawResponse);
+
+    if ($transportError !== '' || $httpCode === 0) {
+        payu_debug('PAYU_RETRIEVE_ORDER_TRANSPORT_ERROR', [
+            'http_code' => $httpCode,
+            'transport_error' => true,
+            'mode' => (string) ($payu['mode'] ?? ''),
+        ]);
+
+        return [
+            'success' => false,
+            'result_kind' => 'transport_failure',
+            'error_code' => 'transport_error',
+            'request_attempted' => !empty($result['request_attempted']),
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    if ($httpCode >= 500 && $httpCode <= 599) {
+        return [
+            'success' => false,
+            'result_kind' => 'transport_failure',
+            'error_code' => 'provider_http_' . $httpCode,
+            'request_attempted' => true,
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    if ($httpCode !== 200) {
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'provider_http_' . $httpCode,
+            'request_attempted' => true,
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    if (
+        empty($result['json_valid'])
+        || !is_array($result['data'] ?? null)
+    ) {
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'malformed_response',
+            'request_attempted' => true,
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    $data = $result['data'];
+
+    $statusBlock = is_array($data['status'] ?? null)
+        ? $data['status']
+        : [];
+
+    $statusCode = strtoupper(
+        trim((string) ($statusBlock['statusCode'] ?? ''))
+    );
+
+    if ($statusCode !== 'SUCCESS') {
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'provider_status_not_success',
+            'request_attempted' => true,
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    $orders = $data['orders'] ?? null;
+
+    if (
+        !is_array($orders)
+        || count($orders) !== 1
+        || !is_array($orders[0] ?? null)
+    ) {
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'orders_cardinality_invalid',
+            'request_attempted' => true,
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    $order = $orders[0];
+
+    $providerOrderId = trim((string) ($order['orderId'] ?? ''));
+    $extOrderId = trim((string) ($order['extOrderId'] ?? ''));
+    $currency = strtoupper(trim((string) ($order['currencyCode'] ?? '')));
+    $payuStatus = strtoupper(trim((string) ($order['status'] ?? '')));
+    $amountMinor = payu_parse_minor_amount($order['totalAmount'] ?? null);
+
+    if (
+        $providerOrderId === ''
+        || strlen($providerOrderId) > 128
+        || preg_match('/^[A-Za-z0-9_-]+$/', $providerOrderId) !== 1
+        || $extOrderId === ''
+        || strlen($extOrderId) > 160
+        || preg_match('/^[A-Za-z0-9_-]+$/', $extOrderId) !== 1
+        || $currency === ''
+        || preg_match('/^[A-Z]{3}$/', $currency) !== 1
+        || $amountMinor === null
+        || !in_array(
+            $payuStatus,
+            [
+                'NEW',
+                'PENDING',
+                'WAITING_FOR_CONFIRMATION',
+                'COMPLETED',
+                'CANCELED',
+            ],
+            true
+        )
+    ) {
+        payu_debug('PAYU_RETRIEVE_ORDER_CONTRACT_INVALID', [
+            'http_code' => $httpCode,
+            'order_id_set' => $providerOrderId !== '',
+            'ext_order_id_set' => $extOrderId !== '',
+            'currency_valid' => preg_match('/^[A-Z]{3}$/', $currency) === 1,
+            'amount_valid' => $amountMinor !== null,
+            'status' => substr($payuStatus, 0, 80),
+            'mode' => (string) ($payu['mode'] ?? ''),
+        ]);
+
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'provider_contract_invalid',
+            'request_attempted' => true,
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    if (!hash_equals($orderId, $providerOrderId)) {
+        return [
+            'success' => false,
+            'result_kind' => 'result_unknown',
+            'error_code' => 'requested_order_id_mismatch',
+            'request_attempted' => true,
+            'http_code' => $httpCode,
+            'response_sha256' => $responseSha256,
+        ];
+    }
+
+    payu_debug('PAYU_RETRIEVE_ORDER_RESPONSE', [
+        'http_code' => $httpCode,
+        'status' => $payuStatus,
+        'order_id_match' => true,
+        'ext_order_id_set' => true,
+        'amount_valid' => true,
+        'currency_valid' => true,
+        'mode' => (string) ($payu['mode'] ?? ''),
+    ]);
+
+    return [
+        'success' => true,
+        'result_kind' => 'provider_result',
+        'error_code' => '',
+        'request_attempted' => true,
+        'order_id' => $providerOrderId,
+        'ext_order_id' => $extOrderId,
+        'payu_status' => $payuStatus,
+        'amount_minor' => $amountMinor,
+        'currency' => $currency,
+        'http_code' => $httpCode,
+        'response_sha256' => $responseSha256,
+    ];
+}
