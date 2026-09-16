@@ -592,7 +592,7 @@ try {
 
     $providerPostGranted = true;
     $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesieczny';
-    $description = 'RezerwIQ - plan Pro ' . $periodLabel;
+    $description = 'Rezerwia - plan Pro ' . $periodLabel;
     $orderPayload = [
         'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',
         'continueUrl' => $publicBaseUrl . '/platnosc-abonament-powrot.html',

@@ -39,7 +39,7 @@
     main.className = 'app-footer-main';
 
     const year = String(new Date().getFullYear());
-    main.append(document.createTextNode(`© ${year} RezerwIQ by `));
+    main.append(document.createTextNode(`© ${year} Rezerwia by `));
 
     const link = document.createElement('a');
     link.href = AI_IQ_URL;

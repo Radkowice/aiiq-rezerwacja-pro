@@ -1024,7 +1024,7 @@ try {
             'activation_expires_label' => 'przez 48 godzin',
         ]);
 
-        if (!sendSystemMail($email, 'Potwierdzenie rejestracji w RezerwIQ', $registrationMailHtml)) {
+        if (!sendSystemMail($email, 'Potwierdzenie rejestracji w Rezerwia', $registrationMailHtml)) {
             throw new Exception('Nie udało się wysłać wiadomości aktywacyjnej.');
         }
 
@@ -2138,7 +2138,7 @@ function register_create_initial_paid_plan_payment(array $context): array
         $providerPostGranted = true;
         $periodLabel = $billingPeriod === 'yearly' ? 'roczny' : 'miesięczny';
         $planName = public_registration_plan_name($planCode);
-        $description = 'RezerwIQ - rejestracja plan ' . $planName . ' ' . $periodLabel;
+        $description = 'Rezerwia - rejestracja plan ' . $planName . ' ' . $periodLabel;
 
         $orderPayload = [
             'notifyUrl' => $publicBaseUrl . '/api/subscriptions/payu-notify.php',

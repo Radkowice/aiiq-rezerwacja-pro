@@ -198,13 +198,13 @@ if (!function_exists('booking_mail_system_confirmation_html')) {
             . $row('📞', 'Twój telefon', $phone)
             . $row('📬', 'Kontakt do firmy', $companyEmail)
             . '</table>'
-            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">To jest automatyczna wiadomość wysłana przez system RezerwIQ.</p>'
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">To jest automatyczna wiadomość wysłana przez system Rezerwia.</p>'
             . '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">Odpowiedzi na ten adres mogą nie być obsługiwane.</p>'
             . '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">W sprawie rezerwacji skontaktuj się z firmą: <strong>' . htmlspecialchars($companyEmail !== '' ? $companyEmail : 'brak adresu kontaktowego', ENT_QUOTES, 'UTF-8') . '</strong>.</p>';
 
         return buildSystemMailLayout(
             'Potwierdzenie rezerwacji',
-            'Podstawowe potwierdzenie rezerwacji wysłane przez RezerwIQ.',
+            'Podstawowe potwierdzenie rezerwacji wysłane przez Rezerwia.',
             $message,
             'Wiadomość została wysłana awaryjnie, ponieważ firma nie skonfigurowała własnej wysyłki e-mail lub szablonu wiadomości.'
         );
@@ -972,7 +972,7 @@ if (!function_exists('booking_mail_send_system_booking_reminder')) {
             $subject,
             'Przypomnienie o rezerwacji.',
             $message,
-            'To przypomnienie zostało wysłane przez system RezerwIQ.'
+            'To przypomnienie zostało wysłane przez system Rezerwia.'
         );
 
         return sendSystemMail(

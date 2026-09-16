@@ -1309,7 +1309,7 @@ function front_bootstrap_build_static_bundle(string $supabaseUrl, string $servic
         front_bootstrap_json([
             'success' => false,
             'error' => 'tenant_not_found',
-            'message' => 'Ten adres nie jest zarejestrowany w RezerwIQ.',
+            'message' => 'Ten adres nie jest zarejestrowany w Rezerwia.',
         ], 404);
     }
 

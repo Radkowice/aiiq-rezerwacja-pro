@@ -477,12 +477,12 @@ try {
     $mail->addReplyTo($fromEmail, $fromName !== '' ? $fromName : $fromEmail);
 
     $mail->isHTML(true);
-    $mail->Subject = 'Test połączenia SMTP — RezerwIQ';
+    $mail->Subject = 'Test połączenia SMTP — Rezerwia';
     $mail->Body = ''
         . '<p><strong>📩 Test połączenia SMTP</strong></p>'
-        . '<p>To jest testowa wiadomość SMTP z panelu RezerwIQ.</p>'
+        . '<p>To jest testowa wiadomość SMTP z panelu Rezerwia.</p>'
         . '<p>Jeśli ją widzisz, konfiguracja poczty działa poprawnie.</p>';
-    $mail->AltBody = "To jest testowa wiadomość SMTP z panelu RezerwIQ.\nJeśli ją widzisz, konfiguracja poczty działa poprawnie.";
+    $mail->AltBody = "To jest testowa wiadomość SMTP z panelu Rezerwia.\nJeśli ją widzisz, konfiguracja poczty działa poprawnie.";
 
     $mail->send();
 

@@ -591,8 +591,8 @@ try {
             }
 
             $subject = $isActivationReissue
-                ? 'Nowy link aktywacyjny w RezerwIQ'
-                : 'Aktywuj konto administratora w RezerwIQ';
+                ? 'Nowy link aktywacyjny w Rezerwia'
+                : 'Aktywuj konto administratora w Rezerwia';
             $html = buildSubscriptionActivationRequiredMailHtml([
                 'company_name' => $context['company_name'],
                 'panel_domain' => $context['panel_domain'],

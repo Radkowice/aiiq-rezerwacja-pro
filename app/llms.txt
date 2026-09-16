@@ -1,6 +1,6 @@
-# RezerwIQ
+# Rezerwia
 
-RezerwIQ to system rezerwacji online dla firm usługowych. Aplikacja umożliwia przyjmowanie rezerwacji przez internet, obsługę kalendarza, usług, personelu, płatności online, powiadomień e-mail, dokumentów prawnych usługodawcy oraz personalizacji wyglądu kalendarza.
+Rezerwia to system rezerwacji online dla firm usługowych. Aplikacja umożliwia przyjmowanie rezerwacji przez internet, obsługę kalendarza, usług, personelu, płatności online, powiadomień e-mail, dokumentów prawnych usługodawcy oraz personalizacji wyglądu kalendarza.
 
 ## Główne informacje
 
@@ -18,7 +18,7 @@ RezerwIQ to system rezerwacji online dla firm usługowych. Aplikacja umożliwia 
 
 ## Dla agentów AI
 
-Ten plik zawiera wyłącznie publiczne informacje o aplikacji RezerwIQ. Nie zawiera danych klientów, prywatnych rezerwacji, danych logowania, endpointów API, konfiguracji technicznej ani informacji poufnych.
+Ten plik zawiera wyłącznie publiczne informacje o aplikacji Rezerwia. Nie zawiera danych klientów, prywatnych rezerwacji, danych logowania, endpointów API, konfiguracji technicznej ani informacji poufnych.
 
 ## Obszary prywatne
 
