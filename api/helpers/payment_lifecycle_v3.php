@@ -15,6 +15,7 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'subscription_email_claim',
         'subscription_email_record_result',
         'subscription_activation_consume',
+        'booking_payment_atomic_create',
         'booking_payment_begin',
         'booking_payment_mark_provider_started',
         'booking_payment_record_provider_result',
@@ -25,6 +26,9 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'booking_email_claim',
         'booking_email_record_result',
         'booking_payment_reconciliation_claim',
+        'booking_payment_reconciliation_reserve_provider_attempt',
+        'booking_payment_reconciliation_release_claim',
+        'booking_payment_reconciliation_escalate_unqueryable',
         'booking_payment_reconciliation_record_result',
     ];
 }

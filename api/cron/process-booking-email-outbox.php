@@ -859,12 +859,12 @@ function booking_email_worker_render_generic(
             break;
 
         case 'reconciliation_review_admin':
-            $subject = 'Reconciliation PayU — wymagana ręczna weryfikacja';
-            $title = 'Nie udało się automatycznie uzgodnić płatności';
-            $preheader = 'Automatyczna reconciliation osiągnęła limit prób.';
-            $message = '<p style="margin:0 0 14px;"><strong>Automatyczne uzgadnianie płatności nie dało jednoznacznego wyniku.</strong></p>'
+            $subject = 'Płatność PayU — wymagana ręczna weryfikacja';
+            $title = 'Wymagana ręczna weryfikacja płatności PayU';
+            $preheader = 'Nie udało się automatycznie potwierdzić stanu płatności PayU.';
+            $message = '<p style="margin:0 0 14px;"><strong>Nie udało się automatycznie potwierdzić stanu płatności w PayU.</strong></p>'
                 . $summaryAdmin
-                . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Sprawdź stan płatności w PayU i otwartą sprawę rozliczeniową w panelu.</p>';
+                . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Sprawdź status płatności w PayU oraz sprawę rozliczeniową w panelu przed wykonaniem operacji finansowej.</p>';
             $footer = 'Nie zakładaj wyniku płatności na podstawie samego przekierowania klienta.';
             break;
 

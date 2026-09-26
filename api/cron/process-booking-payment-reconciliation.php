@@ -4,8 +4,10 @@ declare(strict_types=1);
 require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/payu.php';
 
-const BOOKING_RECONCILIATION_WORKER_LIMIT = 5;
+const BOOKING_RECONCILIATION_WORKER_LIMIT = 1;
 const BOOKING_RECONCILIATION_WORKER_LEASE_SECONDS = 300;
+const BOOKING_RECONCILIATION_MIN_LEASE_BEFORE_CONFIG_SECONDS = 120;
+const BOOKING_RECONCILIATION_MIN_LEASE_BEFORE_PROVIDER_SECONDS = 90;
 
 if (PHP_SAPI !== 'cli') {
     http_response_code(404);
@@ -22,6 +24,7 @@ function booking_reconciliation_worker_log(string $event): void
         'provider_result_invalid',
         'provider_binding_mismatch',
         'record_result_failed',
+        'lease_budget_insufficient',
         'worker_run_success',
         'worker_run_failed',
     ];
@@ -66,7 +69,7 @@ function booking_reconciliation_worker_order_id(string $value): bool
 
 function booking_reconciliation_worker_ext_order_id(string $value): bool
 {
-    return preg_match('/\A[A-Za-z0-9_-]{1,160}\z/D', $value) === 1;
+    return preg_match('/\A[A-Za-z0-9_-]{1,128}\z/D', $value) === 1;
 }
 
 function booking_reconciliation_worker_currency(string $value): bool
@@ -93,15 +96,155 @@ function booking_reconciliation_worker_http_status($value): ?int
     return ($value >= 100 && $value <= 599) ? $value : null;
 }
 
+function booking_reconciliation_worker_lease_seconds_remaining($value): ?int
+{
+    if (!is_string($value) || trim($value) === '') {
+        return null;
+    }
+
+    try {
+        $leaseExpiresAt = new DateTimeImmutable(trim($value));
+        $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    return $leaseExpiresAt->getTimestamp() - $now->getTimestamp();
+}
+
+function booking_reconciliation_worker_reserve_provider_attempt(
+    string $paymentId,
+    string $claimToken,
+    int $attemptCount,
+    string $leaseExpiresAt
+): ?array {
+    // Never retry: a lost response may hide a committed reservation/token rotation.
+    $rpc = payment_lifecycle_v3_rpc('booking_payment_reconciliation_reserve_provider_attempt', [
+        'p_payment_id' => $paymentId,
+        'p_claim_token' => $claimToken,
+    ]);
+
+    if (($rpc['ok'] ?? null) !== true || !is_array($rpc['data'] ?? null)) {
+        return null;
+    }
+
+    $data = $rpc['data'];
+    $reserved = $data['reserved'] ?? null;
+    $mayGet = $data['may_get'] ?? null;
+    $token = $data['claim_token'] ?? null;
+    $count = $data['attempt_count'] ?? null;
+    $lease = $data['lease_expires_at'] ?? null;
+    $keys = array_keys($data);
+    sort($keys);
+    $expectedKeys = ['attempt_count', 'claim_token', 'lease_expires_at', 'may_get', 'reserved'];
+    if ($reserved === false) {
+        $expectedKeys[] = 'reason';
+        sort($expectedKeys);
+    }
+
+    if ($keys !== $expectedKeys
+        || !is_string($token)
+        || !booking_reconciliation_worker_uuid($token)
+        || !is_int($count)
+        || !is_string($lease)
+        || preg_match('/\A\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})\z/D', $lease) !== 1
+    ) {
+        return null;
+    }
+
+    try {
+        $gateLease = new DateTimeImmutable($lease);
+        $dateErrors = DateTimeImmutable::getLastErrors();
+        if ($dateErrors !== false
+            && ($dateErrors['warning_count'] > 0 || $dateErrors['error_count'] > 0)
+        ) {
+            return null;
+        }
+        // The deployed gate does not extend or shorten the claimed lease.
+        if ($gateLease != new DateTimeImmutable($leaseExpiresAt)) {
+            return null;
+        }
+    } catch (Throwable $e) {
+        return null;
+    }
+
+    $sameToken = hash_equals(strtolower($claimToken), strtolower($token));
+    if ($reserved === true && $mayGet === true
+        && !$sameToken && $count === $attemptCount + 1
+        && $count >= 1 && $count <= 12
+    ) {
+        return $data;
+    }
+
+    if ($reserved === false && $mayGet === false
+        && ($data['reason'] ?? null) === 'lease_too_short'
+        && $sameToken && $count === $attemptCount
+    ) {
+        return $data;
+    }
+
+    return null;
+}
+
+function booking_reconciliation_worker_release_claim(
+    string $paymentId,
+    string $claimToken,
+    string $errorCode
+): bool {
+    if (!booking_reconciliation_worker_error_code($errorCode)) {
+        return false;
+    }
+
+    $rpc = payment_lifecycle_v3_rpc('booking_payment_reconciliation_release_claim', [
+        'p_payment_id' => $paymentId,
+        'p_claim_token' => $claimToken,
+        'p_error_code' => $errorCode,
+    ]);
+
+    return !empty($rpc['ok'])
+        && is_array($rpc['data'] ?? null)
+        && (($rpc['data']['released'] ?? false) === true);
+}
+
+function booking_reconciliation_worker_escalate_unqueryable(
+    string $paymentId,
+    string $claimToken,
+    string $errorCode
+): bool {
+    if (!booking_reconciliation_worker_error_code($errorCode)) {
+        return false;
+    }
+
+    $rpc = payment_lifecycle_v3_rpc('booking_payment_reconciliation_escalate_unqueryable', [
+        'p_payment_id' => $paymentId,
+        'p_claim_token' => $claimToken,
+        'p_error_code' => $errorCode,
+    ]);
+
+    if (empty($rpc['ok']) || !is_array($rpc['data'] ?? null)) {
+        return false;
+    }
+
+    $data = $rpc['data'];
+
+    return ($data['escalated'] ?? false) === true
+        || ($data['order_id_available'] ?? false) === true
+        || ($data['terminal_or_ineligible'] ?? false) === true;
+}
+
 function booking_reconciliation_worker_record_result(
     string $paymentId,
     string $claimToken,
     string $resultKind,
     ?string $payuStatus,
     ?string $orderId,
+    ?string $extOrderId,
     ?int $amountMinor,
     ?string $currency,
-    string $payloadSha256,
+    bool $bodyAvailable,
+    ?string $payloadSha256,
+    ?string $operationFingerprint,
+    string $transportStage,
     ?int $httpStatus,
     string $errorCode
 ): bool {
@@ -111,13 +254,19 @@ function booking_reconciliation_worker_record_result(
         'p_result_kind' => $resultKind,
         'p_payu_status' => $payuStatus,
         'p_order_id' => $orderId,
+        'p_ext_order_id' => $extOrderId,
         'p_total_amount_minor' => $amountMinor,
         'p_currency' => $currency,
+        'p_body_available' => $bodyAvailable,
         'p_payload_sha256_hex' => $payloadSha256,
+        'p_operation_fingerprint_hex' => $operationFingerprint,
+        'p_transport_stage' => $transportStage,
         'p_http_status' => $httpStatus,
         'p_error_code' => $errorCode !== '' ? $errorCode : null,
     ];
 
+    // Retry only the local idempotent record-result RPC. The provider attempt
+    // was already reserved; neither receipt replay nor recording increments it.
     for ($attempt = 0; $attempt < 2; $attempt++) {
         $rpc = payment_lifecycle_v3_rpc(
             'booking_payment_reconciliation_record_result',
@@ -140,36 +289,6 @@ function booking_reconciliation_worker_record_result(
     }
 
     return false;
-}
-
-function booking_reconciliation_worker_record_failure(
-    string $paymentId,
-    string $claimToken,
-    string $resultKind,
-    string $errorCode,
-    string $payloadSha256 = '',
-    ?int $httpStatus = null
-): bool {
-    if (!booking_reconciliation_worker_sha256($payloadSha256)) {
-        $payloadSha256 = hash('sha256', '');
-    }
-
-    if (!booking_reconciliation_worker_error_code($errorCode)) {
-        $errorCode = 'reconciliation_worker_failure';
-    }
-
-    return booking_reconciliation_worker_record_result(
-        $paymentId,
-        $claimToken,
-        $resultKind,
-        null,
-        null,
-        null,
-        null,
-        $payloadSha256,
-        $httpStatus,
-        $errorCode
-    );
 }
 
 $claimedCount = 0;
@@ -198,10 +317,17 @@ try {
         $claimed = $claim['claimed'] ?? null;
         $items = $claim['items'] ?? null;
 
-        if (!is_int($claimed) || $claimed < 0 || !is_array($items) || count($items) !== $claimed) {
+        if (!is_int($claimed)
+            || $claimed < 0
+            || $claimed > BOOKING_RECONCILIATION_WORKER_LIMIT
+            || !is_array($items)
+            || count($items) !== $claimed
+        ) {
             booking_reconciliation_worker_log('malformed_claim');
             $runFailed = true;
         } else {
+            $seenPaymentIds = [];
+            $seenClaimTokens = [];
             $claimedCount = $claimed;
 
             foreach ($items as $item) {
@@ -221,13 +347,38 @@ try {
                 $providerState = strtolower(trim((string) ($item['provider_state'] ?? '')));
                 $amountMinor = $item['amount_minor'] ?? null;
                 $attemptCount = $item['attempt_count'] ?? null;
+                $leaseExpiresAt = $item['lease_expires_at'] ?? null;
+                $leaseSecondsRemaining = booking_reconciliation_worker_lease_seconds_remaining($leaseExpiresAt);
 
                 if (!booking_reconciliation_worker_uuid($paymentId)
                     || !booking_reconciliation_worker_uuid($claimToken)
+                    || isset($seenPaymentIds[$paymentId])
+                    || isset($seenClaimTokens[$claimToken])
                 ) {
                     booking_reconciliation_worker_log('malformed_claim');
                     $runFailed = true;
                     break;
+                }
+
+                $seenPaymentIds[$paymentId] = true;
+                $seenClaimTokens[$claimToken] = true;
+
+                if ($leaseSecondsRemaining === null || $leaseSecondsRemaining <= 0) {
+                    booking_reconciliation_worker_log('malformed_claim');
+
+                    if (!booking_reconciliation_worker_release_claim(
+                        $paymentId,
+                        $claimToken,
+                        'reconciliation_lease_invalid'
+                    )) {
+                        booking_reconciliation_worker_log('record_result_failed');
+                        $runFailed = true;
+                        break;
+                    }
+
+                    $processed++;
+                    $deferred++;
+                    continue;
                 }
 
                 $claimContextValid = booking_reconciliation_worker_safe_text($tenantId, 128)
@@ -238,16 +389,15 @@ try {
                     && booking_reconciliation_worker_currency($currency)
                     && in_array($providerState, ['request_in_flight', 'order_created', 'result_unknown'], true)
                     && is_int($attemptCount)
-                    && $attemptCount >= 1
-                    && $attemptCount <= 12;
+                    && $attemptCount >= 0
+                    && $attemptCount <= 11;
 
                 if (!$claimContextValid) {
                     booking_reconciliation_worker_log('malformed_claim');
 
-                    if (!booking_reconciliation_worker_record_failure(
+                    if (!booking_reconciliation_worker_escalate_unqueryable(
                         $paymentId,
                         $claimToken,
-                        'result_unknown',
                         'reconciliation_claim_context_invalid'
                     )) {
                         booking_reconciliation_worker_log('record_result_failed');
@@ -263,10 +413,9 @@ try {
                 if ($orderId === '') {
                     booking_reconciliation_worker_log('provider_order_missing');
 
-                    if (!booking_reconciliation_worker_record_failure(
+                    if (!booking_reconciliation_worker_escalate_unqueryable(
                         $paymentId,
                         $claimToken,
-                        'result_unknown',
                         'provider_order_id_missing'
                     )) {
                         booking_reconciliation_worker_log('record_result_failed');
@@ -282,11 +431,32 @@ try {
                 if (!booking_reconciliation_worker_order_id($orderId)) {
                     booking_reconciliation_worker_log('malformed_claim');
 
-                    if (!booking_reconciliation_worker_record_failure(
+                    if (!booking_reconciliation_worker_escalate_unqueryable(
                         $paymentId,
                         $claimToken,
-                        'result_unknown',
                         'provider_order_id_invalid'
+                    )) {
+                        booking_reconciliation_worker_log('record_result_failed');
+                        $runFailed = true;
+                        break;
+                    }
+
+                    $processed++;
+                    $deferred++;
+                    continue;
+                }
+
+                $leaseSecondsRemaining = booking_reconciliation_worker_lease_seconds_remaining($leaseExpiresAt);
+
+                if ($leaseSecondsRemaining === null
+                    || $leaseSecondsRemaining < BOOKING_RECONCILIATION_MIN_LEASE_BEFORE_CONFIG_SECONDS
+                ) {
+                    booking_reconciliation_worker_log('lease_budget_insufficient');
+
+                    if (!booking_reconciliation_worker_release_claim(
+                        $paymentId,
+                        $claimToken,
+                        'reconciliation_lease_too_short_pre_config'
                     )) {
                         booking_reconciliation_worker_log('record_result_failed');
                         $runFailed = true;
@@ -303,10 +473,9 @@ try {
                 if (!is_array($payu)) {
                     booking_reconciliation_worker_log('integration_unavailable');
 
-                    if (!booking_reconciliation_worker_record_failure(
+                    if (!booking_reconciliation_worker_release_claim(
                         $paymentId,
                         $claimToken,
-                        'transport_failure',
                         'payu_integration_unavailable'
                     )) {
                         booking_reconciliation_worker_log('record_result_failed');
@@ -319,35 +488,164 @@ try {
                     continue;
                 }
 
+                $leaseSecondsRemaining = booking_reconciliation_worker_lease_seconds_remaining($leaseExpiresAt);
+
+                if ($leaseSecondsRemaining === null
+                    || $leaseSecondsRemaining < BOOKING_RECONCILIATION_MIN_LEASE_BEFORE_PROVIDER_SECONDS
+                ) {
+                    booking_reconciliation_worker_log('lease_budget_insufficient');
+
+                    if (!booking_reconciliation_worker_release_claim(
+                        $paymentId,
+                        $claimToken,
+                        'reconciliation_lease_too_short_pre_provider'
+                    )) {
+                        booking_reconciliation_worker_log('record_result_failed');
+                        $runFailed = true;
+                        break;
+                    }
+
+                    $processed++;
+                    $deferred++;
+                    continue;
+                }
+
+                $gate = booking_reconciliation_worker_reserve_provider_attempt(
+                    $paymentId,
+                    $claimToken,
+                    $attemptCount,
+                    $leaseExpiresAt
+                );
+
+                if ($gate === null) {
+                    // Ambiguous reservation: no GET, retry, release or record.
+                    booking_reconciliation_worker_log('provider_result_invalid');
+                    $runFailed = true;
+                    break;
+                }
+
+                if ($gate['reserved'] === false) {
+                    if (!booking_reconciliation_worker_release_claim(
+                        $paymentId,
+                        $claimToken,
+                        'reconciliation_lease_too_short_pre_provider'
+                    )) {
+                        booking_reconciliation_worker_log('record_result_failed');
+                        $runFailed = true;
+                        break;
+                    }
+
+                    $processed++;
+                    $deferred++;
+                    continue;
+                }
+
+                $claimToken = $gate['claim_token'];
+                $attemptCount = $gate['attempt_count'];
+                $leaseExpiresAt = $gate['lease_expires_at'];
+                $leaseSecondsRemaining = booking_reconciliation_worker_lease_seconds_remaining($leaseExpiresAt);
+                if ($leaseSecondsRemaining === null
+                    || $leaseSecondsRemaining < BOOKING_RECONCILIATION_MIN_LEASE_BEFORE_PROVIDER_SECONDS
+                ) {
+                    // A successful reservation remains spent; lease recovery owns it.
+                    booking_reconciliation_worker_log('lease_budget_insufficient');
+                    $runFailed = true;
+                    break;
+                }
+
+                // At most one GET per successful reservation, with no provider retry.
+                // Subsequent record/release must use only the rotated claim token.
                 $provider = payu_retrieve_order($payu, $orderId);
-                $responseSha256 = trim((string) ($provider['response_sha256'] ?? ''));
+                $requestAttempted = $provider['request_attempted'] ?? null;
+
+                if ($requestAttempted === false) {
+                    if (!booking_reconciliation_worker_release_claim(
+                        $paymentId,
+                        $claimToken,
+                        'payu_integration_unavailable'
+                    )) {
+                        booking_reconciliation_worker_log('record_result_failed');
+                        $runFailed = true;
+                        break;
+                    }
+
+                    $processed++;
+                    $deferred++;
+                    continue;
+                }
+
+                if ($requestAttempted !== true) {
+                    booking_reconciliation_worker_log('provider_result_invalid');
+                    $runFailed = true;
+                    break;
+                }
+
+                $bodyAvailableRaw = $provider['body_available'] ?? null;
+                $bodyAvailable = is_bool($bodyAvailableRaw) ? $bodyAvailableRaw : null;
+                $responseSha256 = is_string($provider['response_sha256'] ?? null)
+                    ? trim((string) $provider['response_sha256'])
+                    : null;
+                $operationFingerprint = is_string($provider['operation_fingerprint'] ?? null)
+                    ? trim((string) $provider['operation_fingerprint'])
+                    : null;
+                $transportStage = strtolower(trim((string) ($provider['transport_stage'] ?? '')));
                 $providerHttpStatus = booking_reconciliation_worker_http_status(
                     $provider['http_code'] ?? null
                 );
+
+                $evidenceValid = $bodyAvailable !== null
+                    && in_array($transportStage, ['request_started', 'response_received', 'reconciliation'], true)
+                    && (
+                        ($bodyAvailable === true
+                            && $transportStage === 'response_received'
+                            && is_string($responseSha256)
+                            && booking_reconciliation_worker_sha256($responseSha256)
+                            && $operationFingerprint === null)
+                        ||
+                        ($bodyAvailable === false
+                            && $responseSha256 === null
+                            && is_string($operationFingerprint)
+                            && booking_reconciliation_worker_sha256($operationFingerprint))
+                    );
 
                 if (empty($provider['success'])) {
                     $resultKind = strtolower(trim((string) ($provider['result_kind'] ?? '')));
                     $errorCode = strtolower(trim((string) ($provider['error_code'] ?? '')));
 
-                    if (!in_array($resultKind, ['result_unknown', 'transport_failure'], true)
+                    if (!$evidenceValid) {
+                        // Never fabricate SHA/operation evidence. The claim remains
+                        // leased and will expire according to the DB contract.
+                        booking_reconciliation_worker_log('provider_result_invalid');
+                        $runFailed = true;
+                        break;
+                    }
+
+                    $failureKindValid = $resultKind === 'result_unknown'
+                        || ($resultKind === 'transport_failure' && $bodyAvailable === false);
+
+                    if (!$failureKindValid
                         || !booking_reconciliation_worker_error_code($errorCode)
-                        || !booking_reconciliation_worker_sha256($responseSha256)
                     ) {
                         booking_reconciliation_worker_log('provider_result_invalid');
                         $resultKind = 'result_unknown';
                         $errorCode = 'provider_result_contract_invalid';
-                        $responseSha256 = booking_reconciliation_worker_sha256($responseSha256)
-                            ? $responseSha256
-                            : hash('sha256', '');
                     }
 
-                    if (!booking_reconciliation_worker_record_failure(
+                    if (!booking_reconciliation_worker_record_result(
                         $paymentId,
                         $claimToken,
                         $resultKind,
-                        $errorCode,
-                        $responseSha256,
-                        $providerHttpStatus
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        $bodyAvailable,
+                        $bodyAvailable ? $responseSha256 : null,
+                        $bodyAvailable ? null : $operationFingerprint,
+                        $transportStage,
+                        $providerHttpStatus,
+                        $errorCode
                     )) {
                         booking_reconciliation_worker_log('record_result_failed');
                         $runFailed = true;
@@ -367,6 +665,8 @@ try {
                 $providerAmountMinor = $provider['amount_minor'] ?? null;
 
                 $providerContractValid = $providerResultKind === 'provider_result'
+                    && $evidenceValid
+                    && $bodyAvailable === true
                     && booking_reconciliation_worker_order_id($providerOrderId)
                     && booking_reconciliation_worker_ext_order_id($providerExtOrderId)
                     && in_array(
@@ -377,21 +677,33 @@ try {
                     && booking_reconciliation_worker_currency($providerCurrency)
                     && is_int($providerAmountMinor)
                     && $providerAmountMinor > 0
-                    && booking_reconciliation_worker_sha256($responseSha256)
                     && $providerHttpStatus === 200;
 
                 if (!$providerContractValid) {
                     booking_reconciliation_worker_log('provider_result_invalid');
 
-                    if (!booking_reconciliation_worker_record_failure(
+                    if (!$evidenceValid) {
+                        // Real provider evidence is unavailable or malformed. Do not
+                        // replace it with SHA256("") or synthetic provider fields.
+                        $runFailed = true;
+                        break;
+                    }
+
+                    if (!booking_reconciliation_worker_record_result(
                         $paymentId,
                         $claimToken,
                         'result_unknown',
-                        'provider_result_contract_invalid',
-                        booking_reconciliation_worker_sha256($responseSha256)
-                            ? $responseSha256
-                            : hash('sha256', ''),
-                        $providerHttpStatus
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        $bodyAvailable,
+                        $responseSha256,
+                        null,
+                        $transportStage,
+                        $providerHttpStatus,
+                        'provider_result_contract_invalid'
                     )) {
                         booking_reconciliation_worker_log('record_result_failed');
                         $runFailed = true;
@@ -411,15 +723,22 @@ try {
                 if (!$bindingValid) {
                     booking_reconciliation_worker_log('provider_binding_mismatch');
 
+                    // Persist only the real body evidence and mismatch classification.
+                    // Do not pass a known PayU status as result_unknown and do not let
+                    // mismatched provider tuple mutate the authoritative payment.
                     if (!booking_reconciliation_worker_record_result(
                         $paymentId,
                         $claimToken,
                         'result_unknown',
-                        $providerStatus,
-                        $providerOrderId,
-                        $providerAmountMinor,
-                        $providerCurrency,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        true,
                         $responseSha256,
+                        null,
+                        'response_received',
                         $providerHttpStatus,
                         'provider_binding_mismatch'
                     )) {
@@ -447,9 +766,13 @@ try {
                     $resultKind,
                     $providerStatus,
                     $providerOrderId,
+                    $providerExtOrderId,
                     $providerAmountMinor,
                     $providerCurrency,
+                    true,
                     $responseSha256,
+                    null,
+                    'response_received',
                     $providerHttpStatus,
                     ''
                 )) {

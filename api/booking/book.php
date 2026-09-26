@@ -9,6 +9,7 @@ require_once __DIR__ . '/../helpers/booking_context_cache.php';
 require_once __DIR__ . '/../helpers/booking_postprocess_queue.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 require __DIR__ . '/../PHPMailer/src/Exception.php';
@@ -86,6 +87,138 @@ function booking_payment_handoff_store(string $bookingId, string $tenantId): voi
         'tenant_id' => $tenantId,
         'created_at' => time(),
     ];
+}
+
+function booking_a7_request_intent_digest(array $intent): string
+{
+    $json = json_encode($intent, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if (!is_string($json) || $json === '') {
+        throw new RuntimeException('Unable to encode booking create intent.');
+    }
+
+    return hash('sha256', $json);
+}
+
+function booking_a7_request_state_prepare(array $intent): array
+{
+    $intentDigest = booking_a7_request_intent_digest($intent);
+    $state = $_SESSION['booking_a7_create_state'] ?? null;
+
+    if (is_array($state)
+        && preg_match('/^[0-9a-f]{64}$/', (string)($state['intent_digest'] ?? '')) === 1
+        && hash_equals((string)$state['intent_digest'], $intentDigest)
+        && preg_match('/^bkreq1_[0-9a-f]{48}$/', (string)($state['request_key'] ?? '')) === 1) {
+        return $state;
+    }
+
+    $state = [
+        'intent_digest' => $intentDigest,
+        'request_key' => 'bkreq1_' . bin2hex(random_bytes(24)),
+        'created_at' => time(),
+    ];
+
+    $_SESSION['booking_a7_create_state'] = $state;
+
+    return $state;
+}
+
+function booking_a7_payment_deadline_for_request(string $requestKey, callable $expiresFactory): string
+{
+    $requestKey = trim($requestKey);
+    $state = $_SESSION['booking_a7_create_state'] ?? null;
+
+    if ($requestKey === ''
+        || !is_array($state)
+        || !hash_equals((string)($state['request_key'] ?? ''), $requestKey)) {
+        throw new RuntimeException('Booking create state unavailable.');
+    }
+
+    $existing = trim((string)($state['payment_expires_at'] ?? ''));
+
+    if ($existing !== '') {
+        return $existing;
+    }
+
+    $paymentExpiresAt = trim((string)$expiresFactory());
+
+    if ($paymentExpiresAt === '') {
+        throw new RuntimeException('Unable to establish payment deadline.');
+    }
+
+    $state['payment_expires_at'] = $paymentExpiresAt;
+    $_SESSION['booking_a7_create_state'] = $state;
+
+    return $paymentExpiresAt;
+}
+
+function booking_a7_maybe_return_existing_replay(
+    string $baseUrl,
+    array $headers,
+    string $tenantId,
+    string $requestKey
+): void {
+    $tenantId = trim($tenantId);
+    $requestKey = trim($requestKey);
+
+    if ($tenantId === '' || preg_match('/^bkreq1_[0-9a-f]{48}$/', $requestKey) !== 1) {
+        return;
+    }
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/bookings'
+        . '?select=id,payment_required,payment_status,payment_provider,payment_amount,payment_currency,payment_expires_at,payment_lifecycle_version,payment_lifecycle_payment_id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&booking_create_request_key=eq.' . rawurlencode($requestKey)
+        . '&limit=1';
+
+    $result = supabase_select($url, $headers, 'booking_a7_replay_lookup', $tenantId);
+
+    if (supabase_select_is_temporary($result)) {
+        booking_temporary_unavailable('Nie udało się chwilowo potwierdzić wyniku wcześniejszej próby. Spróbuj ponownie za moment.');
+    }
+
+    $row = $result['data'][0] ?? null;
+
+    if (!is_array($row)) {
+        return;
+    }
+
+    $bookingId = trim((string)($row['id'] ?? ''));
+    $paymentId = trim((string)($row['payment_lifecycle_payment_id'] ?? ''));
+
+    if ($bookingId === ''
+        || $paymentId === ''
+        || (int)($row['payment_lifecycle_version'] ?? 0) !== 1
+        || ($row['payment_required'] ?? null) !== true
+        || trim((string)($row['payment_provider'] ?? '')) !== 'payu') {
+        booking_security_event('booking_create_a7_replay_invalid', 'a7_replay_context_invalid', 503, 'failed', 'high');
+
+        json_response([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się bezpiecznie potwierdzić wcześniejszej próby rezerwacji.',
+        ], 503);
+    }
+
+    booking_payment_handoff_store($bookingId, $tenantId);
+
+    booking_security_event('booking_create_success', 'booking_create_a7_replay', 200, 'success', 'medium');
+
+    json_response([
+        'success' => true,
+        'message' => 'Rezerwacja zapisana',
+        'payment_required_configured' => true,
+        'payment_provider_enabled' => true,
+        'payment_required' => true,
+        'payment_status' => trim((string)($row['payment_status'] ?? 'pending')),
+        'payment_provider' => 'payu',
+        'payment_amount' => $row['payment_amount'] ?? null,
+        'payment_currency' => trim((string)($row['payment_currency'] ?? 'PLN')),
+        'payment_expires_at' => $row['payment_expires_at'] ?? null,
+        'mail_queued' => false,
+        'postprocess_queued' => false,
+        'idempotent_replay' => true,
+    ], 200);
 }
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') !== 'POST') {
@@ -1104,6 +1237,32 @@ function fetch_public_service_for_booking_result(string $baseUrl, array $headers
         . '&select=id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled';
 
     return fetch_single_record_result($baseUrl, $headers, 'tenant_services', $query, 'service', $tenantId);
+}
+
+function booking_tenant_public_services_result(
+    string $baseUrl,
+    array $headers,
+    string $tenantId
+): array {
+    $query = 'select=id'
+        . '&tenant_id=eq.' . rawurlencode($tenantId)
+        . '&is_active=eq.true'
+        . '&visible_on_front=eq.true'
+        . '&limit=1';
+
+    $url = rtrim($baseUrl, '/') . '/rest/v1/tenant_services?' . $query;
+    $result = supabase_select($url, $headers, 'service_binding_policy', $tenantId);
+    $temporary = supabase_select_is_temporary($result);
+    $httpCode = (int)($result['httpCode'] ?? 0);
+    $data = $result['data'] ?? null;
+
+    return [
+        'ok' => !$temporary && $httpCode === 200 && is_array($data),
+        'has_services' => is_array($data) && !empty($data),
+        'temporary' => $temporary,
+        'httpCode' => $httpCode,
+        'error' => (string)($result['error'] ?? ''),
+    ];
 }
 
 function booking_public_ref_is_service_ref(string $value): bool
@@ -2664,6 +2823,53 @@ if (!empty($planContext['temporary_error'])) {
 
 $bookingContext['plan_context'] = $planContext;
 
+// A7-E2-F02: jeżeli tenant ma aktywny moduł wielu usług i co najmniej jedną
+// publiczną usługę, backend wymaga jednoznacznego service_ref. Brak refa nie
+// może zrzucać polityki płatności do konfiguracji globalnej.
+if ($serviceRef === '' && booking_context_has_feature($bookingContext, 'multiple_services')) {
+    $serviceBindingResult = booking_tenant_public_services_result(
+        $SUPABASE_URL,
+        $headers,
+        $TENANT_ID
+    );
+
+    if (empty($serviceBindingResult['ok'])) {
+        $serviceBindingHttpCode = (int)($serviceBindingResult['httpCode'] ?? 0);
+        $serviceBindingResponseCode = $serviceBindingHttpCode === 429 ? 429 : 503;
+
+        booking_security_event(
+            'booking_create_service_binding_unavailable',
+            'service_binding_policy_lookup_failed',
+            $serviceBindingResponseCode,
+            'failed',
+            'high',
+            ['stage' => 'service_binding_policy']
+        );
+
+        json_response([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo potwierdzić wybranej usługi. Spróbuj ponownie za moment.',
+        ], $serviceBindingResponseCode);
+    }
+
+    if (!empty($serviceBindingResult['has_services'])) {
+        booking_security_event(
+            'booking_create_service_binding_required',
+            'service_ref_missing',
+            400,
+            'blocked',
+            'medium',
+            ['stage' => 'service_binding_policy']
+        );
+
+        json_response([
+            'success' => false,
+            'error' => 'Wybierz usługę.',
+        ], 400);
+    }
+}
+
 $staffDisplayName = '';
 $staffServiceName = '';
 $staffServicePrice = null;
@@ -2739,6 +2945,32 @@ if ($serviceId !== '') {
     }
 }
 
+try {
+    $a7RequestState = booking_a7_request_state_prepare([
+        'tenant_id' => $TENANT_ID,
+        'booking_date' => $date,
+        'booking_time' => substr($time, 0, 5),
+        'name' => trim($name),
+        'email' => strtolower(trim($email)),
+        'phone' => trim($phone),
+        'notes' => trim($note),
+        'service_id' => $serviceId !== '' ? $serviceId : null,
+        'staff_id' => $staffId !== '' ? $staffId : null,
+        'source' => 'www',
+    ]);
+    $a7CreateRequestKey = (string)$a7RequestState['request_key'];
+} catch (Throwable $e) {
+    debug_log('BOOK_A7_REQUEST_STATE_ERROR', [
+        'exception_type' => get_class($e),
+        'tenant_id' => $TENANT_ID,
+    ]);
+
+    json_response([
+        'success' => false,
+        'error' => 'Nie udało się przygotować rezerwacji. Spróbuj ponownie.',
+    ], 500);
+}
+
 if ($staffId !== '') {
     if (!booking_context_has_feature($bookingContext, 'staff_module')) {
         json_response([
@@ -2799,6 +3031,7 @@ if ($staffId !== '') {
     $effectiveBuffer = booking_effective_min_notice_minutes($serviceBuffer, $globalBookingBuffer);
 
     if (!booking_slot_respects_buffer($date, $time, $effectiveBuffer)) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         json_response([
             'success' => false,
             'error' => 'Wybrana godzina jest już niedostępna',
@@ -2812,6 +3045,7 @@ if ($staffId !== '') {
     }
 
     if ($globalSlotAvailable === false) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         booking_slot_taken_response();
     }
 
@@ -2843,6 +3077,7 @@ if ($staffId !== '') {
     );
 
     if ($staffSlotMatchesSchedule === false) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         json_response([
             'success' => false,
             'error' => 'Wybrana godzina jest niedostępna dla tej osoby',
@@ -2874,6 +3109,7 @@ if ($staffId !== '') {
     }
 
     if ($staffSlotIsFree === false) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         booking_slot_taken_response();
     }
 } else {
@@ -2885,6 +3121,7 @@ if ($staffId !== '') {
             $globalBookingBuffer
         )
     )) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         json_response([
             'success' => false,
             'error' => 'Wybrana godzina jest już niedostępna',
@@ -2898,6 +3135,7 @@ if ($staffId !== '') {
     }
 
     if ($globalSlotAvailable === false) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         booking_slot_taken_response();
     }
 }
@@ -2911,7 +3149,7 @@ $googleEventDurationMinutes = max(1, (int) (
 // Ustawienia usługi i płatności
 $tenantQuery = 'tenant_id=eq.' . rawurlencode($TENANT_ID);
 
-$serviceSettings = fetch_single_record(
+$serviceSettingsResult = fetch_single_record_result(
     $SUPABASE_URL,
     $headers,
     'tenant_service_settings',
@@ -2919,6 +3157,30 @@ $serviceSettings = fetch_single_record(
     'service_settings',
     $TENANT_ID
 );
+
+if (empty($serviceSettingsResult['ok'])) {
+    $serviceSettingsHttpCode = (int)($serviceSettingsResult['httpCode'] ?? 0);
+    $serviceSettingsResponseCode = $serviceSettingsHttpCode === 429 ? 429 : 503;
+
+    booking_security_event(
+        'booking_create_payment_policy_unavailable',
+        'service_settings_lookup_failed',
+        $serviceSettingsResponseCode,
+        'failed',
+        'high',
+        ['stage' => 'service_settings']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'temporary_unavailable',
+        'message' => 'Nie udało się chwilowo potwierdzić konfiguracji płatności. Spróbuj ponownie za moment.',
+    ], $serviceSettingsResponseCode);
+}
+
+$serviceSettings = !empty($serviceSettingsResult['found']) && is_array($serviceSettingsResult['row'] ?? null)
+    ? $serviceSettingsResult['row']
+    : null;
 $bookingContext['service_settings'] = $serviceSettings;
 
 $paymentRequired = false;
@@ -2997,7 +3259,7 @@ if ($effectivePaymentRequiredConfigured && $effectivePaymentAmount <= 0) {
 }
 
 if ($effectivePaymentRequiredConfigured) {
-    $payuIntegration = fetch_single_record(
+    $payuIntegrationResult = fetch_single_record_result(
         $SUPABASE_URL,
         $headers,
         'tenant_integrations',
@@ -3005,6 +3267,30 @@ if ($effectivePaymentRequiredConfigured) {
         'payu_settings',
         $TENANT_ID
     );
+
+    if (empty($payuIntegrationResult['ok'])) {
+        $payuIntegrationHttpCode = (int)($payuIntegrationResult['httpCode'] ?? 0);
+        $payuIntegrationResponseCode = $payuIntegrationHttpCode === 429 ? 429 : 503;
+
+        booking_security_event(
+            'booking_create_payment_policy_unavailable',
+            'payu_settings_lookup_failed',
+            $payuIntegrationResponseCode,
+            'failed',
+            'high',
+            ['stage' => 'payu_settings']
+        );
+
+        json_response([
+            'success' => false,
+            'error' => 'temporary_unavailable',
+            'message' => 'Nie udało się chwilowo potwierdzić konfiguracji płatności. Spróbuj ponownie za moment.',
+        ], $payuIntegrationResponseCode);
+    }
+
+    $payuIntegration = !empty($payuIntegrationResult['found']) && is_array($payuIntegrationResult['row'] ?? null)
+        ? $payuIntegrationResult['row']
+        : null;
 
     if (is_array($payuIntegration)) {
         $payuEnabled = !empty($payuIntegration['enabled']);
@@ -3021,7 +3307,42 @@ if ($paymentRequired) {
     $paymentProvider = 'payu';
     $paymentAmount = $effectivePaymentAmount > 0 ? $effectivePaymentAmount : null;
     $paymentCurrency = $effectivePaymentCurrency;
-    $paymentExpiresAt = calculate_payment_expires_at($paymentLimitValue, $paymentLimitUnit);
+}
+
+$serviceNameSnapshot = $globalServiceName;
+
+if ($staffId !== '' && $staffServiceName !== '' && !is_array($selectedService)) {
+    $serviceNameSnapshot = $staffServiceName;
+}
+
+if ($paymentRequired) {
+    if ($a7CreateRequestKey === '' || $paymentAmount === null || !is_numeric($paymentAmount) || (float)$paymentAmount <= 0.0) {
+        json_response([
+            'success' => false,
+            'error' => 'Nie udało się przygotować płatności za rezerwację.',
+        ], 503);
+    }
+
+    $normalizedCurrency = strtoupper(trim((string)$paymentCurrency));
+
+    try {
+        $paymentExpiresAt = booking_a7_payment_deadline_for_request(
+            $a7CreateRequestKey,
+            static fn(): string => calculate_payment_expires_at($paymentLimitValue, $paymentLimitUnit)
+        );
+    } catch (Throwable $e) {
+        debug_log('BOOK_A7_PAYMENT_STATE_ERROR', [
+            'exception_type' => get_class($e),
+            'tenant_id' => $TENANT_ID,
+        ]);
+
+        json_response([
+            'success' => false,
+            'error' => 'Nie udało się przygotować rezerwacji. Spróbuj ponownie.',
+        ], 500);
+    }
+
+    $paymentCurrency = $normalizedCurrency;
 }
 
 debug_log('BOOK_PAYMENT_SETTINGS', [
@@ -3034,12 +3355,6 @@ debug_log('BOOK_PAYMENT_SETTINGS', [
     'payment_currency' => $paymentCurrency,
     'payment_expires_at' => $paymentExpiresAt,
 ]);
-
-$serviceNameSnapshot = $globalServiceName;
-
-if ($staffId !== '' && $staffServiceName !== '' && !is_array($selectedService)) {
-    $serviceNameSnapshot = $staffServiceName;
-}
 
 $manageToken = '';
 $manageTokenExpiresAt = '';
@@ -3085,145 +3400,269 @@ if ($quickSlotIsFree === null) {
 }
 
 if ($quickSlotIsFree === false) {
+    booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
     booking_slot_taken_response();
 }
 
-// Zapis rezerwacji
-$bookingPayload = [
-    'tenant_id'    => $TENANT_ID,
-    'booking_date' => $date,
-    'booking_time' => $time,
-    'name'         => $name,
-    'email'        => $email,
-    'phone'        => $phone,
-    'notes'        => $note,
-    'status'       => 'new',
-    'source'       => 'www',
-    'service_name_snapshot' => $serviceNameSnapshot !== '' ? $serviceNameSnapshot : null,
+// Zapis rezerwacji.
+// A7: płatne bookingi powstają atomowo razem z Payment Lifecycle V7.
+// Legacy direct INSERT pozostaje wyłącznie dla bookingów bez płatności.
+$postprocessQueued = false;
 
-    'payment_required'   => $paymentRequired,
-    'payment_status'     => $paymentStatus,
-    'payment_provider'   => $paymentProvider,
-    'payment_amount'     => $paymentAmount,
-    'payment_currency'   => $paymentCurrency,
-    'payment_expires_at' => $paymentExpiresAt,
+if ($paymentRequired) {
+    if ($a7CreateRequestKey === '' || $paymentExpiresAt === null || trim((string)$paymentExpiresAt) === '') {
+        json_response([
+            'success' => false,
+            'error' => 'Nie udało się przygotować płatności za rezerwację.',
+        ], 503);
+    }
 
-    'manage_token' => $manageToken,
-    'manage_token_expires_at' => $manageTokenExpiresAt,
+    $atomicResult = payment_lifecycle_v3_rpc('booking_payment_atomic_create', [
+        'p_tenant_id' => $TENANT_ID,
+        'p_request_key' => $a7CreateRequestKey,
+        'p_name' => $name,
+        'p_email' => $email,
+        'p_phone' => $phone,
+        'p_notes' => $note,
+        'p_booking_date' => $date,
+        'p_booking_time' => $time,
+        'p_service_id' => ($serviceId !== '' && is_array($selectedService)) ? $serviceId : null,
+        'p_staff_id' => $staffId !== '' ? $staffId : null,
+        'p_service_name_snapshot' => $serviceNameSnapshot !== '' ? $serviceNameSnapshot : null,
+        'p_payment_amount' => $paymentAmount,
+        'p_payment_currency' => $paymentCurrency,
+        'p_payment_expires_at' => $paymentExpiresAt,
+        'p_manage_token' => $manageToken,
+        'p_manage_token_expires_at' => $manageTokenExpiresAt,
+    ]);
 
-    'created_at'   => date('c'),
-    'updated_at'   => date('c'),
-];
+    if (empty($atomicResult['ok']) || !is_array($atomicResult['data'] ?? null)) {
+        debug_log('BOOK_A7_ATOMIC_CREATE_FAILED', [
+            'tenant_id' => $TENANT_ID,
+            'error_kind' => (string)($atomicResult['error_kind'] ?? 'unknown'),
+            'error_code' => (string)($atomicResult['error'] ?? 'unknown'),
+            'http_status' => (int)($atomicResult['status'] ?? 0),
+        ]);
 
-if ($staffId !== '') {
-    $bookingPayload['staff_id'] = $staffId;
-}
+        // Fail closed: nie wiemy, czy RPC zakończyło się przed utratą odpowiedzi.
+        // Stabilny request key w sesji pozwala bezpiecznie rozpoznać identyczny retry.
+        json_response([
+            'success' => false,
+            'error' => 'booking_create_result_unknown',
+            'message' => 'Nie udało się potwierdzić wyniku rezerwacji. Odświeżenie tej samej próby zostanie bezpiecznie rozpoznane.',
+        ], 503);
+    }
 
-if ($serviceId !== '' && is_array($selectedService)) {
-    $bookingPayload['service_id'] = $serviceId;
-}
+    $atomicData = $atomicResult['data'];
+    $bookingId = trim((string)($atomicData['booking_id'] ?? ''));
+    $paymentId = trim((string)($atomicData['payment_id'] ?? ''));
+    $extOrderId = trim((string)($atomicData['ext_order_id'] ?? ''));
+    $atomicCurrency = strtoupper(trim((string)($atomicData['currency'] ?? '')));
+    $atomicAmountMinor = $atomicData['amount_minor'] ?? null;
 
-booking_debug_log_service([
-    'event' => 'before_booking_insert',
-    'tenant_id' => $TENANT_ID,
-    'received_service_id' => $serviceId,
-    'received_staff_id' => $staffId,
-    'selected_service_found' => is_array($selectedService),
-    'booking_payload_has_service_id' => array_key_exists('service_id', $bookingPayload),
-    'booking_payload_service_id' => $bookingPayload['service_id'] ?? null,
-    'service_name_snapshot' => $bookingPayload['service_name_snapshot'] ?? null,
-    'booking_date' => $date,
-    'booking_time' => $time,
-    'payment_required' => $paymentRequired,
-    'status' => $bookingPayload['status'] ?? null,
-]);
+    $expectedAmountMinor = (int)round(((float)$paymentAmount) * 100);
 
-$bookingResult = supabase_insert(
-    $SUPABASE_URL . '/rest/v1/bookings',
-    $bookingPayload,
-    $headers,
-    'bookings_insert',
-    $TENANT_ID
-);
+    if ($bookingId === ''
+        || $paymentId === ''
+        || $extOrderId === ''
+        || !is_numeric($atomicAmountMinor)
+        || (int)$atomicAmountMinor <= 0
+        || (int)$atomicAmountMinor !== $expectedAmountMinor
+        || $atomicCurrency !== strtoupper((string)$paymentCurrency)) {
+        debug_log('BOOK_A7_ATOMIC_CREATE_RESPONSE_INVALID', [
+            'tenant_id' => $TENANT_ID,
+            'has_booking_id' => $bookingId !== '',
+            'has_payment_id' => $paymentId !== '',
+            'has_ext_order_id' => $extOrderId !== '',
+            'amount_valid' => is_numeric($atomicAmountMinor) && (int)$atomicAmountMinor === $expectedAmountMinor,
+            'currency_valid' => $atomicCurrency === strtoupper((string)$paymentCurrency),
+        ]);
 
-$bookingRowsForDebug = json_decode((string)($bookingResult['response'] ?? ''), true);
-$bookingIdForDebug = is_array($bookingRowsForDebug) && isset($bookingRowsForDebug[0]) && is_array($bookingRowsForDebug[0])
-    ? (string)($bookingRowsForDebug[0]['id'] ?? '')
-    : '';
+        json_response([
+            'success' => false,
+            'error' => 'booking_create_result_unknown',
+            'message' => 'Nie udało się potwierdzić wyniku rezerwacji.',
+        ], 503);
+    }
 
-booking_debug_log_service([
-    'event' => 'after_booking_insert',
-    'tenant_id' => $TENANT_ID,
-    'received_service_id' => $serviceId,
-    'received_staff_id' => $staffId,
-    'selected_service_found' => is_array($selectedService),
-    'booking_payload_has_service_id' => array_key_exists('service_id', $bookingPayload),
-    'booking_payload_service_id' => $bookingPayload['service_id'] ?? null,
-    'service_name_snapshot' => $bookingPayload['service_name_snapshot'] ?? null,
-    'booking_date' => $date,
-    'booking_time' => $time,
-    'payment_required' => $paymentRequired,
-    'status' => $bookingPayload['status'] ?? null,
-    'insert_success' => !$bookingResult['error'] && $bookingResult['httpCode'] < 400,
-    'insert_error' => $bookingResult['error'] ? substr((string) $bookingResult['error'], 0, 180) : null,
-    'booking_id' => $bookingIdForDebug !== '' ? $bookingIdForDebug : null,
-]);
+    $paymentStatus = trim((string)($atomicData['status'] ?? $paymentStatus));
+    $paymentAmount = $expectedAmountMinor / 100;
+    $paymentCurrency = $atomicCurrency;
 
-debug_log('BOOK_BOOKINGS_RESPONSE', [
-    'httpCode' => $bookingResult['httpCode'],
-    'has_error' => $bookingResult['error'] !== '',
-    'tenant_id' => $TENANT_ID,
-]);
+    booking_payment_handoff_store($bookingId, $TENANT_ID);
 
-if ($bookingResult['error'] || $bookingResult['httpCode'] >= 400) {
-    booking_insert_error_response($bookingResult);
-}
-
-$bookingRows = json_decode((string)($bookingResult['response'] ?? ''), true);
-$createdBooking = is_array($bookingRows) && isset($bookingRows[0]) && is_array($bookingRows[0])
-    ? $bookingRows[0]
-    : [];
-
-$bookingId = (string)($createdBooking['id'] ?? '');
-
-debug_log('BOOK_CREATED_REF', ['booking_id' => $bookingId !== '' ? $bookingId : 'BRAK_ID']);
-
-// Blokada terminu dla starego trybu globalnego.
-// Rezerwacje personelu blokujemy przez bookings.staff_id, bez założenia kolumny staff_id w blocked_times.
-if ($staffId === '') {
-    $blockPayload = [
+    debug_log('BOOK_A7_ATOMIC_CREATE_OK', [
         'tenant_id' => $TENANT_ID,
-        'date'      => $date,
-        'time'      => $time,
+        'booking_id' => $bookingId,
+        'payment_id' => $paymentId,
+        'idempotent' => !empty($atomicData['idempotent']),
+    ]);
+} else {
+    $bookingPayload = [
+        'tenant_id'    => $TENANT_ID,
+        'booking_date' => $date,
+        'booking_time' => $time,
+        'name'         => $name,
+        'email'        => $email,
+        'phone'        => $phone,
+        'notes'        => $note,
+        'status'       => 'new',
+        'source'       => 'www',
+        'service_name_snapshot' => $serviceNameSnapshot !== '' ? $serviceNameSnapshot : null,
+
+        'payment_required'   => false,
+        'payment_status'     => $paymentStatus,
+        'payment_provider'   => null,
+        'payment_amount'     => null,
+        'payment_currency'   => $paymentCurrency,
+        'payment_expires_at' => null,
+
+        'manage_token' => $manageToken,
+        'manage_token_expires_at' => $manageTokenExpiresAt,
+
+        'created_at'   => date('c'),
+        'updated_at'   => date('c'),
     ];
 
-    $blockResult = supabase_insert(
-        $SUPABASE_URL . '/rest/v1/blocked_times',
-        $blockPayload,
-        $minimalHeaders,
-        'blocked_times_insert',
+    if ($staffId !== '') {
+        $bookingPayload['staff_id'] = $staffId;
+    }
+
+    if ($serviceId !== '' && is_array($selectedService)) {
+        $bookingPayload['service_id'] = $serviceId;
+    }
+
+    booking_debug_log_service([
+        'event' => 'before_booking_insert',
+        'tenant_id' => $TENANT_ID,
+        'received_service_id' => $serviceId,
+        'received_staff_id' => $staffId,
+        'selected_service_found' => is_array($selectedService),
+        'booking_payload_has_service_id' => array_key_exists('service_id', $bookingPayload),
+        'booking_payload_service_id' => $bookingPayload['service_id'] ?? null,
+        'service_name_snapshot' => $bookingPayload['service_name_snapshot'] ?? null,
+        'booking_date' => $date,
+        'booking_time' => $time,
+        'payment_required' => false,
+        'status' => $bookingPayload['status'] ?? null,
+    ]);
+
+    $bookingResult = supabase_insert(
+        $SUPABASE_URL . '/rest/v1/bookings',
+        $bookingPayload,
+        $headers,
+        'bookings_insert',
         $TENANT_ID
     );
 
-    debug_log('BOOK_BLOCKED_TIMES_RESPONSE', [
-        'httpCode' => $blockResult['httpCode'],
-        'has_error' => $blockResult['error'] !== '',
-        'booking_id' => $bookingId,
+    $bookingRowsForDebug = json_decode((string)($bookingResult['response'] ?? ''), true);
+    $bookingIdForDebug = is_array($bookingRowsForDebug) && isset($bookingRowsForDebug[0]) && is_array($bookingRowsForDebug[0])
+        ? (string)($bookingRowsForDebug[0]['id'] ?? '')
+        : '';
+
+    booking_debug_log_service([
+        'event' => 'after_booking_insert',
         'tenant_id' => $TENANT_ID,
-        'date' => $date,
-        'time' => $time,
+        'received_service_id' => $serviceId,
+        'received_staff_id' => $staffId,
+        'selected_service_found' => is_array($selectedService),
+        'booking_payload_has_service_id' => array_key_exists('service_id', $bookingPayload),
+        'booking_payload_service_id' => $bookingPayload['service_id'] ?? null,
+        'service_name_snapshot' => $bookingPayload['service_name_snapshot'] ?? null,
+        'booking_date' => $date,
+        'booking_time' => $time,
+        'payment_required' => false,
+        'status' => $bookingPayload['status'] ?? null,
+        'insert_success' => !$bookingResult['error'] && $bookingResult['httpCode'] < 400,
+        'insert_error' => $bookingResult['error'] ? substr((string) $bookingResult['error'], 0, 180) : null,
+        'booking_id' => $bookingIdForDebug !== '' ? $bookingIdForDebug : null,
     ]);
 
-    if ($blockResult['error'] || $blockResult['httpCode'] >= 400) {
-        debug_log('BOOK_BLOCKED_TIMES_AUXILIARY_FAILED', [
+    debug_log('BOOK_BOOKINGS_RESPONSE', [
+        'httpCode' => $bookingResult['httpCode'],
+        'has_error' => $bookingResult['error'] !== '',
+        'tenant_id' => $TENANT_ID,
+    ]);
+
+    if ($bookingResult['error'] || $bookingResult['httpCode'] >= 400) {
+        booking_insert_error_response($bookingResult);
+    }
+
+    $bookingRows = json_decode((string)($bookingResult['response'] ?? ''), true);
+    $createdBooking = is_array($bookingRows) && isset($bookingRows[0]) && is_array($bookingRows[0])
+        ? $bookingRows[0]
+        : [];
+
+    $bookingId = (string)($createdBooking['id'] ?? '');
+
+    debug_log('BOOK_CREATED_REF', ['booking_id' => $bookingId !== '' ? $bookingId : 'BRAK_ID']);
+
+    // Blokada terminu dla starego trybu globalnego.
+    // Rezerwacje personelu blokujemy przez bookings.staff_id, bez założenia kolumny staff_id w blocked_times.
+    if ($staffId === '') {
+        $blockPayload = [
+            'tenant_id' => $TENANT_ID,
+            'date'      => $date,
+            'time'      => $time,
+        ];
+
+        $blockResult = supabase_insert(
+            $SUPABASE_URL . '/rest/v1/blocked_times',
+            $blockPayload,
+            $minimalHeaders,
+            'blocked_times_insert',
+            $TENANT_ID
+        );
+
+        debug_log('BOOK_BLOCKED_TIMES_RESPONSE', [
             'httpCode' => $blockResult['httpCode'],
-            'error' => $blockResult['error'] ? substr((string) $blockResult['error'], 0, 180) : null,
+            'has_error' => $blockResult['error'] !== '',
             'booking_id' => $bookingId,
             'tenant_id' => $TENANT_ID,
             'date' => $date,
             'time' => $time,
         ]);
+
+        if ($blockResult['error'] || $blockResult['httpCode'] >= 400) {
+            debug_log('BOOK_BLOCKED_TIMES_AUXILIARY_FAILED', [
+                'httpCode' => $blockResult['httpCode'],
+                'error' => $blockResult['error'] ? substr((string) $blockResult['error'], 0, 180) : null,
+                'booking_id' => $bookingId,
+                'tenant_id' => $TENANT_ID,
+                'date' => $date,
+                'time' => $time,
+            ]);
+        }
     }
+
+    booking_supabase_request_phase('post_insert');
+    $postprocessQueued = booking_postprocess_queue_enqueue($bookingId, $TENANT_ID);
+
+    if (!$postprocessQueued) {
+        $postprocessQueueError = function_exists('booking_postprocess_queue_last_error')
+            ? booking_postprocess_queue_last_error()
+            : ['reason' => 'unknown'];
+        $postprocessQueueReason = trim((string)($postprocessQueueError['reason'] ?? 'unknown'));
+        $postprocessQueueLogContext = [
+            'booking_id' => $bookingId,
+            'tenant_id' => $TENANT_ID,
+            'reason' => $postprocessQueueReason !== '' ? $postprocessQueueReason : 'unknown',
+        ];
+
+        foreach (['target_dir', 'target_path', 'directory', 'job_id'] as $postprocessQueueLogKey) {
+            if (
+                isset($postprocessQueueError[$postprocessQueueLogKey])
+                && is_scalar($postprocessQueueError[$postprocessQueueLogKey])
+                && trim((string)$postprocessQueueError[$postprocessQueueLogKey]) !== ''
+            ) {
+                $postprocessQueueLogContext[$postprocessQueueLogKey] = trim((string)$postprocessQueueError[$postprocessQueueLogKey]);
+            }
+        }
+
+        debug_log('BOOK_POSTPROCESS_ENQUEUE_FAILED', $postprocessQueueLogContext);
+    }
+
+    unset($_SESSION['booking_payment_handoff'], $_SESSION['booking_a7_create_state']);
 }
 
 } finally {
@@ -3239,40 +3678,8 @@ if ($staffId === '') {
     }
 }
 
-booking_supabase_request_phase('post_insert');
-$postprocessQueued = booking_postprocess_queue_enqueue($bookingId, $TENANT_ID);
 $mailSentClient = false;
 $mailSentAdmin = false;
-
-if (!$postprocessQueued) {
-    $postprocessQueueError = function_exists('booking_postprocess_queue_last_error')
-        ? booking_postprocess_queue_last_error()
-        : ['reason' => 'unknown'];
-    $postprocessQueueReason = trim((string)($postprocessQueueError['reason'] ?? 'unknown'));
-    $postprocessQueueLogContext = [
-        'booking_id' => $bookingId,
-        'tenant_id' => $TENANT_ID,
-        'reason' => $postprocessQueueReason !== '' ? $postprocessQueueReason : 'unknown',
-    ];
-
-    foreach (['target_dir', 'target_path', 'directory', 'job_id'] as $postprocessQueueLogKey) {
-        if (
-            isset($postprocessQueueError[$postprocessQueueLogKey])
-            && is_scalar($postprocessQueueError[$postprocessQueueLogKey])
-            && trim((string)$postprocessQueueError[$postprocessQueueLogKey]) !== ''
-        ) {
-            $postprocessQueueLogContext[$postprocessQueueLogKey] = trim((string)$postprocessQueueError[$postprocessQueueLogKey]);
-        }
-    }
-
-    debug_log('BOOK_POSTPROCESS_ENQUEUE_FAILED', $postprocessQueueLogContext);
-}
-
-if ($paymentRequired) {
-    booking_payment_handoff_store($bookingId, $TENANT_ID);
-} else {
-    unset($_SESSION['booking_payment_handoff']);
-}
 
 booking_security_event('booking_create_success', 'booking_create_success', 200, 'success', 'medium');
 
