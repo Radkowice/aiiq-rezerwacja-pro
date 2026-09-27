@@ -484,7 +484,7 @@ function renderCalendar() {
   const monthKey = formatMonthKey(view);
   const monthAvailability = rescheduleState.monthAvailabilityCache[monthKey] || null;
 
-  if (!monthAvailability && rescheduleState.monthAvailabilityLoadingMonth !== monthKey) {
+  if (rescheduleState.canReschedule && !monthAvailability && rescheduleState.monthAvailabilityLoadingMonth !== monthKey) {
     loadMonthAvailability(monthKey).then((loaded) => {
       if (loaded && formatMonthKey(getMonthStart(rescheduleState.viewDate)) === monthKey) {
         renderCalendar();
@@ -736,7 +736,7 @@ async function submitReschedule() {
     rescheduleState.selectedTime = '';
     setTimeOptions([], 'Najpierw wybierz datę');
     renderCalendar();
-    showSuccess('Termin rezerwacji został zmieniony.');
+    showSuccess(data.message || 'Termin rezerwacji został zmieniony.');
   } catch (error) {
     showError(error.message || 'Nie udało się zmienić terminu rezerwacji.');
   } finally {

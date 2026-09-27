@@ -338,9 +338,7 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
 {
     $panelUrl = system_subscription_mail_admin_login_url($context['panel_domain'] ?? '');
     $companyName = trim((string) ($context['company_name'] ?? ''));
-    $periodStart = (string) ($subscription['current_period_start'] ?? $payment['subscription_period_start'] ?? '');
     $periodEnd = (string) ($subscription['current_period_end'] ?? $payment['subscription_period_end'] ?? '');
-    $periodText = trim(system_subscription_mail_format_date($periodStart) . ' - ' . system_subscription_mail_format_date($periodEnd));
     $amountText = system_subscription_mail_format_amount($payment['amount'] ?? null, $payment['currency'] ?? 'PLN');
     $billingPeriod = system_subscription_mail_billing_period_label($payment['billing_period'] ?? $subscription['billing_period'] ?? '');
     $planCode = strtolower(trim((string) ($payment['plan_code'] ?? $subscription['plan_code'] ?? 'pro')));
@@ -351,7 +349,7 @@ function buildSubscriptionProActivatedMailHtml(array $payment, array $subscripti
         . system_subscription_mail_info_card('✅', 'Status', 'Opłacono')
         . system_subscription_mail_info_card('🧾', 'Plan', $planLabel, $paymentType)
         . system_subscription_mail_info_card('💳', 'Płatność', $amountText, $billingPeriod !== '' ? 'Płatność rozliczeniowa: ' . $billingPeriod : '')
-        . system_subscription_mail_info_card('📅', 'Abonament ważny do', $periodText, system_subscription_mail_format_date($periodEnd) !== '' ? 'Aktywny do: ' . system_subscription_mail_format_date($periodEnd) : '')
+        . system_subscription_mail_info_card('📅', 'Abonament ważny do', system_subscription_mail_format_date($periodEnd))
         . system_subscription_mail_info_card('🏢', 'Firma', $companyName)
         . system_subscription_mail_info_card('🔗', 'Panel administratora', $panelUrl)
         . system_subscription_mail_button($panelUrl, 'Przejdź do panelu');

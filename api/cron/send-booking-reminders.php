@@ -150,6 +150,76 @@ function cron_booking_reminders_request(string $method, string $url, ?array $pay
     ];
 }
 
+function cron_booking_reminders_enqueue_v1(string $type): array
+{
+    if (!in_array($type, ['day_before', 'same_day'], true)) {
+        return [
+            'checked' => 0,
+            'enqueued' => 0,
+            'skipped' => 0,
+            'failed' => 1,
+        ];
+    }
+
+    [$supabaseUrl] = cron_booking_reminders_config();
+    $url = $supabaseUrl . '/rest/v1/rpc/booking_appointment_reminder_enqueue';
+    $rpc = cron_booking_reminders_request(
+        'POST',
+        $url,
+        [
+            'p_kind' => $type,
+            'p_limit' => 100,
+        ]
+    );
+
+    if (
+        $rpc['error']
+        || $rpc['http_code'] < 200
+        || $rpc['http_code'] >= 300
+        || !is_array($rpc['data'])
+    ) {
+        return [
+            'checked' => 0,
+            'enqueued' => 0,
+            'skipped' => 0,
+            'failed' => 1,
+        ];
+    }
+
+    $data = $rpc['data'];
+    $checked = $data['checked'] ?? null;
+    $enqueued = $data['enqueued'] ?? null;
+    $skipped = $data['skipped'] ?? null;
+
+    if (
+        ($data['kind'] ?? null) !== $type
+        || !is_int($checked)
+        || !is_int($enqueued)
+        || !is_int($skipped)
+        || $checked < 0
+        || $checked > 100
+        || $enqueued < 0
+        || $enqueued > $checked
+        || $skipped < 0
+        || $skipped > $checked
+        || ($enqueued + $skipped) !== $checked
+    ) {
+        return [
+            'checked' => 0,
+            'enqueued' => 0,
+            'skipped' => 0,
+            'failed' => 1,
+        ];
+    }
+
+    return [
+        'checked' => $checked,
+        'enqueued' => $enqueued,
+        'skipped' => $skipped,
+        'failed' => 0,
+    ];
+}
+
 function cron_booking_reminders_fetch_records(string $type, DateTimeImmutable $now): array
 {
     [$supabaseUrl] = cron_booking_reminders_config();
@@ -166,6 +236,7 @@ function cron_booking_reminders_fetch_records(string $type, DateTimeImmutable $n
         'select=id,tenant_id,booking_date,booking_time,name,email,service_name_snapshot,staff_id,status,payment_required,payment_status,' . $sentColumn,
         'booking_date=eq.' . rawurlencode($targetDate),
         $sentColumn . '=is.null',
+        'payment_lifecycle_version=is.null',
         'status=not.in.(cancelled,canceled,deleted,payment_overdue)',
         'or=(payment_required.eq.false,payment_status.eq.not_required,payment_status.eq.paid,status.eq.confirmed)',
         'order=booking_time.asc',
@@ -291,17 +362,31 @@ function cron_booking_reminders_process(string $type, DateTimeImmutable $now): a
         'type' => $type,
         'due' => $now->format('H:i') >= $threshold,
         'found' => 0,
+        'enqueued' => 0,
         'sent' => 0,
         'skipped' => 0,
         'failed' => 0,
+        'v1_checked' => 0,
+        'v1_enqueued' => 0,
+        'legacy_found' => 0,
+        'legacy_sent' => 0,
     ];
 
     if (!$result['due']) {
         return $result;
     }
 
+    $v1 = cron_booking_reminders_enqueue_v1($type);
+    $result['v1_checked'] = $v1['checked'];
+    $result['v1_enqueued'] = $v1['enqueued'];
+    $result['enqueued'] = $v1['enqueued'];
+    $result['found'] += $v1['checked'];
+    $result['skipped'] += $v1['skipped'];
+    $result['failed'] += $v1['failed'];
+
     $records = cron_booking_reminders_fetch_records($type, $now);
-    $result['found'] = count($records);
+    $result['legacy_found'] = count($records);
+    $result['found'] += count($records);
     $tenantConfigCache = [];
     $staffNameCache = [];
     $sentAt = $now->format(DateTimeInterface::ATOM);
@@ -359,6 +444,7 @@ function cron_booking_reminders_process(string $type, DateTimeImmutable $now): a
 
         if (cron_booking_reminders_update_sent_at($bookingId, $tenantId, $sentColumn, $sentAt)) {
             $result['sent']++;
+            $result['legacy_sent']++;
         } else {
             $result['failed']++;
         }

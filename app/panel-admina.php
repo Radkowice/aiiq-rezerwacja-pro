@@ -54,7 +54,7 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/admin-usluga-platnosci.js?v=20260805-1"></script>
   <script src="/assets/js/seo-google.js?v=6" defer></script>
   <script src="/assets/js/admin-dokumenty-prawne.js?v=1" defer></script>
-  <script src="/assets/js/admin-informacje.js?v=3" defer></script>
+  <script src="/assets/js/admin-informacje.js?v=4" defer></script>
 </head>
 <body class="tenant-theme app-loading">
   <div id="appLoader" class="app-loader" role="status" aria-live="polite" aria-hidden="false">

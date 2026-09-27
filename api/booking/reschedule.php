@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/supabase.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/booking_mail.php';
@@ -186,7 +187,7 @@ function reschedule_max_changes(): int
 
 function reschedule_limit_message(): string
 {
-    return 'Nie możesz już samodzielnie zmienić terminu tej rezerwacji. Skontaktuj się z obsługą.';
+    return 'Wykorzystałeś wszystkie dostępne zmiany rezerwacji (3/3).';
 }
 
 function reschedule_count_value(array $booking): int
@@ -197,6 +198,15 @@ function reschedule_count_value(array $booking): int
 function reschedule_limit_reached(array $booking): bool
 {
     return reschedule_count_value($booking) >= reschedule_max_changes();
+}
+
+function reschedule_success_message(array $booking): string
+{
+    if (reschedule_limit_reached($booking)) {
+        return 'Termin rezerwacji został zmieniony. Wykorzystałeś wszystkie dostępne zmiany rezerwacji (3/3).';
+    }
+
+    return 'Termin rezerwacji został zmieniony.';
 }
 
 function reschedule_payment_status_label($value): string
@@ -508,6 +518,7 @@ function reschedule_load_booking(string $supabaseUrl, string $key, string $schem
         'service_name_snapshot',
         'payment_required',
         'payment_status',
+        'payment_lifecycle_version',
         'payment_amount',
         'payment_currency',
         'google_event_id',
@@ -991,8 +1002,144 @@ function reschedule_availability(
     return array_values($slots);
 }
 
+function reschedule_v1_expected_revision(array $booking, string $date, string $time): int
+{
+    $currentRevision = reschedule_count_value($booking);
+
+    if (
+        $currentRevision > 0
+        && reschedule_is_same_booking_slot($booking, $date, $time)
+    ) {
+        return $currentRevision - 1;
+    }
+
+    return $currentRevision;
+}
+
+function reschedule_v1_idempotency_key(
+    string $tenantId,
+    array $booking,
+    int $expectedRevision,
+    string $date,
+    string $time
+): string {
+    $bookingId = trim((string) ($booking['id'] ?? ''));
+
+    return 'reschedule-v1:' . hash(
+        'sha256',
+        implode("\n", [
+            $tenantId,
+            $bookingId,
+            (string) $expectedRevision,
+            $date,
+            $time,
+        ])
+    );
+}
+
+function reschedule_apply_v1(
+    string $tenantId,
+    string $token,
+    array $booking,
+    string $date,
+    string $time
+): array {
+    $bookingId = trim((string) ($booking['id'] ?? ''));
+    $expectedRevision = reschedule_v1_expected_revision($booking, $date, $time);
+
+    if (
+        $bookingId === ''
+        || $expectedRevision < 0
+        || $expectedRevision > 2
+    ) {
+        return [
+            'ok' => false,
+            'retryable' => false,
+            'error_code' => 'reschedule_revision_invalid',
+            'status' => 409,
+            'data' => null,
+        ];
+    }
+
+    $rpc = payment_lifecycle_v3_rpc('booking_reschedule_apply', [
+        'p_tenant_id' => $tenantId,
+        'p_booking_id' => $bookingId,
+        'p_manage_token' => $token,
+        'p_idempotency_key' => reschedule_v1_idempotency_key(
+            $tenantId,
+            $booking,
+            $expectedRevision,
+            $date,
+            $time
+        ),
+        'p_expected_revision' => $expectedRevision,
+        'p_new_date' => $date,
+        'p_new_time' => $time,
+    ]);
+
+    if (empty($rpc['ok']) || !is_array($rpc['data'] ?? null)) {
+        $status = (int) ($rpc['status'] ?? 0);
+        $kind = trim((string) ($rpc['error_kind'] ?? ''));
+        $retryable = in_array($kind, [
+            'configuration_failure',
+            'transport_failure',
+            'malformed_response',
+        ], true)
+            || $status === 408
+            || $status === 429
+            || $status >= 500;
+
+        return [
+            'ok' => false,
+            'retryable' => $retryable,
+            'error_code' => 'reschedule_rpc_failed',
+            'status' => $status,
+            'data' => null,
+        ];
+    }
+
+    $data = $rpc['data'];
+    $returnedDate = trim((string) ($data['booking_date'] ?? ''));
+    $returnedTime = reschedule_normalize_time((string) ($data['booking_time'] ?? ''));
+    $returnedRevision = filter_var(
+        $data['reschedule_count'] ?? null,
+        FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 0, 'max_range' => 3]]
+    );
+
+    if (
+        ($data['rescheduled'] ?? false) !== true
+        || !is_bool($data['idempotent'] ?? null)
+        || $returnedDate !== $date
+        || $returnedTime !== $time
+        || $returnedRevision === false
+        || $returnedRevision !== $expectedRevision + 1
+        || trim((string) ($data['rescheduled_at'] ?? '')) === ''
+    ) {
+        return [
+            'ok' => false,
+            'retryable' => true,
+            'error_code' => 'reschedule_rpc_contract_invalid',
+            'status' => 502,
+            'data' => null,
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'retryable' => false,
+        'error_code' => '',
+        'status' => (int) ($rpc['status'] ?? 200),
+        'data' => $data,
+    ];
+}
+
 function reschedule_update_booking(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking, string $date, string $time): ?array
 {
+    if ((int) ($booking['payment_lifecycle_version'] ?? 0) === 1) {
+        return null;
+    }
+
     $bookingId = (string) ($booking['id'] ?? '');
     $rescheduleCount = (int) ($booking['reschedule_count'] ?? 0);
     $now = (new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw')))->format(DATE_ATOM);
@@ -1018,18 +1165,6 @@ function reschedule_update_booking(string $supabaseUrl, string $key, string $sch
 
     $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
     return is_array($rows[0] ?? null) ? $rows[0] : array_merge($booking, $payload);
-}
-
-function reschedule_insert_global_block(string $supabaseUrl, string $key, string $schema, string $tenantId, string $date, string $time): bool
-{
-    $payload = [
-        'tenant_id' => $tenantId,
-        'date' => $date,
-        'time' => $time,
-    ];
-
-    $result = reschedule_request('POST', rtrim($supabaseUrl, '/') . '/rest/v1/blocked_times', $key, $schema, $payload, true);
-    return $result['error'] === '' && $result['httpCode'] >= 200 && $result['httpCode'] < 300;
 }
 
 function reschedule_send_mail(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking): void
@@ -1206,7 +1341,7 @@ if ($method === 'GET') {
 
         reschedule_json([
             'success' => true,
-            'can_reschedule' => true,
+            'can_reschedule' => !$rescheduleLimitReached,
             'date' => $date,
             'date_label' => reschedule_format_date_label($date),
             'availableTimes' => reschedule_availability($supabaseUrl, $supabaseKey, $schema, $tenantId, $booking, $service, $date),
@@ -1221,15 +1356,167 @@ if ($method === 'GET') {
     ]);
 }
 
-if ($rescheduleLimitReached) {
-    reschedule_error(reschedule_limit_message(), 'reschedule_limit_reached', 409);
-}
-
 $newDate = trim((string) ($input['date'] ?? ''));
 $newTime = reschedule_normalize_time((string) ($input['time'] ?? ''));
 
 reschedule_validate_date($newDate);
 reschedule_validate_time($newTime);
+
+$newStart = reschedule_booking_start($newDate, $newTime);
+$now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));
+
+if (!$newStart || $newStart <= $now) {
+    reschedule_error('Wybierz przyszły termin rezerwacji.', 'new_slot_in_past', 409);
+}
+
+$lifecycleVersion = $booking['payment_lifecycle_version'] ?? null;
+$isLifecycleV1 = (int) ($lifecycleVersion ?? 0) === 1;
+$isLegacyLifecycle = $lifecycleVersion === null || (int) $lifecycleVersion === 0;
+
+if (!$isLifecycleV1 && !$isLegacyLifecycle) {
+    reschedule_security_event(
+        'booking_reschedule_state_invalid',
+        'unsupported_payment_lifecycle',
+        409,
+        'failed',
+        $booking,
+        $tenantId
+    );
+    reschedule_error('Nie można zmienić terminu tej rezerwacji w jej aktualnym stanie.', 'unsupported_booking_state', 409);
+}
+
+if ($isLifecycleV1) {
+    if (
+        reschedule_is_same_booking_slot($booking, $newDate, $newTime)
+        && reschedule_count_value($booking) === 0
+    ) {
+        reschedule_security_event(
+            'booking_reschedule_slot_conflict',
+            'slot_conflict',
+            409,
+            'failed',
+            $booking,
+            $tenantId
+        );
+        reschedule_error(
+            'Wybierz inny termin niż obecny. Nie można przełożyć rezerwacji na tę samą datę i godzinę.',
+            'same_booking_slot',
+            409
+        );
+    }
+
+    if (
+        !reschedule_is_same_booking_slot($booking, $newDate, $newTime)
+        && $rescheduleLimitReached
+    ) {
+        reschedule_error(reschedule_limit_message(), 'reschedule_limit_reached', 409);
+    }
+
+    $rpcResult = reschedule_apply_v1(
+        $tenantId,
+        $token,
+        $booking,
+        $newDate,
+        $newTime
+    );
+
+    if (empty($rpcResult['ok'])) {
+        $retryable = ($rpcResult['retryable'] ?? false) === true;
+        $statusCode = $retryable ? 503 : 409;
+
+        reschedule_security_event(
+            'booking_reschedule_rpc_failed',
+            $retryable ? 'rpc_temporarily_unavailable' : 'rpc_rejected',
+            $statusCode,
+            'failed',
+            $booking,
+            $tenantId
+        );
+
+        reschedule_error(
+            $retryable
+                ? 'Nie udało się teraz bezpiecznie potwierdzić zmiany terminu. Spróbuj ponownie.'
+                : 'Nie można zmienić terminu na wybraną datę i godzinę. Odśwież dostępne terminy i spróbuj ponownie.',
+            $retryable ? 'reschedule_temporarily_unavailable' : 'reschedule_conflict',
+            $statusCode
+        );
+    }
+
+    $updatedBooking = reschedule_load_booking(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $token
+    );
+
+    $rpcData = is_array($rpcResult['data'] ?? null) ? $rpcResult['data'] : [];
+    $expectedRevision = (int) ($rpcData['reschedule_count'] ?? -1);
+
+    if (
+        !is_array($updatedBooking)
+        || trim((string) ($updatedBooking['booking_date'] ?? '')) !== $newDate
+        || reschedule_normalize_time((string) ($updatedBooking['booking_time'] ?? '')) !== $newTime
+        || reschedule_count_value($updatedBooking) !== $expectedRevision
+    ) {
+        reschedule_security_event(
+            'booking_reschedule_verification_failed',
+            'post_rpc_read_verification_failed',
+            503,
+            'failed',
+            is_array($updatedBooking) ? $updatedBooking : $booking,
+            $tenantId
+        );
+        reschedule_error(
+            'Nie udało się potwierdzić aktualnego stanu rezerwacji. Odśwież stronę i spróbuj ponownie.',
+            'reschedule_verification_failed',
+            503
+        );
+    }
+
+    $updatedService = reschedule_load_service(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $updatedBooking
+    );
+    $updatedStaff = reschedule_load_staff(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $updatedBooking
+    );
+
+    reschedule_security_event(
+        'booking_reschedule_success',
+        !empty($rpcData['idempotent'])
+            ? 'booking_reschedule_idempotent_replay'
+            : 'booking_reschedule_success',
+        200,
+        'success',
+        $updatedBooking,
+        $tenantId
+    );
+
+    reschedule_json([
+        'success' => true,
+        'can_reschedule' => !reschedule_limit_reached($updatedBooking),
+        'message' => reschedule_success_message($updatedBooking),
+        'booking' => reschedule_booking_response(
+            $updatedBooking,
+            $updatedService,
+            $updatedStaff,
+            $tenantId,
+            $refSecret
+        ),
+    ]);
+}
+
+if ($rescheduleLimitReached) {
+    reschedule_error(reschedule_limit_message(), 'reschedule_limit_reached', 409);
+}
 
 if (reschedule_is_same_booking_slot($booking, $newDate, $newTime)) {
     reschedule_security_event(
@@ -1240,17 +1527,22 @@ if (reschedule_is_same_booking_slot($booking, $newDate, $newTime)) {
         $booking,
         $tenantId
     );
-    reschedule_error('Wybierz inny termin niż obecny. Nie można przełożyć rezerwacji na tę samą datę i godzinę.', 'same_booking_slot', 409);
+    reschedule_error(
+        'Wybierz inny termin niż obecny. Nie można przełożyć rezerwacji na tę samą datę i godzinę.',
+        'same_booking_slot',
+        409
+    );
 }
 
-$newStart = reschedule_booking_start($newDate, $newTime);
-$now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));
-
-if (!$newStart || $newStart <= $now) {
-    reschedule_error('Wybierz przyszły termin rezerwacji.', 'new_slot_in_past', 409);
-}
-
-$availableTimes = reschedule_availability($supabaseUrl, $supabaseKey, $schema, $tenantId, $booking, $service, $newDate);
+$availableTimes = reschedule_availability(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    $tenantId,
+    $booking,
+    $service,
+    $newDate
+);
 
 if (!in_array($newTime, $availableTimes, true)) {
     reschedule_security_event(
@@ -1269,14 +1561,18 @@ $oldTime = reschedule_normalize_time((string) ($booking['booking_time'] ?? ''));
 $previousLabel = trim(reschedule_format_date_label($oldDate) . ' ' . $oldTime);
 $newLabel = trim(reschedule_format_date_label($newDate) . ' ' . $newTime);
 
-$updatedBooking = reschedule_update_booking($supabaseUrl, $supabaseKey, $schema, $tenantId, $booking, $newDate, $newTime);
+$updatedBooking = reschedule_update_booking(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    $tenantId,
+    $booking,
+    $newDate,
+    $newTime
+);
 
 if (!$updatedBooking) {
     reschedule_error('Nie udało się zmienić terminu rezerwacji. Spróbuj ponownie.', 'update_failed', 500);
-}
-
-if (trim((string) ($booking['staff_id'] ?? '')) === '') {
-    reschedule_insert_global_block($supabaseUrl, $supabaseKey, $schema, $tenantId, $newDate, $newTime);
 }
 
 $mailBooking = array_merge($booking, $updatedBooking, [
@@ -1284,15 +1580,30 @@ $mailBooking = array_merge($booking, $updatedBooking, [
     'new_date_label' => $newLabel,
     'service_name_snapshot' => (string) ($service['name'] ?? $booking['service_name_snapshot'] ?? ''),
     'staff_display_name' => is_array($staff) ? (string) ($staff['display_name'] ?? '') : '',
-    'payment_status_label' => reschedule_payment_status_label($updatedBooking['payment_status'] ?? $booking['payment_status'] ?? ''),
+    'payment_status_label' => reschedule_payment_status_label(
+        $updatedBooking['payment_status'] ?? $booking['payment_status'] ?? ''
+    ),
 ]);
 
 $googleBooking = array_merge($mailBooking, [
-    'duration_minutes' => reschedule_google_duration_minutes($supabaseUrl, $supabaseKey, $schema, $tenantId, $mailBooking, $service),
+    'duration_minutes' => reschedule_google_duration_minutes(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $tenantId,
+        $mailBooking,
+        $service
+    ),
     'reschedule_limit' => reschedule_max_changes(),
 ]);
 
-$googleSyncOk = reschedule_sync_google_calendar($supabaseUrl, $supabaseKey, $schema, $tenantId, $googleBooking);
+$googleSyncOk = reschedule_sync_google_calendar(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    $tenantId,
+    $googleBooking
+);
 
 if (!$googleSyncOk) {
     reschedule_security_event(
@@ -1321,7 +1632,7 @@ reschedule_security_event(
 
 reschedule_json([
     'success' => true,
-    'can_reschedule' => true,
-    'message' => 'Termin rezerwacji został zmieniony.',
+    'can_reschedule' => !reschedule_limit_reached($updatedBooking),
+    'message' => reschedule_success_message($updatedBooking),
     'booking' => reschedule_booking_response($updatedBooking, $updatedService, $updatedStaff, $tenantId, $refSecret),
 ]);

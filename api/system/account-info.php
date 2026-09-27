@@ -166,7 +166,44 @@ function account_info_money_label($amount, ?string $currency): string
     return trim(number_format((float) $amount, 2, ',', ' ') . ' ' . $displayCurrency);
 }
 
-function account_info_subscription_notice(?array $subscription, ?array $lastPaidPro = null): array
+function account_info_subscription_amount_label(array $subscription, ?array $lastPaidPayment): string
+{
+    $planCode = strtolower(trim((string) ($subscription['plan_code'] ?? 'free')));
+    $currency = (string) ($subscription['currency'] ?? 'PLN');
+
+    if ($planCode === 'free') {
+        return account_info_money_label($subscription['amount'] ?? null, $currency);
+    }
+
+    if (is_array($lastPaidPayment)) {
+        $paymentPlanCode = strtolower(trim((string) ($lastPaidPayment['plan_code'] ?? '')));
+
+        if ($paymentPlanCode === $planCode) {
+            $netAmount = $lastPaidPayment['net_amount'] ?? null;
+
+            if (is_numeric($netAmount) && (float) $netAmount >= 0) {
+                return account_info_money_label($netAmount, $lastPaidPayment['currency'] ?? $currency) . ' netto';
+            }
+
+            $grossAmount = $lastPaidPayment['amount'] ?? null;
+            $vatRate = $lastPaidPayment['vat_rate'] ?? null;
+
+            if (is_numeric($grossAmount) && is_numeric($vatRate) && (float) $vatRate >= 0) {
+                $divisor = 1 + ((float) $vatRate / 100);
+
+                if ($divisor > 0) {
+                    $derivedNet = round(((float) $grossAmount) / $divisor, 2);
+                    return account_info_money_label($derivedNet, $lastPaidPayment['currency'] ?? $currency) . ' netto';
+                }
+            }
+        }
+    }
+
+    // Historyczne płatności bez snapshotu VAT nie są rekonstruowane na podstawie zgadywanej stawki.
+    return account_info_money_label($subscription['amount'] ?? null, $currency);
+}
+
+function account_info_subscription_notice(?array $subscription, ?array $lastPaidPayment = null): array
 {
     if (!is_array($subscription)) {
         return [
@@ -195,8 +232,8 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
     $status = strtolower(trim((string) ($subscription['status'] ?? 'active')));
     $periodStart = account_info_date_start($subscription['current_period_start'] ?? null);
     $periodEnd = account_info_date_start($subscription['current_period_end'] ?? null);
-    $lastPaidProEnd = is_array($lastPaidPro)
-        ? account_info_date_start($lastPaidPro['subscription_period_end'] ?? null)
+    $lastPaidPlanEnd = is_array($lastPaidPayment)
+        ? account_info_date_start($lastPaidPayment['subscription_period_end'] ?? null)
         : null;
     $nextPaymentDue = account_info_date_start($subscription['next_payment_due_at'] ?? null);
     $daysLeft = account_info_days_until($periodEnd);
@@ -204,7 +241,7 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
         ? (int) $subscription['grace_period_days']
         : 0;
     $graceDays = $configuredGraceDays > 0 ? $configuredGraceDays : 90;
-    $graceBase = $periodEnd ?: $nextPaymentDue ?: $lastPaidProEnd;
+    $graceBase = $periodEnd ?: $nextPaymentDue ?: $lastPaidPlanEnd;
     $graceDaysLeft = null;
 
     if ($graceBase && $graceDays !== null) {
@@ -214,7 +251,7 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
 
     $periodEndLabel = $periodEnd
         ? account_info_format_date_label($subscription['current_period_end'] ?? null)
-        : account_info_format_date_label($lastPaidPro['subscription_period_end'] ?? null);
+        : account_info_format_date_label($lastPaidPayment['subscription_period_end'] ?? null);
     $graceDaysLabel = account_info_days_label($graceDays);
     $activePlanSubject = $activePlanName !== '' ? 'Twój plan ' . $activePlanName : 'Twój abonament';
     $activePlanFeatures = $activePlanName !== '' ? 'funkcje planu ' . $activePlanName : 'funkcje abonamentu';
@@ -229,7 +266,7 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
         'current_period_start_label' => account_info_format_date_label($subscription['current_period_start'] ?? null),
         'current_period_end_label' => $periodEndLabel,
         'next_payment_due_at_label' => account_info_format_date_label($subscription['next_payment_due_at'] ?? null),
-        'amount_label' => account_info_money_label($subscription['amount'] ?? null, $subscription['currency'] ?? null),
+        'amount_label' => account_info_subscription_amount_label($subscription, $lastPaidPayment),
         'billing_period_label' => $planCode === 'free' ? 'Nie dotyczy' : account_info_billing_period_label($subscription['billing_period'] ?? null),
         'status_label' => account_info_status_label($status),
         'days_left_label' => $daysLeft !== null ? account_info_days_label($daysLeft) : '—',
@@ -241,8 +278,8 @@ function account_info_subscription_notice(?array $subscription, ?array $lastPaid
     ];
 
     if ($planCode === 'free') {
-        if ($lastPaidProEnd) {
-            $lastProDaysLeft = account_info_days_until($lastPaidProEnd);
+        if ($lastPaidPlanEnd) {
+            $lastProDaysLeft = account_info_days_until($lastPaidPlanEnd);
 
             if ($lastProDaysLeft !== null && $lastProDaysLeft < 0) {
                 if ($graceDaysLeft !== null && $graceDaysLeft >= 0) {
@@ -479,18 +516,25 @@ if (!$subscriptionResult['ok']) {
 }
 
 $subscription = $subscriptionResult['data'][0] ?? null;
-$lastPaidProUrl = $supabaseUrl
-    . '/rest/v1/tenant_subscription_payments?select=plan_code,status,paid_at,subscription_period_start,subscription_period_end,billing_period,amount,currency'
+$subscriptionPlanCode = is_array($subscription)
+    ? strtolower(trim((string) ($subscription['plan_code'] ?? 'free')))
+    : 'free';
+$paidPlanLookupCode = in_array($subscriptionPlanCode, ['pro', 'vip', 'business'], true)
+    ? $subscriptionPlanCode
+    : 'pro';
+
+$lastPaidPlanUrl = $supabaseUrl
+    . '/rest/v1/tenant_subscription_payments?select=plan_code,status,paid_at,subscription_period_start,subscription_period_end,billing_period,amount,net_amount,vat_rate,vat_amount,currency'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
-    . '&plan_code=eq.pro'
+    . '&plan_code=eq.' . rawurlencode($paidPlanLookupCode)
     . '&status=eq.paid'
     . '&order=subscription_period_end.desc.nullslast'
     . '&limit=1';
 
-$lastPaidProResult = account_info_request('GET', $lastPaidProUrl, $headers);
-$lastPaidPro = $lastPaidProResult['ok'] ? ($lastPaidProResult['data'][0] ?? null) : null;
+$lastPaidPlanResult = account_info_request('GET', $lastPaidPlanUrl, $headers);
+$lastPaidPlanPayment = $lastPaidPlanResult['ok'] ? ($lastPaidPlanResult['data'][0] ?? null) : null;
 $planContext = plan_features_get_context($tenantId);
-$subscriptionNotice = account_info_subscription_notice(is_array($subscription) ? $subscription : null, is_array($lastPaidPro) ? $lastPaidPro : null);
+$subscriptionNotice = account_info_subscription_notice(is_array($subscription) ? $subscription : null, is_array($lastPaidPlanPayment) ? $lastPaidPlanPayment : null);
 
 account_info_json(200, [
     'success' => true,

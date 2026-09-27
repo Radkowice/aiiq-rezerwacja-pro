@@ -147,7 +147,7 @@
       return start ? `Od ${formatDate(start)}` : 'Bezterminowo';
     }
 
-    return `${formatDate(start)} – ${formatDate(end)}`;
+    return formatDate(end);
   }
 
   function formatDaysLeft(value) {

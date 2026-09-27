@@ -228,7 +228,21 @@ function booking_email_worker_payload_valid($payload): bool
         return false;
     }
 
-    foreach (['customer_name', 'service_name', 'booking_date', 'booking_time', 'amount', 'currency'] as $key) {
+    foreach ([
+        'customer_name',
+        'service_name',
+        'booking_date',
+        'booking_time',
+        'schedule_revision',
+        'amount',
+        'currency',
+        'previous_booking_date',
+        'previous_booking_time',
+        'new_booking_date',
+        'new_booking_time',
+        'previous_date_label',
+        'new_date_label',
+    ] as $key) {
         if (!array_key_exists($key, $payload) || $payload[$key] === null) {
             continue;
         }
@@ -258,7 +272,7 @@ function booking_email_worker_fetch_context(
         'bookings',
         'select=id,tenant_id,name,email,phone,booking_date,booking_time,service_name_snapshot,staff_id,'
             . 'payment_amount,payment_currency,payment_status,status,payment_url,payment_expires_at,'
-            . 'manage_token,manage_token_expires_at'
+            . 'manage_token,manage_token_expires_at,reschedule_count'
             . '&' . $tenantQuery
             . '&id=eq.' . rawurlencode($bookingId),
         true
@@ -451,6 +465,46 @@ function booking_email_worker_fetch_context(
                 if ($candidateDomain !== '' && preg_match('/\A[a-z0-9.-]+\z/D', $candidateDomain) === 1) {
                     $tenantDomain = $candidateDomain;
                 }
+            }
+        }
+    }
+
+
+    if (in_array($eventType, ['booking_rescheduled_customer', 'booking_rescheduled_admin'], true)) {
+        $staffId = trim((string) ($booking['staff_id'] ?? ''));
+
+        if ($staffId !== '') {
+            if (!booking_email_worker_safe_text($staffId, 128)) {
+                return [
+                    'ok' => false,
+                    'retryable' => false,
+                    'error_code' => 'email_context_invalid',
+                ];
+            }
+
+            $staffResult = booking_email_worker_single(
+                $config,
+                'staff_profiles',
+                'select=id,tenant_id,display_name'
+                    . '&' . $tenantQuery
+                    . '&id=eq.' . rawurlencode($staffId)
+            );
+
+            if (!$staffResult['ok']) {
+                return $staffResult;
+            }
+
+            $staff = $staffResult['row'];
+
+            if (is_array($staff) && (
+                (string) ($staff['tenant_id'] ?? '') !== $tenantId
+                || (string) ($staff['id'] ?? '') !== $staffId
+            )) {
+                return [
+                    'ok' => false,
+                    'retryable' => false,
+                    'error_code' => 'email_context_binding_invalid',
+                ];
             }
         }
     }
@@ -667,6 +721,147 @@ function booking_email_worker_render_paid_customer(
         . ($amountText !== '' ? "Kwota: {$amountText}\n" : '')
         . ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '')
         . ($rescheduleUrl !== '' ? "\nPrzełóż rezerwację: {$rescheduleUrl}\n" : '');
+
+    return [
+        'ok' => true,
+        'retryable' => false,
+        'error_code' => '',
+        'subject' => $subject,
+        'html' => $html,
+        'alt' => $alt,
+    ];
+}
+
+
+function booking_email_worker_render_rescheduled(
+    string $eventType,
+    string $recipientEmail,
+    array $context
+): array {
+    $booking = $context['booking'];
+    $settings = $context['email_settings'];
+    $branding = $context['branding'];
+    $serviceSettings = $context['service_settings'];
+    $payload = is_array($context['outbox_payload'] ?? null)
+        ? $context['outbox_payload']
+        : [];
+    $staff = is_array($context['staff'] ?? null) ? $context['staff'] : null;
+
+    if ($eventType === 'booking_rescheduled_customer') {
+        if (!is_array($settings) || ($settings['send_client_confirmation'] ?? false) !== true) {
+            return [
+                'ok' => false,
+                'retryable' => false,
+                'error_code' => 'client_confirmation_disabled',
+            ];
+        }
+    } elseif ($eventType === 'booking_rescheduled_admin') {
+        if (!is_array($settings) || ($settings['send_admin_notification'] ?? false) !== true) {
+            return [
+                'ok' => false,
+                'retryable' => false,
+                'error_code' => 'admin_notification_disabled',
+            ];
+        }
+    } else {
+        return [
+            'ok' => false,
+            'retryable' => false,
+            'error_code' => 'unsupported_email_type',
+        ];
+    }
+
+    $previousDate = trim((string) ($payload['previous_date_label'] ?? ''));
+    $newDate = trim((string) ($payload['new_date_label'] ?? ''));
+    $revision = filter_var(
+        $payload['schedule_revision'] ?? null,
+        FILTER_VALIDATE_INT,
+        ['options' => ['min_range' => 1, 'max_range' => 3]]
+    );
+
+    if (
+        $previousDate === ''
+        || $newDate === ''
+        || strlen($previousDate) > 64
+        || strlen($newDate) > 64
+        || preg_match('/[\x00-\x1F\x7F]/', $previousDate) === 1
+        || preg_match('/[\x00-\x1F\x7F]/', $newDate) === 1
+        || $revision === false
+    ) {
+        return [
+            'ok' => false,
+            'retryable' => false,
+            'error_code' => 'reschedule_payload_invalid',
+        ];
+    }
+
+    $serviceName = trim((string) ($booking['service_name_snapshot'] ?? ''));
+    $staffName = $staff !== null ? trim((string) ($staff['display_name'] ?? '')) : '';
+    $companyName = trim((string) ($branding['client_name'] ?? ''));
+
+    if ($companyName === '') {
+        $companyName = trim((string) ($serviceSettings['company_full_name'] ?? ''));
+    }
+
+    $subjectSuffix = $serviceName !== '' ? ': ' . $serviceName : '';
+    $previousEscaped = htmlspecialchars($previousDate, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $newEscaped = htmlspecialchars($newDate, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $staffEscaped = htmlspecialchars($staffName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $companyEscaped = htmlspecialchars($companyName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+
+    if ($eventType === 'booking_rescheduled_customer') {
+        $customerRescheduleNotice = (int) $revision >= 3
+            ? '<p style="margin:18px 0 0;color:#374151;line-height:1.6;"><strong>To jest ostatnia zmiana rezerwacji.</strong></p>'
+            : '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Możliwość zmian rezerwacji: <strong>'
+                . (int) $revision . '/3</strong>.</p>';
+
+        $subject = 'Zmiana terminu rezerwacji' . $subjectSuffix;
+        $title = 'Zmiana terminu rezerwacji';
+        $preheader = 'Termin Twojej rezerwacji został zmieniony.';
+        $message = '<p style="margin:0 0 14px;"><strong>Termin Twojej rezerwacji został zmieniony.</strong></p>'
+            . booking_email_worker_summary_html($booking, false)
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Poprzedni termin: <strong>'
+            . $previousEscaped
+            . '</strong></p>'
+            . '<p style="margin:8px 0 0;color:#374151;line-height:1.6;">Nowy termin: <strong>'
+            . $newEscaped
+            . '</strong></p>'
+            . ($staffName !== ''
+                ? '<p style="margin:8px 0 0;color:#374151;line-height:1.6;">Osoba obsługująca: <strong>'
+                    . $staffEscaped . '</strong></p>'
+                : '')
+            . $customerRescheduleNotice
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Jeżeli rezerwacja była już opłacona, płatność pozostaje bez zmian.</p>';
+        $footer = $companyName !== ''
+            ? 'Wiadomość dotycząca rezerwacji w ' . $companyEscaped . '.'
+            : 'Wiadomość dotycząca Twojej rezerwacji.';
+    } else {
+        $subject = 'Klient zmienił termin rezerwacji' . $subjectSuffix;
+        $title = 'Klient zmienił termin rezerwacji';
+        $preheader = 'Klient samodzielnie zmienił termin przez link z wiadomości e-mail.';
+        $message = '<p style="margin:0 0 14px;"><strong>Klient samodzielnie zmienił termin rezerwacji.</strong></p>'
+            . booking_email_worker_summary_html($booking, true)
+            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Poprzedni termin: <strong>'
+            . $previousEscaped
+            . '</strong></p>'
+            . '<p style="margin:8px 0 0;color:#374151;line-height:1.6;">Nowy termin: <strong>'
+            . $newEscaped
+            . '</strong></p>'
+            . ($staffName !== ''
+                ? '<p style="margin:8px 0 0;color:#374151;line-height:1.6;">Osoba obsługująca: <strong>'
+                    . $staffEscaped . '</strong></p>'
+                : '')
+            . '<p style="margin:8px 0 0;color:#374151;line-height:1.6;">Liczba zmian terminu: <strong>'
+            . (int) $revision . ' z 3</strong>.</p>';
+        $footer = 'Powiadomienie administracyjne dotyczące zmiany terminu rezerwacji.';
+    }
+
+    $html = buildSystemMailLayout($title, $preheader, $message, $footer);
+    $alt = trim(html_entity_decode(
+        strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $message)),
+        ENT_QUOTES | ENT_HTML5,
+        'UTF-8'
+    ));
 
     return [
         'ok' => true,
@@ -913,6 +1108,14 @@ function booking_email_worker_render(
         );
     }
 
+    if (in_array($eventType, ['booking_rescheduled_customer', 'booking_rescheduled_admin'], true)) {
+        return booking_email_worker_render_rescheduled(
+            $eventType,
+            $recipientEmail,
+            $context
+        );
+    }
+
     return booking_email_worker_render_generic(
         $eventType,
         $recipientEmail,
@@ -1043,6 +1246,8 @@ try {
             'booking_created_admin',
             'appointment_reminder_day_before',
             'appointment_reminder_same_day',
+            'booking_rescheduled_customer',
+            'booking_rescheduled_admin',
         ];
         $systemChannelEvents = [
             'payment_expired_admin',
@@ -1052,7 +1257,6 @@ try {
             'calendar_review_admin',
         ];
         $deferredEvents = [
-            'booking_rescheduled_customer',
             'booking_staff_changed_customer',
             'booking_staff_detached_customer',
         ];
@@ -1147,6 +1351,7 @@ try {
             continue;
         }
 
+        $context['outbox_payload'] = $payload;
         $booking = $context['booking'];
         $currentPaymentStatus = strtolower(trim((string) ($booking['payment_status'] ?? '')));
         $currentBookingStatus = strtolower(trim((string) ($booking['status'] ?? '')));
@@ -1154,7 +1359,11 @@ try {
         $stateValid = match ($eventType) {
             'payment_pending_customer', 'payment_reminder_customer' =>
                 $currentPaymentStatus === 'pending' && $currentBookingStatus === 'pending_payment',
-            'payment_paid_customer', 'appointment_reminder_day_before', 'appointment_reminder_same_day' =>
+            'payment_paid_customer',
+            'appointment_reminder_day_before',
+            'appointment_reminder_same_day',
+            'booking_rescheduled_customer',
+            'booking_rescheduled_admin' =>
                 $currentPaymentStatus === 'paid' && $currentBookingStatus === 'confirmed',
             'payment_expired_customer', 'payment_expired_admin' =>
                 $currentPaymentStatus === 'expired',
@@ -1186,6 +1395,7 @@ try {
             'payment_expired_customer',
             'appointment_reminder_day_before',
             'appointment_reminder_same_day',
+            'booking_rescheduled_customer',
         ], true)) {
             $currentRecipient = strtolower(trim((string) ($booking['email'] ?? '')));
 

@@ -43,7 +43,7 @@
           </div>
 
           <div class="admin-info-row">
-            <span>Ważność abonamentu</span>
+            <span>Abonament ważny do</span>
             <strong id="info-current-period">—</strong>
           </div>
 
@@ -104,6 +104,8 @@
             </span>
           </label>
         </div>
+
+        <p class="pro-upgrade-note">* Ceny netto.</p>
 
         <label class="pro-upgrade-consent">
           <input type="checkbox" id="pro-upgrade-consent">
