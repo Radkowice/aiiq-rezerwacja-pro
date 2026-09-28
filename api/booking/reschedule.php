@@ -135,6 +135,46 @@ function reschedule_fetch_single(string $supabaseUrl, string $key, string $schem
     return is_array($rows[0] ?? null) ? $rows[0] : null;
 }
 
+function reschedule_fetch_rows_required(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $table,
+    array $query,
+    string $publicMessage = 'Nie udało się sprawdzić dostępności.',
+    string $errorCode = 'availability_lookup_failed'
+): array {
+    $rows = reschedule_fetch_rows($supabaseUrl, $key, $schema, $table, $query);
+
+    if (!is_array($rows)) {
+        reschedule_error($publicMessage, $errorCode, 500);
+    }
+
+    return $rows;
+}
+
+function reschedule_fetch_single_required(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $table,
+    array $query,
+    string $publicMessage = 'Nie udało się sprawdzić dostępności.',
+    string $errorCode = 'availability_lookup_failed'
+): ?array {
+    $rows = reschedule_fetch_rows_required(
+        $supabaseUrl,
+        $key,
+        $schema,
+        $table,
+        array_merge($query, ['limit=1']),
+        $publicMessage,
+        $errorCode
+    );
+
+    return is_array($rows[0] ?? null) ? $rows[0] : null;
+}
+
 function reschedule_read_json_input(): array
 {
     $input = json_decode(file_get_contents('php://input') ?: '{}', true);
@@ -641,10 +681,10 @@ function reschedule_load_staff(string $supabaseUrl, string $key, string $schema,
 
 function reschedule_load_calendar(string $supabaseUrl, string $key, string $schema, string $tenantId): array
 {
-    $calendar = reschedule_fetch_single($supabaseUrl, $key, $schema, 'calendar_settings', [
+    $calendar = reschedule_fetch_single_required($supabaseUrl, $key, $schema, 'calendar_settings', [
         'select=' . rawurlencode('work_start,work_end,consultation_duration,consultation_break,booking_buffer,booking_start_month_offset,booking_month_range'),
         'tenant_id=eq.' . rawurlencode($tenantId),
-    ]);
+    ], 'Nie udało się pobrać ustawień kalendarza.', 'calendar_lookup_failed');
 
     return is_array($calendar) ? $calendar : [];
 }
@@ -680,10 +720,10 @@ function reschedule_booking_response(array $booking, array $service, ?array $sta
 
 function reschedule_load_block_settings(string $supabaseUrl, string $key, string $schema, string $tenantId): array
 {
-    $row = reschedule_fetch_single($supabaseUrl, $key, $schema, 'block_settings', [
+    $row = reschedule_fetch_single_required($supabaseUrl, $key, $schema, 'block_settings', [
         'select=' . rawurlencode('block_saturdays,block_sundays,block_holidays'),
         'tenant_id=eq.' . rawurlencode($tenantId),
-    ]);
+    ], 'Nie udało się pobrać ustawień blokad.', 'block_settings_lookup_failed');
 
     return [
         'block_saturdays' => !empty($row['block_saturdays'] ?? false),
@@ -737,14 +777,14 @@ function reschedule_load_availability_exception_dates(string $supabaseUrl, strin
         ? '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')'
         : '&staff_id=is.null';
 
-    $rows = reschedule_fetch_rows($supabaseUrl, $key, $schema, 'availability_exceptions', [
+    $rows = reschedule_fetch_rows_required($supabaseUrl, $key, $schema, 'availability_exceptions', [
         'select=' . rawurlencode('date,allow_booking,staff_id'),
         'tenant_id=eq.' . rawurlencode($tenantId),
         'date=eq.' . rawurlencode($date) . $staffFilter,
         'allow_booking=eq.true',
-    ]);
+    ], 'Nie udało się sprawdzić wyjątków dostępności.', 'availability_exceptions_lookup_failed');
 
-    return is_array($rows) ? $rows : [];
+    return $rows;
 }
 
 function reschedule_has_availability_exception(string $supabaseUrl, string $key, string $schema, string $tenantId, string $date, string $staffId): bool
@@ -786,12 +826,12 @@ function reschedule_service_relation_exists(string $supabaseUrl, string $key, st
         return true;
     }
 
-    $relation = reschedule_fetch_single($supabaseUrl, $key, $schema, 'tenant_service_staff', [
+    $relation = reschedule_fetch_single_required($supabaseUrl, $key, $schema, 'tenant_service_staff', [
         'select=staff_id',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'service_id=eq.' . rawurlencode($serviceId),
         'staff_id=eq.' . rawurlencode($staffId),
-    ]);
+    ], 'Nie udało się sprawdzić powiązania osoby z usługą.', 'staff_service_lookup_failed');
 
     return is_array($relation);
 }
@@ -862,23 +902,23 @@ function reschedule_availability(
         $staffFilter = '&staff_id=is.null';
     }
 
-    $blockedDate = reschedule_fetch_single($supabaseUrl, $key, $schema, 'blocked_dates', [
+    $blockedDate = reschedule_fetch_single_required($supabaseUrl, $key, $schema, 'blocked_dates', [
         'select=date',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'date=eq.' . rawurlencode($date) . $staffFilter,
-    ]);
+    ], 'Nie udało się sprawdzić blokady daty.', 'blocked_dates_lookup_failed');
 
     if (!$hasAvailabilityException && is_array($blockedDate)) {
         return [];
     }
 
-    $blockedTimes = reschedule_fetch_rows($supabaseUrl, $key, $schema, 'blocked_times', [
+    $blockedTimes = reschedule_fetch_rows_required($supabaseUrl, $key, $schema, 'blocked_times', [
         'select=time,staff_id',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'date=eq.' . rawurlencode($date) . $staffFilter,
-    ]);
+    ], 'Nie udało się sprawdzić blokad godzinowych.', 'blocked_times_lookup_failed');
 
-    if (is_array($blockedTimes) && !empty($blockedTimes)) {
+    if (!empty($blockedTimes)) {
         $globalBlockedTimes = [];
         $staffBlockedTimes = [];
         $oldDate = trim((string) ($booking['booking_date'] ?? ''));
@@ -931,7 +971,15 @@ function reschedule_availability(
         $bookingQuery[] = 'staff_id=is.null';
     }
 
-    $bookings = reschedule_fetch_rows($supabaseUrl, $key, $schema, 'bookings', $bookingQuery);
+    $bookings = reschedule_fetch_rows_required(
+        $supabaseUrl,
+        $key,
+        $schema,
+        'bookings',
+        $bookingQuery,
+        'Nie udało się sprawdzić zajętych terminów.',
+        'bookings_lookup_failed'
+    );
 
     if (is_array($bookings)) {
         $occupied = [];
@@ -947,11 +995,11 @@ function reschedule_availability(
         }
 
         if (!empty($serviceIds)) {
-            $serviceRows = reschedule_fetch_rows($supabaseUrl, $key, $schema, 'tenant_services', [
+            $serviceRows = reschedule_fetch_rows_required($supabaseUrl, $key, $schema, 'tenant_services', [
                 'select=' . rawurlencode('id,duration_minutes,break_minutes,booking_buffer_minutes'),
                 'tenant_id=eq.' . rawurlencode($tenantId),
                 'id=in.(' . implode(',', array_map('rawurlencode', array_keys($serviceIds))) . ')',
-            ]);
+            ], 'Nie udało się pobrać ustawień usług dla zajętych terminów.', 'service_settings_lookup_failed');
 
             if (is_array($serviceRows)) {
                 foreach ($serviceRows as $serviceRow) {
@@ -1134,14 +1182,19 @@ function reschedule_apply_v1(
     ];
 }
 
-function reschedule_update_booking(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking, string $date, string $time): ?array
+function reschedule_update_booking(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking, string $date, string $time): array
 {
     if ((int) ($booking['payment_lifecycle_version'] ?? 0) === 1) {
-        return null;
+        return [
+            'ok' => false,
+            'conflict' => false,
+            'booking' => null,
+        ];
     }
 
     $bookingId = (string) ($booking['id'] ?? '');
-    $rescheduleCount = (int) ($booking['reschedule_count'] ?? 0);
+    $rescheduleCountRaw = $booking['reschedule_count'] ?? null;
+    $rescheduleCount = (int) ($rescheduleCountRaw ?? 0);
     $now = (new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw')))->format(DATE_ATOM);
 
     $payload = [
@@ -1157,14 +1210,37 @@ function reschedule_update_booking(string $supabaseUrl, string $key, string $sch
         . '?tenant_id=eq.' . rawurlencode($tenantId)
         . '&id=eq.' . rawurlencode($bookingId);
 
+    if ($rescheduleCountRaw === null || $rescheduleCountRaw === '') {
+        $url .= '&reschedule_count=is.null';
+    } else {
+        $url .= '&reschedule_count=eq.' . rawurlencode((string) $rescheduleCount);
+    }
+
     $result = reschedule_request('PATCH', $url, $key, $schema, $payload);
 
     if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] < 200 || $result['httpCode'] >= 300) {
-        return null;
+        return [
+            'ok' => false,
+            'conflict' => false,
+            'booking' => null,
+        ];
     }
 
     $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
-    return is_array($rows[0] ?? null) ? $rows[0] : array_merge($booking, $payload);
+
+    if (count($rows) !== 1 || !is_array($rows[0])) {
+        return [
+            'ok' => false,
+            'conflict' => true,
+            'booking' => null,
+        ];
+    }
+
+    return [
+        'ok' => true,
+        'conflict' => false,
+        'booking' => $rows[0],
+    ];
 }
 
 function reschedule_send_mail(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking): void
@@ -1561,7 +1637,7 @@ $oldTime = reschedule_normalize_time((string) ($booking['booking_time'] ?? ''));
 $previousLabel = trim(reschedule_format_date_label($oldDate) . ' ' . $oldTime);
 $newLabel = trim(reschedule_format_date_label($newDate) . ' ' . $newTime);
 
-$updatedBooking = reschedule_update_booking(
+$updateResult = reschedule_update_booking(
     $supabaseUrl,
     $supabaseKey,
     $schema,
@@ -1571,8 +1647,33 @@ $updatedBooking = reschedule_update_booking(
     $newTime
 );
 
-if (!$updatedBooking) {
+if (empty($updateResult['ok'])) {
+    if (($updateResult['conflict'] ?? false) === true) {
+        reschedule_security_event(
+            'booking_reschedule_revision_conflict',
+            'legacy_revision_conflict',
+            409,
+            'failed',
+            $booking,
+            $tenantId
+        );
+
+        reschedule_error(
+            'Rezerwacja została w międzyczasie zmieniona. Odśwież stronę i spróbuj ponownie.',
+            'reschedule_revision_conflict',
+            409
+        );
+    }
+
     reschedule_error('Nie udało się zmienić terminu rezerwacji. Spróbuj ponownie.', 'update_failed', 500);
+}
+
+$updatedBooking = is_array($updateResult['booking'] ?? null)
+    ? $updateResult['booking']
+    : null;
+
+if (!$updatedBooking) {
+    reschedule_error('Nie udało się potwierdzić zmiany terminu rezerwacji. Spróbuj ponownie.', 'update_verification_failed', 503);
 }
 
 $mailBooking = array_merge($booking, $updatedBooking, [

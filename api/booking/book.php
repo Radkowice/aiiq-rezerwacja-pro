@@ -1522,11 +1522,6 @@ function booking_effective_min_notice_minutes(?int $serviceBufferMinutes, int $g
 function booking_slot_respects_buffer(string $date, string $time, int $bufferMinutes): bool
 {
     $bufferMinutes = max(0, $bufferMinutes);
-
-    if ($bufferMinutes <= 0) {
-        return true;
-    }
-
     $timezone = new DateTimeZone('Europe/Warsaw');
     $slotTime = substr($time, 0, 5);
     $slotDateTime = DateTimeImmutable::createFromFormat(
@@ -1543,6 +1538,51 @@ function booking_slot_respects_buffer(string $date, string $time, int $bufferMin
     $minAllowedDateTime = $now->modify('+' . $bufferMinutes . ' minutes');
 
     return $slotDateTime >= $minAllowedDateTime;
+}
+
+function booking_date_within_calendar_range(string $date, array $calendarSettings): bool
+{
+    $timezone = new DateTimeZone('Europe/Warsaw');
+    $candidate = DateTimeImmutable::createFromFormat('!Y-m-d', $date, $timezone);
+
+    if (!$candidate instanceof DateTimeImmutable || $candidate->format('Y-m-d') !== $date) {
+        return false;
+    }
+
+    $today = new DateTimeImmutable('today', $timezone);
+    $startOffset = max(0, (int)($calendarSettings['booking_start_month_offset'] ?? 0));
+    $monthRange = max(1, (int)($calendarSettings['booking_month_range'] ?? 1));
+    $minMonth = $today->modify('first day of this month')->modify('+' . $startOffset . ' months');
+    $maxDate = $minMonth->modify('+' . ($monthRange - 1) . ' months')->modify('last day of this month');
+    $minDate = $minMonth > $today ? $minMonth : $today;
+
+    return $candidate >= $minDate && $candidate <= $maxDate;
+}
+
+function booking_calendar_slot_matches_schedule(array $calendarSettings, string $time, int $duration, int $break): bool
+{
+    $workStart = substr(trim((string)($calendarSettings['work_start'] ?? '09:00')), 0, 5);
+    $workEnd = substr(trim((string)($calendarSettings['work_end'] ?? '17:00')), 0, 5);
+
+    if (preg_match('/^\d{2}:\d{2}$/', $workStart) !== 1 || preg_match('/^\d{2}:\d{2}$/', $workEnd) !== 1) {
+        return false;
+    }
+
+    $slotMinutes = booking_time_to_minutes($time);
+    $current = booking_time_to_minutes($workStart);
+    $endMinutes = booking_time_to_minutes($workEnd);
+    $duration = max(1, $duration);
+    $break = max(0, $break);
+
+    while ($current + $duration <= $endMinutes) {
+        if ($current === $slotMinutes) {
+            return true;
+        }
+
+        $current += $duration + $break;
+    }
+
+    return false;
 }
 
 function fetch_staff_availability_for_booking_result(
@@ -1628,9 +1668,12 @@ function staff_slot_is_free(
 ): ?bool
 {
     $query = 'tenant_id=eq.' . rawurlencode($tenantId)
-        . '&staff_id=eq.' . rawurlencode($staffId)
         . '&booking_date=eq.' . rawurlencode($date)
         . '&select=id,booking_time,service_id';
+
+    $query .= $staffId !== ''
+        ? '&staff_id=eq.' . rawurlencode($staffId)
+        : '&staff_id=is.null';
 
     $bookingsUrl = rtrim($baseUrl, '/') . '/rest/v1/bookings?' . $query;
     $bookingsResult = supabase_select($bookingsUrl, $headers, 'bookings_availability', $tenantId);
@@ -1734,7 +1777,16 @@ function staff_slot_is_free(
     return true;
 }
 
-function booking_global_slot_is_available(string $baseUrl, array $headers, string $tenantId, string $date, string $time, string $staffId = ''): ?bool
+function booking_global_slot_is_available(
+    string $baseUrl,
+    array $headers,
+    string $tenantId,
+    string $date,
+    string $time,
+    string $staffId = '',
+    int $candidateDuration = 60,
+    int $candidateBreak = 0
+): ?bool
 {
     $staffBlockFilter = $staffId === ''
         ? '&staff_id=is.null'
@@ -1773,14 +1825,30 @@ function booking_global_slot_is_available(string $baseUrl, array $headers, strin
         return supabase_select_is_temporary($blockedTimesResult) ? null : false;
     }
 
+    $candidateStart = booking_time_to_minutes($time);
+    $candidateEnd = booking_interval_end($candidateStart, $candidateDuration, $candidateBreak);
+
     foreach ($blockedTimesResult['data'] as $row) {
         if (!is_array($row) || empty($row['time'])) {
             continue;
         }
 
-        $blockedTime = substr((string) $row['time'], 0, 5);
+        $rawBlockedTime = trim((string)$row['time']);
 
-        if ($blockedTime === 'all' || $blockedTime === $time) {
+        if ($rawBlockedTime === 'all') {
+            return false;
+        }
+
+        $blockedTime = substr($rawBlockedTime, 0, 5);
+
+        if (preg_match('/^\d{2}:\d{2}$/', $blockedTime) !== 1) {
+            continue;
+        }
+
+        $blockedStart = booking_time_to_minutes($blockedTime);
+        $blockedEnd = $blockedStart + 60;
+
+        if (booking_ranges_overlap($candidateStart, $candidateEnd, $blockedStart, $blockedEnd)) {
             return false;
         }
     }
@@ -2387,11 +2455,101 @@ $limit = 3;
 $window = 60;
 $rateHandle = @fopen($rateFile, 'c+');
 
-if ($rateHandle !== false && @flock($rateHandle, LOCK_EX)) {
-rewind($rateHandle);
-$rateData = json_decode((string) stream_get_contents($rateHandle), true);
-if (!is_array($rateData)) {
+if ($rateHandle === false) {
+    booking_security_event(
+        'booking_create_rate_limit_unavailable',
+        'ip_rate_limit_file_open_failed',
+        503,
+        'blocked',
+        'high',
+        ['stage' => 'rate_limit_open']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
+if (!@flock($rateHandle, LOCK_EX)) {
+    @fclose($rateHandle);
+
+    booking_security_event(
+        'booking_create_rate_limit_unavailable',
+        'ip_rate_limit_lock_failed',
+        503,
+        'blocked',
+        'high',
+        ['stage' => 'rate_limit_lock']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
+if (!rewind($rateHandle)) {
+    @flock($rateHandle, LOCK_UN);
+    @fclose($rateHandle);
+
+    booking_security_event(
+        'booking_create_rate_limit_unavailable',
+        'ip_rate_limit_seek_failed',
+        503,
+        'blocked',
+        'high',
+        ['stage' => 'rate_limit_read_seek']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
+$rateRaw = stream_get_contents($rateHandle);
+if ($rateRaw === false) {
+    @flock($rateHandle, LOCK_UN);
+    @fclose($rateHandle);
+
+    booking_security_event(
+        'booking_create_rate_limit_unavailable',
+        'ip_rate_limit_read_failed',
+        503,
+        'blocked',
+        'high',
+        ['stage' => 'rate_limit_read']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
+if (trim($rateRaw) === '') {
     $rateData = [];
+} else {
+    $rateData = json_decode($rateRaw, true);
+    if (!is_array($rateData) || json_last_error() !== JSON_ERROR_NONE) {
+        @flock($rateHandle, LOCK_UN);
+        @fclose($rateHandle);
+
+        booking_security_event(
+            'booking_create_rate_limit_unavailable',
+            'ip_rate_limit_state_invalid',
+            503,
+            'blocked',
+            'high',
+            ['stage' => 'rate_limit_decode']
+        );
+
+        json_response([
+            'success' => false,
+            'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+        ], 503);
+    }
 }
 
 if (!isset($rateData[$ip]) || !is_array($rateData[$ip])) {
@@ -2443,19 +2601,72 @@ if (count($rateData[$ip]) >= $limit) {
 $rateData[$ip][] = $now;
 $encodedRateData = json_encode($rateData, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE);
 
-if ($encodedRateData !== false) {
-    rewind($rateHandle);
-    @ftruncate($rateHandle, 0);
-    @fwrite($rateHandle, $encodedRateData);
-    @fflush($rateHandle);
+if ($encodedRateData === false) {
+    @flock($rateHandle, LOCK_UN);
+    @fclose($rateHandle);
+
+    booking_security_event(
+        'booking_create_rate_limit_unavailable',
+        'ip_rate_limit_encode_failed',
+        503,
+        'blocked',
+        'high',
+        ['stage' => 'rate_limit_encode']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
+if (!rewind($rateHandle)) {
+    @flock($rateHandle, LOCK_UN);
+    @fclose($rateHandle);
+
+    booking_security_event(
+        'booking_create_rate_limit_unavailable',
+        'ip_rate_limit_seek_failed',
+        503,
+        'blocked',
+        'high',
+        ['stage' => 'rate_limit_write_seek']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
+$rateBytesExpected = strlen($encodedRateData);
+$rateBytesWritten = @fwrite($rateHandle, $encodedRateData);
+$rateWriteOk = $rateBytesWritten !== false
+    && $rateBytesWritten === $rateBytesExpected
+    && @ftruncate($rateHandle, $rateBytesExpected)
+    && @fflush($rateHandle);
+
+if (!$rateWriteOk) {
+    @flock($rateHandle, LOCK_UN);
+    @fclose($rateHandle);
+
+    booking_security_event(
+        'booking_create_rate_limit_unavailable',
+        'ip_rate_limit_write_failed',
+        503,
+        'blocked',
+        'high',
+        ['stage' => 'rate_limit_write']
+    );
+
+    json_response([
+        'success' => false,
+        'error' => 'Usługa chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
 }
 
 @flock($rateHandle, LOCK_UN);
-}
-
-if ($rateHandle !== false) {
-    @fclose($rateHandle);
-}
+@fclose($rateHandle);
 }
 
 if (!isset($_SESSION['last_booking_time'])) {
@@ -2737,7 +2948,7 @@ if ($staffRef !== '') {
 
 $calendarSettingsUrl = $SUPABASE_URL
     . '/rest/v1/calendar_settings'
-    . '?select=calendar_enabled,consultation_duration,consultation_break,booking_buffer'
+    . '?select=calendar_enabled,work_start,work_end,consultation_duration,consultation_break,booking_buffer,booking_start_month_offset,booking_month_range'
     . '&tenant_id=eq.' . rawurlencode($TENANT_ID)
     . '&limit=1';
 
@@ -2971,6 +3182,14 @@ try {
     ], 500);
 }
 
+if (!booking_date_within_calendar_range($date, $calendarSettingsRow)) {
+    booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
+    json_response([
+        'success' => false,
+        'error' => 'Wybrana data jest poza dostępnym zakresem rezerwacji.',
+    ], 409);
+}
+
 if ($staffId !== '') {
     if (!booking_context_has_feature($bookingContext, 'staff_module')) {
         json_response([
@@ -3038,7 +3257,16 @@ if ($staffId !== '') {
         ], 409);
     }
 
-    $globalSlotAvailable = booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time, $staffId);
+    $globalSlotAvailable = booking_global_slot_is_available(
+        $SUPABASE_URL,
+        $headers,
+        $TENANT_ID,
+        $date,
+        $time,
+        $staffId,
+        $effectiveDuration,
+        $effectiveBreak
+    );
 
     if ($globalSlotAvailable === null) {
         booking_temporary_unavailable('Nie udało się chwilowo sprawdzić blokad terminu. Spróbuj ponownie za moment.');
@@ -3113,14 +3341,14 @@ if ($staffId !== '') {
         booking_slot_taken_response();
     }
 } else {
-    if (!booking_slot_respects_buffer(
-        $date,
-        $time,
-        booking_effective_min_notice_minutes(
-            is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null,
-            $globalBookingBuffer
-        )
-    )) {
+    $serviceDuration = is_array($selectedService) ? booking_nullable_int($selectedService, 'duration_minutes') : null;
+    $serviceBreak = is_array($selectedService) ? booking_nullable_int($selectedService, 'break_minutes') : null;
+    $serviceBuffer = is_array($selectedService) ? booking_nullable_int($selectedService, 'booking_buffer_minutes') : null;
+    $effectiveDuration = max(1, $serviceDuration ?? (int)($calendarSettingsRow['consultation_duration'] ?? 60));
+    $effectiveBreak = max(0, $serviceBreak ?? (int)($calendarSettingsRow['consultation_break'] ?? 0));
+    $effectiveBuffer = booking_effective_min_notice_minutes($serviceBuffer, $globalBookingBuffer);
+
+    if (!booking_slot_respects_buffer($date, $time, $effectiveBuffer)) {
         booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         json_response([
             'success' => false,
@@ -3128,13 +3356,57 @@ if ($staffId !== '') {
         ], 409);
     }
 
-    $globalSlotAvailable = booking_global_slot_is_available($SUPABASE_URL, $headers, $TENANT_ID, $date, $time);
+    if (!booking_calendar_slot_matches_schedule($calendarSettingsRow, $time, $effectiveDuration, $effectiveBreak)) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
+        json_response([
+            'success' => false,
+            'error' => 'Wybrana godzina jest poza godzinami dostępności.',
+        ], 409);
+    }
+
+    $globalSlotAvailable = booking_global_slot_is_available(
+        $SUPABASE_URL,
+        $headers,
+        $TENANT_ID,
+        $date,
+        $time,
+        '',
+        $effectiveDuration,
+        $effectiveBreak
+    );
 
     if ($globalSlotAvailable === null) {
         booking_temporary_unavailable('Nie udało się chwilowo sprawdzić blokad terminu. Spróbuj ponownie za moment.');
     }
 
     if ($globalSlotAvailable === false) {
+        booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
+        booking_slot_taken_response();
+    }
+
+    $knownServicesById = [];
+
+    if (is_array($selectedService) && !empty($selectedService['id'])) {
+        $knownServicesById[(string)$selectedService['id']] = $selectedService;
+    }
+
+    $globalBookingSlotIsFree = staff_slot_is_free(
+        $SUPABASE_URL,
+        $headers,
+        $TENANT_ID,
+        '',
+        $date,
+        $time,
+        $effectiveDuration,
+        $effectiveBreak,
+        $knownServicesById
+    );
+
+    if ($globalBookingSlotIsFree === null) {
+        booking_temporary_unavailable('Nie udało się chwilowo sprawdzić zajętości terminu. Spróbuj ponownie za moment.');
+    }
+
+    if ($globalBookingSlotIsFree === false) {
         booking_a7_maybe_return_existing_replay($SUPABASE_URL, $headers, $TENANT_ID, $a7CreateRequestKey);
         booking_slot_taken_response();
     }

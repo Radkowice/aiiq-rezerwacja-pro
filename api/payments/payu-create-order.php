@@ -466,25 +466,6 @@ try {
         ], 403);
     }
 
-    $payu = payu_get_integration($tenantId);
-
-    if (!$payu) {
-        payu_create_order_security_event(
-            'payu_create_order_integration_missing',
-            'payu_integration_missing',
-            422,
-            'failed',
-            'medium',
-            $tenantId,
-            null,
-            'integration_lookup'
-        );
-        payu_create_order_response([
-            'success' => false,
-            'error' => 'Integracja PayU nie jest skonfigurowana albo jest wyłączona.'
-        ], 422);
-    }
-
     $publicBaseUrl = payu_get_public_base_url($hostTenantDomain);
 
     if ($publicBaseUrl === '') {
@@ -535,6 +516,7 @@ try {
     $extOrderId = trim((string)($markData['ext_order_id'] ?? ''));
     $amountMinor = $markData['amount_minor'] ?? null;
     $currency = strtoupper(trim((string)($markData['currency'] ?? '')));
+    $payuConfigVersionId = trim((string)($markData['payu_config_version_id'] ?? ''));
     $mayPost = ($markData['may_post'] ?? null) === true;
 
     $extOrderValid = $extOrderId !== ''
@@ -556,7 +538,8 @@ try {
         || $bookingAmountMinor <= 0
         || $bookingAmountMinor !== (int)$amountMinor
         || $bookingCurrency === ''
-        || !hash_equals($bookingCurrency, $currency)) {
+        || !hash_equals($bookingCurrency, $currency)
+        || ($mayPost && !payu_valid_uuid($payuConfigVersionId))) {
         payu_create_order_security_event(
             'payu_create_order_mark_started_mismatch',
             'provider_gate_binding_mismatch',
@@ -593,6 +576,25 @@ try {
             'success' => false,
             'error' => 'Stan płatności wymaga potwierdzenia. Nie ponawiamy automatycznie utworzenia zamówienia PayU.',
         ], 202);
+    }
+
+    $payu = payu_get_bound_integration($tenantId, $paymentId, $payuConfigVersionId);
+
+    if (!is_array($payu)) {
+        payu_create_order_security_event(
+            'payu_create_order_bound_config_missing',
+            'payu_bound_config_unavailable',
+            503,
+            'error',
+            'high',
+            $tenantId,
+            null,
+            'integration_binding'
+        );
+        payu_create_order_response([
+            'success' => false,
+            'error' => 'Nie udało się bezpiecznie odczytać konfiguracji PayU dla tej płatności.',
+        ], 503);
     }
 
     $bookingDate = (string)($booking['booking_date'] ?? '');

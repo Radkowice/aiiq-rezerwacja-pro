@@ -30,6 +30,11 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'booking_payment_reconciliation_release_claim',
         'booking_payment_reconciliation_escalate_unqueryable',
         'booking_payment_reconciliation_record_result',
+        'booking_postprocess_intent_claim',
+        'booking_postprocess_intent_record_result',
+        'booking_legacy_postprocess_enqueue',
+        'booking_staff_change_apply',
+        'booking_staff_change_mark_client_email_sent',
         'booking_reschedule_apply',
     ];
 }

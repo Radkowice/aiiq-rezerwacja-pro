@@ -25,6 +25,7 @@ function booking_payu_notify_debug(string $tag, array $context = []): void
             'tenant_id',
             'booking_id',
             'payment_id',
+            'config_version_id',
             'order_id',
             'ext_order_id',
             'raw_body',
@@ -176,21 +177,36 @@ function booking_payu_notify_amount_minor($value): ?int
     return $amount > 0 ? $amount : null;
 }
 
-function booking_payu_notify_context_tenant($data): ?string
+function booking_payu_notify_context($data): ?array
 {
     if (!is_array($data)) {
         return null;
     }
 
-    $tenantId = $data['tenant_id'] ?? null;
+    $keys = array_keys($data);
+    sort($keys);
 
-    if (!is_string($tenantId)) {
+    if ($keys !== ['payment_id', 'payu_config_version_id', 'tenant_id']) {
         return null;
     }
 
-    $tenantId = trim($tenantId);
+    $tenantId = trim((string) ($data['tenant_id'] ?? ''));
+    $paymentId = trim((string) ($data['payment_id'] ?? ''));
+    $configVersionId = trim((string) ($data['payu_config_version_id'] ?? ''));
 
-    return $tenantId !== '' ? $tenantId : null;
+    if ($tenantId === ''
+        || strlen($tenantId) > 128
+        || !payu_valid_uuid($paymentId)
+        || !payu_valid_uuid($configVersionId)
+    ) {
+        return null;
+    }
+
+    return [
+        'tenant_id' => $tenantId,
+        'payment_id' => $paymentId,
+        'payu_config_version_id' => $configVersionId,
+    ];
 }
 
 function booking_payu_notify_valid_apply_result($data): bool
@@ -330,9 +346,9 @@ try {
         ]);
     }
 
-    $tenantId = booking_payu_notify_context_tenant($contextResult['data'] ?? null);
+    $context = booking_payu_notify_context($contextResult['data'] ?? null);
 
-    if ($tenantId === null) {
+    if ($context === null) {
         booking_payu_notify_debug('PAYU_NOTIFY_CONTEXT_INVALID');
         booking_payu_notify_response(500, [
             'success' => false,
@@ -340,12 +356,17 @@ try {
         ]);
     }
 
-    $payu = payu_get_integration($tenantId);
+    $tenantId = $context['tenant_id'];
+    $paymentId = $context['payment_id'];
+    $payuConfigVersionId = $context['payu_config_version_id'];
+    $payu = payu_get_bound_integration($tenantId, $paymentId, $payuConfigVersionId);
     $secondKey = is_array($payu) ? trim((string) ($payu['second_key'] ?? '')) : '';
 
     if (!is_array($payu) || $secondKey === '') {
-        booking_payu_notify_debug('PAYU_NOTIFY_INTEGRATION_MISSING', [
+        booking_payu_notify_debug('PAYU_NOTIFY_BOUND_CONFIG_MISSING', [
             'tenant_id' => $tenantId,
+            'payment_id' => $paymentId,
+            'config_version_id' => $payuConfigVersionId,
             'second_key_present' => $secondKey !== '',
         ]);
         booking_payu_notify_response(500, [

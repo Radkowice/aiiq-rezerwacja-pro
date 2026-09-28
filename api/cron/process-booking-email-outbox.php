@@ -359,7 +359,7 @@ function booking_email_worker_fetch_context(
     $staff = null;
     $tenantDomain = '';
 
-    if ($eventType === 'payment_paid_customer') {
+    if (in_array($eventType, ['payment_paid_customer', 'booking_created_customer'], true)) {
         $templateResult = booking_email_worker_single(
             $config,
             'email_templates',
@@ -470,7 +470,7 @@ function booking_email_worker_fetch_context(
     }
 
 
-    if (in_array($eventType, ['booking_rescheduled_customer', 'booking_rescheduled_admin'], true)) {
+    if (in_array($eventType, ['booking_rescheduled_customer', 'booking_rescheduled_admin', 'booking_created_admin'], true)) {
         $staffId = trim((string) ($booking['staff_id'] ?? ''));
 
         if ($staffId !== '') {
@@ -540,7 +540,11 @@ function booking_email_worker_format_datetime(string $value): string
     }
 }
 
-function booking_email_worker_summary_html(array $booking, bool $includeContact): string
+function booking_email_worker_summary_html(
+    array $booking,
+    bool $includeContact,
+    string $amountLabel = 'Kwota'
+): string
 {
     $fields = [];
 
@@ -560,7 +564,8 @@ function booking_email_worker_summary_html(array $booking, bool $includeContact)
     );
 
     if ($amount !== '') {
-        $fields['Kwota'] = $amount;
+        $amountLabel = trim($amountLabel);
+        $fields[$amountLabel !== '' ? $amountLabel : 'Kwota'] = $amount;
     }
 
     $rows = '';
@@ -585,7 +590,8 @@ function booking_email_worker_summary_html(array $booking, bool $includeContact)
 function booking_email_worker_render_paid_customer(
     string $tenantId,
     string $recipientEmail,
-    array $context
+    array $context,
+    string $eventType = 'payment_paid_customer'
 ): array {
     $booking = $context['booking'];
 
@@ -687,10 +693,13 @@ function booking_email_worker_render_paid_customer(
             . '/przeloz-rezerwacje.html?token=' . rawurlencode($manageToken);
     }
 
-    $amountText = booking_mail_format_amount(
-        $booking['payment_amount'] ?? null,
-        (string) ($booking['payment_currency'] ?? 'PLN')
-    );
+    $isPaidConfirmation = $eventType === 'payment_paid_customer';
+    $amountText = $isPaidConfirmation
+        ? booking_mail_format_amount(
+            $booking['payment_amount'] ?? null,
+            (string) ($booking['payment_currency'] ?? 'PLN')
+        )
+        : '';
 
     $html = booking_mail_build_client_html(
         $introHtml,
@@ -702,7 +711,7 @@ function booking_email_worker_render_paid_customer(
         $date,
         $time,
         [
-            'status_label' => 'Opłacono',
+            'status_label' => $isPaidConfirmation ? 'Opłacono' : '',
             'amount_text' => $amountText,
             'reschedule_url' => $rescheduleUrl,
         ],
@@ -717,7 +726,7 @@ function booking_email_worker_render_paid_customer(
         . ($date !== '' ? "Data: {$date}\n" : '')
         . ($time !== '' ? "Godzina: {$time}\n" : '')
         . ($serviceName !== '' ? "Usługa: {$serviceName}\n" : '')
-        . "Status płatności: Opłacono\n"
+        . ($isPaidConfirmation ? "Status płatności: Opłacono\n" : '')
         . ($amountText !== '' ? "Kwota: {$amountText}\n" : '')
         . ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '')
         . ($rescheduleUrl !== '' ? "\nPrzełóż rezerwację: {$rescheduleUrl}\n" : '');
@@ -997,6 +1006,7 @@ function booking_email_worker_render_generic(
                 'expired' => 'Płatność wygasła',
                 'failed' => 'Płatność nieudana',
                 'pending' => 'Oczekuje na płatność',
+                'not_required' => 'Nie wymaga płatności',
                 default => 'Status wymaga sprawdzenia',
             };
             $subject = match ($paymentStatus) {
@@ -1008,12 +1018,26 @@ function booking_email_worker_render_generic(
             };
             $title = 'Nowa rezerwacja';
             $preheader = 'System zarejestrował nową rezerwację.';
+            $staffName = is_array($context['staff'] ?? null)
+                ? trim((string)($context['staff']['display_name'] ?? ''))
+                : '';
+            $hasClientMessage = (($context['outbox_payload']['has_client_message'] ?? false) === true);
             $message = '<p style="margin:0 0 14px;"><strong>System zarejestrował nową rezerwację.</strong></p>'
                 . $summaryAdmin
+                . ($staffName !== ''
+                    ? '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">Personel: <strong>'
+                        . htmlspecialchars($staffName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
+                        . '</strong>.</p>'
+                    : '')
+                . ($hasClientMessage
+                    ? '<p style="margin:10px 0 0;color:#374151;line-height:1.6;">Wiadomość od klienta zobaczysz w swoim panelu rezerwacji.</p>'
+                    : '')
                 . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Aktualny status płatności: <strong>'
                 . htmlspecialchars($paymentLabel, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8')
                 . '</strong>.</p>';
-            $footer = 'Stan płatności należy interpretować na podstawie danych zapisanych po stronie backendu i PayU.';
+            $footer = $paymentStatus === 'not_required'
+                ? 'Powiadomienie o rezerwacji niewymagającej płatności online.'
+                : 'Stan płatności należy interpretować na podstawie danych zapisanych po stronie backendu i PayU.';
             break;
 
         case 'appointment_reminder_day_before':
@@ -1025,8 +1049,14 @@ function booking_email_worker_render_generic(
             $preheader = $type === 'day_before'
                 ? 'Przypomnienie o jutrzejszej rezerwacji.'
                 : 'Przypomnienie o dzisiejszej rezerwacji.';
+            $reminderSummaryCustomer = booking_email_worker_summary_html(
+                $booking,
+                false,
+                'Rezerwacja opłacona'
+            );
+
             $message = '<p style="margin:0 0 14px;"><strong>Przypomnienie o rezerwacji.</strong></p>'
-                . $summaryCustomer
+                . $reminderSummaryCustomer
                 . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">Do zobaczenia w umówionym terminie.</p>';
             $footer = $companyName !== ''
                 ? 'Wiadomość dotycząca rezerwacji w ' . htmlspecialchars($companyName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '.'
@@ -1100,11 +1130,12 @@ function booking_email_worker_render(
     string $recipientEmail,
     array $context
 ): array {
-    if ($eventType === 'payment_paid_customer') {
+    if (in_array($eventType, ['payment_paid_customer', 'booking_created_customer'], true)) {
         return booking_email_worker_render_paid_customer(
             $tenantId,
             $recipientEmail,
-            $context
+            $context,
+            $eventType
         );
     }
 
@@ -1243,6 +1274,7 @@ try {
             'payment_reminder_customer',
             'payment_paid_customer',
             'payment_expired_customer',
+            'booking_created_customer',
             'booking_created_admin',
             'appointment_reminder_day_before',
             'appointment_reminder_same_day',
@@ -1265,7 +1297,13 @@ try {
         $claimValid = booking_email_worker_uuid($outboxId)
             && booking_email_worker_uuid($claimToken)
             && booking_email_worker_uuid($bookingId)
-            && booking_email_worker_uuid($paymentId)
+            && (
+                booking_email_worker_uuid($paymentId)
+                || (
+                    $paymentId === ''
+                    && in_array($eventType, ['booking_created_customer', 'booking_created_admin'], true)
+                )
+            )
             && booking_email_worker_safe_text($tenantId, 128)
             && in_array($eventType, $allowedEvents, true)
             && $recipientEmail !== ''
@@ -1367,6 +1405,16 @@ try {
                 $currentPaymentStatus === 'paid' && $currentBookingStatus === 'confirmed',
             'payment_expired_customer', 'payment_expired_admin' =>
                 $currentPaymentStatus === 'expired',
+            'booking_created_customer' =>
+                $paymentId === ''
+                && $currentPaymentStatus === 'not_required'
+                && $currentBookingStatus === 'new',
+            'booking_created_admin' =>
+                $paymentId !== ''
+                || (
+                    $currentPaymentStatus === 'not_required'
+                    && $currentBookingStatus === 'new'
+                ),
             default => true,
         };
 
@@ -1393,6 +1441,7 @@ try {
             'payment_reminder_customer',
             'payment_paid_customer',
             'payment_expired_customer',
+            'booking_created_customer',
             'appointment_reminder_day_before',
             'appointment_reminder_same_day',
             'booking_rescheduled_customer',

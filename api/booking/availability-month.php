@@ -70,6 +70,46 @@ function availability_month_fetch_single(string $supabaseUrl, string $key, strin
     return is_array($rows[0] ?? null) ? $rows[0] : null;
 }
 
+function availability_month_fetch_rows_required(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $table,
+    array $query,
+    string $publicMessage = 'Nie udało się sprawdzić dostępności.',
+    string $errorCode = 'availability_lookup_failed'
+): array {
+    $rows = availability_month_fetch_rows($supabaseUrl, $key, $schema, $table, $query);
+
+    if (!is_array($rows)) {
+        availability_month_error($publicMessage, $errorCode, 500);
+    }
+
+    return $rows;
+}
+
+function availability_month_fetch_single_required(
+    string $supabaseUrl,
+    string $key,
+    string $schema,
+    string $table,
+    array $query,
+    string $publicMessage = 'Nie udało się sprawdzić dostępności.',
+    string $errorCode = 'availability_lookup_failed'
+): ?array {
+    $rows = availability_month_fetch_rows_required(
+        $supabaseUrl,
+        $key,
+        $schema,
+        $table,
+        array_merge($query, ['limit=1']),
+        $publicMessage,
+        $errorCode
+    );
+
+    return is_array($rows[0] ?? null) ? $rows[0] : null;
+}
+
 function availability_month_is_service_ref(string $value): bool
 {
     return preg_match('/^svc_[a-f0-9]{32,64}$/', $value) === 1;
@@ -332,11 +372,11 @@ if ($isRescheduleMode) {
         availability_month_error('Funkcja przełożenia rezerwacji jest dostępna w wyższych planach.', 'feature_unavailable', 403);
     }
 
-    $booking = availability_month_fetch_single($supabaseUrl, $supabaseKey, $schema, 'bookings', [
+    $booking = availability_month_fetch_single_required($supabaseUrl, $supabaseKey, $schema, 'bookings', [
         'select=' . rawurlencode('id,booking_date,booking_time,service_id,staff_id,reschedule_count,manage_token_expires_at'),
         'tenant_id=eq.' . rawurlencode($tenantId),
         'manage_token=eq.' . rawurlencode($token),
-    ]);
+    ], 'Nie udało się sprawdzić rezerwacji.', 'booking_lookup_failed');
 
     if (!$booking) {
         availability_month_error('Nie znaleziono rezerwacji albo link jest nieprawidłowy.', 'booking_not_found', 404);
@@ -390,10 +430,10 @@ if ($isRescheduleMode) {
     $bookingId = '';
 }
 
-$calendar = availability_month_fetch_single($supabaseUrl, $supabaseKey, $schema, 'calendar_settings', [
+$calendar = availability_month_fetch_single_required($supabaseUrl, $supabaseKey, $schema, 'calendar_settings', [
     'select=' . rawurlencode('work_start,work_end,consultation_duration,consultation_break,booking_buffer,booking_start_month_offset,booking_month_range'),
     'tenant_id=eq.' . rawurlencode($tenantId),
-]) ?? [];
+], 'Nie udało się pobrać ustawień kalendarza.', 'calendar_lookup_failed') ?? [];
 
 $dates = availability_month_dates_for_month($month, $calendar);
 
@@ -411,7 +451,15 @@ if ($serviceId !== '') {
         $serviceQuery[] = 'visible_on_front=eq.true';
     }
 
-    $service = availability_month_fetch_single($supabaseUrl, $supabaseKey, $schema, 'tenant_services', $serviceQuery) ?? [];
+    $service = availability_month_fetch_single_required(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        'tenant_services',
+        $serviceQuery,
+        'Nie udało się sprawdzić usługi.',
+        'service_lookup_failed'
+    ) ?? [];
 
     if (!$isRescheduleMode && empty($service['id'])) {
         availability_month_error('Wybrana usługa jest niedostępna.', 'service_not_found', 404);
@@ -428,19 +476,27 @@ if ($staffId !== '') {
         'is_active=eq.true',
     ];
 
-    $staff = availability_month_fetch_single($supabaseUrl, $supabaseKey, $schema, 'staff_profiles', $staffQuery) ?? [];
+    $staff = availability_month_fetch_single_required(
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        'staff_profiles',
+        $staffQuery,
+        'Nie udało się sprawdzić osoby obsługującej.',
+        'staff_lookup_failed'
+    ) ?? [];
 
     if (empty($staff['id'])) {
         availability_month_error('Osoba obsługująca tę rezerwację jest niedostępna.', 'staff_not_found', 404);
     }
 
     if ($serviceId !== '') {
-        $relation = availability_month_fetch_single($supabaseUrl, $supabaseKey, $schema, 'tenant_service_staff', [
+        $relation = availability_month_fetch_single_required($supabaseUrl, $supabaseKey, $schema, 'tenant_service_staff', [
             'select=staff_id',
             'tenant_id=eq.' . rawurlencode($tenantId),
             'service_id=eq.' . rawurlencode($serviceId),
             'staff_id=eq.' . rawurlencode($staffId),
-        ]);
+        ], 'Nie udało się sprawdzić powiązania osoby z usługą.', 'staff_service_lookup_failed');
 
         if (!$relation) {
             availability_month_error('Osoba obsługująca nie obsługuje tej usługi.', 'staff_service_mismatch', 409);
@@ -475,39 +531,39 @@ if ($staffId !== '') {
 $monthStart = $month . '-01';
 $monthEnd = (new DateTimeImmutable($monthStart, new DateTimeZone('Europe/Warsaw')))->modify('last day of this month')->format('Y-m-d');
 
-$blockSettingsRow = availability_month_fetch_single($supabaseUrl, $supabaseKey, $schema, 'block_settings', [
+$blockSettingsRow = availability_month_fetch_single_required($supabaseUrl, $supabaseKey, $schema, 'block_settings', [
     'select=' . rawurlencode('block_saturdays,block_sundays,block_holidays'),
     'tenant_id=eq.' . rawurlencode($tenantId),
-]) ?? [];
+], 'Nie udało się pobrać ustawień blokad.', 'block_settings_lookup_failed') ?? [];
 $blockSettings = [
     'block_saturdays' => !empty($blockSettingsRow['block_saturdays'] ?? false),
     'block_sundays' => !empty($blockSettingsRow['block_sundays'] ?? false),
     'block_holidays' => !empty($blockSettingsRow['block_holidays'] ?? false),
 ];
 
-$blockedDateRows = availability_month_fetch_rows($supabaseUrl, $supabaseKey, $schema, 'blocked_dates', [
+$blockedDateRows = availability_month_fetch_rows_required($supabaseUrl, $supabaseKey, $schema, 'blocked_dates', [
     'select=date,staff_id',
     'tenant_id=eq.' . rawurlencode($tenantId),
     'date=gte.' . rawurlencode($monthStart),
     'date=lte.' . rawurlencode($monthEnd) . $staffFilter,
-]) ?? [];
+], 'Nie udało się sprawdzić blokad dat.', 'blocked_dates_lookup_failed');
 $blockedDates = array_values(array_unique(array_map(static fn (array $row): string => (string) ($row['date'] ?? ''), $blockedDateRows)));
 
-$blockedTimeRows = availability_month_fetch_rows($supabaseUrl, $supabaseKey, $schema, 'blocked_times', [
+$blockedTimeRows = availability_month_fetch_rows_required($supabaseUrl, $supabaseKey, $schema, 'blocked_times', [
     'select=date,time,staff_id',
     'tenant_id=eq.' . rawurlencode($tenantId),
     'date=gte.' . rawurlencode($monthStart),
     'date=lte.' . rawurlencode($monthEnd) . $staffFilter,
-]) ?? [];
+], 'Nie udało się sprawdzić blokad godzinowych.', 'blocked_times_lookup_failed');
 $blockedTimes = availability_month_index_blocked_times($blockedTimeRows);
 
-$exceptionRows = availability_month_fetch_rows($supabaseUrl, $supabaseKey, $schema, 'availability_exceptions', [
+$exceptionRows = availability_month_fetch_rows_required($supabaseUrl, $supabaseKey, $schema, 'availability_exceptions', [
     'select=date,allow_booking,staff_id',
     'tenant_id=eq.' . rawurlencode($tenantId),
     'date=gte.' . rawurlencode($monthStart),
     'date=lte.' . rawurlencode($monthEnd) . $staffFilter,
     'allow_booking=eq.true',
-]) ?? [];
+], 'Nie udało się sprawdzić wyjątków dostępności.', 'availability_exceptions_lookup_failed');
 $availabilityExceptions = array_values(array_unique(array_map(static fn (array $row): string => (string) ($row['date'] ?? ''), $exceptionRows)));
 
 $bookingQuery = [
@@ -517,7 +573,15 @@ $bookingQuery = [
     'booking_date=lte.' . rawurlencode($monthEnd),
 ];
 $bookingQuery[] = $staffId !== '' ? 'staff_id=eq.' . rawurlencode($staffId) : 'staff_id=is.null';
-$bookingRows = availability_month_fetch_rows($supabaseUrl, $supabaseKey, $schema, 'bookings', $bookingQuery) ?? [];
+$bookingRows = availability_month_fetch_rows_required(
+    $supabaseUrl,
+    $supabaseKey,
+    $schema,
+    'bookings',
+    $bookingQuery,
+    'Nie udało się sprawdzić zajętych terminów.',
+    'bookings_lookup_failed'
+);
 $bookingsByDate = availability_month_index_bookings($bookingRows);
 $ignoredBlockedTimes = [];
 
@@ -541,11 +605,11 @@ foreach ($bookingRows as $row) {
 $settingsByService = [];
 
 if (!empty($serviceIds)) {
-    $serviceRows = availability_month_fetch_rows($supabaseUrl, $supabaseKey, $schema, 'tenant_services', [
+    $serviceRows = availability_month_fetch_rows_required($supabaseUrl, $supabaseKey, $schema, 'tenant_services', [
         'select=' . rawurlencode('id,duration_minutes,break_minutes,booking_buffer_minutes'),
         'tenant_id=eq.' . rawurlencode($tenantId),
         'id=in.(' . implode(',', array_map('rawurlencode', array_keys($serviceIds))) . ')',
-    ]) ?? [];
+    ], 'Nie udało się pobrać ustawień usług dla zajętych terminów.', 'service_settings_lookup_failed');
 
     foreach ($serviceRows as $row) {
         if (is_array($row) && !empty($row['id'])) {

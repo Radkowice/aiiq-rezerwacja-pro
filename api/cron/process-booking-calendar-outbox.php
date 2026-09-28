@@ -441,6 +441,7 @@ try {
         $tenantId = trim((string) ($claim['tenant_id'] ?? ''));
         $bookingId = trim((string) ($claim['booking_id'] ?? ''));
         $paymentId = trim((string) ($claim['payment_id'] ?? ''));
+        $legacyNoPayment = $claim['legacy_no_payment'] ?? null;
         $action = strtolower(trim((string) ($claim['action'] ?? '')));
         $providerEventId = trim((string) ($claim['provider_event_id'] ?? ''));
         $booking = $claim['booking'] ?? null;
@@ -449,7 +450,11 @@ try {
             !booking_calendar_worker_uuid($outboxId)
             || !booking_calendar_worker_uuid($claimToken)
             || !booking_calendar_worker_uuid($bookingId)
-            || !booking_calendar_worker_uuid($paymentId)
+            || !is_bool($legacyNoPayment)
+            || !(
+                booking_calendar_worker_uuid($paymentId)
+                || ($legacyNoPayment === true && $paymentId === '' && $action === 'create')
+            )
             || !booking_calendar_worker_safe_text($tenantId, 128)
             || !in_array($action, ['create', 'update', 'delete'], true)
             || ($action === 'create' && $providerEventId !== '')
@@ -482,7 +487,7 @@ try {
         if ($action !== 'delete') {
             $providerBooking = $booking;
             $providerBooking['tenant_id'] = $tenantId;
-            $providerBooking['payment_required'] = true;
+            $providerBooking['payment_required'] = $legacyNoPayment !== true;
 
             $context = booking_calendar_worker_context($config, $tenantId, $providerBooking);
 

@@ -147,6 +147,119 @@ function payu_get_integration(string $tenantId): ?array
     ];
 }
 
+function payu_valid_uuid(string $value): bool
+{
+    return preg_match(
+        '/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/iD',
+        $value
+    ) === 1;
+}
+
+function payu_get_bound_integration(
+    string $tenantId,
+    string $paymentId,
+    string $configVersionId
+): ?array {
+    $tenantId = trim($tenantId);
+    $paymentId = trim($paymentId);
+    $configVersionId = trim($configVersionId);
+
+    if ($tenantId === ''
+        || strlen($tenantId) > 128
+        || !payu_valid_uuid($paymentId)
+        || !payu_valid_uuid($configVersionId)
+    ) {
+        payu_debug('PAYU_BOUND_CONFIG_CONTEXT_INVALID');
+        return null;
+    }
+
+    $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
+    $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+    $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
+
+    if ($supabaseUrl === '' || $supabaseKey === '') {
+        payu_debug('PAYU_BOUND_CONFIG_ENV_MISSING');
+        return null;
+    }
+
+    $url = $supabaseUrl . '/rest/v1/rpc/booking_payment_payu_config_context';
+    $result = payu_supabase_request(
+        $url,
+        'POST',
+        $supabaseKey,
+        $schema,
+        [
+            'p_tenant_id' => $tenantId,
+            'p_payment_id' => $paymentId,
+            'p_config_version_id' => $configVersionId,
+        ]
+    );
+
+    if ($result['error'] || $result['http_code'] !== 200 || !is_array($result['data'] ?? null)) {
+        payu_debug('PAYU_BOUND_CONFIG_FETCH_ERROR', [
+            'http_code' => $result['http_code'],
+            'transport_error' => $result['error'] !== '',
+        ]);
+        return null;
+    }
+
+    $data = $result['data'];
+    $keys = array_keys($data);
+    sort($keys);
+
+    if ($keys !== ['config_version_id', 'mode', 'secrets', 'settings']) {
+        payu_debug('PAYU_BOUND_CONFIG_SHAPE_INVALID');
+        return null;
+    }
+
+    $returnedVersionId = trim((string) ($data['config_version_id'] ?? ''));
+    $mode = trim((string) ($data['mode'] ?? ''));
+    $settings = $data['settings'] ?? null;
+    $storedSecrets = $data['secrets'] ?? null;
+
+    if (!payu_valid_uuid($returnedVersionId)
+        || !hash_equals(strtolower($configVersionId), strtolower($returnedVersionId))
+        || !in_array($mode, ['sandbox', 'production'], true)
+        || !is_array($settings)
+        || !is_array($storedSecrets)
+    ) {
+        payu_debug('PAYU_BOUND_CONFIG_BINDING_INVALID');
+        return null;
+    }
+
+    try {
+        $secrets = decrypt_json_secret($storedSecrets);
+    } catch (Throwable $e) {
+        payu_debug('PAYU_BOUND_CONFIG_DECRYPT_ERROR');
+        return null;
+    }
+
+    $posId = trim((string) ($settings['pos_id'] ?? ''));
+    $clientId = trim((string) ($settings['client_id'] ?? ''));
+    $clientSecret = trim((string) ($secrets['client_secret'] ?? ''));
+    $secondKey = trim((string) ($secrets['second_key'] ?? ''));
+
+    if ($posId === '' || $clientId === '' || $clientSecret === '') {
+        payu_debug('PAYU_BOUND_CONFIG_INCOMPLETE', [
+            'pos_id' => $posId !== '',
+            'client_id' => $clientId !== '',
+            'client_secret' => $clientSecret !== '',
+            'second_key' => $secondKey !== '',
+        ]);
+        return null;
+    }
+
+    return [
+        'config_version_id' => $returnedVersionId,
+        'mode' => $mode,
+        'base_url' => payu_get_base_url($mode),
+        'pos_id' => $posId,
+        'client_id' => $clientId,
+        'client_secret' => $clientSecret,
+        'second_key' => $secondKey,
+    ];
+}
+
 function payu_http_request(
     string $url,
     string $method,

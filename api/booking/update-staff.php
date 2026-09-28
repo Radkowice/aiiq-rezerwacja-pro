@@ -9,6 +9,7 @@ require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -491,7 +492,7 @@ function booking_staff_build_client_mail_html(array $booking, string $action, st
             '🔁 Zmiana specjalisty przy rezerwacji',
             'Do Twojej rezerwacji został przypisany nowy specjalista.',
             $message,
-            'Wiadomość została wysłana automatycznie przez system RezerwIQ.'
+            'Wiadomość została wysłana automatycznie przez system Rezerwia.'
         );
     }
 
@@ -510,7 +511,7 @@ function booking_staff_build_client_mail_html(array $booking, string $action, st
         '👤 Aktualizacja specjalisty przy rezerwacji',
         'Twój Specjalista nie zajmie się Twoją rezerwacją.',
         $message,
-        'Wiadomość została wysłana automatycznie przez system RezerwIQ.'
+        'Wiadomość została wysłana automatycznie przez system Rezerwia.'
     );
 }
 
@@ -1333,43 +1334,141 @@ if ($action === 'detach_staff' && $oldStaffId === '') {
     ], 409);
 }
 
-$updatePayload = [
-    'staff_id' => $action === 'change_staff' ? $newStaffId : null,
-    'updated_at' => gmdate('c'),
-];
+$applyResult = payment_lifecycle_v3_rpc('booking_staff_change_apply', [
+    'p_tenant_id' => $tenantId,
+    'p_booking_id' => $bookingId,
+    'p_expected_old_staff_id' => $oldStaffId !== '' ? $oldStaffId : null,
+    'p_new_staff_id' => $action === 'change_staff' ? $newStaffId : null,
+    'p_action' => $action,
+    'p_changed_by_user_id' => booking_staff_is_uuid($adminUserId) ? $adminUserId : null,
+]);
 
-$updatedBooking = booking_staff_patch($supabaseUrl, $supabaseKey, $schema, 'bookings', [
-    'tenant_id=eq.' . rawurlencode($tenantId),
-    'id=eq.' . rawurlencode($bookingId),
-], $updatePayload);
+if (empty($applyResult['ok']) || !is_array($applyResult['data'] ?? null)) {
+    booking_staff_security_event(
+        'booking_staff_update_atomic_result_unknown',
+        'atomic_staff_change_result_unknown',
+        503,
+        'error',
+        'high',
+        $tenantId,
+        $action === 'change_staff' ? $newStaffId : $oldStaffId,
+        'atomic_staff_change'
+    );
 
-if (!$updatedBooking) {
-    $updatedBooking = array_merge($booking, $updatePayload);
+    booking_staff_json([
+        'success' => false,
+        'error' => 'Nie udało się jednoznacznie potwierdzić zmiany personelu. Odśwież rezerwację przed ponowieniem operacji.'
+    ], 503);
+}
+
+$applyData = $applyResult['data'];
+$applied = ($applyData['applied'] ?? null) === true;
+$applyReason = trim((string) ($applyData['reason'] ?? ''));
+
+if (!$applied) {
+    $statusCode = 409;
+    $message = 'Nie udało się zapisać zmiany personelu.';
+
+    if ($applyReason === 'booking_missing') {
+        $statusCode = 404;
+        $message = 'Nie znaleziono rezerwacji.';
+    } elseif ($applyReason === 'concurrency_conflict') {
+        $message = 'Przypisanie pracownika zostało w międzyczasie zmienione. Odśwież rezerwację i spróbuj ponownie.';
+    } elseif ($applyReason === 'staff_not_found') {
+        $statusCode = 404;
+        $message = 'Nie znaleziono wybranego pracownika.';
+    } elseif ($applyReason === 'staff_inactive') {
+        $message = 'Nie można przypisać nieaktywnego pracownika.';
+    } elseif ($applyReason === 'same_staff') {
+        $message = 'Ten pracownik jest już przypisany do tej rezerwacji.';
+    } elseif ($applyReason === 'no_staff_to_detach') {
+        $message = 'Ta rezerwacja nie ma przypisanego pracownika.';
+    } elseif ($applyReason === 'schedule_conflict') {
+        $message = 'Wybrany pracownik nie jest już dostępny w tym terminie.';
+    } elseif ($applyReason === 'unsupported_payment_lifecycle') {
+        $message = 'Ta rezerwacja nie obsługuje zmiany personelu w tym trybie.';
+    }
+
+    booking_staff_security_event(
+        'booking_staff_update_atomic_denied',
+        $applyReason !== '' ? $applyReason : 'atomic_staff_change_denied',
+        $statusCode,
+        'failed',
+        'medium',
+        $tenantId,
+        $action === 'change_staff' ? $newStaffId : $oldStaffId,
+        'atomic_staff_change'
+    );
+
+    booking_staff_json([
+        'success' => false,
+        'error' => $message
+    ], $statusCode);
+}
+
+$historyId = trim((string) ($applyData['history_id'] ?? ''));
+$updatedBooking = $applyData['booking'] ?? null;
+$appliedOldStaffName = booking_staff_text((string) ($applyData['old_staff_name'] ?? ''), $oldStaffName);
+$appliedNewStaffName = $action === 'change_staff'
+    ? booking_staff_text((string) ($applyData['new_staff_name'] ?? ''), $newStaffName)
+    : '';
+
+$expectedStaffId = $action === 'change_staff' ? $newStaffId : '';
+$returnedStaffId = is_array($updatedBooking)
+    ? trim((string) ($updatedBooking['staff_id'] ?? ''))
+    : '';
+
+if (!booking_staff_is_uuid($historyId)
+    || !is_array($updatedBooking)
+    || !hash_equals($bookingId, trim((string) ($updatedBooking['id'] ?? '')))
+    || !hash_equals($tenantId, trim((string) ($updatedBooking['tenant_id'] ?? '')))
+    || ($expectedStaffId !== '' && !hash_equals(strtolower($expectedStaffId), strtolower($returnedStaffId)))
+    || ($expectedStaffId === '' && $returnedStaffId !== '')) {
+    booking_staff_security_event(
+        'booking_staff_update_atomic_contract_invalid',
+        'atomic_staff_change_contract_invalid',
+        503,
+        'error',
+        'high',
+        $tenantId,
+        $action === 'change_staff' ? $newStaffId : $oldStaffId,
+        'atomic_staff_change'
+    );
+
+    booking_staff_json([
+        'success' => false,
+        'error' => 'Zmiana została zapisana, ale jej wynik wymaga weryfikacji. Odśwież rezerwację.'
+    ], 503);
 }
 
 $mailSent = booking_staff_send_client_mail(
     $updatedBooking,
     $action,
-    $oldStaffName,
-    $newStaffName
+    $appliedOldStaffName,
+    $appliedNewStaffName
 );
 
-$changeRow = booking_staff_insert($supabaseUrl, $supabaseKey, $schema, 'booking_staff_changes', [
-    'tenant_id' => $tenantId,
-    'booking_id' => $bookingId,
-    'old_staff_id' => $oldStaffId !== '' ? $oldStaffId : null,
-    'new_staff_id' => $action === 'change_staff' ? $newStaffId : null,
-    'old_staff_name' => $oldStaffName !== '' ? $oldStaffName : null,
-    'new_staff_name' => $action === 'change_staff' ? $newStaffName : null,
-    'action' => $action,
-    'changed_by' => 'admin',
-    'changed_by_user_id' => booking_staff_is_uuid($adminUserId) ? $adminUserId : null,
-    'client_email_sent_at' => $mailSent ? gmdate('c') : null,
-    'staff_notified_at' => null,
-    'note' => $action === 'change_staff'
-        ? 'Administrator zmienił personel przypisany do rezerwacji.'
-        : 'Administrator odłączył personel od rezerwacji.',
-]);
+if ($mailSent) {
+    $mailMarkResult = payment_lifecycle_v3_rpc('booking_staff_change_mark_client_email_sent', [
+        'p_tenant_id' => $tenantId,
+        'p_history_id' => $historyId,
+    ]);
+
+    if (empty($mailMarkResult['ok']) || !is_array($mailMarkResult['data'] ?? null)
+        || (($mailMarkResult['data']['recorded'] ?? null) !== true
+            && ($mailMarkResult['data']['idempotent'] ?? null) !== true)) {
+        booking_staff_security_event(
+            'booking_staff_update_mail_audit_failed',
+            'client_email_sent_history_mark_failed',
+            200,
+            'warning',
+            'medium',
+            $tenantId,
+            $action === 'change_staff' ? $newStaffId : $oldStaffId,
+            'mail_audit'
+        );
+    }
+}
 
 booking_staff_security_event(
     $action === 'change_staff' ? 'booking_staff_update_success' : 'booking_staff_detach_success',

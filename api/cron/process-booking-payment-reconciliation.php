@@ -345,6 +345,7 @@ try {
                 $orderId = trim((string) ($item['order_id'] ?? ''));
                 $currency = strtoupper(trim((string) ($item['currency'] ?? '')));
                 $providerState = strtolower(trim((string) ($item['provider_state'] ?? '')));
+                $payuConfigVersionId = trim((string) ($item['payu_config_version_id'] ?? ''));
                 $amountMinor = $item['amount_minor'] ?? null;
                 $attemptCount = $item['attempt_count'] ?? null;
                 $leaseExpiresAt = $item['lease_expires_at'] ?? null;
@@ -384,6 +385,7 @@ try {
                 $claimContextValid = booking_reconciliation_worker_safe_text($tenantId, 128)
                     && booking_reconciliation_worker_uuid($bookingId)
                     && booking_reconciliation_worker_ext_order_id($extOrderId)
+                    && booking_reconciliation_worker_uuid($payuConfigVersionId)
                     && is_int($amountMinor)
                     && $amountMinor > 0
                     && booking_reconciliation_worker_currency($currency)
@@ -468,7 +470,11 @@ try {
                     continue;
                 }
 
-                $payu = payu_get_integration($tenantId);
+                $payu = payu_get_bound_integration(
+                    $tenantId,
+                    $paymentId,
+                    $payuConfigVersionId
+                );
 
                 if (!is_array($payu)) {
                     booking_reconciliation_worker_log('integration_unavailable');

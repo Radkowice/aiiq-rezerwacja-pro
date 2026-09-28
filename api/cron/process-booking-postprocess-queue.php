@@ -2,9 +2,210 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/booking_postprocess_queue.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/booking_context_cache.php';
 require_once __DIR__ . '/../helpers/booking_postprocess.php';
 require_once __DIR__ . '/../helpers/security.php';
+
+
+const BOOKING_POSTPROCESS_INTENT_CLAIM_LIMIT = 5;
+const BOOKING_POSTPROCESS_INTENT_LEASE_SECONDS = 120;
+
+function booking_postprocess_worker_id(): string
+{
+    $host = function_exists('gethostname') ? trim((string)gethostname()) : '';
+    $hostRef = substr(hash('sha256', $host !== '' ? $host : 'unknown-host'), 0, 16);
+    $pid = function_exists('getmypid') ? max(0, (int)getmypid()) : 0;
+
+    return 'booking-postprocess:h-' . $hostRef . ':p-' . $pid;
+}
+
+function booking_postprocess_worker_uuid(string $value): bool
+{
+    return preg_match(
+        '/\A[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/iD',
+        $value
+    ) === 1;
+}
+
+function booking_postprocess_worker_record_intent_result(
+    string $intentId,
+    string $claimToken,
+    bool $success,
+    ?string $errorCode
+): bool {
+    $rpc = payment_lifecycle_v3_rpc('booking_postprocess_intent_record_result', [
+        'p_intent_id' => $intentId,
+        'p_claim_token' => $claimToken,
+        'p_success' => $success,
+        'p_error_code' => $errorCode,
+    ]);
+
+    if (($rpc['ok'] ?? null) !== true || !is_array($rpc['data'] ?? null)) {
+        return false;
+    }
+
+    $data = $rpc['data'];
+    if (($data['recorded'] ?? null) !== true) {
+        return false;
+    }
+
+    $status = (string)($data['status'] ?? '');
+    if ($success) {
+        return $status === 'materialized';
+    }
+
+    return $status === 'pending';
+}
+
+function booking_postprocess_worker_materialize_intents(): array
+{
+    $stats = [
+        'claimed' => 0,
+        'materialized' => 0,
+        'deferred' => 0,
+        'errors' => 0,
+    ];
+
+    $claimRpc = payment_lifecycle_v3_rpc('booking_postprocess_intent_claim', [
+        'p_worker_id' => booking_postprocess_worker_id(),
+        'p_limit' => BOOKING_POSTPROCESS_INTENT_CLAIM_LIMIT,
+        'p_lease_seconds' => BOOKING_POSTPROCESS_INTENT_LEASE_SECONDS,
+    ]);
+
+    if (($claimRpc['ok'] ?? null) !== true || !is_array($claimRpc['data'] ?? null)) {
+        $stats['errors']++;
+        booking_postprocess_worker_log('INTENT_CLAIM_FAILED');
+        return $stats;
+    }
+
+    $claimData = $claimRpc['data'];
+    $claimed = $claimData['claimed'] ?? null;
+    $items = $claimData['items'] ?? null;
+
+    if (!is_int($claimed)
+        || $claimed < 0
+        || $claimed > BOOKING_POSTPROCESS_INTENT_CLAIM_LIMIT
+        || !is_array($items)
+        || count($items) !== $claimed
+    ) {
+        $stats['errors']++;
+        booking_postprocess_worker_log('INTENT_CLAIM_MALFORMED');
+        return $stats;
+    }
+
+    $stats['claimed'] = $claimed;
+    $seenIntentIds = [];
+    $seenClaimTokens = [];
+
+    foreach ($items as $item) {
+        if (!is_array($item)) {
+            $stats['errors']++;
+            booking_postprocess_worker_log('INTENT_ITEM_MALFORMED');
+            continue;
+        }
+
+        $keys = array_keys($item);
+        sort($keys, SORT_STRING);
+        $expectedKeys = [
+            'attempt_count',
+            'booking_id',
+            'claim_token',
+            'intent_id',
+            'lease_expires_at',
+            'tenant_id',
+        ];
+        sort($expectedKeys, SORT_STRING);
+
+        $intentId = trim((string)($item['intent_id'] ?? ''));
+        $tenantId = trim((string)($item['tenant_id'] ?? ''));
+        $bookingId = trim((string)($item['booking_id'] ?? ''));
+        $claimToken = trim((string)($item['claim_token'] ?? ''));
+        $attemptCount = $item['attempt_count'] ?? null;
+        $leaseExpiresAt = trim((string)($item['lease_expires_at'] ?? ''));
+
+        $shapeValid = $keys === $expectedKeys
+            && booking_postprocess_worker_uuid($intentId)
+            && booking_postprocess_queue_identifier_is_valid($tenantId)
+            && booking_postprocess_worker_uuid($bookingId)
+            && booking_postprocess_worker_uuid($claimToken)
+            && is_int($attemptCount)
+            && $attemptCount >= 0
+            && $leaseExpiresAt !== ''
+            && !isset($seenIntentIds[strtolower($intentId)])
+            && !isset($seenClaimTokens[strtolower($claimToken)]);
+
+        if (!$shapeValid) {
+            $stats['errors']++;
+            booking_postprocess_worker_log('INTENT_ITEM_MALFORMED');
+            continue;
+        }
+
+        try {
+            $lease = new DateTimeImmutable($leaseExpiresAt);
+            $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+            if ($lease <= $now) {
+                $stats['errors']++;
+                booking_postprocess_worker_log('INTENT_LEASE_INVALID');
+                continue;
+            }
+        } catch (Throwable $e) {
+            $stats['errors']++;
+            booking_postprocess_worker_log('INTENT_LEASE_INVALID');
+            continue;
+        }
+
+        $seenIntentIds[strtolower($intentId)] = true;
+        $seenClaimTokens[strtolower($claimToken)] = true;
+        $intentRef = substr(hash('sha256', 'booking-postprocess-intent|' . $intentId), 0, 16);
+
+        $queued = booking_postprocess_queue_enqueue($bookingId, $tenantId);
+        if ($queued) {
+            if (!booking_postprocess_worker_record_intent_result(
+                $intentId,
+                $claimToken,
+                true,
+                null
+            )) {
+                $stats['errors']++;
+                booking_postprocess_worker_log('INTENT_RECORD_FAILED', [
+                    'intent_ref' => $intentRef,
+                    'attempt' => $attemptCount,
+                ]);
+                continue;
+            }
+
+            $stats['materialized']++;
+            booking_postprocess_worker_log('INTENT_MATERIALIZED', [
+                'intent_ref' => $intentRef,
+                'attempt' => $attemptCount,
+            ]);
+            continue;
+        }
+
+        if (!booking_postprocess_worker_record_intent_result(
+            $intentId,
+            $claimToken,
+            false,
+            'queue.materialization.failed'
+        )) {
+            $stats['errors']++;
+            booking_postprocess_worker_log('INTENT_RECORD_FAILED', [
+                'intent_ref' => $intentRef,
+                'attempt' => $attemptCount,
+            ]);
+            continue;
+        }
+
+        $stats['deferred']++;
+        booking_postprocess_worker_log('INTENT_DEFERRED', [
+            'intent_ref' => $intentRef,
+            'attempt' => $attemptCount + 1,
+        ]);
+    }
+
+    return $stats;
+}
 
 
 function booking_postprocess_worker_security_event(
@@ -39,7 +240,7 @@ function booking_postprocess_worker_log(string $event, array $context = []): voi
 {
     $allowed = [];
 
-    foreach (['job_ref', 'attempt', 'result', 'failed_tasks', 'error_code', 'http_code', 'processed', 'recovered'] as $key) {
+    foreach (['job_ref', 'intent_ref', 'attempt', 'result', 'failed_tasks', 'error_code', 'http_code', 'processed', 'recovered', 'intent_claimed', 'intent_materialized', 'intent_deferred', 'intent_errors'] as $key) {
         if (array_key_exists($key, $context) && (is_scalar($context[$key]) || is_array($context[$key]))) {
             $allowed[$key] = $context[$key];
         }
@@ -78,6 +279,10 @@ function booking_postprocess_worker_response(array $payload, int $statusCode = 2
             'retried' => 0,
             'failed' => 0,
             'recovered' => 0,
+            'intent_claimed' => 0,
+            'intent_materialized' => 0,
+            'intent_deferred' => 0,
+            'intent_errors' => 0,
         ]
     ) {
         exit;
@@ -208,8 +413,18 @@ $completed = 0;
 $retried = 0;
 $failed = 0;
 $recovered = 0;
+$intentClaimed = 0;
+$intentMaterialized = 0;
+$intentDeferred = 0;
+$intentErrors = 0;
 
 try {
+    $intentStats = booking_postprocess_worker_materialize_intents();
+    $intentClaimed = (int)($intentStats['claimed'] ?? 0);
+    $intentMaterialized = (int)($intentStats['materialized'] ?? 0);
+    $intentDeferred = (int)($intentStats['deferred'] ?? 0);
+    $intentErrors = (int)($intentStats['errors'] ?? 0);
+
     $recovered = booking_postprocess_queue_recover_stale_processing(300);
 
     for ($index = 0; $index < 5; $index++) {
@@ -306,9 +521,22 @@ try {
 booking_postprocess_worker_log('WORKER_DONE', [
     'processed' => $processed,
     'recovered' => $recovered,
+    'intent_claimed' => $intentClaimed,
+    'intent_materialized' => $intentMaterialized,
+    'intent_deferred' => $intentDeferred,
+    'intent_errors' => $intentErrors,
 ]);
 
-if ($failed > 0) {
+if ($intentErrors > 0) {
+    booking_postprocess_worker_security_event(
+        'booking_postprocess_intent_recovery_failed',
+        'postprocess_intent_recovery_failed',
+        500,
+        'error',
+        'high',
+        'intent_recovery'
+    );
+} elseif ($failed > 0) {
     booking_postprocess_worker_security_event(
         'booking_postprocess_worker_run_failed',
         'jobs_failed_permanently',
@@ -347,10 +575,14 @@ if ($failed > 0) {
 }
 
 booking_postprocess_worker_response([
-    'success' => true,
+    'success' => $intentErrors === 0,
     'processed' => $processed,
     'completed' => $completed,
     'retried' => $retried,
     'failed' => $failed,
     'recovered' => $recovered,
-]);
+    'intent_claimed' => $intentClaimed,
+    'intent_materialized' => $intentMaterialized,
+    'intent_deferred' => $intentDeferred,
+    'intent_errors' => $intentErrors,
+], $intentErrors === 0 ? 200 : 500);

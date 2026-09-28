@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/supabase.php';
 require_once __DIR__ . '/plan_features.php';
+require_once __DIR__ . '/payment_lifecycle_v3.php';
 require_once __DIR__ . '/google_calendar.php';
 require_once __DIR__ . '/booking_mail.php';
 
@@ -177,197 +178,105 @@ function booking_postprocess_execute_job(array $job): array
         throw new RuntimeException('postprocess_missing_supabase_config');
     }
 
-    $bookingId = (string)$job['booking_id'];
-    $tenantId = (string)$job['tenant_id'];
+    $bookingId = trim((string)($job['booking_id'] ?? ''));
+    $tenantId = trim((string)($job['tenant_id'] ?? ''));
     $tasks = is_array($job['tasks'] ?? null) ? $job['tasks'] : [];
-    $booking = booking_postprocess_fetch_booking($bookingId, $tenantId);
-    $staffId = trim((string)($booking['staff_id'] ?? ''));
-    $serviceId = trim((string)($booking['service_id'] ?? ''));
-    $staff = $staffId !== ''
-        ? booking_postprocess_fetch_single(
-            'staff_profiles',
-            'select=id,display_name,service_duration_minutes,email_subject,email_heading,email_body'
-                . '&tenant_id=eq.' . rawurlencode($tenantId)
-                . '&id=eq.' . rawurlencode($staffId)
-        )
-        : null;
-    $service = $serviceId !== ''
-        ? booking_postprocess_fetch_single(
-            'tenant_services',
-            'select=id,duration_minutes'
-                . '&tenant_id=eq.' . rawurlencode($tenantId)
-                . '&id=eq.' . rawurlencode($serviceId)
-        )
-        : null;
-    $calendar = booking_postprocess_fetch_single(
-        'calendar_settings',
-        'select=consultation_duration&tenant_id=eq.' . rawurlencode($tenantId)
-    );
-    $durationMinutes = max(1, (int)(
-        $service['duration_minutes']
-        ?? $staff['service_duration_minutes']
-        ?? $calendar['consultation_duration']
-        ?? 60
-    ));
-    $staffDisplayName = trim((string)($staff['display_name'] ?? ''));
 
-    if (!in_array($tasks['google_calendar'] ?? '', ['done', 'skipped'], true)) {
+    if ($bookingId === '' || $tenantId === '') {
+        throw new RuntimeException('postprocess_job_context_invalid');
+    }
+
+    $booking = booking_postprocess_fetch_booking($bookingId, $tenantId);
+    $paymentRequired = !empty($booking['payment_required']);
+
+    // The durable legacy postprocess contract is intentionally limited to the
+    // current public no-payment producer. Paid bookings use the V1 payment
+    // lifecycle/outboxes and must never be routed through this compatibility path.
+    if ($paymentRequired) {
+        foreach (['google_calendar', 'client_email', 'admin_email'] as $task) {
+            if (!in_array($tasks[$task] ?? '', ['done', 'skipped'], true)) {
+                $tasks[$task] = 'failed';
+            }
+        }
+
+        return [
+            'success' => false,
+            'tasks' => $tasks,
+        ];
+    }
+
+    $needsCalendar = !in_array($tasks['google_calendar'] ?? '', ['done', 'skipped'], true);
+    $needsClientEmail = !in_array($tasks['client_email'] ?? '', ['done', 'skipped'], true);
+    $needsAdminEmail = !in_array($tasks['admin_email'] ?? '', ['done', 'skipped'], true);
+
+    $enqueueCalendar = false;
+
+    if ($needsCalendar) {
         if (trim((string)($booking['google_event_id'] ?? '')) !== '') {
             $tasks['google_calendar'] = 'done';
         } elseif (!tenant_has_feature($tenantId, 'google_calendar')) {
             $tasks['google_calendar'] = 'skipped';
         } else {
-            try {
-                $googleBooking = $booking;
-                unset(
-                    $googleBooking['manage_token'],
-                    $googleBooking['manage_token_expires_at'],
-                    $googleBooking['google_event_id']
-                );
-                $googleBooking['staff_display_name'] = $staffDisplayName;
-                $googleBooking['duration_minutes'] = $durationMinutes;
-                $googleExecution = null;
-                $googleEventId = createGoogleCalendarEventForBooking(
-                    $tenantId,
-                    $googleBooking,
-                    $googleExecution
-                );
-
-                if (($googleExecution['status'] ?? '') === 'skipped') {
-                    $tasks['google_calendar'] = 'skipped';
-                } elseif (
-                    is_string($googleEventId)
-                    && $googleEventId !== ''
-                    && google_calendar_update_booking_event_id($bookingId, $googleEventId, $tenantId)
-                ) {
-                    $tasks['google_calendar'] = 'done';
-                } else {
-                    $tasks['google_calendar'] = 'failed';
-                }
-            } catch (Throwable $e) {
-                $tasks['google_calendar'] = 'failed';
-            }
+            $enqueueCalendar = true;
         }
     }
 
-    $needsClientEmail = !in_array($tasks['client_email'] ?? '', ['done', 'skipped'], true);
-    $needsAdminEmail = !in_array($tasks['admin_email'] ?? '', ['done', 'skipped'], true);
+    if (!$enqueueCalendar && !$needsClientEmail && !$needsAdminEmail) {
+        return [
+            'success' => true,
+            'tasks' => $tasks,
+        ];
+    }
 
-    if ($needsClientEmail || $needsAdminEmail) {
-        $tenantQuery = 'tenant_id=eq.' . rawurlencode($tenantId);
-        $emailSettings = booking_postprocess_fetch_single(
-            'email_settings',
-            $tenantQuery . '&is_active=eq.true&select=smtp_host,smtp_port,smtp_encryption,smtp_username,smtp_password,from_email,from_name,reply_to_email,reply_to_name,admin_notify_email,send_client_confirmation,send_admin_notification'
-        );
-        $branding = booking_postprocess_fetch_single(
-            'tenant_branding',
-            $tenantQuery . '&select=client_name,email_footer_mode,email_footer_custom'
-        );
-        $serviceSettings = booking_postprocess_fetch_single(
-            'tenant_service_settings',
-            $tenantQuery . '&select=company_full_name,company_email'
-        );
-        $tenantMailData = array_merge(
-            is_array($branding) ? $branding : [],
-            is_array($serviceSettings) ? $serviceSettings : []
-        );
-        $mailBooking = $booking;
-        $mailBooking['has_client_message'] = trim((string)($booking['notes'] ?? '')) !== '';
-        unset($mailBooking['notes'], $mailBooking['note'], $mailBooking['message']);
-        $paymentRequired = !empty($booking['payment_required']);
+    $rpc = payment_lifecycle_v3_rpc('booking_legacy_postprocess_enqueue', [
+        'p_tenant_id' => $tenantId,
+        'p_booking_id' => $bookingId,
+        'p_enqueue_calendar' => $enqueueCalendar,
+        'p_enqueue_client_email' => $needsClientEmail,
+        'p_enqueue_admin_email' => $needsAdminEmail,
+    ]);
 
+    if (empty($rpc['ok']) || !is_array($rpc['data'] ?? null)) {
+        if ($enqueueCalendar) {
+            $tasks['google_calendar'] = 'failed';
+        }
         if ($needsClientEmail) {
-            if ($paymentRequired) {
-                $tasks['client_email'] = 'skipped';
-            } else {
-                $emailTemplate = booking_postprocess_fetch_single(
-                    'email_templates',
-                    $tenantQuery . '&template_key=eq.booking_client_confirmation&is_enabled=eq.true&select=subject,service_name,body_html'
-                );
-                $effectiveTemplate = is_array($emailTemplate)
-                    ? $emailTemplate
-                    : booking_mail_default_client_template();
-
-                if (trim((string)($staff['email_subject'] ?? '')) !== '') {
-                    $effectiveTemplate['subject'] = (string)$staff['email_subject'];
-                }
-
-                if (trim((string)($staff['email_heading'] ?? '')) !== '') {
-                    $effectiveTemplate['service_name'] = (string)$staff['email_heading'];
-                }
-
-                if (trim((string)($staff['email_body'] ?? '')) !== '') {
-                    $effectiveTemplate['body_html'] = (string)$staff['email_body'];
-                }
-
-                $planContext = plan_features_get_context($tenantId);
-                $rescheduleUrl = booking_postprocess_feature($planContext, 'reschedule_booking')
-                    ? booking_postprocess_reschedule_url(
-                        $tenantId,
-                        (string)($booking['manage_token'] ?? ''),
-                        (string)($booking['manage_token_expires_at'] ?? '')
-                    )
-                    : '';
-                $clientSent = booking_mail_send_client_confirmation_with_fallback(
-                    is_array($emailSettings) ? $emailSettings : null,
-                    $effectiveTemplate,
-                    $tenantMailData,
-                    array_merge($mailBooking, ['staff_display_name' => $staffDisplayName]),
-                    ['reschedule_url' => $rescheduleUrl]
-                );
-                $tasks['client_email'] = $clientSent ? 'done' : 'failed';
-            }
+            $tasks['client_email'] = 'failed';
+        }
+        if ($needsAdminEmail) {
+            $tasks['admin_email'] = 'failed';
         }
 
-        if ($needsAdminEmail) {
-            if (!booking_mail_admin_notification_enabled($emailSettings)) {
-                $tasks['admin_email'] = 'skipped';
-            } else {
-                $configuredAdminEmail = trim((string)($emailSettings['admin_notify_email'] ?? ''));
-                $adminAccountEmail = '';
+        return [
+            'success' => false,
+            'tasks' => $tasks,
+        ];
+    }
 
-                if ($configuredAdminEmail === '' || !filter_var($configuredAdminEmail, FILTER_VALIDATE_EMAIL)) {
-                    $adminAccount = booking_postprocess_fetch_single(
-                        'users',
-                        $tenantQuery . '&select=email&role=in.(admin,administrator)&is_active=eq.true'
-                    );
-                    $adminAccountEmail = trim((string)($adminAccount['email'] ?? ''));
-                }
+    $data = $rpc['data'];
+    $calendarStatus = strtolower(trim((string)($data['calendar_status'] ?? '')));
+    $clientStatus = strtolower(trim((string)($data['client_email_status'] ?? '')));
+    $adminStatus = strtolower(trim((string)($data['admin_email_status'] ?? '')));
 
-                $recipient = booking_mail_admin_notification_email(
-                    $tenantMailData,
-                    is_array($emailSettings) ? $emailSettings : null,
-                    $adminAccountEmail
-                );
+    if ($enqueueCalendar) {
+        if (in_array($calendarStatus, ['queued', 'already_bound'], true)) {
+            $tasks['google_calendar'] = 'done';
+        } else {
+            $tasks['google_calendar'] = 'failed';
+        }
+    }
 
-                if ($recipient === '') {
-                    $tasks['admin_email'] = 'skipped';
-                } else {
-                    $companyName = trim((string)($tenantMailData['client_name'] ?? $tenantMailData['company_full_name'] ?? ''));
-                    $subject = 'Nowa rezerwacja – ' . (string)$booking['booking_date'] . ' ' . substr((string)$booking['booking_time'], 0, 5);
-                    $html = booking_postprocess_admin_html($companyName, $mailBooking, $staffDisplayName);
-                    $altBody = "Nowa rezerwacja\n\n"
-                        . 'Imię: ' . (string)$mailBooking['name'] . "\n"
-                        . 'E-mail: ' . (string)$mailBooking['email'] . "\n"
-                        . 'Telefon: ' . (string)$mailBooking['phone'] . "\n"
-                        . 'Data: ' . (string)$mailBooking['booking_date'] . "\n"
-                        . ($staffDisplayName !== '' ? 'Personel: ' . $staffDisplayName . "\n" : '')
-                        . 'Godzina: ' . substr((string)$mailBooking['booking_time'], 0, 5) . "\n"
-                        . (!empty($mailBooking['has_client_message'])
-                            ? 'Wiadomość od klienta zobaczysz w swoim panelu rezerwacji.' . "\n"
-                            : '');
-                    $adminSent = booking_mail_send_admin_notification_with_fallback(
-                        is_array($emailSettings) ? $emailSettings : null,
-                        $tenantMailData,
-                        array_merge($mailBooking, ['staff_display_name' => $staffDisplayName]),
-                        $recipient,
-                        $subject,
-                        $html,
-                        $altBody
-                    );
-                    $tasks['admin_email'] = $adminSent ? 'done' : 'failed';
-                }
-            }
+    if ($needsClientEmail) {
+        $tasks['client_email'] = $clientStatus === 'queued' ? 'done' : 'failed';
+    }
+
+    if ($needsAdminEmail) {
+        if ($adminStatus === 'queued') {
+            $tasks['admin_email'] = 'done';
+        } elseif ($adminStatus === 'disabled') {
+            $tasks['admin_email'] = 'skipped';
+        } else {
+            $tasks['admin_email'] = 'failed';
         }
     }
 
