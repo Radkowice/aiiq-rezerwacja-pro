@@ -215,6 +215,33 @@ $rateLimitResult = security_rate_limit_check(
     ]
 );
 
+$rateRaw = is_array($rateLimitResult['raw'] ?? null)
+    ? $rateLimitResult['raw']
+    : [];
+$rateRuleFound = ($rateRaw['rule_found'] ?? false) === true;
+
+if (empty($rateLimitResult['ok']) || !$rateRuleFound) {
+    security_log_event('staff_invite_accept_probe_rate_limit_unavailable', [
+        'action_key' => 'staff_invite_accept_probe',
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'severity' => 'high',
+        'actor_type' => 'staff',
+        'response_status' => 503,
+        'result' => 'error',
+        'details' => [
+            'reason' => 'security_rate_limit_unavailable',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    staff_accept_invite_json([
+        'success' => false,
+        'error' => 'Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
 if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
     security_log_event('staff_invite_accept_probe_rate_limited', [
         'action_key' => 'staff_invite_accept_probe',

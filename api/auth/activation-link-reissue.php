@@ -218,6 +218,30 @@ try {
         ]
     );
 
+    $rateRaw = is_array($rateLimitResult['raw'] ?? null)
+        ? $rateLimitResult['raw']
+        : [];
+    $rateRuleFound = ($rateRaw['rule_found'] ?? false) === true;
+
+    if (empty($rateLimitResult['ok']) || !$rateRuleFound) {
+        activation_reissue_security_event(
+            'activation_reissue_rate_limit_unavailable',
+            'security_rate_limit_unavailable',
+            503,
+            'error',
+            'high',
+            [
+                'email' => $securityEmail,
+                'stage' => 'security_rate_limit_check',
+            ]
+        );
+
+        activation_reissue_json([
+            'success' => false,
+            'error' => 'Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+        ], 503);
+    }
+
     if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
         activation_reissue_security_event(
             'activation_reissue_rate_limited',

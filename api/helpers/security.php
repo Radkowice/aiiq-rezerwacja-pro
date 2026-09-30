@@ -16,18 +16,86 @@ function security_allowed_schema(): string
     return $schema;
 }
 
+function security_runtime_access_token(): string
+{
+    $path = '/run/rezerwia-public-api-runtime/access.jwt';
+
+    $stat = @lstat($path);
+
+    if (!is_array($stat) || !is_file($path) || is_link($path) || !is_readable($path)) {
+        throw new RuntimeException('Missing security runtime access token.');
+    }
+
+    $mode = (int) ($stat['mode'] ?? 0) & 0777;
+    $uid = (int) ($stat['uid'] ?? -1);
+    $gid = (int) ($stat['gid'] ?? -1);
+
+    if ($uid !== 0 || $gid !== 82 || $mode !== 0640) {
+        throw new RuntimeException('Invalid security runtime access token permissions.');
+    }
+
+    $token = trim((string) @file_get_contents($path));
+
+    if ($token === '' || substr_count($token, '.') !== 2) {
+        throw new RuntimeException('Invalid security runtime access token format.');
+    }
+
+    $parts = explode('.', $token);
+    $payload = strtr($parts[1], '-_', '+/');
+    $payload .= str_repeat('=', (4 - (strlen($payload) % 4)) % 4);
+
+    $decodedPayload = base64_decode($payload, true);
+    $claims = is_string($decodedPayload)
+        ? json_decode($decodedPayload, true)
+        : null;
+
+    if (!is_array($claims)) {
+        throw new RuntimeException('Invalid security runtime access token payload.');
+    }
+
+    if (($claims['role'] ?? null) !== 'rezerwia_public_api_runtime') {
+        throw new RuntimeException('Invalid security runtime access token role.');
+    }
+
+    if (($claims['sub'] ?? null) !== '29083a47-0f2a-4a03-b2ba-81738496d89a') {
+        throw new RuntimeException('Invalid security runtime access token subject.');
+    }
+
+    $iat = $claims['iat'] ?? null;
+    $exp = $claims['exp'] ?? null;
+
+    if (
+        is_bool($iat)
+        || is_bool($exp)
+        || !is_int($iat)
+        || !is_int($exp)
+    ) {
+        throw new RuntimeException('Invalid security runtime access token timestamps.');
+    }
+
+    $now = time();
+
+    if ($iat > ($now + 60) || $exp <= ($now + 30)) {
+        throw new RuntimeException('Expired security runtime access token.');
+    }
+
+    return $token;
+}
+
 function security_supabase_config(): array
 {
     $url = rtrim(trim((string) getenv('SUPABASE_URL')), '/');
-    $serviceRoleKey = trim((string) getenv('SUPABASE_SERVICE_ROLE_KEY'));
+    $anonKey = trim((string) getenv('SUPABASE_ANON_KEY'));
+    $runtimeAccessToken = security_runtime_access_token();
 
-    if ($url === '' || $serviceRoleKey === '') {
+    if ($url === '' || $anonKey === '') {
         throw new RuntimeException('Missing security Supabase configuration.');
     }
 
     return [
         'url' => $url,
-        'service_role_key' => $serviceRoleKey,
+        'apikey' => $anonKey,
+        'access_token' => $runtimeAccessToken,
         'schema' => security_allowed_schema(),
     ];
 }
@@ -99,8 +167,8 @@ function security_supabase_rpc(string $functionName, array $payload): array
         CURLOPT_POSTFIELDS => $json,
         CURLOPT_TIMEOUT => 5,
         CURLOPT_HTTPHEADER => [
-            'apikey: ' . $config['service_role_key'],
-            'Authorization: Bearer ' . $config['service_role_key'],
+            'apikey: ' . $config['apikey'],
+            'Authorization: Bearer ' . $config['access_token'],
             'Content-Type: application/json',
             'Accept: application/json',
             'Accept-Profile: ' . $config['schema'],

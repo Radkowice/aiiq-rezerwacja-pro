@@ -97,6 +97,34 @@ $rateLimitResult = security_rate_limit_check(
     ]
 );
 
+$rateRaw = is_array($rateLimitResult['raw'] ?? null)
+    ? $rateLimitResult['raw']
+    : [];
+$rateRuleFound = ($rateRaw['rule_found'] ?? false) === true;
+
+if (empty($rateLimitResult['ok']) || !$rateRuleFound) {
+    security_log_event('password_reset_rate_limit_unavailable', [
+        'tenant_id' => $TENANT_ID,
+        'email' => $securityEmail,
+        'ip_address' => $securityIp,
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'severity' => 'high',
+        'actor_type' => 'tenant_user',
+        'response_status' => 503,
+        'result' => 'error',
+        'details' => [
+            'reason' => 'security_rate_limit_unavailable',
+            'limiter' => 'security_rate_limit_check',
+        ],
+    ]);
+
+    forgotPasswordJson([
+        'success' => false,
+        'error' => 'Usługa jest chwilowo niedostępna. Spróbuj ponownie za chwilę.',
+    ], 503);
+}
+
 if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
     security_log_event('password_reset_rate_limited', [
         'tenant_id' => $TENANT_ID,
