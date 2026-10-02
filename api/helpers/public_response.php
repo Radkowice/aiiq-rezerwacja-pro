@@ -22,12 +22,13 @@ function public_response_hidden_fields(): array
 
 function public_response_ref_secret(string $supabaseKey): string
 {
-    return (string) (
-        getenv('BOOKING_PUBLIC_REF_SECRET')
-        ?: getenv('APP_SECRET')
-        ?: getenv('SUPABASE_SERVICE_ROLE_KEY')
-        ?: $supabaseKey
-    );
+    $secret = trim((string) getenv('BOOKING_PUBLIC_REF_SECRET'));
+
+    if (preg_match('/\A[0-9a-f]{64}\z/i', $secret) !== 1) {
+        throw new RuntimeException('BOOKING_PUBLIC_REF_SECRET is missing or invalid');
+    }
+
+    return $secret;
 }
 
 function public_response_build_ref(string $prefix, string $kind, string $tenantId, string $recordId, string $secret): string

@@ -10,6 +10,7 @@ require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 start_secure_session();
@@ -279,22 +280,22 @@ function booking_staff_is_uuid(string $value): bool
 
 function booking_staff_public_ref_secret(string $supabaseKey): string
 {
-    return (string) (getenv('BOOKING_PUBLIC_REF_SECRET') ?: getenv('APP_SECRET') ?: $supabaseKey);
+    return public_response_ref_secret($supabaseKey);
 }
 
 function booking_staff_build_public_ref(string $prefix, string $kind, string $tenantId, string $recordId, string $secret): string
 {
-    return $prefix . '_' . substr(hash_hmac('sha256', $kind . '|' . $tenantId . '|' . $recordId, $secret), 0, 48);
+    return public_response_build_ref($prefix, $kind, $tenantId, $recordId, $secret);
 }
 
 function booking_staff_build_booking_ref(string $tenantId, string $bookingId, string $secret): string
 {
-    return booking_staff_build_public_ref('bk', 'booking', $tenantId, $bookingId, $secret);
+    return public_response_booking_ref($tenantId, $bookingId, $secret);
 }
 
 function booking_staff_build_staff_ref(string $tenantId, string $staffId, string $secret): string
 {
-    return booking_staff_build_public_ref('st', 'staff', $tenantId, $staffId, $secret);
+    return public_response_staff_ref($tenantId, $staffId, $secret);
 }
 
 function booking_staff_is_valid_booking_ref(string $ref): bool

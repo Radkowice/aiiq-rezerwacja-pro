@@ -3,6 +3,7 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../system/tenant.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/public_response.php';
 
 start_secure_session();
 
@@ -154,12 +155,11 @@ function supabase_request(string $method, string $url, string $key, string $sche
 }
 
 function booking_public_ref_secret(string $supabaseKey): string {
-    $secret = getenv('BOOKING_PUBLIC_REF_SECRET') ?: getenv('APP_SECRET') ?: $supabaseKey;
-    return (string)$secret;
+    return public_response_ref_secret($supabaseKey);
 }
 
 function build_booking_public_ref(string $tenantId, string $bookingId, string $secret): string {
-    return 'bk_' . substr(hash_hmac('sha256', 'booking|' . $tenantId . '|' . $bookingId, $secret), 0, 48);
+    return public_response_booking_ref($tenantId, $bookingId, $secret);
 }
 
 function is_valid_booking_public_ref(string $ref): bool {
