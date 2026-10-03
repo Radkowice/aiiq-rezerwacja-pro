@@ -5,7 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/payu.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
-require_once __DIR__ . '/../helpers/php_mail.php';
+require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/security.php';
 
 function cron_payments_response(array $payload, int $statusCode = 200): void
@@ -160,49 +160,6 @@ function cron_payments_trace(?string $value): string
     return substr(hash('sha256', $value), 0, 16);
 }
 
-function cron_payments_payload_keys(array $payload): array
-{
-    $keys = array_keys($payload);
-    sort($keys);
-    return $keys;
-}
-
-function cron_payments_email_domain(string $email): string
-{
-    $email = trim($email);
-
-    if ($email === '' || strpos($email, '@') === false) {
-        return '';
-    }
-
-    return strtolower((string)substr(strrchr($email, '@'), 1));
-}
-
-function cron_payments_safe_booking_for_email(array $booking): array
-{
-    $allowedKeys = [
-        'name',
-        'email',
-        'phone',
-        'booking_date',
-        'booking_time',
-        'payment_amount',
-        'payment_currency',
-        'payment_expires_at',
-        'payment_url',
-    ];
-
-    $safeBooking = [];
-
-    foreach ($allowedKeys as $key) {
-        if (array_key_exists($key, $booking)) {
-            $safeBooking[$key] = $booking[$key];
-        }
-    }
-
-    return $safeBooking;
-}
-
 function cron_payments_get_supabase_config(): array
 {
     $supabaseUrl = rtrim(cron_payments_env('SUPABASE_URL'), '/');
@@ -213,6 +170,10 @@ function cron_payments_get_supabase_config(): array
         throw new RuntimeException('Brak konfiguracji Supabase.');
     }
 
+    if ($schema !== 'rezerwacja_pro') {
+        throw new RuntimeException('Nieprawidłowa konfiguracja schematu Supabase.');
+    }
+
     return [$supabaseUrl, $supabaseKey, $schema];
 }
 
@@ -221,7 +182,6 @@ function cron_payments_fetch_records(string $query): array
     [$supabaseUrl, $supabaseKey, $schema] = cron_payments_get_supabase_config();
 
     $url = $supabaseUrl . '/rest/v1/bookings?' . $query;
-
     $result = payu_supabase_request($url, 'GET', $supabaseKey, $schema);
 
     if ($result['error'] || $result['http_code'] !== 200) {
@@ -238,331 +198,163 @@ function cron_payments_fetch_records(string $query): array
     return is_array($result['data']) ? $result['data'] : [];
 }
 
-function cron_payments_update_booking(
-    string $bookingId,
-    string $tenantId,
-    string $expectedPaymentStatus,
-    array $payload,
-    string $paymentOrderId = ''
-): array
-{
-    [$supabaseUrl, $supabaseKey, $schema] = cron_payments_get_supabase_config();
-
-    $url = $supabaseUrl
-        . '/rest/v1/bookings'
-        . '?id=eq.' . rawurlencode($bookingId)
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&payment_status=eq.' . rawurlencode($expectedPaymentStatus);
-
-    if ($paymentOrderId !== '') {
-        $url .= '&payment_order_id=eq.' . rawurlencode($paymentOrderId);
-    }
-
-    $result = payu_supabase_request(
-        $url,
-        'PATCH',
-        $supabaseKey,
-        $schema,
-        $payload,
-        ['Prefer: return=representation']
-    );
-
-    if ($result['error']) {
-        return [
-            'status' => 'error',
-            'error_category' => 'supabase_transport_error',
-            'http_code' => (int)$result['http_code'],
-        ];
-    }
-
-    if ($result['http_code'] < 200 || $result['http_code'] >= 300) {
-        return [
-            'status' => 'error',
-            'error_category' => 'supabase_http_error',
-            'http_code' => (int)$result['http_code'],
-        ];
-    }
-
-    if (!is_array($result['data'])) {
-        return [
-            'status' => 'error',
-            'error_category' => 'supabase_invalid_response',
-            'http_code' => (int)$result['http_code'],
-        ];
-    }
-
-    return [
-        'status' => count($result['data']) > 0 ? 'updated' : 'concurrent',
-        'error_category' => null,
-        'http_code' => (int)$result['http_code'],
-    ];
-}
-
-function cron_payments_fetch_admin_email(string $tenantId): string
-{
-    [$supabaseUrl, $supabaseKey, $schema] = cron_payments_get_supabase_config();
-
-    $url = $supabaseUrl
-        . '/rest/v1/users'
-        . '?select=email'
-        . '&tenant_id=eq.' . rawurlencode($tenantId)
-        . '&role=in.(admin,administrator)'
-        . '&is_active=eq.true'
-        . '&limit=1';
-
-    $result = payu_supabase_request($url, 'GET', $supabaseKey, $schema);
-
-    if ($result['error'] || $result['http_code'] !== 200) {
-        payu_debug('CRON_PAYMENTS_ADMIN_EMAIL_FETCH_ERROR', [
-            'tenant_id_set' => $tenantId !== '',
-            'tenant_trace' => cron_payments_trace($tenantId),
-            'http_code' => $result['http_code'],
-            'has_error' => $result['error'] !== null && $result['error'] !== '',
-            'has_response' => $result['response'] !== null && $result['response'] !== '',
-        ]);
-
-        return '';
-    }
-
-    return trim((string)($result['data'][0]['email'] ?? ''));
-}
-
-function cron_payments_format_datetime(?string $value): string
-{
-    $value = trim((string)$value);
-
-    if ($value === '') {
-        return '—';
-    }
-
-    try {
-        return (new DateTimeImmutable($value))
-            ->setTimezone(new DateTimeZone('Europe/Warsaw'))
-            ->format('Y-m-d H:i');
-    } catch (Throwable $e) {
-        return $value;
-    }
-}
-
-function cron_payments_format_money($amount, string $currency): string
-{
-    if ($amount === null || $amount === '') {
-        return '';
-    }
-
-    $displayCurrency = strtoupper(trim($currency)) === 'PLN' ? 'zł' : trim($currency);
-
-    if ($displayCurrency === '') {
-        $displayCurrency = 'zł';
-    }
-
-    return number_format((float)$amount, 2, ',', ' ') . ' ' . $displayCurrency;
-}
-
-function cron_payments_booking_summary_html(array $booking): string
-{
-    $name = htmlspecialchars((string)($booking['name'] ?? '—'), ENT_QUOTES, 'UTF-8');
-    $email = htmlspecialchars((string)($booking['email'] ?? '—'), ENT_QUOTES, 'UTF-8');
-    $phone = htmlspecialchars((string)($booking['phone'] ?? '—'), ENT_QUOTES, 'UTF-8');
-    $date = htmlspecialchars((string)($booking['booking_date'] ?? '—'), ENT_QUOTES, 'UTF-8');
-    $time = htmlspecialchars((string)($booking['booking_time'] ?? '—'), ENT_QUOTES, 'UTF-8');
-    $amount = htmlspecialchars(
-        cron_payments_format_money($booking['payment_amount'] ?? null, (string)($booking['payment_currency'] ?? 'PLN')),
-        ENT_QUOTES,
-        'UTF-8'
-    );
-    $expires = htmlspecialchars(cron_payments_format_datetime($booking['payment_expires_at'] ?? ''), ENT_QUOTES, 'UTF-8');
-    $row = static function (string $icon, string $label, string $value): string {
-        return '<tr><td style="padding:7px 0;color:#6b7280;"><span style="display:inline-block;width:24px;" aria-hidden="true">' . htmlspecialchars($icon, ENT_QUOTES, 'UTF-8') . '</span>' . $label . ':</td><td style="padding:7px 0;text-align:right;"><strong>' . $value . '</strong></td></tr>';
-    };
-
-    return ''
-        . '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse:collapse;">'
-        . $row('👤', 'Klient', $name)
-        . $row('✉️', 'Email', $email)
-        . $row('📞', 'Telefon', $phone)
-        . $row('📅', 'Data', $date)
-        . $row('🕒', 'Godzina', $time)
-        . $row('💰', 'Kwota', $amount)
-        . $row('⏰', 'Termin płatności', $expires)
-        . '</table>';
-}
-
-function cron_payments_send_reminder_email(array $booking): bool
-{
-    $email = trim((string)($booking['email'] ?? ''));
-
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        payu_debug('CRON_PAYMENTS_REMINDER_EMAIL_SKIPPED', [
-            'email_domain' => cron_payments_email_domain($email),
-            'email_valid' => false,
-        ]);
-
-        return false;
-    }
-
-    $paymentUrl = htmlspecialchars((string)($booking['payment_url'] ?? ''), ENT_QUOTES, 'UTF-8');
-
-    $message = ''
-        . '<p style="margin:0 0 14px;"><strong>Przypomnienie o płatności za rezerwację.</strong></p>'
-        . '<p style="margin:0 0 14px;">Nie odnotowaliśmy jeszcze potwierdzenia płatności z PayU.</p>'
-        . cron_payments_booking_summary_html($booking);
-
-    if ($paymentUrl !== '') {
-        $message .= ''
-            . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">'
-            . 'Jeżeli płatność została już wykonana, nie musisz nic robić — status zostanie zaktualizowany po potwierdzeniu przez PayU.'
-            . '</p>'
-            . '<p style="margin:12px 0 0;color:#374151;line-height:1.6;">'
-            . 'Jeżeli płatność została przerwana lub jeszcze jej nie wykonałeś, możesz wrócić do płatności poniższym przyciskiem.'
-            . '</p>'
-            . '<div style="margin-top:22px;text-align:center;">'
-            . '<a href="' . $paymentUrl . '" style="display:inline-block;padding:13px 22px;border-radius:999px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;">Przejdź do płatności</a>'
-            . '</div>';
-    }
-
-    $html = buildSystemMailLayout(
-        'Przypomnienie o płatności',
-        'Rezerwacja nadal oczekuje na potwierdzenie płatności.',
-        $message,
-        'Jeżeli płatność została wykonana chwilę temu, PayU może potrzebować czasu na przesłanie potwierdzenia.'
-    );
-
-    return sendSystemMail($email, 'Przypomnienie o płatności za rezerwację', $html);
-}
-
-function cron_payments_send_expired_customer_email(array $booking): bool
-{
-    $email = trim((string)($booking['email'] ?? ''));
-
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        payu_debug('CRON_PAYMENTS_EXPIRED_CUSTOMER_EMAIL_SKIPPED', [
-            'email_domain' => cron_payments_email_domain($email),
-            'email_valid' => false,
-        ]);
-
-        return false;
-    }
-
-    $message = ''
-        . '<p style="margin:0 0 14px;"><strong>Płatność za rezerwację nie została odnotowana w wyznaczonym czasie.</strong></p>'
-        . '<p style="margin:0 0 14px;">Rezerwacja została oznaczona w systemie jako nieopłacona.</p>'
-        . cron_payments_booking_summary_html($booking)
-        . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">'
-        . 'Administrator otrzymał informację o braku płatności i podejmie decyzję, co dalej z rezerwacją.'
-        . '</p>';
-
-    $html = buildSystemMailLayout(
-        'Płatność nie została odnotowana',
-        'Rezerwacja wymaga decyzji administratora.',
-        $message,
-        'Wiadomość została wysłana automatycznie po przekroczeniu czasu płatności.'
-    );
-
-    return sendSystemMail($email, 'Płatność za rezerwację nie została odnotowana', $html);
-}
-
-function cron_payments_send_expired_admin_email(array $booking, string $adminEmail): bool
-{
-    if ($adminEmail === '' || !filter_var($adminEmail, FILTER_VALIDATE_EMAIL)) {
-        payu_debug('CRON_PAYMENTS_EXPIRED_ADMIN_EMAIL_SKIPPED', [
-            'admin_email_domain' => cron_payments_email_domain($adminEmail),
-            'admin_email_valid' => false,
-        ]);
-
-        return false;
-    }
-
-    $message = ''
-        . '<p style="margin:0 0 14px;"><strong>Rezerwacja nie została opłacona w wyznaczonym czasie.</strong></p>'
-        . '<p style="margin:0 0 14px;">Termin pozostaje zablokowany do Twojej decyzji.</p>'
-        . cron_payments_booking_summary_html($booking)
-        . '<p style="margin:18px 0 0;color:#374151;line-height:1.6;">'
-        . 'W panelu administracyjnym rezerwacja powinna być oznaczona jako <strong>NIE OPŁACONO</strong>. '
-        . 'Możesz ją usunąć, aby zwolnić termin w kalendarzu.'
-        . '</p>';
-
-    $html = buildSystemMailLayout(
-        'Rezerwacja nieopłacona',
-        'System oznaczył rezerwację jako nieopłaconą.',
-        $message,
-        'System nie usuwa tej rezerwacji automatycznie. Decyzja należy do administratora.'
-    );
-
-    return sendSystemMail($adminEmail, 'Rezerwacja nieopłacona — wymagana decyzja', $html);
-}
-
 function cron_payments_process_reminders(DateTimeImmutable $now): array
 {
-    $threshold = $now->modify('-30 minutes')->format(DATE_ATOM);
+    $warsaw = new DateTimeZone('Europe/Warsaw');
+    $localNow = $now->setTimezone($warsaw);
+
+    if ($localNow->format('H:i:s') < '09:00:00') {
+        return [
+            'checked' => 0,
+            'queued' => 0,
+            'feature_skipped' => 0,
+            'state_skipped' => 0,
+            'failed' => 0,
+            'window' => 'before_09_00_europe_warsaw',
+        ];
+    }
+
+    $todayStart = $localNow->setTime(0, 0, 0);
 
     $query = http_build_query([
-        'select' => 'id,tenant_id,name,email,phone,booking_date,booking_time,payment_amount,payment_currency,payment_expires_at,payment_url,payment_started_at,payment_reminder_sent_at',
+        'select' => 'id,tenant_id',
+        'payment_lifecycle_version' => 'eq.1',
         'payment_required' => 'eq.true',
+        'status' => 'eq.pending_payment',
         'payment_status' => 'eq.pending',
-        'payment_reminder_sent_at' => 'is.null',
-        'payment_started_at' => 'lte.' . $threshold,
+        'payment_resolution_required' => 'eq.false',
+        'payment_started_at' => 'lt.' . $todayStart->format(DATE_ATOM),
         'payment_expires_at' => 'gt.' . $now->format(DATE_ATOM),
+        'payment_url' => 'not.is.null',
+        'or' => '('
+            . 'payment_reminder_sent_at.is.null,'
+            . 'payment_reminder_sent_at.lt.' . $todayStart->format(DATE_ATOM)
+            . ')',
         'order' => 'payment_started_at.asc',
-        'limit' => '50',
+        'limit' => '100',
     ]);
 
     $records = cron_payments_fetch_records($query);
 
     $checked = count($records);
-    $sent = 0;
-    $updated = 0;
-    $skipped = 0;
+    $queued = 0;
+    $featureSkipped = 0;
+    $stateSkipped = 0;
     $failed = 0;
+    $featureCache = [];
 
     foreach ($records as $booking) {
-        $bookingId = (string)($booking['id'] ?? '');
-        $tenantId = (string)($booking['tenant_id'] ?? '');
+        $bookingId = trim((string)($booking['id'] ?? ''));
+        $tenantId = trim((string)($booking['tenant_id'] ?? ''));
 
         if ($bookingId === '' || $tenantId === '') {
             $failed++;
             continue;
         }
 
-        if (!tenant_has_feature($tenantId, 'payment_reminders')) {
-            $skipped++;
-            continue;
-        }
-
-        $safeBooking = cron_payments_safe_booking_for_email($booking);
-        $emailSent = cron_payments_send_reminder_email($safeBooking);
-
-        if (!$emailSent) {
+        try {
+            if (!array_key_exists($tenantId, $featureCache)) {
+                $featureCache[$tenantId] = tenant_has_feature(
+                    $tenantId,
+                    'payment_reminders'
+                );
+            }
+        } catch (Throwable $e) {
             $failed++;
-            continue;
-        }
 
-        $sent++;
-
-        $updateResult = cron_payments_update_booking($bookingId, $tenantId, 'pending', [
-            'payment_reminder_sent_at' => $now->format(DATE_ATOM),
-            'updated_at' => $now->format(DATE_ATOM),
-        ]);
-
-        if (($updateResult['status'] ?? '') === 'updated') {
-            $updated++;
-        } elseif (($updateResult['status'] ?? '') === 'concurrent') {
-            $skipped++;
-        } else {
-            $failed++;
-            payu_debug('CRON_PAYMENTS_REMINDER_UPDATE_ERROR', [
-                'category' => (string)($updateResult['error_category'] ?? 'unknown'),
-                'http_code' => (int)($updateResult['http_code'] ?? 0),
+            payu_debug('CRON_PAYMENTS_REMINDER_FEATURE_CHECK_ERROR', [
+                'tenant_trace' => cron_payments_trace($tenantId),
+                'error_class' => get_class($e),
+                'message_trace' => cron_payments_trace($e->getMessage()),
             ]);
+
+            continue;
         }
+
+        if ($featureCache[$tenantId] !== true) {
+            $featureSkipped++;
+            continue;
+        }
+
+        $rpc = payment_lifecycle_v3_rpc(
+            'booking_payment_enqueue_due_reminder',
+            [
+                'p_tenant_id' => $tenantId,
+                'p_booking_id' => $bookingId,
+            ]
+        );
+
+        if (($rpc['ok'] ?? false) !== true || !is_array($rpc['data'] ?? null)) {
+            $failed++;
+
+            payu_debug('CRON_PAYMENTS_REMINDER_RPC_ERROR', [
+                'tenant_trace' => cron_payments_trace($tenantId),
+                'booking_trace' => cron_payments_trace($bookingId),
+                'error_kind' => (string)($rpc['error_kind'] ?? 'unknown'),
+                'error_code' => (string)($rpc['error'] ?? 'unknown'),
+                'http_status' => (int)($rpc['status'] ?? 0),
+            ]);
+
+            continue;
+        }
+
+        $data = $rpc['data'];
+
+        if (
+            ($data['enqueued'] ?? false) === true
+            && ($data['status'] ?? '') === 'queued'
+        ) {
+            $queued++;
+            continue;
+        }
+
+        $stateSkipped++;
     }
 
     return [
         'checked' => $checked,
-        'emails_sent' => $sent,
-        'updated' => $updated,
-        'skipped' => $skipped,
+        'queued' => $queued,
+        'feature_skipped' => $featureSkipped,
+        'state_skipped' => $stateSkipped,
         'failed' => $failed,
+        'window' => 'daily_after_09_00_europe_warsaw',
+    ];
+}
+
+function cron_payments_process_expired(): array
+{
+    $rpc = payment_lifecycle_v3_rpc(
+        'booking_payment_finalize_expiry',
+        [
+            'p_limit' => 50,
+        ]
+    );
+
+    if (($rpc['ok'] ?? false) !== true || !is_array($rpc['data'] ?? null)) {
+        payu_debug('CRON_PAYMENTS_EXPIRY_RPC_ERROR', [
+            'error_kind' => (string)($rpc['error_kind'] ?? 'unknown'),
+            'error_code' => (string)($rpc['error'] ?? 'unknown'),
+            'http_status' => (int)($rpc['status'] ?? 0),
+        ]);
+
+        return [
+            'checked' => 0,
+            'expired' => 0,
+            'reconciliation_required' => 0,
+            'skipped' => 0,
+            'failed' => 1,
+        ];
+    }
+
+    $data = $rpc['data'];
+
+    return [
+        'checked' => (int)($data['checked'] ?? 0),
+        'expired' => (int)($data['expired'] ?? 0),
+        'reconciliation_required' =>
+            (int)($data['reconciliation_required'] ?? 0),
+        'skipped' => (int)($data['skipped'] ?? 0),
+        'failed' => 0,
     ];
 }
 
@@ -576,122 +368,45 @@ function cron_payments_has_activity(array $reminders, array $expired): bool
 {
     $activityCounters = [
         (int)($reminders['checked'] ?? 0),
-        (int)($reminders['emails_sent'] ?? 0),
-        (int)($reminders['updated'] ?? 0),
-        (int)($reminders['skipped'] ?? 0),
+        (int)($reminders['queued'] ?? 0),
+        (int)($reminders['feature_skipped'] ?? 0),
+        (int)($reminders['state_skipped'] ?? 0),
         (int)($expired['checked'] ?? 0),
-        (int)($expired['customer_emails_sent'] ?? 0),
-        (int)($expired['admin_emails_sent'] ?? 0),
-        (int)($expired['updated'] ?? 0),
-        (int)($expired['skipped_concurrent'] ?? 0),
+        (int)($expired['expired'] ?? 0),
+        (int)($expired['reconciliation_required'] ?? 0),
+        (int)($expired['skipped'] ?? 0),
     ];
 
     return array_sum($activityCounters) > 0;
 }
 
-function cron_payments_security_summary(array $reminders, array $expired): array
-{
+function cron_payments_security_summary(
+    array $reminders,
+    array $expired
+): array {
     return [
         'reminders_checked' => (int)($reminders['checked'] ?? 0),
-        'reminder_emails_sent' => (int)($reminders['emails_sent'] ?? 0),
-        'reminders_updated' => (int)($reminders['updated'] ?? 0),
-        'reminders_skipped' => (int)($reminders['skipped'] ?? 0),
+        'reminders_queued' => (int)($reminders['queued'] ?? 0),
+        'reminders_feature_skipped' =>
+            (int)($reminders['feature_skipped'] ?? 0),
+        'reminders_state_skipped' =>
+            (int)($reminders['state_skipped'] ?? 0),
         'reminders_failed' => (int)($reminders['failed'] ?? 0),
+
         'expired_checked' => (int)($expired['checked'] ?? 0),
-        'expired_customer_emails_sent' => (int)($expired['customer_emails_sent'] ?? 0),
-        'expired_admin_emails_sent' => (int)($expired['admin_emails_sent'] ?? 0),
-        'expired_updated' => (int)($expired['updated'] ?? 0),
-        'expired_skipped_concurrent' => (int)($expired['skipped_concurrent'] ?? 0),
+        'expired_finalized' => (int)($expired['expired'] ?? 0),
+        'expired_reconciliation_required' =>
+            (int)($expired['reconciliation_required'] ?? 0),
+        'expired_skipped' => (int)($expired['skipped'] ?? 0),
         'expired_failed' => (int)($expired['failed'] ?? 0),
-    ];
-}
-
-function cron_payments_process_expired(DateTimeImmutable $now): array
-{
-    $threshold = $now->modify('-30 minutes')->format(DATE_ATOM);
-
-    $query = http_build_query([
-        'select' => 'id,tenant_id,payment_order_id,name,email,phone,booking_date,booking_time,payment_amount,payment_currency,payment_expires_at,payment_url',
-        'payment_required' => 'eq.true',
-        'payment_status' => 'eq.pending',
-        'payment_expires_at' => 'lte.' . $threshold,
-        'order' => 'payment_expires_at.asc',
-        'limit' => '50',
-    ]);
-
-    $records = cron_payments_fetch_records($query);
-
-    $checked = count($records);
-    $customerEmails = 0;
-    $adminEmails = 0;
-    $updated = 0;
-    $skippedConcurrent = 0;
-    $failed = 0;
-
-    foreach ($records as $booking) {
-        $bookingId = (string)($booking['id'] ?? '');
-        $tenantId = (string)($booking['tenant_id'] ?? '');
-        $paymentOrderId = (string)($booking['payment_order_id'] ?? '');
-
-        if ($bookingId === '' || $tenantId === '') {
-            $failed++;
-            continue;
-        }
-
-        $updateResult = cron_payments_update_booking($bookingId, $tenantId, 'pending', [
-            'status' => 'payment_overdue',
-            'payment_status' => 'expired',
-            'payment_url' => null,
-            'payment_expired_at' => $now->format(DATE_ATOM),
-            'updated_at' => $now->format(DATE_ATOM),
-        ], $paymentOrderId);
-
-        if (($updateResult['status'] ?? '') === 'concurrent') {
-            $skippedConcurrent++;
-            continue;
-        }
-
-        if (($updateResult['status'] ?? '') !== 'updated') {
-            $failed++;
-            payu_debug('CRON_PAYMENTS_EXPIRED_UPDATE_ERROR', [
-                'category' => (string)($updateResult['error_category'] ?? 'unknown'),
-                'http_code' => (int)($updateResult['http_code'] ?? 0),
-            ]);
-            continue;
-        }
-
-        $updated++;
-
-        $safeBooking = cron_payments_safe_booking_for_email($booking);
-
-        if (cron_payments_send_expired_customer_email($safeBooking)) {
-            $customerEmails++;
-        } else {
-            $failed++;
-        }
-
-        $adminEmail = cron_payments_fetch_admin_email($tenantId);
-
-        if (cron_payments_send_expired_admin_email($safeBooking, $adminEmail)) {
-            $adminEmails++;
-        } else {
-            $failed++;
-        }
-    }
-
-    return [
-        'checked' => $checked,
-        'customer_emails_sent' => $customerEmails,
-        'admin_emails_sent' => $adminEmails,
-        'updated' => $updated,
-        'skipped_concurrent' => $skippedConcurrent,
-        'failed' => $failed,
     ];
 }
 
 try {
     if (!cron_payments_is_cli()) {
-        $requestMethod = strtoupper((string)($_SERVER['REQUEST_METHOD'] ?? ''));
+        $requestMethod = strtoupper(
+            (string)($_SERVER['REQUEST_METHOD'] ?? '')
+        );
 
         if ($requestMethod !== 'POST') {
             header('Allow: POST');
@@ -714,18 +429,28 @@ try {
 
     cron_payments_require_authorization();
 
-    $now = new DateTimeImmutable('now', new DateTimeZone('UTC'));
+    $now = new DateTimeImmutable(
+        'now',
+        new DateTimeZone('UTC')
+    );
 
     $reminders = cron_payments_process_reminders($now);
-    $expired = cron_payments_process_expired($now);
+    $expired = cron_payments_process_expired();
 
     payu_debug('CRON_PAYMENTS_DONE', [
         'reminders' => $reminders,
         'expired' => $expired,
     ]);
 
-    $failedCount = cron_payments_failed_count($reminders, $expired);
-    $securitySummary = cron_payments_security_summary($reminders, $expired);
+    $failedCount = cron_payments_failed_count(
+        $reminders,
+        $expired
+    );
+
+    $securitySummary = cron_payments_security_summary(
+        $reminders,
+        $expired
+    );
 
     if ($failedCount > 0) {
         cron_payments_security_event(

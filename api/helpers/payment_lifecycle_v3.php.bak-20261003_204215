@@ -21,8 +21,6 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'booking_payment_record_provider_result',
         'booking_payment_webhook_context',
         'booking_payment_apply_payu_notification',
-        'booking_payment_enqueue_due_reminder',
-        'booking_payment_finalize_expiry',
         'booking_calendar_claim',
         'booking_calendar_record_result',
         'booking_email_claim',
