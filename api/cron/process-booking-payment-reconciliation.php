@@ -171,7 +171,7 @@ function booking_reconciliation_worker_reserve_provider_attempt(
     $sameToken = hash_equals(strtolower($claimToken), strtolower($token));
     if ($reserved === true && $mayGet === true
         && !$sameToken && $count === $attemptCount + 1
-        && $count >= 1 && $count <= 12
+        && $count >= 1
     ) {
         return $data;
     }
@@ -391,8 +391,7 @@ try {
                     && booking_reconciliation_worker_currency($currency)
                     && in_array($providerState, ['request_in_flight', 'order_created', 'result_unknown'], true)
                     && is_int($attemptCount)
-                    && $attemptCount >= 0
-                    && $attemptCount <= 11;
+                    && $attemptCount >= 0;
 
                 if (!$claimContextValid) {
                     booking_reconciliation_worker_log('malformed_claim');

@@ -28,13 +28,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const subdomainAvailability = initSubdomainAvailabilityState();
 
   initRegisterPasswordStrength(passwordInput);
+  initCompanyLookup();
   initSubdomainPreview(subdomainInput, subdomainAvailability);
   initSubdomainAvailabilityCheck(subdomainInput, subdomainAvailability);
   initPasswordVisibilityToggles();
-
-  [passwordInput, passwordConfirmInput].forEach((input) => {
-    input?.addEventListener('input', clearPaidRegistrationIntentKey);
-  });
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -42,7 +39,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     showRegisterError('');
 
     if (websiteInput && websiteInput.value.trim() !== '') {
-      showRegisterError('Nie udało się wysłać formularza rejestracji. Odśwież stronę i spróbuj ponownie.');
+      showRegisterError('Formularz został odrzucony przez zabezpieczenie antyspamowe. Odśwież stronę i wypełnij formularz ponownie.');
       return;
     }
 
@@ -57,7 +54,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const companyFullName = getRegisterValue('companyFullName');
     const companyOwnerName = getRegisterValue('companyOwnerName');
     const companyTaxId = getRegisterValue('companyTaxId');
-    const companyAddress = getRegisterValue('companyAddress');
+    const companyStreet = getRegisterValue('companyStreet');
+    const companyPostalCode = getRegisterValue('companyPostalCode');
+    const companyCity = getRegisterValue('companyCity');
+    const companyAddress = composeCompanyAddress(companyStreet, companyCity, companyPostalCode);
     const companyEmailInput = getRegisterValue('companyEmail');
     const companyPhone = getRegisterValue('companyPhone');
 
@@ -135,9 +135,27 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    if (!isValidCompanyStreet(companyStreet)) {
+      showRegisterError('Podaj ulicę i numer firmy.');
+      focusRegisterField('companyStreet');
+      return;
+    }
+
+    if (!isValidPolishPostalCode(companyPostalCode)) {
+      showRegisterError('Podaj kod pocztowy w formacie XX-XXX.');
+      focusRegisterField('companyPostalCode');
+      return;
+    }
+
+    if (!isValidCompanyCity(companyCity)) {
+      showRegisterError('Podaj miejscowość firmy.');
+      focusRegisterField('companyCity');
+      return;
+    }
+
     if (!isValidCompanyAddress(companyAddress)) {
-      showRegisterError('Podaj adres w formacie: ulica i numer, miasto, kod pocztowy XX-XXX.');
-      focusRegisterField('companyAddress');
+      showRegisterError('Nie udało się poprawnie złożyć adresu firmy.');
+      focusRegisterField('companyStreet');
       return;
     }
 
@@ -214,7 +232,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         company_full_name: companyFullName,
         company_owner_name: companyOwnerName,
         company_tax_id: normalizePolishNip(companyTaxId),
-        company_address: companyAddress,
+        company_street: companyStreet,
+        company_postal_code: companyPostalCode,
+        company_city: companyCity,
         company_email: companyEmail,
         company_phone: normalizePolishPhone(companyPhone)
       };
@@ -973,6 +993,239 @@ function getSelectedRegistrationPlan() {
   };
 }
 
+function initCompanyLookup() {
+  const nipInput = document.getElementById('companyTaxId');
+  const legacyAddress = document.getElementById('companyAddress');
+
+  if (!nipInput || !legacyAddress) return;
+
+  const fullNameInput = document.getElementById('companyFullName');
+  const addressParent = legacyAddress.parentElement;
+  const companySection = nipInput.closest('.register-section');
+  const companyHeading = companySection?.querySelector('h3') || null;
+  const nipHintCandidate = nipInput.nextElementSibling;
+  const nipHint = nipHintCandidate?.classList?.contains('field-hint')
+    ? nipHintCandidate
+    : null;
+
+  if (!addressParent || !companySection || !companyHeading) return;
+
+  const lookupButton = document.createElement('button');
+  lookupButton.type = 'button';
+  lookupButton.id = 'companyLookupButton';
+  lookupButton.className = 'login-submit-btn subdomain-check-btn';
+  lookupButton.textContent = 'Sprawdź NIP';
+
+  const lookupMessage = document.createElement('small');
+  lookupMessage.id = 'companyLookupMessage';
+  lookupMessage.className = 'field-hint';
+  lookupMessage.setAttribute('aria-live', 'polite');
+
+  companyHeading.insertAdjacentElement('afterend', nipInput);
+  nipInput.insertAdjacentElement('afterend', lookupButton);
+
+  if (nipHint) {
+    lookupButton.insertAdjacentElement('afterend', nipHint);
+    nipHint.insertAdjacentElement('afterend', lookupMessage);
+  } else {
+    lookupButton.insertAdjacentElement('afterend', lookupMessage);
+  }
+
+  const streetInput = createCompanyAddressInput({
+    id: 'companyStreet',
+    placeholder: 'Ulica i numer',
+    autocomplete: 'street-address'
+  });
+  const postalCodeInput = createCompanyAddressInput({
+    id: 'companyPostalCode',
+    placeholder: 'Kod pocztowy XX-XXX',
+    autocomplete: 'postal-code',
+    inputMode: 'numeric',
+    maxLength: 6
+  });
+  const cityInput = createCompanyAddressInput({
+    id: 'companyCity',
+    placeholder: 'Miejscowość',
+    autocomplete: 'address-level2'
+  });
+
+  const addressHint = document.createElement('small');
+  addressHint.className = 'field-hint';
+  addressHint.textContent = 'Możesz poprawić dane pobrane automatycznie.';
+
+  legacyAddress.insertAdjacentElement('beforebegin', streetInput);
+  legacyAddress.insertAdjacentElement('beforebegin', postalCodeInput);
+  legacyAddress.insertAdjacentElement('beforebegin', cityInput);
+  legacyAddress.insertAdjacentElement('beforebegin', addressHint);
+
+  legacyAddress.required = false;
+  legacyAddress.hidden = true;
+  legacyAddress.setAttribute('aria-hidden', 'true');
+  legacyAddress.tabIndex = -1;
+
+  let activeLookupController = null;
+  const autoFilled = new Map();
+
+  const setLookupMessage = (message, type = '') => {
+    lookupMessage.textContent = message || '';
+    lookupMessage.classList.remove('is-success', 'is-error', 'is-info');
+    if (type) lookupMessage.classList.add(`is-${type}`);
+  };
+
+  const applyAutoValue = (input, value) => {
+    if (!input) return;
+
+    const nextValue = String(value || '').trim();
+    if (!nextValue) return;
+
+    const currentValue = String(input.value || '').trim();
+    const previousAutoValue = autoFilled.get(input.id) || '';
+
+    if (currentValue && currentValue !== previousAutoValue) {
+      return;
+    }
+
+    input.value = nextValue;
+    autoFilled.set(input.id, nextValue);
+  };
+
+  const syncLegacyAddress = () => {
+    legacyAddress.value = composeCompanyAddress(
+      streetInput.value,
+      cityInput.value,
+      postalCodeInput.value
+    );
+  };
+
+  [streetInput, postalCodeInput, cityInput].forEach((input) => {
+    input.addEventListener('input', () => {
+      autoFilled.delete(input.id);
+      syncLegacyAddress();
+    });
+  });
+
+  fullNameInput?.addEventListener('input', () => {
+    autoFilled.delete(fullNameInput.id);
+  });
+
+  nipInput.addEventListener('input', () => {
+    activeLookupController?.abort();
+    activeLookupController = null;
+    setLookupMessage('');
+  });
+
+  lookupButton.addEventListener('click', async () => {
+    const nip = normalizePolishNip(nipInput.value);
+
+    if (!isValidPolishNip(nip)) {
+      setLookupMessage('NIP ma nieprawidłową sumę kontrolną.', 'error');
+      nipInput.focus();
+      return;
+    }
+
+    nipInput.value = nip;
+
+    activeLookupController?.abort();
+    const controller = new AbortController();
+    activeLookupController = controller;
+
+    const originalButtonText = lookupButton.textContent;
+    lookupButton.disabled = true;
+    lookupButton.textContent = 'Sprawdzam...';
+    setLookupMessage('Pobieram dane firmy po NIP...', 'info');
+
+    try {
+      const response = await fetch('/api/auth/company-lookup.php', {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json'
+        },
+        cache: 'no-store',
+        credentials: 'same-origin',
+        signal: controller.signal,
+        body: JSON.stringify({ nip })
+      });
+
+      let data = null;
+      try {
+        data = await response.json();
+      } catch {
+        data = null;
+      }
+
+      if (controller.signal.aborted || normalizePolishNip(nipInput.value) !== nip) {
+        return;
+      }
+
+      if (response.ok && data?.success === true && data?.found === true && data?.company) {
+        applyAutoValue(fullNameInput, data.company.full_name);
+        applyAutoValue(streetInput, data.company.street);
+        applyAutoValue(postalCodeInput, data.company.postal_code);
+        applyAutoValue(cityInput, data.company.city);
+        syncLegacyAddress();
+
+        setLookupMessage(
+          data.company.address_complete === true
+            ? 'Dane firmy zostały uzupełnione. Sprawdź je przed wysłaniem formularza.'
+            : 'Uzupełniono dostępne dane firmy. Brakujące dane wpisz ręcznie.',
+          'success'
+        );
+        return;
+      }
+
+      if (response.ok && data?.success === true && data?.found === false) {
+        setLookupMessage(
+          data?.message || 'Nie znaleziono danych firmy. Wpisz je ręcznie.',
+          'info'
+        );
+        return;
+      }
+
+      setLookupMessage(
+        data?.error || 'Nie udało się pobrać danych firmy. Wpisz je ręcznie.',
+        response.status === 400 ? 'error' : 'info'
+      );
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        return;
+      }
+
+      setLookupMessage(
+        'Nie udało się pobrać danych firmy. Wpisz je ręcznie.',
+        'info'
+      );
+    } finally {
+      if (activeLookupController === controller) {
+        activeLookupController = null;
+      }
+
+      lookupButton.disabled = false;
+      lookupButton.textContent = originalButtonText || 'Sprawdź NIP';
+    }
+  });
+}
+
+function createCompanyAddressInput({
+  id,
+  placeholder,
+  autocomplete,
+  inputMode = '',
+  maxLength = 0
+}) {
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.id = id;
+  input.placeholder = placeholder;
+  input.autocomplete = autocomplete;
+  input.required = true;
+
+  if (inputMode) input.inputMode = inputMode;
+  if (maxLength > 0) input.maxLength = maxLength;
+
+  return input;
+}
+
 function normalizeDigits(value) {
   return String(value || '').replace(/\D+/g, '');
 }
@@ -994,6 +1247,32 @@ function isValidPolishPhone(value) {
 
 function normalizePolishNip(value) {
   return normalizeDigits(value);
+}
+
+function composeCompanyAddress(street, city, postalCode) {
+  return [street, city, postalCode]
+    .map((value) => String(value || '').trim().replace(/\s+/g, ' '))
+    .filter(Boolean)
+    .join(', ');
+}
+
+function isValidCompanyStreet(value) {
+  const street = String(value || '').trim().replace(/\s+/g, ' ');
+  return street.length >= 3
+    && street.length <= 220
+    && /[0-9]/.test(street)
+    && /\p{L}/u.test(street);
+}
+
+function isValidPolishPostalCode(value) {
+  return /^[0-9]{2}-[0-9]{3}$/.test(String(value || '').trim());
+}
+
+function isValidCompanyCity(value) {
+  const city = String(value || '').trim().replace(/\s+/g, ' ');
+  return city.length >= 2
+    && city.length <= 120
+    && /^[\p{L}]+(?:[ .'-][\p{L}]+)*$/u.test(city);
 }
 
 function isValidPolishNip(value) {

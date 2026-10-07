@@ -148,97 +148,24 @@ function register_write_json_handle($handle, array $data): void
     @fflush($handle);
 }
 
-function register_blacklist_contains(string $blacklistFile, string $ip): bool
-{
-    $handle = @fopen($blacklistFile, 'c+');
-
-    if ($handle === false) {
-        return false;
-    }
-
-    $isBlocked = false;
-
-    if (@flock($handle, LOCK_EX)) {
-        rewind($handle);
-        $rawBlacklist = (string) stream_get_contents($handle);
-        $blacklist = json_decode($rawBlacklist, true);
-
-        if (trim($rawBlacklist) === '') {
-            $blacklist = [];
-            register_write_json_handle($handle, $blacklist);
-        }
-
-        $isBlocked = is_array($blacklist) && in_array($ip, $blacklist, true);
-        @flock($handle, LOCK_UN);
-    }
-
-    @fclose($handle);
-
-    return $isBlocked;
-}
-
-function register_increment_ban_counter(string $banFile, string $ip): int
-{
-    $handle = @fopen($banFile, 'c+');
-
-    if ($handle === false || !@flock($handle, LOCK_EX)) {
-        if ($handle !== false) {
-            @fclose($handle);
-        }
-        return 0;
-    }
-
-    rewind($handle);
-    $banData = json_decode((string) stream_get_contents($handle), true);
-
-    if (!is_array($banData)) {
-        $banData = [];
-    }
-
-    $banData[$ip] = max(0, (int) ($banData[$ip] ?? 0)) + 1;
-    $count = $banData[$ip];
-    register_write_json_handle($handle, $banData);
-
-    @flock($handle, LOCK_UN);
-    @fclose($handle);
-
-    return $count;
-}
-
-function register_add_to_blacklist(string $blacklistFile, string $ip): void
-{
-    $handle = @fopen($blacklistFile, 'c+');
-
-    if ($handle === false || !@flock($handle, LOCK_EX)) {
-        if ($handle !== false) {
-            @fclose($handle);
-        }
-        return;
-    }
-
-    rewind($handle);
-    $blacklist = json_decode((string) stream_get_contents($handle), true);
-
-    if (!is_array($blacklist)) {
-        $blacklist = [];
-    }
-
-    if (!in_array($ip, $blacklist, true)) {
-        $blacklist[] = $ip;
-        register_write_json_handle($handle, array_values($blacklist));
-    }
-
-    @flock($handle, LOCK_UN);
-    @fclose($handle);
-}
-
 function register_antibot_reject(string $eventKey, string $reason, int $statusCode, string $severity = 'medium'): void
 {
     register_security_event($eventKey, $reason, $statusCode, 'blocked', $severity);
 
+    $publicErrors = [
+        'ip_rate_limited' => 'Za dużo prób rejestracji. Poczekaj do 60 sekund i spróbuj ponownie.',
+        'honeypot_triggered' => 'Formularz został odrzucony przez zabezpieczenie antyspamowe. Odśwież stronę i wypełnij formularz ponownie.',
+        'invalid_form_timing' => 'Sesja formularza jest nieprawidłowa. Odśwież stronę i wypełnij formularz ponownie.',
+        'form_too_fast' => 'Formularz został wysłany zbyt szybko. Poczekaj kilka sekund i spróbuj ponownie.',
+        'form_too_old' => 'Formularz był otwarty zbyt długo. Odśwież stronę i wypełnij formularz ponownie.',
+    ];
+
+    $publicError = $publicErrors[$reason]
+        ?? 'Formularz został odrzucony przez zabezpieczenie rejestracji. Odśwież stronę i spróbuj ponownie.';
+
     json_response([
         'success' => false,
-        'error' => 'Nie udało się wysłać formularza rejestracji. Odśwież stronę i spróbuj ponownie.',
+        'error' => $publicError,
     ], $statusCode);
 }
 
@@ -248,12 +175,6 @@ function register_apply_antibot_guards(array $data): void
     $formStartedAtRaw = trim((string) ($data['form_started_at'] ?? ''));
     $formFillTimeRaw = trim((string) ($data['form_fill_time_ms'] ?? ''));
     $ip = security_client_ip() ?? 'unknown';
-
-    $blacklistFile = __DIR__ . '/../data/blacklist.json';
-
-    if (register_blacklist_contains($blacklistFile, $ip)) {
-        register_antibot_reject('auth_register_rate_limited', 'blacklisted_ip', 403, 'high');
-    }
 
     $rateFile = __DIR__ . '/../data/rate_limit_register.json';
     $now = time();
@@ -283,16 +204,6 @@ function register_apply_antibot_guards(array $data): void
         if (count($rateData[$ip]) >= $limit) {
             @flock($rateHandle, LOCK_UN);
             @fclose($rateHandle);
-
-            $banCount = register_increment_ban_counter(
-                __DIR__ . '/../data/ban_counter_register.json',
-                $ip
-            );
-
-            if ($banCount >= 5) {
-                register_add_to_blacklist($blacklistFile, $ip);
-            }
-
             register_antibot_reject('auth_register_rate_limited', 'ip_rate_limited', 429);
         }
 
@@ -304,16 +215,6 @@ function register_apply_antibot_guards(array $data): void
     if ($rateHandle !== false) {
         @fclose($rateHandle);
     }
-
-    if (!isset($_SESSION['last_register_time'])) {
-        $_SESSION['last_register_time'] = 0;
-    }
-
-    if (time() - (int) $_SESSION['last_register_time'] < 10) {
-        register_antibot_reject('auth_register_rate_limited', 'session_throttle', 429);
-    }
-
-    $_SESSION['last_register_time'] = time();
 
     if ($website !== '') {
         register_antibot_reject('auth_register_bot_blocked', 'honeypot_triggered', 400);
@@ -498,7 +399,40 @@ $companyOwnerName = trim((string)($data['company_owner_name'] ?? ''));
 $companyTaxIdRaw = trim((string)($data['company_tax_id'] ?? ''));
 $companyTaxId = normalize_digits($companyTaxIdRaw);
 
-$companyAddress = trim((string)($data['company_address'] ?? ''));
+$companyStreetRaw = $data['company_street'] ?? null;
+$companyPostalCodeRaw = $data['company_postal_code'] ?? null;
+$companyCityRaw = $data['company_city'] ?? null;
+
+if (
+    !is_string($companyStreetRaw)
+    || !is_string($companyPostalCodeRaw)
+    || !is_string($companyCityRaw)
+) {
+    json_response([
+        'success' => false,
+        'error' => 'Podaj poprawny adres firmy.'
+    ], 400);
+}
+
+if (
+    company_address_has_control_chars($companyStreetRaw)
+    || company_address_has_control_chars($companyPostalCodeRaw)
+    || company_address_has_control_chars($companyCityRaw)
+) {
+    json_response([
+        'success' => false,
+        'error' => 'Podaj poprawny adres firmy.'
+    ], 400);
+}
+
+$companyStreet = normalize_company_address_component($companyStreetRaw);
+$companyPostalCode = trim($companyPostalCodeRaw);
+$companyCity = normalize_company_address_component($companyCityRaw);
+$companyAddress = compose_company_address(
+    $companyStreet,
+    $companyCity,
+    $companyPostalCode
+);
 
 $companyEmailRaw = trim((string)($data['company_email'] ?? ''));
 
@@ -592,6 +526,18 @@ if (!is_valid_person_name($companyOwnerName)) {
 
 if (!is_valid_polish_nip($companyTaxId)) {
     json_response(['success' => false, 'error' => 'Podaj poprawny NIP.'], 400);
+}
+
+if (!is_valid_company_street($companyStreet)) {
+    json_response(['success' => false, 'error' => 'Podaj poprawną ulicę i numer firmy.'], 400);
+}
+
+if (!is_valid_polish_postal_code($companyPostalCode)) {
+    json_response(['success' => false, 'error' => 'Podaj kod pocztowy w formacie XX-XXX.'], 400);
+}
+
+if (!is_valid_company_city($companyCity)) {
+    json_response(['success' => false, 'error' => 'Podaj poprawną miejscowość firmy.'], 400);
 }
 
 if (!is_valid_company_address($companyAddress)) {
@@ -732,7 +678,7 @@ if ($emailExists['ok'] && !empty($emailExists['data'])) {
     register_security_event('auth_register_email_exists', 'email_exists', 409, 'blocked', 'medium');
     json_response([
         'success' => false,
-        'error' => 'Email jest już zarejestrowany'
+        'error' => 'Ten adres e-mail jest już zarejestrowany. Użyj innego adresu albo zaloguj się.'
     ], 409);
 }
 
@@ -1738,7 +1684,7 @@ function register_paid_initial_preflight(string $email, string $subdomainSlug, s
     if (!empty($emailExists['data'])) {
         return register_paid_failure(
             409,
-            'Email jest już zarejestrowany',
+            'Ten adres e-mail jest już zarejestrowany. Użyj innego adresu albo zaloguj się.',
             'email_exists'
         );
     }
@@ -2343,6 +2289,45 @@ function is_valid_person_name(string $name): bool
     }
 
     return (bool) preg_match('/^[\p{L}]+(?:[ -][\p{L}]+)+$/u', $name);
+}
+
+function company_address_has_control_chars(string $value): bool
+{
+    return preg_match('/\p{Cc}/u', $value) === 1;
+}
+
+function normalize_company_address_component(string $value): string
+{
+    return trim(preg_replace('/\s+/u', ' ', $value) ?? '');
+}
+
+function compose_company_address(string $street, string $city, string $postalCode): string
+{
+    return implode(', ', [$street, $city, $postalCode]);
+}
+
+function is_valid_company_street(string $street): bool
+{
+    $street = normalize_company_address_component($street);
+
+    return mb_strlen($street) >= 3
+        && mb_strlen($street) <= 220
+        && preg_match('/[0-9]/', $street) === 1
+        && preg_match('/\p{L}/u', $street) === 1;
+}
+
+function is_valid_polish_postal_code(string $postalCode): bool
+{
+    return preg_match('/^[0-9]{2}-[0-9]{3}$/', trim($postalCode)) === 1;
+}
+
+function is_valid_company_city(string $city): bool
+{
+    $city = normalize_company_address_component($city);
+
+    return mb_strlen($city) >= 2
+        && mb_strlen($city) <= 120
+        && preg_match('/^[\p{L}]+(?:[ .\'-][\p{L}]+)*$/u', $city) === 1;
 }
 
 function is_valid_company_address(string $address): bool
