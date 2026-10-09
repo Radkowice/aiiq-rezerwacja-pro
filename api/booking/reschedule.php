@@ -1192,6 +1192,12 @@ function reschedule_update_booking(string $supabaseUrl, string $key, string $sch
         ];
     }
 
+    // P0/01: nie wykonuj legacy REST update + pozatransakcyjnych Google/SMTP,
+    // gdy etap anulowania jest wlaczony. V1 idzie niezalezna sciezka.
+    if (getenv('REZERWIA_P001_CANCEL_ENDPOINT_ENABLED') === '1') {
+        return ['ok' => false, 'conflict' => true, 'booking' => null];
+    }
+
     $bookingId = (string) ($booking['id'] ?? '');
     $rescheduleCountRaw = $booking['reschedule_count'] ?? null;
     $rescheduleCount = (int) ($rescheduleCountRaw ?? 0);

@@ -242,6 +242,7 @@ function booking_email_worker_payload_valid($payload): bool
         'new_booking_time',
         'previous_date_label',
         'new_date_label',
+        'company_name',
     ] as $key) {
         if (!array_key_exists($key, $payload) || $payload[$key] === null) {
             continue;
@@ -296,7 +297,11 @@ function booking_email_worker_fetch_context(
         ];
     }
 
-    $settingsResult = booking_email_worker_single(
+    // Systemowy mail anulowania nie pobiera sekretow firmowego SMTP.
+    $systemCancellation = $eventType === 'booking_cancelled_customer';
+    $settingsResult = $systemCancellation ? [
+        'ok' => true, 'row' => null
+    ] : booking_email_worker_single(
         $config,
         'email_settings',
         'select=tenant_id,smtp_host,smtp_port,smtp_encryption,smtp_auth,smtp_username,smtp_password,'
@@ -1124,12 +1129,61 @@ function booking_email_worker_render_generic(
     ];
 }
 
+function booking_email_worker_render_cancelled(array $context): array
+{
+    $booking = $context['booking'] ?? [];
+    $payload = $context['outbox_payload'] ?? [];
+    if (!is_array($booking) || !is_array($payload)
+        || ($booking['status'] ?? '') !== 'cancelled'
+        || ($booking['payment_status'] ?? '') !== 'not_required') {
+        return ['ok' => false, 'retryable' => false, 'error_code' => 'cancellation_context_invalid'];
+    }
+    foreach (['booking_date','booking_time','schedule_revision'] as $key) {
+        $current = $key === 'schedule_revision' ? ($booking['reschedule_count'] ?? null)
+            : ($key === 'booking_time' ? substr((string)($booking['booking_time'] ?? ''),0,5) : ($booking[$key] ?? null));
+        if ((string)($payload[$key] ?? '') !== (string)$current) {
+            return ['ok' => false, 'retryable' => false, 'error_code' => 'cancellation_snapshot_invalid'];
+        }
+    }
+    $date = (string)$payload['booking_date'];
+    $time = (string)$payload['booking_time'];
+    if (preg_match('/\A\d{4}-\d{2}-\d{2}\z/D',$date) !== 1
+        || preg_match('/\A(?:[01]\d|2[0-3]):[0-5]\d\z/D',$time) !== 1) {
+        return ['ok' => false, 'retryable' => false, 'error_code' => 'cancellation_snapshot_invalid'];
+    }
+    $service = trim((string)($payload['service_name'] ?? ''));
+    $company = trim((string)($payload['company_name'] ?? ''));
+    $esc = static fn(string $v): string => htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
+    $rows = [
+        '<p>Twoja rezerwacja została anulowana przez administratora firmy.</p>',
+        '<p><strong>Data:</strong> '.$esc($date).'<br><strong>Godzina:</strong> '.$esc($time).'</p>',
+    ];
+    if ($service !== '') { $rows[] = '<p><strong>Usługa:</strong> '.$esc($service).'</p>'; }
+    if ($company !== '') { $rows[] = '<p><strong>Firma:</strong> '.$esc($company).'</p>'; }
+    $rows[] = '<p>Jeżeli nie wiesz, dlaczego anulowano rezerwację, skontaktuj się z firmą, korzystając ze znanych Ci danych kontaktowych.</p>';
+    $message = implode('', $rows);
+    $alt = "Twoja rezerwacja została anulowana przez administratora firmy.\n"
+         . "Data: $date\nGodzina: $time\n"
+         . ($service !== '' ? "Usługa: $service\n" : '')
+         . ($company !== '' ? "Firma: $company\n" : '')
+         . 'W sprawie anulowania skontaktuj się bezpośrednio z firmą.';
+    return [
+        'ok' => true, 'retryable' => false, 'error_code' => '',
+        'subject' => 'Twoja rezerwacja została anulowana',
+        'html' => buildSystemMailLayout('Rezerwacja anulowana','Informacja o anulowaniu rezerwacji',$message,'Wiadomość systemowa Rezerwia.'),
+        'alt' => $alt,
+    ];
+}
+
 function booking_email_worker_render(
     string $tenantId,
     string $eventType,
     string $recipientEmail,
     array $context
 ): array {
+    if ($eventType === 'booking_cancelled_customer') {
+        return booking_email_worker_render_cancelled($context);
+    }
     if (in_array($eventType, ['payment_paid_customer', 'booking_created_customer'], true)) {
         return booking_email_worker_render_paid_customer(
             $tenantId,
@@ -1287,6 +1341,7 @@ try {
             'multiple_paid_review_admin',
             'reconciliation_review_admin',
             'calendar_review_admin',
+            'booking_cancelled_customer',
         ];
         $deferredEvents = [
             'booking_staff_changed_customer',
@@ -1301,7 +1356,7 @@ try {
                 booking_email_worker_uuid($paymentId)
                 || (
                     $paymentId === ''
-                    && in_array($eventType, ['booking_created_customer', 'booking_created_admin'], true)
+                    && in_array($eventType, ['booking_created_customer', 'booking_created_admin', 'booking_cancelled_customer'], true)
                 )
             )
             && booking_email_worker_safe_text($tenantId, 128)
@@ -1409,6 +1464,10 @@ try {
                 $paymentId === ''
                 && $currentPaymentStatus === 'not_required'
                 && $currentBookingStatus === 'new',
+            'booking_cancelled_customer' =>
+                $paymentId === ''
+                && $currentPaymentStatus === 'not_required'
+                && $currentBookingStatus === 'cancelled',
             'booking_created_admin' =>
                 $paymentId !== ''
                 || (
@@ -1424,7 +1483,7 @@ try {
             if (!booking_email_worker_record_pre_send_failure(
                 $outboxId,
                 $claimToken,
-                true,
+                $eventType !== 'booking_cancelled_customer',
                 'email_context_changed'
             )) {
                 booking_email_worker_log('record_result_failed');
@@ -1445,6 +1504,7 @@ try {
             'appointment_reminder_day_before',
             'appointment_reminder_same_day',
             'booking_rescheduled_customer',
+            'booking_cancelled_customer',
         ], true)) {
             $currentRecipient = strtolower(trim((string) ($booking['email'] ?? '')));
 
@@ -1454,7 +1514,7 @@ try {
                 if (!booking_email_worker_record_pre_send_failure(
                     $outboxId,
                     $claimToken,
-                    true,
+                    $eventType !== 'booking_cancelled_customer',
                     'recipient_changed_after_claim'
                 )) {
                     booking_email_worker_log('record_result_failed');
@@ -1510,7 +1570,7 @@ try {
             $subject,
             $html,
             $alt,
-            is_array($context['email_settings']) ? $context['email_settings'] : null
+            $eventType === 'booking_cancelled_customer' ? null : (is_array($context['email_settings']) ? $context['email_settings'] : null)
         );
 
         $result = is_string($adapter['result'] ?? null)

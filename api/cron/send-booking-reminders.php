@@ -384,6 +384,13 @@ function cron_booking_reminders_process(string $type, DateTimeImmutable $now): a
     $result['skipped'] += $v1['skipped'];
     $result['failed'] += $v1['failed'];
 
+    // P0/01 CUTOVER: legacy reminders use inline SMTP without an intent/lease.
+    // Stop this path while cancellations can occur; keep V1 outbox active.
+    if (getenv('REZERWIA_P001_CANCEL_ENDPOINT_ENABLED') === '1') {
+        $result['legacy_suspended_for_p001'] = true;
+        return $result;
+    }
+
     $records = cron_booking_reminders_fetch_records($type, $now);
     $result['legacy_found'] = count($records);
     $result['found'] += count($records);

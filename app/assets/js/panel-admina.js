@@ -1527,6 +1527,11 @@ function buildBookingActionSnapshot(item, bookingRef, staffRef, serviceRef, hasS
     date: item?.date || '',
     booking_time: item?.booking_time || '',
     time: item?.time || '',
+    reschedule_count: item?.reschedule_count ?? null,
+    status: item?.status || '',
+    payment_status: item?.payment_status || '',
+    payment_required: item?.payment_required,
+    source: item?.source || '',
     name: item?.name || '',
     staff_display_name: item?.staff_display_name || '',
     service_name_snapshot: item?.service_name_snapshot || '',
@@ -1726,61 +1731,73 @@ async function loadBookings(view = currentBookingsView) {
 
 async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentStatus = '') {
   const actionData = getBookingAction(actionRef);
-  const bookingRef = actionData?.booking_ref || '';
-
-  if (!bookingRef) {
-    alert('Brak identyfikatora rezerwacji');
+  const booking = actionData?.booking;
+  const bookingRef = String(actionData?.booking_ref || '').trim();
+  if (!booking || !/^bk_[0-9a-f]{48}$/.test(bookingRef)) {
+    alert('Nie można ustalić rezerwacji. Odśwież kalendarz.');
     return;
   }
-
-  const isPaymentOverdue = bookingStatus === 'payment_overdue' || paymentStatus === 'expired';
-
-  const confirmHtml = isPaymentOverdue
-    ? `
-      <p>Ta rezerwacja nie została opłacona w wyznaczonym czasie.</p>
-      <p>
-        Usunięcie rezerwacji zwolni ten termin w kalendarzu
-        i umożliwi innemu klientowi dokonanie rezerwacji.
-      </p>
-      <p>
-        Czy na pewno chcesz usunąć rezerwację z dnia
-        <strong>${date}</strong> o godzinie <strong>${time}</strong>
-        i zwolnić termin?
-      </p>
-    `
-    : `Czy na pewno chcesz usunąć rezerwację z dnia <strong>${date}</strong> o godzinie <strong>${time}</strong>?`;
-
+  // Wyłącz paid/V1 na froncie; backend/RPC wykonuje niezależną kontrolę.
+  if (booking.status !== 'new' || booking.payment_status !== 'not_required'
+      || booking.payment_required !== false || booking.source !== 'www') {
+    alert('Ta rezerwacja wymaga osobnego, bezpiecznego trybu anulowania.');
+    return;
+  }
+  const expectedDate = String(booking.booking_date || booking.date || '').trim();
+  const expectedTime = String(booking.booking_time || booking.time || '').slice(0, 5);
+  const expectedStaffRef = String(actionData.staff_ref || '');
+  const revision = booking.reschedule_count;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(expectedDate)
+      || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(expectedTime)
+      || !Number.isInteger(revision) || revision < 0 || revision > 3
+      || (expectedStaffRef !== '' && !/^st_[0-9a-f]{48}$/.test(expectedStaffRef))) {
+    alert('Brakuje aktualnych danych do bezpiecznego anulowania. Odśwież listę.');
+    return;
+  }
   const confirmed = await openAdminConfirm({
-    title: isPaymentOverdue ? 'Usuń nieopłaconą rezerwację' : 'Usuń rezerwację',
-    html: confirmHtml,
-    confirmText: isPaymentOverdue ? 'Usuń i zwolnij termin' : 'Usuń',
-    cancelText: 'Anuluj'
+    title: 'Anuluj rezerwację',
+    html: `<p>Czy na pewno chcesz anulować rezerwację z dnia
+      <strong>${escapeHtml(expectedDate)}</strong> o godzinie
+      <strong>${escapeHtml(expectedTime)}</strong>?</p>
+      <p>Historia rezerwacji zostanie zachowana. Klient otrzyma systemową wiadomość e-mail z informacją o anulowaniu, jeśli wysyłka zakończy się powodzeniem.</p>`,
+    confirmText: 'Anuluj rezerwację',
+    cancelText: 'Wróć'
   });
-
   if (!confirmed) return;
-
+  if (!actionData.cancel_idempotency_key) {
+    if (typeof globalThis.crypto?.randomUUID !== 'function') {
+      alert('Nie można bezpiecznie rozpocząć operacji. Odśwież stronę.');
+      return;
+    }
+    actionData.cancel_idempotency_key = crypto.randomUUID();
+  }
   try {
     const data = await apiFetch('/api/booking/delete.php', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ booking_ref: bookingRef })
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        booking_ref: bookingRef,
+        expected_booking_date: expectedDate,
+        expected_booking_time: expectedTime,
+        expected_revision: revision,
+        expected_staff_ref: expectedStaffRef,
+        idempotency_key: actionData.cancel_idempotency_key
+      })
     });
-
     if (!data?.success) {
-      alert(data?.error || 'Nie udało się usunąć rezerwacji');
+      alert('Nie potwierdzono anulowania. Odśwież stan rezerwacji przed kolejną decyzją.');
       return;
     }
-
+    alert(data.message || 'Rezerwacja została anulowana, wiadomość oczekuje w kolejce wysyłki.');
     await loadBookings(currentBookingsView);
-
     if (typeof window.refreshAdminCalendarData === 'function') {
       await window.refreshAdminCalendarData();
     }
   } catch (error) {
-    console.error('deleteBooking error:', error);
-    alert('Błąd serwera przy usuwaniu rezerwacji');
+    // Wynik po zerwaniu polaczenia moze byc niepewny. Ten sam klucz
+    // zostaje w mapie akcji dla bezpiecznego retry, bez automatycznej proby.
+    console.error('deleteBooking transport failure', error);
+    alert('Wynik anulowania jest niepewny. Odśwież listę przed ponowną próbą.');
   }
 }
 
@@ -2592,7 +2609,8 @@ function renderBookingRow(item) {
   Więcej
 </button>
 ${renderBookingStaffActions(item, actionRef)}
-<button
+${item.status === 'new' && item.payment_status === 'not_required'
+  && item.payment_required === false && item.source === 'www' ? `<button
   class="delete-btn"
   type="button"
   data-booking-action="delete-booking"
@@ -2601,9 +2619,7 @@ ${renderBookingStaffActions(item, actionRef)}
   data-booking-time="${escapeHtml(bookingTime)}"
   data-booking-status="${escapeHtml(item.status || '')}"
   data-payment-status="${escapeHtml(item.payment_status || '')}"
->
-  Usuń
-</button>
+> Anuluj rezerwację </button>` : ''}
         </div>
       </td>
     </tr>

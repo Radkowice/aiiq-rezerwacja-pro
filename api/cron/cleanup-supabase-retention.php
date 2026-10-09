@@ -702,6 +702,18 @@ try {
         $candidates = is_int($count['count']) ? $count['count'] : 0;
         $result['total_candidates'] += $candidates;
 
+        // P0/01: stary szeroki DELETE bookings jest wstrzymany do chwili
+        // wdrozenia osobnego, audytowanego kontraktu retencji i anonimizacji.
+        // Inne reguly dzialaja bez zmian. Dry-run nadal liczy kandydatow.
+        if ($rule['key'] === 'bookings_old') {
+            $ruleResult['suspended'] = true;
+            $result['success'] = false;
+            $result['errors'][] = ['rule' => 'bookings_old', 'error' => 'p001_booking_retention_suspended', 'http_code' => 0];
+            $ruleResult['reason'] = 'p001_booking_retention_contract_not_ready';
+            $result['rules'][] = $ruleResult;
+            continue;
+        }
+
         if (!$dryRun && $candidates > 0) {
             $delete = retention_delete(
                 $supabaseUrl,

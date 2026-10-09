@@ -1335,6 +1335,15 @@ if ($action === 'detach_staff' && $oldStaffId === '') {
     ], 409);
 }
 
+// P0/01: ten legacy endpoint ma synchroniczny email po RPC.
+// Wstrzymaj mutacje podczas cutover; pozniejsze wznowienie wymaga outbox.
+if (getenv('REZERWIA_P001_CANCEL_ENDPOINT_ENABLED') === '1') {
+    booking_staff_json([
+        'success' => false,
+        'error' => 'Zmiana personelu chwilowo niedostepna podczas aktualizacji anulowania.'
+    ], 503);
+}
+
 $applyResult = payment_lifecycle_v3_rpc('booking_staff_change_apply', [
     'p_tenant_id' => $tenantId,
     'p_booking_id' => $bookingId,

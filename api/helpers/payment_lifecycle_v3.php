@@ -38,6 +38,7 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'booking_staff_change_apply',
         'booking_staff_change_mark_client_email_sent',
         'booking_reschedule_apply',
+        'booking_legacy_free_cancel_apply',
     ];
 }
 
