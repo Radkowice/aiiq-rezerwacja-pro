@@ -785,7 +785,7 @@ function google_calendar_get_integration(string $tenantId, ?array &$lookupResult
 
     $url = $supabaseUrl
         . '/rest/v1/tenant_integrations'
-        . '?select=tenant_id,provider,enabled,mode,settings,secrets,connected_at,disconnected_at'
+        . '?select=id,tenant_id,provider,enabled,mode,settings,secrets,connected_at,disconnected_at,updated_at'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&provider=eq.google_calendar'
         . '&limit=1';
@@ -856,59 +856,65 @@ function google_calendar_get_integration(string $tenantId, ?array &$lookupResult
     return [
         'settings' => $settings,
         'secrets' => $secrets,
+        'binding' => [
+            'id' => (string) ($row['id'] ?? ''),
+            'updated_at' => (string) ($row['updated_at'] ?? ''),
+            'connected_at' => (string) ($row['connected_at'] ?? ''),
+            'generation' => (string) (($row['settings']['connection_generation'] ?? '')),
+        ],
     ];
 }
 
-function google_calendar_save_secrets(string $tenantId, array $settings, array $secrets): bool
+function google_calendar_save_secrets(string $tenantId, array $settings, array $secrets, array $binding = []): bool
 {
     $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
     $supabaseKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
     $schema = getenv('SUPABASE_DB_SCHEMA') ?: 'rezerwacja_pro';
-
-    if ($supabaseUrl === '' || $supabaseKey === '') {
+    $originalId = trim((string) ($binding['id'] ?? ''));
+    $originalUpdatedAt = trim((string) ($binding['updated_at'] ?? ''));
+    $originalConnectedAt = trim((string) ($binding['connected_at'] ?? ''));
+    $originalGeneration = trim((string) ($binding['generation'] ?? ''));
+    if ($tenantId === '' || $supabaseUrl === '' || $supabaseKey === ''
+        || preg_match('/\A[0-9a-f-]{36}\z/iD', $originalId) !== 1
+        || $originalUpdatedAt === '' || strtotime($originalUpdatedAt) === false
+        || $originalConnectedAt === '' || strtotime($originalConnectedAt) === false
+        || preg_match('/\A[0-9a-f-]{36}\z/iD', $originalGeneration) !== 1) {
         return false;
     }
-
-    try {
-        $encryptedSecrets = encrypt_json_secret($secrets);
-    } catch (Throwable $e) {
-        return false;
-    }
-
-    $payload = [
-        'tenant_id' => $tenantId,
-        'provider' => 'google_calendar',
-        'enabled' => true,
-        'mode' => 'production',
-        'settings' => $settings,
-        'secrets' => $encryptedSecrets,
-        'connected_at' => date('c'),
-        'disconnected_at' => null,
-    ];
-
-    $url = $supabaseUrl
-        . '/rest/v1/tenant_integrations'
-        . '?on_conflict=tenant_id,provider';
-
-    $result = google_calendar_supabase_request(
-        $url,
-        'POST',
-        $supabaseKey,
-        $schema,
-        $payload,
-        [
-            'Prefer: resolution=merge-duplicates,return=minimal',
-        ]
-    );
-
-    return !$result['error'] && $result['http_code'] >= 200 && $result['http_code'] < 300;
+    try { $encryptedSecrets = encrypt_json_secret($secrets); }
+    catch (Throwable $e) { return false; }
+    // Never UPSERT, enable or reconnect: update only the exact row/version observed.
+    $url = $supabaseUrl . '/rest/v1/tenant_integrations'
+        . '?tenant_id=eq.' . rawurlencode($tenantId)
+        . '&provider=eq.google_calendar'
+        . '&id=eq.' . rawurlencode($originalId)
+        . '&updated_at=eq.' . rawurlencode($originalUpdatedAt)
+        . '&connected_at=eq.' . rawurlencode($originalConnectedAt)
+        . '&settings->>connection_generation=eq.' . rawurlencode($originalGeneration)
+        . '&enabled=eq.true&disconnected_at=is.null'
+        . '&select=id,tenant_id,provider,enabled,disconnected_at,connected_at,settings';
+    $result = google_calendar_supabase_request($url, 'PATCH', $supabaseKey, $schema,
+        ['secrets' => $encryptedSecrets], ['Prefer: return=representation']);
+    if (!empty($result['error']) || (int) ($result['http_code'] ?? 0) < 200
+        || (int) ($result['http_code'] ?? 0) >= 300) return false;
+    $rows = $result['data'] ?? null;
+    return is_array($rows) && count($rows) === 1
+        && ($rows[0]['id'] ?? null) === $originalId
+        && ($rows[0]['tenant_id'] ?? null) === $tenantId
+        && ($rows[0]['provider'] ?? null) === 'google_calendar'
+        && ($rows[0]['connected_at'] ?? null) === $originalConnectedAt
+        && ($rows[0]['settings']['connection_generation'] ?? null) === $originalGeneration
+        && ($rows[0]['enabled'] ?? null) === true
+        && array_key_exists('disconnected_at', $rows[0])
+        && $rows[0]['disconnected_at'] === null;
 }
 
 function google_calendar_refresh_access_token_if_needed(
     string $tenantId,
     array $settings,
     array $secrets,
-    ?array &$refreshResult = null
+    ?array &$refreshResult = null,
+    array $binding = []
 ): ?array {
     $refreshResult = google_calendar_execution_result('failed', 'unknown');
     $accessToken = (string) ($secrets['access_token'] ?? '');
@@ -1005,7 +1011,10 @@ function google_calendar_refresh_access_token_if_needed(
         'token_expires_at' => $newExpiresAt,
     ]);
 
-    google_calendar_save_secrets($tenantId, $settings, $updatedSecrets);
+    if (!google_calendar_save_secrets($tenantId, $settings, $updatedSecrets, $binding)) {
+        $refreshResult = google_calendar_execution_result('skipped', 'integration_changed_concurrently');
+        return null;
+    }
 
     $refreshResult = google_calendar_execution_result('done');
 
@@ -1259,7 +1268,7 @@ function createGoogleCalendarEventForBooking(
     $secrets = $integration['secrets'];
 
     $refreshResult = null;
-    $secrets = google_calendar_refresh_access_token_if_needed($tenantId, $settings, $secrets, $refreshResult);
+    $secrets = google_calendar_refresh_access_token_if_needed($tenantId, $settings, $secrets, $refreshResult, $integration['binding'] ?? []);
 
     if (!$secrets || empty($secrets['access_token'])) {
         $executionResult = is_array($refreshResult)
@@ -1348,6 +1357,11 @@ function createGoogleCalendarEventForBooking(
 
 function updateGoogleCalendarEventForBooking(string $tenantId, string $googleEventId, array $booking): array
 {
+    // H02 fail closed: legacy caller has no immutable original account binding.
+    // Do not act on whatever Google integration is connected today.
+    return ['success' => false, 'not_found' => false, 'status_code' => 0,
+            'reason' => 'historical_calendar_binding_unavailable'];
+
     $googleEventId = trim($googleEventId);
 
     if ($tenantId === '' || $googleEventId === '') {
@@ -1372,7 +1386,7 @@ function updateGoogleCalendarEventForBooking(string $tenantId, string $googleEve
     }
 
     $settings = $integration['settings'];
-    $secrets = google_calendar_refresh_access_token_if_needed($tenantId, $settings, $integration['secrets']);
+    $secrets = google_calendar_refresh_access_token_if_needed($tenantId, $settings, $integration['secrets'], $refreshResult, $integration['binding'] ?? []);
 
     if (!$secrets || empty($secrets['access_token'])) {
         google_calendar_debug('UPDATE_NO_ACCESS_TOKEN_AFTER_REFRESH');
@@ -1536,17 +1550,23 @@ function google_calendar_v7_request(
                 . '&provider=eq.google_calendar';
             $method = $operation === 'lookup' ? 'GET' : 'PATCH';
             if ($operation === 'lookup') {
-                $url .= '&select=tenant_id,provider,enabled,disconnected_at,updated_at,settings,secrets&limit=2';
+                $url .= '&select=id,tenant_id,provider,enabled,disconnected_at,connected_at,updated_at,settings,secrets&limit=2';
             } else {
                 if (!google_calendar_v7_valid_text($context['updated_at'] ?? null, 128)
+                    || !google_calendar_v7_valid_text($context['id'] ?? null, 128)
+                    || !google_calendar_v7_valid_text($context['connected_at'] ?? null, 128)
+                    || !google_calendar_v7_valid_text($context['generation'] ?? null, 128)
                     || $payload === null || array_keys($payload) !== ['secrets']
                 ) {
                     $reply['error_code'] = 'integration_state_invalid';
                     return $reply;
                 }
-                $url .= '&updated_at=eq.' . rawurlencode($context['updated_at'])
+                $url .= '&id=eq.' . rawurlencode($context['id'])
+                    . '&updated_at=eq.' . rawurlencode($context['updated_at'])
+                    . '&connected_at=eq.' . rawurlencode($context['connected_at'])
+                    . '&settings->>connection_generation=eq.' . rawurlencode($context['generation'])
                     . '&enabled=eq.true&disconnected_at=is.null'
-                    . '&select=tenant_id,provider,enabled,disconnected_at,updated_at';
+                    . '&select=id,tenant_id,provider,enabled,disconnected_at,updated_at,connected_at,settings';
                 $headers[] = 'Prefer: return=representation';
             }
         } elseif ($operation === 'refresh') {
@@ -1682,9 +1702,13 @@ function google_calendar_v7_prepare_connection(string $tenantId, array &$connect
     if (!array_key_exists('disconnected_at', $row) || $row['disconnected_at'] !== null) {
         return google_calendar_v7_result('blocked', 'integration_disconnected', $http);
     }
-    if (!google_calendar_v7_valid_text($row['updated_at'] ?? null, 128)
+    if (!google_calendar_v7_valid_text($row['id'] ?? null, 36)
+        || !google_calendar_v7_valid_text($row['connected_at'] ?? null, 128)
+        || !google_calendar_v7_valid_text($row['updated_at'] ?? null, 128)
         || !is_array($row['settings'] ?? null)
         || !google_calendar_v7_valid_text($row['settings']['calendar_id'] ?? null)
+        || !is_string($row['settings']['connection_generation'] ?? null)
+        || preg_match('/\A[0-9a-f-]{36}\z/iD', $row['settings']['connection_generation']) !== 1
         || !is_array($row['secrets'] ?? null)
     ) {
         return google_calendar_v7_result('blocked', 'integration_state_invalid', $http);
@@ -1742,7 +1766,10 @@ function google_calendar_v7_prepare_connection(string $tenantId, array &$connect
             return google_calendar_v7_result('blocked', 'integration_credentials_invalid');
         }
         $reply = google_calendar_v7_request('save_secrets', $tenantId, [
+            'id' => $row['id'],
             'updated_at' => $row['updated_at'],
+            'connected_at' => $row['connected_at'],
+            'generation' => $row['settings']['connection_generation'],
         ], ['secrets' => $encrypted], $attempted);
         if (!$attempted) {
             return google_calendar_v7_result('blocked', $reply['error_code']);
@@ -1767,6 +1794,9 @@ function google_calendar_v7_prepare_connection(string $tenantId, array &$connect
         $savedRow = $saved[0] ?? null;
         if (!is_array($savedRow) || ($savedRow['tenant_id'] ?? null) !== $tenantId
             || ($savedRow['provider'] ?? null) !== 'google_calendar'
+            || ($savedRow['id'] ?? null) !== $row['id']
+            || ($savedRow['connected_at'] ?? null) !== $row['connected_at']
+            || ($savedRow['settings']['connection_generation'] ?? null) !== $row['settings']['connection_generation']
         ) {
             return google_calendar_v7_result('blocked', 'integration_binding_invalid', $http);
         }
@@ -1778,7 +1808,14 @@ function google_calendar_v7_prepare_connection(string $tenantId, array &$connect
         }
         $token = $secrets['access_token'];
     }
-    $connection = ['settings' => $row['settings'], 'calendar_id' => $row['settings']['calendar_id'], 'access_token' => $token];
+    $connection = [
+        'settings' => $row['settings'],
+        'calendar_id' => $row['settings']['calendar_id'],
+        'access_token' => $token,
+        'integration_id' => $row['id'],
+        'integration_connected_at' => $row['connected_at'],
+        'integration_generation' => $row['settings']['connection_generation'],
+    ];
     return null;
 }
 
@@ -1792,8 +1829,18 @@ function google_calendar_v7_execute(
     string $action,
     string $tenantId,
     array $booking = [],
-    string $providerEventId = ''
+    string $providerEventId = '',
+    ?array $calendarClaim = null
 ): array {
+    // All actions require a real DB outbox claim with a live lease. Direct
+    // legacy calls cannot bypass the irreversible external-effect boundary.
+    if (!is_array($calendarClaim)
+        || !preg_match('/\A[0-9a-f-]{36}\z/iD', (string)($calendarClaim['outbox_id'] ?? ''))
+        || !preg_match('/\A[0-9a-f-]{36}\z/iD', (string)($calendarClaim['claim_token'] ?? ''))
+        || !preg_match('/\A[0-9a-f-]{36}\z/iD', (string)($calendarClaim['booking_id'] ?? ''))) {
+        return google_calendar_v7_result('blocked', 'calendar_claim_required');
+    }
+
     $eventAttempted = false;
     try {
         if (!in_array($action, ['create', 'update', 'delete'], true)
@@ -1808,6 +1855,40 @@ function google_calendar_v7_execute(
         $failure = google_calendar_v7_prepare_connection($tenantId, $connection);
         if ($failure !== null) {
             return $failure;
+        }
+        // Immutable account generation is the integration row + connected_at;
+        // token refresh only changes updated_at, reconnect changes connected_at.
+        $bindingArgs = [
+            'p_tenant_id' => $tenantId,
+            'p_outbox_id' => $calendarClaim['outbox_id'],
+            'p_claim_token' => $calendarClaim['claim_token'],
+            'p_booking_id' => $calendarClaim['booking_id'],
+            'p_integration_id' => $connection['integration_id'],
+            'p_connected_at' => $connection['integration_connected_at'],
+            'p_generation' => $connection['integration_generation'],
+            'p_calendar_id' => $connection['calendar_id'],
+        ];
+        // Deterministic Google event id, valid base32hex subset [0-9a-f].
+        // Persist intent BEFORE attempting Google; response loss is reconcilable.
+        $generatedEventId = '';
+        if ($action === 'create') {
+            // Outbox IDs are random UUIDs; no key rotation dependency.
+            // This stable ID permits a bounded GET reconciliation after a lost POST reply.
+            $generatedEventId = substr(hash('sha256',
+                'calendar-v1|' . $tenantId . '|' . $calendarClaim['outbox_id']), 0, 40);
+            $bindingArgs['p_provider_event_id'] = $generatedEventId;
+        } else {
+            $bindingArgs['p_provider_event_id'] = $providerEventId;
+        }
+        if (!function_exists('payment_lifecycle_v3_rpc')) {
+            return google_calendar_v7_result('blocked', 'calendar_rpc_unavailable');
+        }
+        $rpcName = $action === 'create'
+            ? 'booking_calendar_binding_reserve' : 'booking_calendar_binding_authorize';
+        $bindingReply = payment_lifecycle_v3_rpc($rpcName, $bindingArgs);
+        if (($bindingReply['ok'] ?? false) !== true
+            || ($bindingReply['data']['authorized'] ?? false) !== true) {
+            return google_calendar_v7_result('blocked', 'calendar_binding_unverified');
         }
         $payload = null;
         if ($action !== 'delete') {
@@ -1831,6 +1912,9 @@ function google_calendar_v7_execute(
             }
             try {
                 $payload = google_calendar_build_event($booking, $connection['settings'], $tenantId);
+                if ($action === 'create') {
+                    $payload['id'] = $generatedEventId;
+                }
             } catch (Throwable $e) {
                 return google_calendar_v7_result('blocked', 'calendar_payload_invalid');
             }
@@ -1849,6 +1933,17 @@ function google_calendar_v7_execute(
                 $eventId = is_array($reply['data']) ? ($reply['data']['id'] ?? null) : null;
                 if (!$reply['json_valid'] || $reply['json_kind'] !== '{' || !google_calendar_v7_valid_text($eventId)) {
                     return google_calendar_v7_result('result_unknown', 'calendar_result_unknown', $http, true);
+                }
+                // Google must return exactly the ID reserved with the outbox.
+                if (!hash_equals($generatedEventId, $eventId)) {
+                    return google_calendar_v7_result('result_unknown', 'calendar_result_unknown', $http, true);
+                }
+                $completed = payment_lifecycle_v3_rpc('booking_calendar_binding_complete',
+                    $bindingArgs);
+                if (($completed['ok'] ?? false) !== true
+                    || ($completed['data']['completed'] ?? false) !== true) {
+                    return google_calendar_v7_result('result_unknown',
+                        'calendar_binding_commit_unknown', $http, true);
                 }
                 return google_calendar_v7_result('done', '', $http, true, $eventId);
             }

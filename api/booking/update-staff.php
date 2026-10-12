@@ -7,7 +7,6 @@ require_once __DIR__ . '/../helpers/session.php';
 require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
-require_once __DIR__ . '/../helpers/php_mail.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/payment_lifecycle_v3.php';
 require_once __DIR__ . '/../helpers/public_response.php';
@@ -90,7 +89,7 @@ function booking_staff_require_admin_session(): array
 
     $role = strtolower(trim((string) ($user['role'] ?? '')));
 
-    if (!in_array($role, ['admin', 'administrator'], true)) {
+    if (!in_array($role, ['administrator'], true)) {
         booking_staff_security_event(
             'booking_staff_update_forbidden',
             'forbidden',
@@ -455,84 +454,6 @@ function booking_staff_text(?string $value, string $fallback = ''): string
 
     return $text !== '' ? $text : $fallback;
 }
-
-function booking_staff_format_term(array $booking): string
-{
-    $date = booking_staff_text((string) ($booking['booking_date'] ?? ''));
-    $time = booking_staff_text((string) ($booking['booking_time'] ?? ''));
-
-    return trim($date . ' ' . substr($time, 0, 5));
-}
-
-function booking_staff_build_client_mail_html(array $booking, string $action, string $oldStaffName, string $newStaffName): string
-{
-    $clientName = booking_staff_text((string) ($booking['name'] ?? ''), 'Kliencie');
-    $serviceName = booking_staff_text((string) ($booking['service_name_snapshot'] ?? ''), 'Usługa');
-    $term = booking_staff_format_term($booking);
-
-    $clientNameEsc = htmlspecialchars($clientName, ENT_QUOTES, 'UTF-8');
-    $serviceNameEsc = htmlspecialchars($serviceName, ENT_QUOTES, 'UTF-8');
-    $termEsc = htmlspecialchars($term, ENT_QUOTES, 'UTF-8');
-    $oldStaffEsc = htmlspecialchars($oldStaffName !== '' ? $oldStaffName : 'Dotychczasowy specjalista', ENT_QUOTES, 'UTF-8');
-    $newStaffEsc = htmlspecialchars($newStaffName, ENT_QUOTES, 'UTF-8');
-
-    if ($action === 'change_staff') {
-        $message = ''
-            . '<p style="margin:0 0 14px;">Dzień dobry, <strong>' . $clientNameEsc . '</strong>.</p>'
-            . '<p style="margin:0 0 14px;">Informujemy, że przy Twojej rezerwacji nastąpiła zmiana specjalisty.</p>'
-            . '<div style="margin:18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb;">'
-            . '  <p style="margin:0 0 10px;"><strong>👤 Nowy specjalista:</strong> ' . $newStaffEsc . '</p>'
-            . '  <p style="margin:0 0 10px;"><strong>🔁 Poprzedni specjalista:</strong> ' . $oldStaffEsc . '</p>'
-            . '  <p style="margin:0 0 10px;"><strong>🧾 Usługa:</strong> ' . $serviceNameEsc . '</p>'
-            . '  <p style="margin:0;"><strong>🕒 Termin:</strong> ' . $termEsc . '</p>'
-            . '</div>'
-            . '<p style="margin:0 0 12px;">Termin rezerwacji oraz pozostałe dane nie zostały zmienione.</p>'
-            . '<p style="margin:0;">Nie musisz nic robić — ta wiadomość ma charakter informacyjny.</p>';
-
-        return buildSystemMailLayout(
-            '🔁 Zmiana specjalisty przy rezerwacji',
-            'Do Twojej rezerwacji został przypisany nowy specjalista.',
-            $message,
-            'Wiadomość została wysłana automatycznie przez system Rezerwia.'
-        );
-    }
-
-    $message = ''
-        . '<p style="margin:0 0 14px;">Dzień dobry, <strong>' . $clientNameEsc . '</strong>.</p>'
-        . '<p style="margin:0 0 14px;">Informujemy, że specjalista przypisany do Twojej rezerwacji nie zajmie się Twoją prośbą .</p>'
-        . '<div style="margin:18px 0;padding:16px;border:1px solid #e5e7eb;border-radius:14px;background:#f9fafb;">'
-        . '  <p style="margin:0 0 10px;"><strong>👤 Poprzedni specjalista:</strong> ' . $oldStaffEsc . '</p>'
-        . '  <p style="margin:0 0 10px;"><strong>🧾 Usługa:</strong> ' . $serviceNameEsc . '</p>'
-        . '  <p style="margin:0;"><strong>🕒 Termin:</strong> ' . $termEsc . '</p>'
-        . '</div>'
-        . '<p style="margin:0 0 12px;">Nowy specjalista nie został jeszcze przypisany.</p>'
-        . '<p style="margin:0;">Jeśli będzie to konieczne, usługodawca poinformuje Cię o dalszych szczegółach.</p>';
-
-    return buildSystemMailLayout(
-        '👤 Aktualizacja specjalisty przy rezerwacji',
-        'Twój Specjalista nie zajmie się Twoją rezerwacją.',
-        $message,
-        'Wiadomość została wysłana automatycznie przez system Rezerwia.'
-    );
-}
-
-function booking_staff_send_client_mail(array $booking, string $action, string $oldStaffName, string $newStaffName): bool
-{
-    $email = trim((string) ($booking['email'] ?? ''));
-
-    if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
-        return false;
-    }
-
-    $subject = $action === 'change_staff'
-        ? 'Zmiana specjalisty przy Twojej rezerwacji'
-        : 'Aktualizacja specjalisty przy Twojej rezerwacji';
-
-    $html = booking_staff_build_client_mail_html($booking, $action, $oldStaffName, $newStaffName);
-
-    return sendSystemMail($email, $subject, $html);
-}
-
 
 function booking_staff_nullable_int(array $row, string $key): ?int
 {
@@ -943,6 +864,7 @@ function booking_staff_assert_staff_available_for_booking(
         'tenant_id=eq.' . rawurlencode($tenantId),
         'staff_id=eq.' . rawurlencode($staffId),
         'booking_date=eq.' . rawurlencode($date),
+        'status=not.in.(cancelled,canceled,deleted)',
     ];
 
     if ($bookingId !== '' && booking_staff_is_uuid($bookingId)) {
@@ -1087,6 +1009,14 @@ $action = trim((string) ($input['action'] ?? ''));
 $bookingRef = trim((string) ($input['booking_ref'] ?? ''));
 $bookingDateHint = trim((string) ($input['booking_date'] ?? ''));
 $bookingTimeHint = trim((string) ($input['booking_time'] ?? ''));
+$expectedStaffRef = trim((string) ($input['expected_staff_ref'] ?? ''));
+$expectedRevisionRaw = $input['expected_revision'] ?? null;
+if (($expectedStaffRef !== '' && !booking_staff_is_valid_staff_ref($expectedStaffRef))
+    || !is_int($expectedRevisionRaw) || $expectedRevisionRaw < 0 || $expectedRevisionRaw > 3
+    || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $bookingDateHint)
+    || !preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $bookingTimeHint)) {
+    booking_staff_json(['success' => false, 'error' => 'Dane rezerwacji są nieaktualne. Odśwież listę.'], 409);
+}
 $newStaffRef = trim((string) ($input['staff_ref'] ?? ''));
 $newStaffId = '';
 
@@ -1229,6 +1159,14 @@ if ($action === 'change_staff') {
 }
 
 $oldStaffId = trim((string) ($booking['staff_id'] ?? ''));
+$serverExpectedStaffRef = $oldStaffId !== ''
+    ? booking_staff_build_staff_ref($tenantId, $oldStaffId, booking_staff_public_ref_secret($supabaseKey))
+    : '';
+if (!hash_equals($serverExpectedStaffRef, $expectedStaffRef)
+    || (int) ($booking['reschedule_count'] ?? -1) !== $expectedRevisionRaw) {
+    booking_staff_json(['success' => false, 'error' => 'Rezerwacja została zmieniona. Odśwież listę.'], 409);
+}
+
 $oldStaff = null;
 $oldStaffName = '';
 
@@ -1335,22 +1273,36 @@ if ($action === 'detach_staff' && $oldStaffId === '') {
     ], 409);
 }
 
-// P0/01: ten legacy endpoint ma synchroniczny email po RPC.
-// Wstrzymaj mutacje podczas cutover; pozniejsze wznowienie wymaga outbox.
-if (getenv('REZERWIA_P001_CANCEL_ENDPOINT_ENABLED') === '1') {
+// H3 R3: Staff and cancellation may be enabled concurrently.
+// Atomic RPC enforces tenant, active administrator, snapshot CAS and booking lock.
+// Keep the independent Staff email-outbox rollout gate below.
+
+// R3 deployment barrier: prevent a partial PHP/SQL rollout from mutating
+// staff assignments before the outbox/worker contract is fully installed.
+if (getenv('REZERWIA_H3_R3_STAFF_EMAIL_OUTBOX_ENABLED') !== '1') {
     booking_staff_json([
         'success' => false,
-        'error' => 'Zmiana personelu chwilowo niedostepna podczas aktualizacji anulowania.'
+        'error' => 'Zmiana personelu jest chwilowo niedostępna podczas aktualizacji systemu.'
     ], 503);
 }
 
-$applyResult = payment_lifecycle_v3_rpc('booking_staff_change_apply', [
+if (!booking_staff_is_uuid($adminUserId)) {
+    booking_staff_json([
+        'success' => false,
+        'error' => 'Nie można potwierdzić uprawnień administratora.'
+    ], 403);
+}
+
+$applyResult = payment_lifecycle_v3_rpc('booking_staff_change_apply_snapshot_r3', [
     'p_tenant_id' => $tenantId,
     'p_booking_id' => $bookingId,
     'p_expected_old_staff_id' => $oldStaffId !== '' ? $oldStaffId : null,
     'p_new_staff_id' => $action === 'change_staff' ? $newStaffId : null,
     'p_action' => $action,
-    'p_changed_by_user_id' => booking_staff_is_uuid($adminUserId) ? $adminUserId : null,
+    'p_changed_by_user_id' => $adminUserId,
+    'p_expected_booking_date' => $bookingDateHint,
+    'p_expected_booking_time' => $bookingTimeHint,
+    'p_expected_revision' => $expectedRevisionRaw,
 ]);
 
 if (empty($applyResult['ok']) || !is_array($applyResult['data'] ?? null)) {
@@ -1451,33 +1403,24 @@ if (!booking_staff_is_uuid($historyId)
     ], 503);
 }
 
-$mailSent = booking_staff_send_client_mail(
-    $updatedBooking,
-    $action,
-    $appliedOldStaffName,
-    $appliedNewStaffName
-);
-
-if ($mailSent) {
-    $mailMarkResult = payment_lifecycle_v3_rpc('booking_staff_change_mark_client_email_sent', [
-        'p_tenant_id' => $tenantId,
-        'p_history_id' => $historyId,
-    ]);
-
-    if (empty($mailMarkResult['ok']) || !is_array($mailMarkResult['data'] ?? null)
-        || (($mailMarkResult['data']['recorded'] ?? null) !== true
-            && ($mailMarkResult['data']['idempotent'] ?? null) !== true)) {
-        booking_staff_security_event(
-            'booking_staff_update_mail_audit_failed',
-            'client_email_sent_history_mark_failed',
-            200,
-            'warning',
-            'medium',
-            $tenantId,
-            $action === 'change_staff' ? $newStaffId : $oldStaffId,
-            'mail_audit'
-        );
-    }
+// H3 R3: the staff RPC atomically queues any email notification.
+// Never send SMTP from this HTTP handler or mark client_email_sent_at here.
+$mailQueued = ($applyData['mail_queued'] ?? null);
+if (!is_bool($mailQueued)) {
+    booking_staff_security_event(
+        'booking_staff_update_atomic_contract_invalid',
+        'staff_mail_queue_contract_missing',
+        503,
+        'error',
+        'high',
+        $tenantId,
+        $action === 'change_staff' ? $newStaffId : $oldStaffId,
+        'atomic_staff_change'
+    );
+    booking_staff_json([
+        'success' => false,
+        'error' => 'Zmiana została zapisana, ale nie potwierdzono kolejki powiadomienia. Odśwież rezerwację.'
+    ], 503);
 }
 
 booking_staff_security_event(
@@ -1492,7 +1435,8 @@ booking_staff_security_event(
 
 booking_staff_json([
     'success' => true,
-    'mail_sent' => $mailSent,
+    'mail_sent' => false, // Async only: delivery evidence belongs to outbox.sent_at
+    'mail_queued' => $mailQueued,
     'message' => $action === 'change_staff'
         ? 'Zmieniono pracownika przypisanego do rezerwacji.'
         : 'Odłączono pracownika od rezerwacji.'

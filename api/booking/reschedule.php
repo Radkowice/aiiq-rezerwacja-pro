@@ -558,6 +558,8 @@ function reschedule_load_booking(string $supabaseUrl, string $key, string $schem
         'service_name_snapshot',
         'payment_required',
         'payment_status',
+        'status',
+        'source',
         'payment_lifecycle_version',
         'payment_amount',
         'payment_currency',
@@ -575,6 +577,10 @@ function reschedule_load_booking(string $supabaseUrl, string $key, string $schem
 
 function reschedule_assert_booking_can_change(array $booking): void
 {
+    if (($booking['status'] ?? null) === 'cancelled') {
+        reschedule_error('Rezerwacja została anulowana.', 'booking_cancelled', 409);
+    }
+
     $tokenExpiresAt = trim((string) ($booking['manage_token_expires_at'] ?? ''));
 
     if (!reschedule_timestamp_is_future($tokenExpiresAt)) {
@@ -1182,71 +1188,51 @@ function reschedule_apply_v1(
     ];
 }
 
+/** Strict legacy free path: all authoritative mutations live in one DB transaction. */
 function reschedule_update_booking(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking, string $date, string $time): array
 {
-    if ((int) ($booking['payment_lifecycle_version'] ?? 0) === 1) {
-        return [
-            'ok' => false,
-            'conflict' => false,
-            'booking' => null,
-        ];
-    }
-
-    // P0/01: nie wykonuj legacy REST update + pozatransakcyjnych Google/SMTP,
-    // gdy etap anulowania jest wlaczony. V1 idzie niezalezna sciezka.
-    if (getenv('REZERWIA_P001_CANCEL_ENDPOINT_ENABLED') === '1') {
+    if (($booking['payment_lifecycle_version'] ?? null) !== null
+        || ($booking['status'] ?? null) !== 'new'
+        || ($booking['source'] ?? null) !== 'www'
+        || ($booking['payment_required'] ?? null) !== false
+        || ($booking['payment_status'] ?? null) !== 'not_required') {
         return ['ok' => false, 'conflict' => true, 'booking' => null];
     }
 
-    $bookingId = (string) ($booking['id'] ?? '');
-    $rescheduleCountRaw = $booking['reschedule_count'] ?? null;
-    $rescheduleCount = (int) ($rescheduleCountRaw ?? 0);
-    $now = (new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw')))->format(DATE_ATOM);
-
-    $payload = [
-        'booking_date' => $date,
-        'booking_time' => $time,
-        'updated_at' => $now,
-        'rescheduled_at' => $now,
-        'reschedule_count' => $rescheduleCount + 1,
-        'manage_token_expires_at' => reschedule_start_atom($date, $time),
-    ];
-
-    $url = rtrim($supabaseUrl, '/') . '/rest/v1/bookings'
-        . '?tenant_id=eq.' . rawurlencode($tenantId)
-        . '&id=eq.' . rawurlencode($bookingId);
-
-    if ($rescheduleCountRaw === null || $rescheduleCountRaw === '') {
-        $url .= '&reschedule_count=is.null';
-    } else {
-        $url .= '&reschedule_count=eq.' . rawurlencode((string) $rescheduleCount);
+    $bookingId = trim((string) ($booking['id'] ?? ''));
+    $manageToken = trim((string) ($booking['__verified_manage_token'] ?? ''));
+    $expectedDate = trim((string) ($booking['booking_date'] ?? ''));
+    $expectedTime = reschedule_normalize_time((string) ($booking['booking_time'] ?? ''));
+    $revision = (int) ($booking['reschedule_count'] ?? -1);
+    if ($bookingId === '' || $manageToken === '' || $revision < 0 || $revision > 2) {
+        return ['ok' => false, 'conflict' => true, 'booking' => null];
     }
-
-    $result = reschedule_request('PATCH', $url, $key, $schema, $payload);
-
-    if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] < 200 || $result['httpCode'] >= 300) {
-        return [
-            'ok' => false,
-            'conflict' => false,
-            'booking' => null,
-        ];
+    $keyMaterial = implode('|', [$tenantId, $bookingId, $revision, $date, $time]);
+    $idempotency = hash('sha256', $keyMaterial);
+    $rpc = payment_lifecycle_v3_rpc('booking_legacy_atomic_reschedule_apply', [
+        'p_tenant_id' => $tenantId,
+        'p_booking_id' => $bookingId,
+        'p_manage_token' => $manageToken,
+        'p_idempotency_key' => $idempotency,
+        'p_expected_revision' => $revision,
+        'p_expected_date' => $expectedDate,
+        'p_expected_time' => $expectedTime,
+        'p_expected_staff_id' => $booking['staff_id'] ?? null,
+        'p_new_date' => $date,
+        'p_new_time' => $time,
+    ]);
+    if (empty($rpc['ok']) || !is_array($rpc['data'] ?? null)
+        || ($rpc['data']['rescheduled'] ?? null) !== true) {
+        return ['ok' => false, 'conflict' => false, 'booking' => null];
     }
-
-    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
-
-    if (count($rows) !== 1 || !is_array($rows[0])) {
-        return [
-            'ok' => false,
-            'conflict' => true,
-            'booking' => null,
-        ];
+    $updated = reschedule_load_booking($supabaseUrl, $key, $schema, $tenantId, $manageToken);
+    if (!is_array($updated)
+        || ($updated['booking_date'] ?? null) !== $date
+        || reschedule_normalize_time((string) ($updated['booking_time'] ?? '')) !== $time
+        || (int) ($updated['reschedule_count'] ?? -1) !== $revision + 1) {
+        return ['ok' => false, 'conflict' => false, 'booking' => null];
     }
-
-    return [
-        'ok' => true,
-        'conflict' => false,
-        'booking' => $rows[0],
-    ];
+    return ['ok' => true, 'conflict' => false, 'booking' => $updated];
 }
 
 function reschedule_send_mail(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking): void
@@ -1648,7 +1634,7 @@ $updateResult = reschedule_update_booking(
     $supabaseKey,
     $schema,
     $tenantId,
-    $booking,
+    array_merge($booking, ['__verified_manage_token' => $token]),
     $newDate,
     $newTime
 );
@@ -1682,49 +1668,8 @@ if (!$updatedBooking) {
     reschedule_error('Nie udało się potwierdzić zmiany terminu rezerwacji. Spróbuj ponownie.', 'update_verification_failed', 503);
 }
 
-$mailBooking = array_merge($booking, $updatedBooking, [
-    'previous_date_label' => $previousLabel,
-    'new_date_label' => $newLabel,
-    'service_name_snapshot' => (string) ($service['name'] ?? $booking['service_name_snapshot'] ?? ''),
-    'staff_display_name' => is_array($staff) ? (string) ($staff['display_name'] ?? '') : '',
-    'payment_status_label' => reschedule_payment_status_label(
-        $updatedBooking['payment_status'] ?? $booking['payment_status'] ?? ''
-    ),
-]);
-
-$googleBooking = array_merge($mailBooking, [
-    'duration_minutes' => reschedule_google_duration_minutes(
-        $supabaseUrl,
-        $supabaseKey,
-        $schema,
-        $tenantId,
-        $mailBooking,
-        $service
-    ),
-    'reschedule_limit' => reschedule_max_changes(),
-]);
-
-$googleSyncOk = reschedule_sync_google_calendar(
-    $supabaseUrl,
-    $supabaseKey,
-    $schema,
-    $tenantId,
-    $googleBooking
-);
-
-if (!$googleSyncOk) {
-    reschedule_security_event(
-        'booking_reschedule_google_sync_failed',
-        'google_sync_failed',
-        200,
-        'warning',
-        $googleBooking,
-        $tenantId
-    );
-}
-
-reschedule_send_mail($supabaseUrl, $supabaseKey, $schema, $tenantId, $mailBooking);
-
+// The RPC atomically captures all notification intent. No inline SMTP/Google.
+// If a provider binding is ambiguous, the RPC fails before changing the booking.
 $updatedService = reschedule_load_service($supabaseUrl, $supabaseKey, $schema, $tenantId, $updatedBooking);
 $updatedStaff = reschedule_load_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $updatedBooking);
 

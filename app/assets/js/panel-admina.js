@@ -1276,6 +1276,16 @@ function initBookingFilters() {
 
   table.parentNode.insertBefore(toolbar, table);
 
+  // Cancellation requests are REVIEW ONLY. No action here can refund PayU
+  // or change a booking to cancelled. Backend checks tenant + administrator.
+  const cancellationReviewBtn = document.createElement('button');
+  cancellationReviewBtn.type = 'button';
+  cancellationReviewBtn.className = 'booking-history-download-btn';
+  cancellationReviewBtn.textContent = 'Zgłoszenia anulowania';
+  cancellationReviewBtn.addEventListener('click', openCancellationReviewInbox);
+  toolbar.querySelector('.booking-view-top')?.appendChild(cancellationReviewBtn);
+
+
   toolbar.querySelectorAll('.booking-view-btn').forEach(button => {
     button.addEventListener('click', async () => {
       const view = button.dataset.view || 'upcoming';
@@ -1737,10 +1747,13 @@ async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentS
     alert('Nie można ustalić rezerwacji. Odśwież kalendarz.');
     return;
   }
-  // Wyłącz paid/V1 na froncie; backend/RPC wykonuje niezależną kontrolę.
-  if (booking.status !== 'new' || booking.payment_status !== 'not_required'
-      || booking.payment_required !== false || booking.source !== 'www') {
-    alert('Ta rezerwacja wymaga osobnego, bezpiecznego trybu anulowania.');
+  // The frontend is informational; PHP/DB independently authorize status.
+  const isPaid = booking.status === 'confirmed' && booking.payment_status === 'paid'
+      && booking.payment_required === true && booking.source === 'www';
+  const isFree = booking.status === 'new' && booking.payment_status === 'not_required'
+      && booking.payment_required === false && booking.source === 'www';
+  if (!isPaid && !isFree) {
+    alert('Stan tej rezerwacji nie pozwala na bezpieczne anulowanie.');
     return;
   }
   const expectedDate = String(booking.booking_date || booking.date || '').trim();
@@ -1759,9 +1772,12 @@ async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentS
     html: `<p>Czy na pewno chcesz anulować rezerwację z dnia
       <strong>${escapeHtml(expectedDate)}</strong> o godzinie
       <strong>${escapeHtml(expectedTime)}</strong>?</p>
-      <p>Historia rezerwacji zostanie zachowana. Klient otrzyma systemową wiadomość e-mail z informacją o anulowaniu, jeśli wysyłka zakończy się powodzeniem.</p>`,
+      <p>Historia rezerwacji zostanie zachowana. Klient otrzyma systemową wiadomość e-mail z informacją o anulowaniu, jeśli wysyłka zakończy się powodzeniem.</p>
+      ${isPaid ? '<p><strong>Płatność pozostanie opłacona.</strong> Rezerwia nie wykonuje zwrotu środków. Ewentualny zwrot wykonujesz samodzielnie w panelu PayU.</p>' : ''}`,
     confirmText: 'Anuluj rezerwację',
-    cancelText: 'Wróć'
+    cancelText: 'Wróć',
+    checkboxText: 'Potwierdzam anulowanie tej rezerwacji i wysłanie powiadomienia do klienta.',
+    requireCheckbox: true
   });
   if (!confirmed) return;
   if (!actionData.cancel_idempotency_key) {
@@ -2466,7 +2482,9 @@ async function changeBookingStaff(actionRef) {
         booking_ref: bookingRef,
         staff_ref: selectedStaffRef,
         booking_date: getBookingDateValue(booking),
-        booking_time: getBookingTimeValue(booking)
+        booking_time: getBookingTimeValue(booking),
+        expected_staff_ref: String(actionData?.staff_ref || ''),
+        expected_revision: booking.reschedule_count
       })
     });
 
@@ -2553,7 +2571,9 @@ async function detachBookingStaff(actionRef) {
         action: 'detach_staff',
         booking_ref: bookingRef,
         booking_date: getBookingDateValue(booking),
-        booking_time: getBookingTimeValue(booking)
+        booking_time: getBookingTimeValue(booking),
+        expected_staff_ref: String(actionData?.staff_ref || ''),
+        expected_revision: booking.reschedule_count
       })
     });
 
@@ -2588,6 +2608,12 @@ function renderBookingRow(item) {
   const detailsId = `booking-details-${actionRef}`;
   const payment = renderPaymentBadge(item);
   const paymentRowClass = getPaymentRowClass(item);
+  // F14: a durable, visible reminder after a refresh. Payment is still paid;
+  // Rezerwia never asserts a refund or sends a PayU refund request.
+  const manualPayuNotice = item.status === 'cancelled'
+      && item.payment_status === 'paid' && item.payment_required === true
+    ? '<small role="note">Wizyta anulowana. Ewentualny zwrot pieniędzy wykonaj ręcznie w panelu PayU.</small>'
+    : '';
 
   return `
     <tr class="booking-row${paymentRowClass}">
@@ -2595,7 +2621,7 @@ function renderBookingRow(item) {
       <td class="col-contact">${renderContactCell(item)}</td>
       <td class="col-term">${renderTermCell(item)}</td>
       <td class="col-service">${renderServiceStaffCell(item)}</td>
-      <td class="col-payment">${payment}</td>
+      <td class="col-payment">${payment}${manualPayuNotice}</td>
       <td class="col-actions">
         <div class="booking-actions">
          <button
@@ -2609,8 +2635,10 @@ function renderBookingRow(item) {
   Więcej
 </button>
 ${renderBookingStaffActions(item, actionRef)}
-${item.status === 'new' && item.payment_status === 'not_required'
-  && item.payment_required === false && item.source === 'www' ? `<button
+${((item.status === 'new' && item.payment_status === 'not_required'
+  && item.payment_required === false)
+  || (item.status === 'confirmed' && item.payment_status === 'paid'
+      && item.payment_required === true)) && item.source === 'www' ? `<button
   class="delete-btn"
   type="button"
   data-booking-action="delete-booking"
@@ -2758,4 +2786,161 @@ async function checkSystemStatus() {
     el.innerText = 'AWARIA!!!';
     el.style.color = '#dc2626'; // czerwony
   }
+}
+
+
+// A lost HTTP response must reuse the original decision key, not create a second one.
+// Lifetime: current browser tab; do not store personally identifying booking details.
+const cancellationDecisionKeys = new Map();
+const cancellationDecisionInFlight = new Set();
+
+// H3 R3: admin cancellation-review inbox. All external data rendered as text.
+async function openCancellationReviewInbox() {
+  const overlay = document.createElement('div');
+  overlay.className = 'admin-confirm-overlay show';
+  overlay.setAttribute('role', 'dialog');
+  overlay.setAttribute('aria-modal', 'true');
+  const panel = document.createElement('div');
+  panel.className = 'admin-confirm-modal';
+  panel.style.maxHeight = '80vh';
+  panel.style.overflowY = 'auto';
+  const heading = document.createElement('h3');
+  heading.textContent = 'Zgłoszenia anulowania — do rozpatrzenia';
+  const notice = document.createElement('p');
+  notice.textContent = 'Akceptacja może anulować kwalifikującą się rezerwację bezpłatną. Płatności PayU wymagają osobnej weryfikacji; zwrot nie jest wykonywany.';
+  const content = document.createElement('div');
+  content.textContent = 'Wczytywanie zgłoszeń…';
+  const close = document.createElement('button');
+  close.type = 'button';
+  close.className = 'admin-confirm-btn cancel';
+  close.textContent = 'Zamknij';
+  close.addEventListener('click', () => {
+    overlay.remove();
+    document.body.classList.remove('modal-open');
+  });
+  panel.append(heading, notice, content, close);
+  overlay.appendChild(panel);
+  document.body.appendChild(overlay);
+  document.body.classList.add('modal-open');
+
+  async function loadReviewRequests() {
+    content.replaceChildren();
+    try {
+      const response = await fetch('/api/booking/cancel-review-admin.php', {
+        credentials: 'include', cache: 'no-store'
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || payload?.success !== true || !Array.isArray(payload.requests)) {
+        throw new Error('Nie udało się pobrać zgłoszeń.');
+      }
+      if (payload.requests.length === 0) {
+        content.textContent = 'Brak zgłoszeń.';
+        return;
+      }
+      for (const req of payload.requests) {
+        const row = document.createElement('div');
+        row.className = 'admin-notifications-item';
+        const details = document.createElement('p');
+        details.textContent = `${String(req.booking_date || '')} ${String(req.booking_time || '')} — `
+          + `stan: ${String(req.request_status || '')}, `
+          + `rezerwacja: ${String(req.booking_status || '')}, `
+          + `płatność: ${String(req.payment_status || '')}`;
+        row.appendChild(details);
+        if (req.request_status === 'requires_payu_verification') {
+          const verify = document.createElement('button');
+          verify.type = 'button';
+          verify.className = 'admin-confirm-btn ok';
+          verify.textContent = 'Sprawdź aktualny status PayU';
+          verify.addEventListener('click', async () => {
+            verify.disabled = true;
+            try {
+              const response = await fetch('/api/booking/cancel-review-payu-status.php', {
+                method: 'POST', credentials: 'include', cache: 'no-store',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'X-CSRF-Token': window.CSRF_TOKEN || ''
+                },
+                body: JSON.stringify({request_ref: req.request_ref})
+              });
+              const payload = await response.json().catch(() => null);
+              if (!response.ok || payload?.success !== true
+                  || payload?.booking_cancelled !== false || payload?.refund_executed !== false) {
+                throw new Error('Nie udało się zweryfikować operatora. Nie zmieniono rezerwacji.');
+              }
+              const result = document.createElement('p');
+              const environment = payload.provider_environment === 'sandbox' ? 'SANDBOX / TEST'
+                : payload.provider_environment === 'production' ? 'PRODUKCJA' : 'NIEZWERYFIKOWANE';
+              result.textContent = `PayU (${environment}): ${String(payload.provider_status || 'UNKNOWN')} — wymagana dalsza decyzja. Nie dokonano zwrotu.`;
+              row.appendChild(result);
+            } catch (error) {
+              window.alert(error.message || 'Brak potwierdzenia PayU.');
+            } finally {
+              verify.disabled = false;
+            }
+          });
+          row.appendChild(verify);
+        }
+        if (req.request_status === 'pending_review') {
+          for (const [decision, text] of [
+            ['accept_for_review', 'Akceptuj (Free: anuluj / PayU: sprawdź)'],
+            ['reject', 'Odrzuć zgłoszenie']
+          ]) {
+            const action = document.createElement('button');
+            action.type = 'button';
+            action.className = 'admin-confirm-btn ok';
+            action.textContent = text;
+            action.addEventListener('click', async () => {
+              const requestRef = String(req.request_ref || '');
+              if (!/^cr_[0-9a-f]{32}$/.test(requestRef)) return;
+              if (cancellationDecisionInFlight.has(requestRef)) return;
+              // When a previous attempt has no confirmed response, do not allow
+              // an opposite decision to race it under a different retry key.
+              const otherDecision = cancellationDecisionKeys.has(`${requestRef}:${decision === 'reject' ? 'accept_for_review' : 'reject'}`);
+              if (otherDecision) {
+                window.alert('Poprzednia decyzja ma niepotwierdzony wynik. Ponów tę samą decyzję albo odśwież stan zgłoszeń.');
+                return;
+              }
+              if (!window.confirm('Zapisać decyzję? Przy kwalifikującej się rezerwacji bezpłatnej akceptacja anuluje termin. PayU nie jest automatycznie anulowane ani zwracane.')) return;
+              cancellationDecisionInFlight.add(requestRef);
+              action.disabled = true;
+              const retryKey = `${requestRef}:${decision}`;
+              if (!cancellationDecisionKeys.has(retryKey)) {
+                cancellationDecisionKeys.set(retryKey, crypto.randomUUID());
+              }
+              try {
+                const response = await fetch('/api/booking/cancel-review-admin.php', {
+                  method: 'POST', credentials: 'include', cache: 'no-store',
+                  headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRF-Token': window.CSRF_TOKEN || ''
+                  },
+                  body: JSON.stringify({
+                    request_ref: requestRef,
+                    decision,
+                    idempotency_key: cancellationDecisionKeys.get(retryKey)
+                  })
+                });
+                const payload = await response.json().catch(() => null);
+                if (!response.ok || payload?.success !== true || typeof payload?.booking_cancelled !== 'boolean') {
+                  throw new Error('Nie udało się zapisać decyzji. Odśwież zgłoszenia.');
+                }
+                cancellationDecisionKeys.delete(retryKey);
+                await loadReviewRequests();
+              } catch (error) {
+                action.disabled = false;
+                window.alert(error.message || 'Błąd zapisu decyzji. Ponów tę samą decyzję, aby sprawdzić wynik.');
+              } finally {
+                cancellationDecisionInFlight.delete(requestRef);
+              }
+            });
+            row.appendChild(action);
+          }
+        }
+        content.appendChild(row);
+      }
+    } catch (error) {
+      content.textContent = error.message || 'Nie udało się pobrać zgłoszeń.';
+    }
+  }
+  await loadReviewRequests();
 }

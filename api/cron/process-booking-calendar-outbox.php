@@ -453,7 +453,8 @@ try {
             || !is_bool($legacyNoPayment)
             || !(
                 booking_calendar_worker_uuid($paymentId)
-                || ($legacyNoPayment === true && $paymentId === '' && $action === 'create')
+                || ($legacyNoPayment === true && $paymentId === ''
+                        && in_array($action, ['create', 'delete'], true))
             )
             || !booking_calendar_worker_safe_text($tenantId, 128)
             || !in_array($action, ['create', 'update', 'delete'], true)
@@ -525,7 +526,9 @@ try {
             $action,
             $tenantId,
             $providerBooking,
-            $providerEventId
+            $providerEventId,
+            ['outbox_id' => $outboxId, 'claim_token' => $claimToken,
+             'booking_id' => $bookingId]
         );
 
         $result = is_string($adapter['result'] ?? null)

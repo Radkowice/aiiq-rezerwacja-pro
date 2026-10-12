@@ -220,6 +220,82 @@ function cron_booking_reminders_enqueue_v1(string $type): array
     ];
 }
 
+function cron_booking_reminders_enqueue_legacy(string $type): array
+{
+    if (!in_array($type, ['day_before', 'same_day'], true)) {
+        return [
+            'checked' => 0,
+            'enqueued' => 0,
+            'skipped' => 0,
+            'failed' => 1,
+        ];
+    }
+
+    // Incomplete H3 candidate: no historical test-data admission is authorized.
+    // Keep OFF until a reviewed future-booking boundary and shared contracts exist.
+    if (cron_booking_reminders_env('REZERWIA_H3_R3_LEGACY_REMINDERS_ENABLED') !== '1') {
+        return ['checked' => 0, 'enqueued' => 0, 'skipped' => 1, 'failed' => 0];
+    }
+
+    [$supabaseUrl] = cron_booking_reminders_config();
+    $url = $supabaseUrl . '/rest/v1/rpc/booking_legacy_appointment_reminder_enqueue';
+    $rpc = cron_booking_reminders_request(
+        'POST',
+        $url,
+        [
+            'p_kind' => $type,
+            'p_limit' => 50,
+        ]
+    );
+
+    if (
+        $rpc['error']
+        || $rpc['http_code'] < 200
+        || $rpc['http_code'] >= 300
+        || !is_array($rpc['data'])
+    ) {
+        return [
+            'checked' => 0,
+            'enqueued' => 0,
+            'skipped' => 0,
+            'failed' => 1,
+        ];
+    }
+
+    $data = $rpc['data'];
+    $checked = $data['checked'] ?? null;
+    $enqueued = $data['enqueued'] ?? null;
+    $skipped = $data['skipped'] ?? null;
+
+    if (
+        ($data['kind'] ?? null) !== $type
+        || !is_int($checked)
+        || !is_int($enqueued)
+        || !is_int($skipped)
+        || $checked < 0
+        || $checked > 50
+        || $enqueued < 0
+        || $enqueued > $checked
+        || $skipped < 0
+        || $skipped > $checked
+        || ($enqueued + $skipped) !== $checked
+    ) {
+        return [
+            'checked' => 0,
+            'enqueued' => 0,
+            'skipped' => 0,
+            'failed' => 1,
+        ];
+    }
+
+    return [
+        'checked' => $checked,
+        'enqueued' => $enqueued,
+        'skipped' => $skipped,
+        'failed' => 0,
+    ];
+}
+
 function cron_booking_reminders_fetch_records(string $type, DateTimeImmutable $now): array
 {
     [$supabaseUrl] = cron_booking_reminders_config();
@@ -370,6 +446,7 @@ function cron_booking_reminders_process(string $type, DateTimeImmutable $now): a
         'v1_enqueued' => 0,
         'legacy_found' => 0,
         'legacy_sent' => 0,
+        'legacy_enqueued' => 0,
     ];
 
     if (!$result['due']) {
@@ -384,84 +461,22 @@ function cron_booking_reminders_process(string $type, DateTimeImmutable $now): a
     $result['skipped'] += $v1['skipped'];
     $result['failed'] += $v1['failed'];
 
-    // P0/01 CUTOVER: legacy reminders use inline SMTP without an intent/lease.
-    // Stop this path while cancellations can occur; keep V1 outbox active.
-    if (getenv('REZERWIA_P001_CANCEL_ENDPOINT_ENABLED') === '1') {
-        $result['legacy_suspended_for_p001'] = true;
-        return $result;
-    }
-
-    $records = cron_booking_reminders_fetch_records($type, $now);
-    $result['legacy_found'] = count($records);
-    $result['found'] += count($records);
-    $tenantConfigCache = [];
-    $staffNameCache = [];
-    $sentAt = $now->format(DateTimeInterface::ATOM);
-
-    foreach ($records as $booking) {
-        if (!is_array($booking)) {
-            $result['skipped']++;
-            continue;
-        }
-
-        $bookingId = trim((string)($booking['id'] ?? ''));
-        $tenantId = trim((string)($booking['tenant_id'] ?? ''));
-
-        if ($bookingId === '' || $tenantId === '' || !cron_booking_reminders_valid_email($booking)) {
-            $result['skipped']++;
-            continue;
-        }
-
-        $mailConfig = cron_booking_reminders_tenant_mail_config($tenantId, $tenantConfigCache);
-
-        if (!$mailConfig) {
-            $result['skipped']++;
-            continue;
-        }
-
-        $staffId = trim((string)($booking['staff_id'] ?? ''));
-
-        if ($staffId !== '') {
-            $staffCacheKey = $tenantId . ':' . $staffId;
-
-            if (!array_key_exists($staffCacheKey, $staffNameCache)) {
-                $staffNameCache[$staffCacheKey] = cron_booking_reminders_fetch_staff_display_name($tenantId, $staffId);
-            }
-
-            if ($staffNameCache[$staffCacheKey] !== '') {
-                $booking['staff_display_name'] = $staffNameCache[$staffCacheKey];
-            }
-        }
-
-        try {
-            $mailSent = booking_mail_send_booking_reminder_with_fallback(
-                $mailConfig['email_settings'],
-                $mailConfig['tenant_data'],
-                cron_booking_reminders_public_booking_payload($booking),
-                $type
-            );
-        } catch (Throwable $e) {
-            $mailSent = false;
-        }
-
-        if (!$mailSent) {
-            $result['failed']++;
-            continue;
-        }
-
-        if (cron_booking_reminders_update_sent_at($bookingId, $tenantId, $sentColumn, $sentAt)) {
-            $result['sent']++;
-            $result['legacy_sent']++;
-        } else {
-            $result['failed']++;
-        }
-    }
+    // H3: legacy reminders are enqueued atomically by RPC, never sent inline.
+    // This call is fail-closed if the reviewed DB migration is not present.
+    $legacy = cron_booking_reminders_enqueue_legacy($type);
+    $result['legacy_found'] = $legacy['checked'];
+    $result['legacy_enqueued'] = $legacy['enqueued'];
+    $result['found'] += $legacy['checked'];
+    $result['enqueued'] += $legacy['enqueued'];
+    $result['skipped'] += $legacy['skipped'];
+    $result['failed'] += $legacy['failed'];
+    // 'sent' is not delivery evidence; outbox delivery happens in a separate worker.
 
     return $result;
 }
 
 try {
-    if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET' && ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+    if (PHP_SAPI !== 'cli' && ($_SERVER['REQUEST_METHOD'] ?? '') !== 'GET' && ($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
         cron_booking_reminders_response([
             'success' => false,
             'error' => 'Metoda niedozwolona.',
@@ -480,12 +495,12 @@ try {
     $sameDay = cron_booking_reminders_process('same_day', $now);
 
     cron_booking_reminders_response([
-        'success' => true,
+        'success' => $dayBefore['failed'] === 0 && $sameDay['failed'] === 0,
         'timezone' => 'Europe/Warsaw',
         'now' => $now->format(DateTimeInterface::ATOM),
         'day_before' => $dayBefore,
         'same_day' => $sameDay,
-    ]);
+    ], $dayBefore['failed'] === 0 && $sameDay['failed'] === 0 ? 200 : 503);
 } catch (Throwable $e) {
     cron_booking_reminders_response([
         'success' => false,

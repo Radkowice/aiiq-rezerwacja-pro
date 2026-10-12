@@ -190,6 +190,23 @@ function google_callback_tenant_owns_host(
         && hash_equals($tenantId, (string) ($result['data'][0]['tenant_id'] ?? ''));
 }
 
+/** Recheck the current tenant-bound administrator before consuming OAuth state. */
+function google_callback_active_admin(string $base, string $key, string $schema, string $tenant, string $actor): bool
+{
+    if (!preg_match('/\A[0-9a-f-]{36}\z/iD', $actor)) { return false; }
+    $url = $base . '/rest/v1/users?select=id,tenant_id,role,is_active'
+         . '&tenant_id=eq.' . rawurlencode($tenant)
+         . '&id=eq.' . rawurlencode($actor) . '&limit=2';
+    $result = google_callback_supabase_request($url, 'GET', $key, $schema);
+    $rows = $result['data'] ?? null;
+    return ($result['error'] ?? null) === '' && ($result['http_code'] ?? 0) === 200
+        && is_array($rows) && count($rows) === 1
+        && ($rows[0]['tenant_id'] ?? null) === $tenant
+        && ($rows[0]['id'] ?? null) === $actor
+        && ($rows[0]['role'] ?? null) === 'administrator'
+        && ($rows[0]['is_active'] ?? null) === true;
+}
+
 function google_callback_mark_state_used(
     string $supabaseUrl,
     string $supabaseKey,
@@ -325,6 +342,12 @@ if (!tenant_has_feature($tenantId, 'google_calendar')) {
         'Funkcja Google Calendar jest niedostępna w aktualnym planie.',
         $returnHost
     );
+}
+
+if (!google_callback_active_admin($supabaseUrl, $supabaseKey, $schema, $tenantId, $userId)) {
+    google_callback_security_event('google_calendar_callback_role_denied', 'role_denied', 403, 'denied', 'high',
+        ['tenant_id' => $tenantId, 'user_id' => $userId]);
+    redirect_with_status('error', 'Utracono uprawnienia do integracji Google.', $returnHost);
 }
 
 if (!google_callback_mark_state_used($supabaseUrl, $supabaseKey, $schema, $stateId, $stateToken)) {
@@ -478,47 +501,18 @@ if (!empty($tokenData['refresh_token'])) {
 }
 
 /**
- * 3. Jeśli Google nie zwróci refresh_token przy ponownym połączeniu,
- * zachowujemy stary refresh_token, o ile istnieje.
+ * A successful new consent must provide its OWN refresh token. Never merge
+ * credentials from the previously connected account (A) with new account B.
+ * Google Connect requests offline access + prompt=consent.
  */
-$existingIntegrationUrl = $supabaseUrl
-    . '/rest/v1/tenant_integrations'
-    . '?select=settings,secrets'
-    . '&tenant_id=eq.' . rawurlencode($tenantId)
-    . '&provider=eq.google_calendar'
-    . '&limit=1';
-
-$existingIntegrationResult = google_callback_supabase_request(
-    $existingIntegrationUrl,
-    'GET',
-    $supabaseKey,
-    $schema
-);
-
-$existingSettings = [];
-$existingSecrets = [];
-
-if (
-    $existingIntegrationResult['http_code'] === 200
-    && is_array($existingIntegrationResult['data'])
-    && !empty($existingIntegrationResult['data'][0])
-) {
-    $existingRow = $existingIntegrationResult['data'][0];
-
-    if (is_array($existingRow['settings'] ?? null)) {
-        $existingSettings = $existingRow['settings'];
-    }
-
-    if (is_array($existingRow['secrets'] ?? null)) {
-        try {
-            $existingSecrets = decrypt_json_secret($existingRow['secrets']);
-        } catch (Throwable $e) {
-            $existingSecrets = [];
-        }
-    }
+if (!is_string($newSecrets['refresh_token'] ?? null)
+    || trim($newSecrets['refresh_token']) === '') {
+    google_callback_security_event('google_calendar_callback_refresh_missing',
+        'refresh_missing', 409, 'failed', 'high', ['tenant_id' => $tenantId]);
+    redirect_with_status('error', 'Google nie zwrócił nowego tokenu odświeżania. Połączenie nie zostało zmienione.', $returnHost);
 }
-
-$mergedSecrets = array_merge($existingSecrets, $newSecrets);
+$mergedSecrets = $newSecrets;
+$existingSettings = []; // Never inherit an old account's calendar_id.
 
 try {
     $encryptedSecrets = encrypt_json_secret($mergedSecrets);
@@ -532,49 +526,77 @@ try {
     redirect_with_status('error', 'Nie udało się zaszyfrować tokenów Google.', $returnHost);
 }
 
-$settings = array_merge(
-    [
-        'calendar_id' => 'primary',
-        'calendar_name' => 'Kalendarz główny',
-        'sync_mode' => 'create_event_only',
-    ],
-    $existingSettings
-);
-
-$savePayload = [
-    'tenant_id' => $tenantId,
-    'provider' => 'google_calendar',
-    'enabled' => true,
-    'mode' => 'production',
-    'settings' => $settings,
-    'secrets' => $encryptedSecrets,
-    'connected_at' => date('c'),
-    'disconnected_at' => null,
+// New OAuth consent is a new immutable identity generation, even if the
+// previous account and the connection timestamp happen to be identical.
+$generationBytes = random_bytes(16);
+$generationBytes[6] = chr((ord($generationBytes[6]) & 0x0f) | 0x40);
+$generationBytes[8] = chr((ord($generationBytes[8]) & 0x3f) | 0x80);
+$generationHex = bin2hex($generationBytes);
+$connectionGeneration = substr($generationHex, 0, 8) . '-' . substr($generationHex, 8, 4)
+    . '-' . substr($generationHex, 12, 4) . '-' . substr($generationHex, 16, 4)
+    . '-' . substr($generationHex, 20, 12);
+$settings = [
+    'calendar_id' => 'primary',
+    'calendar_name' => 'Kalendarz główny',
+    'sync_mode' => 'create_event_only',
+    'connection_generation' => $connectionGeneration,
 ];
 
-$saveUrl = $supabaseUrl
-    . '/rest/v1/tenant_integrations'
-    . '?on_conflict=tenant_id,provider';
+// F10: final authorization, most-recent-started intent check and credential
+// write are one PostgreSQL transaction. A stale OAuth callback MUST NOT use
+// REST upsert of tenant_integrations even if a subsequent readback fails.
+// The begin-state INSERT on connect.php is fenced by the DB AFTER INSERT
+// trigger installed with this exact SQL migration.
+if (!google_callback_active_admin($supabaseUrl, $supabaseKey, $schema, $tenantId, $userId)) {
+    google_callback_security_event('google_calendar_callback_role_changed', 'role_changed', 403, 'denied', 'high',
+        ['tenant_id' => $tenantId, 'user_id' => $userId]);
+    redirect_with_status('error', 'Uprawnienia do integracji uległy zmianie.', $returnHost);
+}
 
-$saveResult = google_callback_supabase_request(
-    $saveUrl,
+$finishUrl = $supabaseUrl . '/rest/v1/rpc/google_calendar_oauth_finish_latest';
+$finishResult = google_callback_supabase_request(
+    $finishUrl,
     'POST',
     $supabaseKey,
     $schema,
-    $savePayload,
     [
-        'Prefer: resolution=merge-duplicates,return=minimal',
+        'p_tenant_id' => $tenantId,
+        'p_actor_id' => $userId,
+        'p_state_id' => $stateId,
+        'p_state_token' => $stateToken,
+        'p_generation' => $connectionGeneration,
+        'p_encrypted_secrets' => $encryptedSecrets,
     ]
 );
+$finishData = $finishResult['data'] ?? null;
+if ($finishResult['error'] !== ''
+    || ($finishResult['http_code'] ?? 0) !== 200
+    || !is_array($finishData)
+    || ($finishData['ok'] ?? null) !== true
+    || ($finishData['generation'] ?? null) !== $connectionGeneration) {
+    google_callback_security_event('google_calendar_callback_atomic_save_refused',
+        'atomic_save_refused', 409, 'denied', 'high', ['tenant_id' => $tenantId, 'user_id' => $userId]);
+    redirect_with_status('error', 'Połączenie Google zostało zastąpione lub utraciło ważność. Uruchom połączenie ponownie.', $returnHost);
+}
 
-if ($saveResult['error'] || $saveResult['http_code'] < 200 || $saveResult['http_code'] >= 300) {
-    google_callback_security_event('google_calendar_callback_save_failed', 'save_failed', 500, 'error', 'high', [
-        'tenant_id' => $tenantId,
-        'user_id' => $userId,
-        'actor_type' => 'tenant_user',
-    ]);
-
-    redirect_with_status('error', 'Nie udało się zapisać integracji Google.', $returnHost);
+// Verify the newly-connected generation was actually persisted. A concurrent
+// callback may have replaced it; never report that ambiguous case as success.
+$readbackUrl = $supabaseUrl . '/rest/v1/tenant_integrations'
+    . '?select=id,tenant_id,provider,enabled,disconnected_at,settings'
+    . '&tenant_id=eq.' . rawurlencode($tenantId)
+    . '&provider=eq.google_calendar&limit=2';
+$readback = google_callback_supabase_request($readbackUrl, 'GET', $supabaseKey, $schema);
+$readbackRows = $readback['data'] ?? null;
+if (($readback['http_code'] ?? 0) !== 200 || !is_array($readbackRows)
+    || count($readbackRows) !== 1
+    || ($readbackRows[0]['tenant_id'] ?? null) !== $tenantId
+    || ($readbackRows[0]['provider'] ?? null) !== 'google_calendar'
+    || ($readbackRows[0]['enabled'] ?? null) !== true
+    || ($readbackRows[0]['disconnected_at'] ?? null) !== null
+    || ($readbackRows[0]['settings']['connection_generation'] ?? null) !== $connectionGeneration) {
+    google_callback_security_event('google_calendar_callback_generation_unverified',
+        'generation_unverified', 503, 'error', 'high', ['tenant_id' => $tenantId]);
+    redirect_with_status('error', 'Nie udało się potwierdzić nowej integracji Google.', $returnHost);
 }
 
 google_callback_security_event('google_calendar_callback_success', 'google_calendar_callback_success', 200, 'success', 'medium', [

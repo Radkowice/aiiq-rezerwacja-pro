@@ -159,7 +159,7 @@ $maxPages = 100;
 $perPage = 200;
 for ($page = 0; $page < $maxPages; $page++) {
     $rows = p001_get_rows($base, $key, $schema, 'bookings', [
-        'select' => 'id,tenant_id,booking_date,booking_time,reschedule_count,staff_id,email',
+        'select' => 'id,tenant_id,booking_date,booking_time,reschedule_count,staff_id,email,status,source,payment_status,payment_required,payment_lifecycle_version',
         'tenant_id' => 'eq.' . $tenantId,
         'booking_date' => 'eq.' . $date,
         'order' => 'id.asc',
@@ -200,7 +200,23 @@ if (($matched['booking_date'] ?? '') !== $date || $bookingTime !== $time
     p001_response(409, 'booking_changed');
 }
 
-$rpc = payment_lifecycle_v3_rpc('booking_legacy_free_cancel_apply', [
+// SQL re-verifies every predicate under a booking/payment advisory lock.
+// The request cannot choose the branch by supplying client-side status fields.
+$isPaid = in_array(($matched['status'] ?? null), ['confirmed','cancelled'], true)
+    && ($matched['source'] ?? null) === 'www'
+    && ($matched['payment_required'] ?? null) === true
+    && ($matched['payment_status'] ?? null) === 'paid'
+    && ($matched['payment_lifecycle_version'] ?? null) === 1;
+$isFree = in_array(($matched['status'] ?? null), ['new','cancelled'], true)
+    && ($matched['source'] ?? null) === 'www'
+    && ($matched['payment_required'] ?? null) === false
+    && ($matched['payment_status'] ?? null) === 'not_required'
+    && ($matched['payment_lifecycle_version'] ?? null) === null;
+if (!$isPaid && !$isFree) {
+    p001_response(409, 'cancellation_payment_state_unresolved');
+}
+$rpcName = $isPaid ? 'booking_paid_manual_cancel_apply' : 'booking_legacy_free_cancel_apply';
+$rpc = payment_lifecycle_v3_rpc($rpcName, [
     'p_tenant_id' => $tenantId,
     'p_booking_id' => $bookingId,
     'p_actor_user_id' => $actorId,
@@ -210,18 +226,54 @@ $rpc = payment_lifecycle_v3_rpc('booking_legacy_free_cancel_apply', [
     'p_expected_revision' => $revision,
     'p_expected_staff_id' => $currentStaffId === '' ? null : $currentStaffId,
     'p_expected_email' => $email,
+], [
+    'booking_cancellation_schedule_conflict',
+    'booking_cancellation_recipient_changed',
+    'booking_cancellation_shadow_ownership_unresolved',
+    'booking_cancellation_unexpected_shadow',
+    'booking_cancellation_calendar_binding_unverified',
+    'booking_cancellation_calendar_history_ambiguous',
+    'booking_cancellation_calendar_unresolved',
+    'booking_cancellation_email_unresolved',
+    'booking_cancellation_payment_or_state_not_eligible',
+    'paid_cancel_schedule_conflict',
+    'paid_cancel_email_conflict',
+    'paid_cancel_payment_unresolved',
+    'paid_cancel_ambiguous_other_payment',
+    'paid_cancel_shadow_ownership_unresolved',
+    'paid_cancel_unexpected_shadow',
+    'paid_cancel_outbox_unresolved',
+    'paid_cancel_booking_state_ineligible',
+    'paid_cancel_replay_conflict',
+    'booking_cancellation_idempotency_conflict',
 ]);
 if (empty($rpc['ok']) || !is_array($rpc['data'] ?? null)) {
+    if (($rpc['error_kind'] ?? '') === 'business_rejection') {
+        p001_log('booking_cancel_business_rejection', 409, $tenantId);
+        p001_response(409, 'booking_cancellation_conflict',
+            'Stan rezerwacji lub płatności uległ zmianie albo operacja wymaga ręcznej weryfikacji. Odśwież panel.');
+    }
     p001_log('booking_cancel_rpc_failed', 503, $tenantId);
     p001_response(503, 'cancellation_unavailable');
 }
 $result = $rpc['data'];
 if (!is_bool($result['applied'] ?? null)
     || !is_bool($result['idempotent'] ?? null)
+    || !in_array($result['calendar_cleanup'] ?? null, ['not_required','queued','manual_required',null], true)
     || !in_array($result['notification'] ?? null, ['queued', 'previously_enqueued'], true)
-    || (($result['applied'] ?? null) === ($result['idempotent'] ?? null))) {
+    || (($result['applied'] ?? null) === ($result['idempotent'] ?? null))
+    || ($isPaid && ($result['manual_refund_in_payu'] ?? null) !== true)) {
     p001_log('booking_cancel_contract_invalid', 503, $tenantId);
     p001_response(503, 'cancellation_unavailable');
 }
 p001_log('booking_cancel_success', 200, $tenantId);
-p001_response(200, '', 'Rezerwacja została anulowana. Powiadomienie e-mail przekazano do kolejki wysyłki.');
+$cleanup = $result['calendar_cleanup'] ?? 'not_required';
+$message = $cleanup === 'queued'
+    ? 'Rezerwacja została anulowana. Usunięcie wydarzenia Google oczekuje w kolejce.'
+    : ($cleanup === 'manual_required'
+        ? 'Rezerwacja została anulowana. Historyczne wydarzenie Google wymaga ręcznej weryfikacji w oryginalnym kalendarzu.'
+        : 'Rezerwacja została anulowana. Powiadomienie klienta oczekuje w kolejce.');
+if ($isPaid) {
+    $message .= ' W Rezerwii nie wykonano zwrotu środków. Ewentualny zwrot administrator wykonuje ręcznie w swoim panelu PayU.';
+}
+p001_response(200, '', $message);

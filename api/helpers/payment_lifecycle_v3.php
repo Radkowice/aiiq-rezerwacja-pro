@@ -36,9 +36,19 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'booking_postprocess_intent_record_result',
         'booking_legacy_postprocess_enqueue',
         'booking_staff_change_apply',
+        'booking_staff_change_apply_snapshot_r3',
         'booking_staff_change_mark_client_email_sent',
         'booking_reschedule_apply',
+        'booking_legacy_atomic_reschedule_apply',
+        'booking_cancel_review_request_create',
+        'booking_calendar_binding_reserve',
+        'booking_calendar_binding_authorize',
+        'booking_calendar_binding_complete',
+        'booking_cancel_review_admin_list',
+        'booking_cancel_review_admin_decide',
+        'booking_cancel_review_payu_context',
         'booking_legacy_free_cancel_apply',
+        'booking_paid_manual_cancel_apply',
     ];
 }
 
@@ -102,7 +112,7 @@ function payment_lifecycle_v3_is_json_object($value): bool
     return true;
 }
 
-function payment_lifecycle_v3_rpc(string $functionName, array $payload): array
+function payment_lifecycle_v3_rpc(string $functionName, array $payload, ?array $safeBusinessErrors = null): array
 {
     if (!in_array($functionName, payment_lifecycle_v3_allowed_rpc_names(), true)) {
         return payment_lifecycle_v3_failure('policy_failure', 'rpc_not_allowed');
@@ -157,6 +167,18 @@ function payment_lifecycle_v3_rpc(string $functionName, array $payload): array
     }
 
     if ($httpStatus < 200 || $httpStatus >= 300) {
+        // Preserve only an explicit allow-list of non-sensitive SQL business
+        // errors for the booking-cancellation endpoint. Do not return raw
+        // PostgREST messages, SQL details, hints, or provider identifiers.
+        if ($safeBusinessErrors !== null && $httpStatus === 400 && is_string($response)) {
+            $errorBody = json_decode($response, true);
+            $dbCode = is_array($errorBody) ? ($errorBody['code'] ?? null) : null;
+            $dbMessage = is_array($errorBody) ? ($errorBody['message'] ?? null) : null;
+            if ($dbCode === 'P0001' && is_string($dbMessage)
+                && in_array($dbMessage, $safeBusinessErrors, true)) {
+                return payment_lifecycle_v3_failure('business_rejection', $dbMessage, $httpStatus);
+            }
+        }
         return payment_lifecycle_v3_failure('rpc_error', 'rpc_http_error', $httpStatus);
     }
 

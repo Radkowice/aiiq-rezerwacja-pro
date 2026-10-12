@@ -629,6 +629,31 @@ async function selectDate(date) {
 
 function renderBooking(booking) {
   const content = getEl('rescheduleContent');
+  // Request for cancellation review, never instant cancellation or refund.
+  if (content && !getEl('cancelReviewBtn')) {
+    const request = document.createElement('button');
+    request.id = 'cancelReviewBtn';
+    request.type = 'button';
+    request.textContent = 'Złóż wniosek o anulowanie (wymaga kontaktu z firmą)';
+    request.addEventListener('click', async () => {
+      if (!window.confirm('Wysłać prośbę o anulowanie? Rezerwacja pozostanie aktywna do potwierdzenia przez obsługę.')) return;
+      const b = rescheduleState.booking || {};
+      request.disabled = true;
+      try {
+        const response = await fetch('/api/booking/cancel-request.php', {
+          method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({token:rescheduleState.token,
+            expected_booking_date:getCurrentBookingDate(),
+            expected_booking_time:getCurrentBookingTime()})
+        });
+        const json = await response.json();
+        if (!response.ok || json.success !== true || json.booking_cancelled !== false)
+          throw new Error('Nie można przyjąć zgłoszenia.');
+        showSuccess(json.message);
+      } catch (e) { showError('Nie udało się wysłać zgłoszenia. Spróbuj ponownie.'); request.disabled = false; }
+    });
+    content.appendChild(request);
+  }
   const service = booking.service || {};
   const staff = booking.staff || null;
   const serviceDescription = String(service.description || '').trim();
