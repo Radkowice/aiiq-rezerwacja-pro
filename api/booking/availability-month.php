@@ -320,7 +320,8 @@ function availability_month_index_bookings(array $rows): array
     $map = [];
 
     foreach ($rows as $row) {
-        if (!is_array($row) || empty($row['booking_date'])) {
+        if (!is_array($row) || empty($row['booking_date'])
+            || (string) ($row['status'] ?? '') === 'cancelled') {
             continue;
         }
 
@@ -567,7 +568,7 @@ $exceptionRows = availability_month_fetch_rows_required($supabaseUrl, $supabaseK
 $availabilityExceptions = array_values(array_unique(array_map(static fn (array $row): string => (string) ($row['date'] ?? ''), $exceptionRows)));
 
 $bookingQuery = [
-    'select=id,booking_date,booking_time,service_id',
+    'select=id,booking_date,booking_time,service_id,status',
     'tenant_id=eq.' . rawurlencode($tenantId),
     'booking_date=gte.' . rawurlencode($monthStart),
     'booking_date=lte.' . rawurlencode($monthEnd),

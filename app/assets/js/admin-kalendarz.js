@@ -435,7 +435,23 @@
     }
   }
 
-  window.refreshAdminCalendarData = refreshAdminCalendarData;
+  // External callers (e.g. panel-admina.js after cancellation/staff change)
+  // must invalidate the booking snapshot AND redraw markers, not just blocked_times.
+  window.refreshAdminCalendarData = async function refreshAndRenderAdminCalendar() {
+    adminCalendarBookingsLoaded = false;
+    adminCalendarBookings = [];
+
+    try {
+      await refreshAdminCalendarData();
+      await renderAdminCalendar();
+      await renderAdminTimeSlots();
+    } catch (error) {
+      // Cancellation may already be committed. Do not misreport it as uncertain
+      // merely because the calendar refresh failed.
+      console.error('refreshAndRenderAdminCalendar error:', error);
+      showMessage('Nie udało się odświeżyć kalendarza. Odśwież stronę.', 'error');
+    }
+  };
 
   function dispatchStaffBlocksChangedEvent() {
     if (blockScope !== 'staff' || typeof window.dispatchEvent !== 'function') {
@@ -842,7 +858,9 @@
       throw new Error('Nie udało się pobrać rezerwacji do kalendarza');
     }
 
-    adminCalendarBookings = data;
+    // History stays available from bookings.php?view=all; cancelled bookings
+    // must never be presented as occupied calendar slots.
+    adminCalendarBookings = data.filter(isActiveBookingForCalendar);
     adminCalendarBookingsLoaded = true;
   }
 
@@ -1031,8 +1049,13 @@
     return { status: '', source: '' };
   }
 
+  function isActiveBookingForCalendar(booking) {
+    return booking && typeof booking === 'object'
+      && String(booking.status || '').trim().toLowerCase() !== 'cancelled';
+  }
+
   function getStaffBookingsForDate(date) {
-    const source = adminCalendarBookingsLoaded ? adminCalendarBookings : window._bookingsData;
+    const source = getAdminBookingsSource();
 
     if (!Array.isArray(source) || !selectedBlockStaffRef) {
       return [];
@@ -1184,10 +1207,12 @@
 
   function getAdminBookingsSource() {
     if (adminCalendarBookingsLoaded && Array.isArray(adminCalendarBookings)) {
-      return adminCalendarBookings;
+      return adminCalendarBookings.filter(isActiveBookingForCalendar);
     }
 
-    return Array.isArray(window._bookingsData) ? window._bookingsData : [];
+    return Array.isArray(window._bookingsData)
+      ? window._bookingsData.filter(isActiveBookingForCalendar)
+      : [];
   }
 
   function getGlobalDayReservations(date) {
@@ -2316,7 +2341,7 @@
   }
 
   function isBookingVisibleForCurrentBlockScope(item) {
-    if (!item) {
+    if (!isActiveBookingForCalendar(item)) {
       return false;
     }
 
@@ -2377,14 +2402,12 @@
   }
 
   function getBookingsForCurrentBlockScope(date, time) {
-    if (!Array.isArray(window._bookingsData)) {
-      return [];
-    }
+    const source = getAdminBookingsSource();
 
     const targetDate = normalizeBookingDate(date);
     const targetTime = normalizeBookingTime(time);
 
-    return window._bookingsData.filter(item =>
+    return source.filter(item =>
       isBookingVisibleForCurrentBlockScope(item) &&
       normalizeBookingDate(item.booking_date || item?.date || '') === targetDate &&
       normalizeBookingTime(item.booking_time || item.time || '') === targetTime
@@ -2447,13 +2470,11 @@
   }
 
   function hasBookingForCurrentBlockScope(date) {
-    if (!Array.isArray(window._bookingsData)) {
-      return false;
-    }
+    const source = getAdminBookingsSource();
 
     const targetDate = normalizeBookingDate(date);
 
-    return window._bookingsData.some(item =>
+    return source.some(item =>
       isBookingVisibleForCurrentBlockScope(item) &&
       normalizeBookingDate(item.booking_date || item?.date || '') === targetDate
     );

@@ -795,7 +795,7 @@ function booking_staff_assert_staff_available_for_booking(
     }
 
     $blockedTimes = booking_staff_fetch_rows($supabaseUrl, $key, $schema, 'blocked_times', [
-        'select=time,staff_id',
+        'select=time,staff_id,booking_id',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'date=eq.' . rawurlencode($date) . $staffBlockFilter,
     ]);
@@ -805,6 +805,13 @@ function booking_staff_assert_staff_available_for_booking(
 
     foreach ($blockedTimes as $row) {
         if (!is_array($row) || empty($row['time'])) {
+            continue;
+        }
+
+        // The current booking's global shadow is not a conflict with itself.
+        // Manual/unowned and other-booking blocks must continue to apply.
+        if ($bookingId !== '' && booking_staff_is_uuid($bookingId)
+            && (string) ($row['booking_id'] ?? '') === $bookingId) {
             continue;
         }
 

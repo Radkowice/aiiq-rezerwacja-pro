@@ -1739,12 +1739,22 @@ async function loadBookings(view = currentBookingsView) {
   }
 }
 
+async function showBookingActionNotice(title, message) {
+  await openAdminConfirm({
+    title,
+    html: `<p>${escapeHtml(message)}</p>`,
+    confirmText: 'OK',
+    variant: 'primary',
+    showCancel: false
+  });
+}
+
 async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentStatus = '') {
   const actionData = getBookingAction(actionRef);
   const booking = actionData?.booking;
   const bookingRef = String(actionData?.booking_ref || '').trim();
   if (!booking || !/^bk_[0-9a-f]{48}$/.test(bookingRef)) {
-    alert('Nie można ustalić rezerwacji. Odśwież kalendarz.');
+    await showBookingActionNotice('Nie można anulować rezerwacji', 'Nie można ustalić rezerwacji. Odśwież kalendarz.');
     return;
   }
   // The frontend is informational; PHP/DB independently authorize status.
@@ -1753,7 +1763,7 @@ async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentS
   const isFree = booking.status === 'new' && booking.payment_status === 'not_required'
       && booking.payment_required === false && booking.source === 'www';
   if (!isPaid && !isFree) {
-    alert('Stan tej rezerwacji nie pozwala na bezpieczne anulowanie.');
+    await showBookingActionNotice('Nie można anulować rezerwacji', 'Stan tej rezerwacji nie pozwala na bezpieczne anulowanie.');
     return;
   }
   const expectedDate = String(booking.booking_date || booking.date || '').trim();
@@ -1764,7 +1774,7 @@ async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentS
       || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(expectedTime)
       || !Number.isInteger(revision) || revision < 0 || revision > 3
       || (expectedStaffRef !== '' && !/^st_[0-9a-f]{48}$/.test(expectedStaffRef))) {
-    alert('Brakuje aktualnych danych do bezpiecznego anulowania. Odśwież listę.');
+    await showBookingActionNotice('Nie można anulować rezerwacji', 'Brakuje aktualnych danych do bezpiecznego anulowania. Odśwież listę.');
     return;
   }
   const confirmed = await openAdminConfirm({
@@ -1782,7 +1792,7 @@ async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentS
   if (!confirmed) return;
   if (!actionData.cancel_idempotency_key) {
     if (typeof globalThis.crypto?.randomUUID !== 'function') {
-      alert('Nie można bezpiecznie rozpocząć operacji. Odśwież stronę.');
+      await showBookingActionNotice('Nie można rozpocząć anulowania', 'Nie można bezpiecznie rozpocząć operacji. Odśwież stronę.');
       return;
     }
     actionData.cancel_idempotency_key = crypto.randomUUID();
@@ -1801,10 +1811,10 @@ async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentS
       })
     });
     if (!data?.success) {
-      alert('Nie potwierdzono anulowania. Odśwież stan rezerwacji przed kolejną decyzją.');
+      await showBookingActionNotice('Nie potwierdzono anulowania', 'Nie potwierdzono anulowania. Odśwież stan rezerwacji przed kolejną decyzją.');
       return;
     }
-    alert(data.message || 'Rezerwacja została anulowana, wiadomość oczekuje w kolejce wysyłki.');
+    await showBookingActionNotice('Rezerwacja anulowana', data.message || 'Rezerwacja została anulowana. Sprawdź status powiadomień i synchronizacji kalendarza.');
     await loadBookings(currentBookingsView);
     if (typeof window.refreshAdminCalendarData === 'function') {
       await window.refreshAdminCalendarData();
@@ -1813,7 +1823,7 @@ async function deleteBooking(actionRef, date, time, bookingStatus = '', paymentS
     // Wynik po zerwaniu polaczenia moze byc niepewny. Ten sam klucz
     // zostaje w mapie akcji dla bezpiecznego retry, bez automatycznej proby.
     console.error('deleteBooking transport failure', error);
-    alert('Wynik anulowania jest niepewny. Odśwież listę przed ponowną próbą.');
+    await showBookingActionNotice('Wynik anulowania niepewny', 'Wynik anulowania jest niepewny. Odśwież listę przed ponowną próbą.');
   }
 }
 
@@ -2262,6 +2272,12 @@ function getBookingByActionRef(actionRef) {
 
 function renderBookingStaffActions(item, actionRef) {
   if (!aiIqHasFeature('staff_module')) {
+    return '';
+  }
+
+  // Cancelled/deleted bookings are immutable at the SQL layer.
+  // Never render actions that the backend must reject.
+  if (['cancelled', 'canceled', 'deleted'].includes(String(item?.status || '').toLowerCase())) {
     return '';
   }
 

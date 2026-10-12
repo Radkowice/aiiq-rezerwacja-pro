@@ -361,7 +361,7 @@ function staff_public_availability_occupied_intervals(array $bookings, array $se
     $intervals = [];
 
     foreach ($bookings as $booking) {
-        if (!is_array($booking)) {
+        if (!is_array($booking) || (string) ($booking['status'] ?? '') === 'cancelled') {
             continue;
         }
 
@@ -716,7 +716,7 @@ if ($date !== '') {
 
     $blockedTimeUrl = $supabaseUrl
         . '/rest/v1/blocked_times'
-        . '?select=time,staff_id'
+        . '?select=time,staff_id,booking_id'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&date=eq.' . rawurlencode($date)
         . $staffBlockFilter;
@@ -730,6 +730,13 @@ if ($date !== '') {
 
         foreach ($timeRows as $timeRow) {
             if (!is_array($timeRow) || empty($timeRow['time'])) {
+                continue;
+            }
+
+            // Exclude ONLY the verified booking's own shadow (admin staff
+            // reassignment). Never ignore manual or other-booking blocks.
+            if ($excludeBookingId !== ''
+                && (string) ($timeRow['booking_id'] ?? '') === $excludeBookingId) {
                 continue;
             }
 
@@ -773,7 +780,7 @@ if ($date !== '') {
 
     $bookingUrl = $supabaseUrl
         . '/rest/v1/bookings'
-        . '?select=id,booking_time,service_id'
+        . '?select=id,booking_time,service_id,status'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&staff_id=eq.' . rawurlencode($staffId)
         . '&booking_date=eq.' . rawurlencode($date);
