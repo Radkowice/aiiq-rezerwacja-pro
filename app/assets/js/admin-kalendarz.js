@@ -605,7 +605,7 @@
 
     const data = await res.json();
     if (!data.success) {
-      throw new Error(data.error || 'Nie udało się pobrać blokad');
+      throw new Error(data?.error || 'Nie udało się pobrać blokad');
     }
 
     blockedData = {
@@ -1142,8 +1142,8 @@
       throw new Error(text || 'Nieprawidłowa odpowiedź serwera');
     }
 
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Nie udało się zapisać ustawień blokad');
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Nie udało się zapisać ustawień blokad');
     }
   }
 
@@ -1819,8 +1819,8 @@
 
     const data = await res.json();
 
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Nie udało się zapisać wyjątku');
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Nie udało się zapisać wyjątku');
     }
   }
 
@@ -1840,8 +1840,8 @@
 
     const data = await res.json();
 
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || 'Nie udało się usunąć wyjątku');
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || 'Nie udało się usunąć wyjątku');
     }
   }
 
@@ -1978,23 +1978,27 @@
 
     if (!confirmed) return;
 
+    let completed = 0;
     try {
       const dates = getDatesInRange(from, to);
 
       for (const date of dates) {
         await saveDayBlock(date);
+        completed += 1;
       }
 
-      showMessage(`Zablokowano zakres: ${from} -> ${to} (${dates.length} dni)`, 'success');
-
       await refreshAdminBlocksAfterMutation();
+      showMessage(`Zakończono blokowanie zakresu: ${from} -> ${to} (${completed} dni)`, 'success');
     } catch (error) {
       console.error('handleBlockRange error:', error);
-      showMessage(error.message || 'Błąd przy blokowaniu zakresu', 'error');
+      await refreshAdminBlocksAfterMutation().catch(() => {});
+      showMessage(`Błąd blokowania zakresu po ${completed} dniach. Sprawdź stan kalendarza.`, 'error');
     }
   }
 
   async function handleUnblockRange() {
+    let deleted = 0;
+    let absent = 0;
     try {
       if (!ensureCanUseBlockScope()) return;
 
@@ -2023,23 +2027,23 @@
       if (!confirmed) return;
 
       const dates = getDatesInRange(from, to);
-
       for (const date of dates) {
-        await deleteDayBlock(date, true);
+        const result = await deleteDayBlock(date, true);
+        if (result?.code === 'not_found') absent += 1;
+        else deleted += 1;
       }
 
       await refreshAdminBlocksAfterMutation();
-
-      showMessage(`Odblokowano zakres: ${from} - ${to}`, 'success');
+      showMessage(`Odblokowano ${deleted} dni; bez ręcznej blokady: ${absent}.`, 'success');
     } catch (error) {
       console.error('handleUnblockRange error:', error);
-      showMessage('Nie udało się odblokować zakresu.', 'error');
+      await refreshAdminBlocksAfterMutation().catch(() => {});
+      showMessage(`Przerwano odblokowanie: usunięto ${deleted} blokad dni, bez blokady ${absent} dni. Sprawdź kalendarz.`, 'error');
     }
   }
 
   async function saveDayBlock(date) {
-    await clearTimesForDate(date);
-
+    // R3 SQL replaces manual hours with a day atomically.
     const res = await fetch('/api/booking/blocked.php', {
       method: 'POST',
       headers: {
@@ -2059,12 +2063,8 @@
     const text = await res.text();
     const data = parseJsonSafe(text);
 
-    if (!res.ok || !data.success) {
-      if (isDuplicateResponse(data)) {
-        return data;
-      }
-
-      throw new Error(data.error || `Nie udało się zablokować dnia ${date}`);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || `Nie udało się zablokować dnia ${date}`);
     }
 
     return data;
@@ -2090,12 +2090,8 @@
     const text = await res.text();
     const data = parseJsonSafe(text);
 
-    if (!res.ok || !data.success) {
-      if (isDuplicateResponse(data)) {
-        return data;
-      }
-
-      throw new Error(data.error || `Nie udało się zablokować godziny ${date} ${time}`);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || `Nie udało się zablokować godziny ${date} ${time}`);
     }
 
     return data;
@@ -2119,10 +2115,13 @@
     const text = await res.text();
     const data = parseJsonSafe(text);
 
-    if (!res.ok || !data.success) {
-      if (silent) return;
-      throw new Error(data.error || `Nie udało się odblokować dnia ${date}`);
+    if (!res.ok || !data?.success) {
+      if (silent && res.status === 409 && data?.code === 'not_found') {
+        return { code: 'not_found', deleted_count: 0 };
+      }
+      throw new Error(data?.error || `Nie udało się odblokować dnia ${date}`);
     }
+    return data;
   }
 
   async function deleteTimeBlock(date, time) {
@@ -2143,25 +2142,9 @@
     const text = await res.text();
     const data = parseJsonSafe(text);
 
-    if (!res.ok || !data.success) {
-      throw new Error(data.error || `Nie udało się odblokować godziny ${date} ${time}`);
+    if (!res.ok || !data?.success) {
+      throw new Error(data?.error || `Nie udało się odblokować godziny ${date} ${time}`);
     }
-  }
-
-  async function clearTimesForDate(date) {
-    await fetch('/api/booking/blocked.php', {
-      method: 'DELETE',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-CSRF-Token': window.CSRF_TOKEN || ''
-      },
-      credentials: 'include',
-      body: JSON.stringify({
-        date,
-        deleteAllTimes: true,
-        staff_ref: getCurrentBlockStaffRef() || null
-      })
-    });
   }
 
   function isDateFullyBlocked(dateStr) {
@@ -2632,11 +2615,6 @@
     }
   }
 
-  function isDuplicateResponse(data) {
-    const debugText = String(data.debug || '');
-    return data.httpCode === 409 || debugText.includes('duplicate key value');
-  }
-
   function isValidTimeString(value) {
     return /^\d{2}:\d{2}$/.test(String(value || ''));
   }
@@ -2719,8 +2697,8 @@
 
           const data = await res.json();
 
-          if (!res.ok || !data.success) {
-            throw new Error(data.error || 'Błąd zapisu wyjątku');
+          if (!res.ok || !data?.success) {
+            throw new Error(data?.error || 'Błąd zapisu wyjątku');
           }
 
           showMessage('Odblokowano ten dzień mimo ustawień globalnych.', 'success');
