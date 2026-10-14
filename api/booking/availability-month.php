@@ -574,6 +574,9 @@ $bookingQuery = [
     'booking_date=lte.' . rawurlencode($monthEnd),
 ];
 $bookingQuery[] = $staffId !== '' ? 'staff_id=eq.' . rawurlencode($staffId) : 'staff_id=is.null';
+if ($staffId === '') {
+    $bookingQuery[] = 'booking_staff_detached=eq.false';
+}
 $bookingRows = availability_month_fetch_rows_required(
     $supabaseUrl,
     $supabaseKey,

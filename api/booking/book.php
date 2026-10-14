@@ -1673,7 +1673,7 @@ function staff_slot_is_free(
 
     $query .= $staffId !== ''
         ? '&staff_id=eq.' . rawurlencode($staffId)
-        : '&staff_id=is.null';
+        : '&staff_id=is.null&booking_staff_detached=eq.false';
 
     $bookingsUrl = rtrim($baseUrl, '/') . '/rest/v1/bookings?' . $query;
     $bookingsResult = supabase_select($bookingsUrl, $headers, 'bookings_availability', $tenantId);
@@ -1993,7 +1993,7 @@ function booking_quick_slot_is_free(string $baseUrl, array $headers, string $ten
 
     $query .= $staffId !== ''
         ? '&staff_id=eq.' . rawurlencode($staffId)
-        : '&staff_id=is.null';
+        : '&staff_id=is.null&booking_staff_detached=eq.false';
 
     $url = rtrim($baseUrl, '/') . '/rest/v1/bookings?' . $query . '&limit=1';
     $result = supabase_select($url, $headers, 'bookings_availability_check', $tenantId);
