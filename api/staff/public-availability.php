@@ -33,12 +33,62 @@ function staff_public_availability_request(string $url, string $key, string $sch
 
     curl_close($ch);
 
+    $decoded = json_decode((string) $response, true);
+    $isListResponse = json_last_error() === JSON_ERROR_NONE
+        && is_array($decoded)
+        && preg_match('/^\s*\[/', (string) $response) === 1;
+
     return [
         'response' => $response,
         'error' => $error,
         'httpCode' => $httpCode,
-        'data' => json_decode((string) $response, true),
+        'data' => $decoded,
+        'isListResponse' => $isListResponse,
     ];
+}
+
+/**
+ * A successful PostgREST list read must contain a JSON array of row objects.
+ * Empty arrays are valid. Transport/HTTP/JSON/schema failures must never
+ * be interpreted as an absence of calendar conflicts (F04).
+ */
+function staff_public_availability_require_rows(array $result, string $message, array $requiredFields = []): array
+{
+    $httpCode = (int) ($result['httpCode'] ?? 0);
+    $rows = $result['data'] ?? null;
+    $valid = ($result['error'] ?? null) === ''
+        && $httpCode === 200
+        && ($result['isListResponse'] ?? false) === true
+        && is_array($rows);
+
+    if ($valid) {
+        $expectedIndex = 0;
+        foreach ($rows as $index => $row) {
+            if (!is_int($index) || $index !== $expectedIndex || !is_array($row)) {
+                $valid = false;
+                break;
+            }
+            foreach ($requiredFields as $field) {
+                if (!array_key_exists($field, $row)) {
+                    $valid = false;
+                    break;
+                }
+            }
+            if (!$valid) {
+                break;
+            }
+            ++$expectedIndex;
+        }
+    }
+
+    if (!$valid) {
+        staff_public_availability_json([
+            'success' => false,
+            'error' => $message,
+        ], 503);
+    }
+
+    return $rows;
 }
 
 function staff_public_availability_feature_locked(): void
@@ -81,14 +131,7 @@ function staff_public_availability_resolve_staff_ref(
 
     $result = staff_public_availability_request($url, $supabaseKey, $schema);
 
-    if ($result['error'] !== '' || $result['httpCode'] >= 400) {
-        staff_public_availability_json([
-            'success' => false,
-            'error' => 'Nie udało się sprawdzić personelu'
-        ], 500);
-    }
-
-    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+    $rows = staff_public_availability_require_rows($result, 'Nie udało się sprawdzić personelu', ['id']);
 
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -130,14 +173,7 @@ function staff_public_availability_resolve_service_ref(
 
     $result = staff_public_availability_request($url, $supabaseKey, $schema);
 
-    if ($result['error'] !== '' || $result['httpCode'] >= 400) {
-        staff_public_availability_json([
-            'success' => false,
-            'error' => 'Nie udało się sprawdzić usługi'
-        ], 500);
-    }
-
-    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+    $rows = staff_public_availability_require_rows($result, 'Nie udało się sprawdzić usługi', ['id']);
 
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -182,14 +218,7 @@ function staff_public_availability_resolve_booking_ref(
 
     $result = staff_public_availability_request($url, $supabaseKey, $schema);
 
-    if ($result['error'] !== '' || $result['httpCode'] >= 400) {
-        staff_public_availability_json([
-            'success' => false,
-            'error' => 'Nie udało się sprawdzić rezerwacji'
-        ], 500);
-    }
-
-    $rows = is_array($result['data'] ?? null) ? $result['data'] : [];
+    $rows = staff_public_availability_require_rows($result, 'Nie udało się sprawdzić rezerwacji', ['id']);
 
     foreach ($rows as $row) {
         if (!is_array($row)) {
@@ -338,12 +367,13 @@ function staff_public_availability_service_settings_map(
 
     $serviceResult = staff_public_availability_request($serviceUrl, $supabaseKey, $schema);
 
-    if ($serviceResult['error'] !== '' || $serviceResult['httpCode'] >= 400) {
-        return [];
-    }
+    $serviceRows = staff_public_availability_require_rows(
+        $serviceResult,
+        'Nie udało się sprawdzić ustawień usług',
+        ['id', 'duration_minutes', 'break_minutes', 'booking_buffer_minutes']
+    );
 
     $settingsByService = [];
-    $serviceRows = is_array($serviceResult['data'] ?? null) ? $serviceResult['data'] : [];
 
     foreach ($serviceRows as $serviceRow) {
         if (!is_array($serviceRow) || empty($serviceRow['id'])) {
@@ -567,14 +597,12 @@ $staffUrl = $supabaseUrl
 
 $staffResult = staff_public_availability_request($staffUrl, $supabaseKey, $schema);
 
-if ($staffResult['error'] !== '' || $staffResult['httpCode'] >= 400) {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Nie udało się sprawdzić personelu'
-    ], 500);
-}
-
-$staff = is_array($staffResult['data'] ?? null) ? ($staffResult['data'][0] ?? null) : null;
+$staffRows = staff_public_availability_require_rows(
+    $staffResult,
+    'Nie udało się sprawdzić personelu',
+    ['id', 'display_name', 'service_duration_minutes', 'service_break_minutes']
+);
+$staff = $staffRows[0] ?? null;
 
 if (!is_array($staff) || empty($staff['id'])) {
     staff_public_availability_json([
@@ -599,14 +627,12 @@ if ($serviceId !== '') {
 
     $serviceResult = staff_public_availability_request($serviceUrl, $supabaseKey, $schema);
 
-    if ($serviceResult['error'] !== '' || $serviceResult['httpCode'] >= 400) {
-        staff_public_availability_json([
-            'success' => false,
-            'error' => 'Nie udało się sprawdzić usługi'
-        ], 500);
-    }
-
-    $selectedService = is_array($serviceResult['data'] ?? null) ? ($serviceResult['data'][0] ?? null) : null;
+    $selectedServiceRows = staff_public_availability_require_rows(
+        $serviceResult,
+        'Nie udało się sprawdzić usługi',
+        ['id', 'duration_minutes', 'break_minutes', 'booking_buffer_minutes']
+    );
+    $selectedService = $selectedServiceRows[0] ?? null;
 
     if (!is_array($selectedService) || empty($selectedService['id'])) {
         staff_public_availability_json([
@@ -625,14 +651,11 @@ if ($serviceId !== '') {
 
     $relationResult = staff_public_availability_request($relationUrl, $supabaseKey, $schema);
 
-    if ($relationResult['error'] !== '' || $relationResult['httpCode'] >= 400) {
-        staff_public_availability_json([
-            'success' => false,
-            'error' => 'Nie udało się sprawdzić przypisania personelu'
-        ], 500);
-    }
-
-    $relationRows = is_array($relationResult['data'] ?? null) ? $relationResult['data'] : [];
+    $relationRows = staff_public_availability_require_rows(
+        $relationResult,
+        'Nie udało się sprawdzić przypisania personelu',
+        ['staff_id']
+    );
 
     if (empty($relationRows)) {
         staff_public_availability_json([
@@ -653,14 +676,11 @@ $availabilityUrl = $supabaseUrl
 
 $availabilityResult = staff_public_availability_request($availabilityUrl, $supabaseKey, $schema);
 
-if ($availabilityResult['error'] !== '' || $availabilityResult['httpCode'] >= 400) {
-    staff_public_availability_json([
-        'success' => false,
-        'error' => 'Nie udało się pobrać dostępności'
-    ], 500);
-}
-
-$availability = is_array($availabilityResult['data'] ?? null) ? $availabilityResult['data'] : [];
+$availability = staff_public_availability_require_rows(
+    $availabilityResult,
+    'Nie udało się pobrać dostępności',
+    ['weekday', 'start_time', 'end_time', 'is_active']
+);
 
 $calendarUrl = $supabaseUrl
     . '/rest/v1/calendar_settings'
@@ -669,7 +689,12 @@ $calendarUrl = $supabaseUrl
     . '&limit=1';
 
 $calendarResult = staff_public_availability_request($calendarUrl, $supabaseKey, $schema);
-$calendarSettings = is_array($calendarResult['data'] ?? null) ? ($calendarResult['data'][0] ?? []) : [];
+$calendarRows = staff_public_availability_require_rows(
+    $calendarResult,
+    'Nie udało się pobrać ustawień kalendarza',
+    ['consultation_duration', 'consultation_break', 'booking_buffer']
+);
+$calendarSettings = $calendarRows[0] ?? [];
 
 $effectiveSettings = staff_public_availability_effective_settings(
     is_array($selectedService) ? $selectedService : [],
@@ -691,7 +716,11 @@ if ($date !== '') {
         . '&limit=1';
 
     $blockedDateResult = staff_public_availability_request($blockedDateUrl, $supabaseKey, $schema);
-    $blockedDates = is_array($blockedDateResult['data'] ?? null) ? $blockedDateResult['data'] : [];
+    $blockedDates = staff_public_availability_require_rows(
+        $blockedDateResult,
+        'Nie udało się sprawdzić blokad dat',
+        ['date']
+    );
 
     if (!empty($blockedDates)) {
         staff_public_availability_json([
@@ -723,53 +752,55 @@ if ($date !== '') {
 
     $blockedTimeResult = staff_public_availability_request($blockedTimeUrl, $supabaseKey, $schema);
 
-    if ($blockedTimeResult['error'] === '' && $blockedTimeResult['httpCode'] < 400) {
-        $globalBlockedTimes = [];
-        $staffBlockedTimes = [];
-        $timeRows = is_array($blockedTimeResult['data'] ?? null) ? $blockedTimeResult['data'] : [];
+    $timeRows = staff_public_availability_require_rows(
+        $blockedTimeResult,
+        'Nie udało się sprawdzić blokad godzinowych',
+        ['time', 'staff_id', 'booking_id']
+    );
 
-        foreach ($timeRows as $timeRow) {
-            if (!is_array($timeRow) || empty($timeRow['time'])) {
-                continue;
-            }
+    $globalBlockedTimes = [];
+    $staffBlockedTimes = [];
 
-            // Exclude ONLY the verified booking's own shadow (admin staff
-            // reassignment). Never ignore manual or other-booking blocks.
-            if ($excludeBookingId !== ''
-                && (string) ($timeRow['booking_id'] ?? '') === $excludeBookingId) {
-                continue;
-            }
-
-            $blockedTime = substr((string) $timeRow['time'], 0, 5);
-
-            if ($blockedTime === 'all') {
-                $availableTimes = [];
-                break;
-            }
-
-            $rowStaffId = trim((string) ($timeRow['staff_id'] ?? ''));
-
-            if ($rowStaffId === '') {
-                $globalBlockedTimes[] = $blockedTime;
-            } else {
-                $staffBlockedTimes[] = $blockedTime;
-            }
+    foreach ($timeRows as $timeRow) {
+        if (!is_array($timeRow) || empty($timeRow['time'])) {
+            continue;
         }
 
-        if (!empty($globalBlockedTimes) || !empty($staffBlockedTimes)) {
-            $globalBlockedTimes = array_values(array_unique($globalBlockedTimes));
-            $staffBlockedTimes = array_values(array_unique($staffBlockedTimes));
+        // Exclude ONLY the verified booking's own shadow (admin staff
+        // reassignment). Never ignore manual or other-booking blocks.
+        if ($excludeBookingId !== ''
+            && (string) ($timeRow['booking_id'] ?? '') === $excludeBookingId) {
+            continue;
+        }
 
-            $availableTimes = array_values(array_filter(
-                $availableTimes,
-                static function (string $time) use ($effectiveSettings, $globalBlockedTimes, $staffBlockedTimes): bool {
-                    return !staff_public_availability_blocked_time_overlaps($time, $effectiveSettings, $globalBlockedTimes)
-                        && !staff_public_availability_blocked_time_overlaps($time, $effectiveSettings, $staffBlockedTimes);
-                }
-            ));
+        $blockedTime = substr((string) $timeRow['time'], 0, 5);
+
+        if ($blockedTime === 'all') {
+            $availableTimes = [];
+            break;
+        }
+
+        $rowStaffId = trim((string) ($timeRow['staff_id'] ?? ''));
+
+        if ($rowStaffId === '') {
+            $globalBlockedTimes[] = $blockedTime;
+        } else {
+            $staffBlockedTimes[] = $blockedTime;
         }
     }
 
+    if (!empty($globalBlockedTimes) || !empty($staffBlockedTimes)) {
+        $globalBlockedTimes = array_values(array_unique($globalBlockedTimes));
+        $staffBlockedTimes = array_values(array_unique($staffBlockedTimes));
+
+        $availableTimes = array_values(array_filter(
+            $availableTimes,
+            static function (string $time) use ($effectiveSettings, $globalBlockedTimes, $staffBlockedTimes): bool {
+                return !staff_public_availability_blocked_time_overlaps($time, $effectiveSettings, $globalBlockedTimes)
+                    && !staff_public_availability_blocked_time_overlaps($time, $effectiveSettings, $staffBlockedTimes);
+            }
+        ));
+    }
     if (!$ignoreBookingBuffer && (int) ($effectiveSettings['booking_buffer'] ?? 0) > 0) {
         $minNoticeMinutes = (int) $effectiveSettings['booking_buffer'];
 
@@ -791,27 +822,30 @@ if ($date !== '') {
 
     $bookingResult = staff_public_availability_request($bookingUrl, $supabaseKey, $schema);
 
-    if ($bookingResult['error'] === '' && $bookingResult['httpCode'] < 400) {
-        $bookings = is_array($bookingResult['data'] ?? null) ? $bookingResult['data'] : [];
-        $settingsByService = staff_public_availability_service_settings_map(
-            $bookings,
-            $tenantId,
-            $supabaseUrl,
-            $supabaseKey,
-            $schema,
-            $staff,
-            is_array($calendarSettings) ? $calendarSettings : []
-        );
-        $occupiedIntervals = staff_public_availability_occupied_intervals($bookings, $settingsByService, $effectiveSettings);
+    $bookings = staff_public_availability_require_rows(
+        $bookingResult,
+        'Nie udało się sprawdzić rezerwacji dla terminu',
+        ['id', 'booking_time', 'service_id', 'status']
+    );
 
-        if (!empty($occupiedIntervals)) {
-            $availableTimes = array_values(array_filter(
-                $availableTimes,
-                static function (string $time) use ($effectiveSettings, $occupiedIntervals): bool {
-                    return staff_public_availability_slot_is_free($time, $effectiveSettings, $occupiedIntervals);
-                }
-            ));
-        }
+    $settingsByService = staff_public_availability_service_settings_map(
+        $bookings,
+        $tenantId,
+        $supabaseUrl,
+        $supabaseKey,
+        $schema,
+        $staff,
+        is_array($calendarSettings) ? $calendarSettings : []
+    );
+    $occupiedIntervals = staff_public_availability_occupied_intervals($bookings, $settingsByService, $effectiveSettings);
+
+    if (!empty($occupiedIntervals)) {
+        $availableTimes = array_values(array_filter(
+            $availableTimes,
+            static function (string $time) use ($effectiveSettings, $occupiedIntervals): bool {
+                return staff_public_availability_slot_is_free($time, $effectiveSettings, $occupiedIntervals);
+            }
+        ));
     }
 }
 

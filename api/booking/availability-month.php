@@ -295,12 +295,18 @@ function availability_month_dates_for_month(string $month, array $calendar): arr
     return $dates;
 }
 
-function availability_month_index_blocked_times(array $rows): array
+function availability_month_index_blocked_times(array $rows, string $excludeBookingId = ''): array
 {
     $map = [];
 
     foreach ($rows as $row) {
         if (!is_array($row) || empty($row['date']) || empty($row['time'])) {
+            continue;
+        }
+
+        // Exclude only the current booking's own shadow. Never suppress
+        // manual or other-booking blocks merely because the hour matches.
+        if ($excludeBookingId !== '' && (string) ($row['booking_id'] ?? '') === $excludeBookingId) {
             continue;
         }
 
@@ -551,12 +557,12 @@ $blockedDateRows = availability_month_fetch_rows_required($supabaseUrl, $supabas
 $blockedDates = array_values(array_unique(array_map(static fn (array $row): string => (string) ($row['date'] ?? ''), $blockedDateRows)));
 
 $blockedTimeRows = availability_month_fetch_rows_required($supabaseUrl, $supabaseKey, $schema, 'blocked_times', [
-    'select=date,time,staff_id',
+    'select=date,time,staff_id,booking_id',
     'tenant_id=eq.' . rawurlencode($tenantId),
     'date=gte.' . rawurlencode($monthStart),
     'date=lte.' . rawurlencode($monthEnd) . $staffFilter,
 ], 'Nie udało się sprawdzić blokad godzinowych.', 'blocked_times_lookup_failed');
-$blockedTimes = availability_month_index_blocked_times($blockedTimeRows);
+$blockedTimes = availability_month_index_blocked_times($blockedTimeRows, $bookingId);
 
 $exceptionRows = availability_month_fetch_rows_required($supabaseUrl, $supabaseKey, $schema, 'availability_exceptions', [
     'select=date,allow_booking,staff_id',
@@ -587,16 +593,6 @@ $bookingRows = availability_month_fetch_rows_required(
     'bookings_lookup_failed'
 );
 $bookingsByDate = availability_month_index_bookings($bookingRows);
-$ignoredBlockedTimes = [];
-
-if ($staffId === '') {
-    $oldDate = trim((string) ($booking['booking_date'] ?? ''));
-    $oldTime = availability_month_normalize_time((string) ($booking['booking_time'] ?? ''));
-
-    if ($oldDate !== '' && $oldTime !== '') {
-        $ignoredBlockedTimes[$oldDate] = [$oldTime];
-    }
-}
 
 $serviceIds = [];
 
@@ -634,8 +630,7 @@ foreach ($dates as $date) {
         $blockedDates,
         $blockedTimes,
         $availabilityExceptions,
-        $occupied,
-        $ignoredBlockedTimes
+        $occupied
     );
 
     if ($isRescheduleMode) {

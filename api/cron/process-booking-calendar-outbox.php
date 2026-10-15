@@ -454,7 +454,7 @@ try {
             || !(
                 booking_calendar_worker_uuid($paymentId)
                 || ($legacyNoPayment === true && $paymentId === ''
-                        && in_array($action, ['create', 'delete'], true))
+                        && in_array($action, ['create', 'update', 'delete'], true))
             )
             || !booking_calendar_worker_safe_text($tenantId, 128)
             || !in_array($action, ['create', 'update', 'delete'], true)
@@ -518,6 +518,24 @@ try {
                 continue;
             }
 
+            // Legacy-only UPDATE: preserve immutable booking duration. Paid V1
+            // retains its current worker behavior until separate Paid review.
+            if ($action === 'update' && $legacyNoPayment === true) {
+                $snapshotDuration = $booking['duration_minutes'] ?? null;
+                if (!is_int($snapshotDuration) || $snapshotDuration < 1 || $snapshotDuration > 1440) {
+                    booking_calendar_worker_log('context_invalid');
+                    if (!booking_calendar_worker_record_pre_call_failure(
+                        $outboxId, $claimToken, false, 'calendar_snapshot_duration_invalid'
+                    )) {
+                        booking_calendar_worker_log('record_result_failed');
+                        $runFailed = true;
+                        break;
+                    }
+                    $blocked++;
+                    continue;
+                }
+                $context['duration_minutes'] = $snapshotDuration;
+            }
             $providerBooking['duration_minutes'] = $context['duration_minutes'];
             $providerBooking['staff_display_name'] = $context['staff_display_name'];
         }

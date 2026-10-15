@@ -919,7 +919,7 @@ function reschedule_availability(
     }
 
     $blockedTimes = reschedule_fetch_rows_required($supabaseUrl, $key, $schema, 'blocked_times', [
-        'select=time,staff_id',
+        'select=time,staff_id,booking_id',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'date=eq.' . rawurlencode($date) . $staffFilter,
     ], 'Nie udało się sprawdzić blokad godzinowych.', 'blocked_times_lookup_failed');
@@ -927,11 +927,14 @@ function reschedule_availability(
     if (!empty($blockedTimes)) {
         $globalBlockedTimes = [];
         $staffBlockedTimes = [];
-        $oldDate = trim((string) ($booking['booking_date'] ?? ''));
-        $oldTime = reschedule_normalize_time((string) ($booking['booking_time'] ?? ''));
-
         foreach ($blockedTimes as $row) {
             if (!is_array($row) || empty($row['time'])) {
+                continue;
+            }
+
+            // Ignore only the current booking's own shadow; never ignore manual
+            // or other-booking blocks because they share the old hour.
+            if ($bookingId !== '' && (string) ($row['booking_id'] ?? '') === $bookingId) {
                 continue;
             }
 
@@ -939,10 +942,6 @@ function reschedule_availability(
 
             if ($blockedTime === 'all') {
                 return [];
-            }
-
-            if ($staffId === '' && $date === $oldDate && $blockedTime === $oldTime) {
-                continue;
             }
 
             if (trim((string) ($row['staff_id'] ?? '')) === '') {
@@ -966,7 +965,7 @@ function reschedule_availability(
     }
 
     $bookingQuery = [
-        'select=id,booking_time,service_id',
+        'select=id,booking_time,service_id,status',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'booking_date=eq.' . rawurlencode($date),
     ];
@@ -975,6 +974,8 @@ function reschedule_availability(
         $bookingQuery[] = 'staff_id=eq.' . rawurlencode($staffId);
     } else {
         $bookingQuery[] = 'staff_id=is.null';
+        // R1 detached bookings are not global reservations.
+        $bookingQuery[] = 'booking_staff_detached=eq.false';
     }
 
     $bookings = reschedule_fetch_rows_required(
@@ -993,7 +994,8 @@ function reschedule_availability(
         $serviceIds = [];
 
         foreach ($bookings as $row) {
-            if (!is_array($row) || empty($row['service_id'])) {
+            if (!is_array($row) || (string) ($row['status'] ?? '') === 'cancelled'
+                || empty($row['service_id'])) {
                 continue;
             }
 
@@ -1019,7 +1021,8 @@ function reschedule_availability(
         }
 
         foreach ($bookings as $row) {
-            if (!is_array($row) || (string) ($row['id'] ?? '') === $bookingId) {
+            if (!is_array($row) || (string) ($row['id'] ?? '') === $bookingId
+                || (string) ($row['status'] ?? '') === 'cancelled') {
                 continue;
             }
 
@@ -1220,10 +1223,16 @@ function reschedule_update_booking(string $supabaseUrl, string $key, string $sch
         'p_expected_staff_id' => $booking['staff_id'] ?? null,
         'p_new_date' => $date,
         'p_new_time' => $time,
-    ]);
+    ], ['legacy_reschedule_calendar_unresolved']);
     if (empty($rpc['ok']) || !is_array($rpc['data'] ?? null)
         || ($rpc['data']['rescheduled'] ?? null) !== true) {
-        return ['ok' => false, 'conflict' => false, 'booking' => null];
+        return [
+            'ok' => false,
+            'conflict' => false,
+            'calendar_blocked' => ($rpc['error_kind'] ?? '') === 'business_rejection'
+                && ($rpc['error'] ?? '') === 'legacy_reschedule_calendar_unresolved',
+            'booking' => null,
+        ];
     }
     $updated = reschedule_load_booking($supabaseUrl, $key, $schema, $tenantId, $manageToken);
     if (!is_array($updated)
@@ -1653,6 +1662,14 @@ if (empty($updateResult['ok'])) {
         reschedule_error(
             'Rezerwacja została w międzyczasie zmieniona. Odśwież stronę i spróbuj ponownie.',
             'reschedule_revision_conflict',
+            409
+        );
+    }
+
+    if (($updateResult['calendar_blocked'] ?? false) === true) {
+        reschedule_error(
+            'Nie można obecnie bezpiecznie zsynchronizować terminu z Google Calendar. Skontaktuj się z firmą obsługującą rezerwację.',
+            'calendar_sync_unavailable',
             409
         );
     }
