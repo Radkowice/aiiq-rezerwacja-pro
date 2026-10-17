@@ -700,10 +700,7 @@ function booking_email_worker_render_paid_customer(
     $tenantDomain = trim((string) ($context['tenant_domain'] ?? ''));
     $manageToken = trim((string) ($booking['manage_token'] ?? ''));
 
-    $cancelReviewUrl = '';
     if ($tenantDomain !== '' && $manageToken !== '') {
-        $cancelReviewUrl = 'https://' . $tenantDomain
-            . '/anuluj-rezerwacje.html?token=' . rawurlencode($manageToken);
         if (tenant_has_feature($tenantId, 'reschedule_booking')) {
             $rescheduleUrl = 'https://' . $tenantDomain
                 . '/przeloz-rezerwacje.html?token=' . rawurlencode($manageToken);
@@ -731,7 +728,6 @@ function booking_email_worker_render_paid_customer(
             'status_label' => $isPaidConfirmation ? 'Opłacono' : '',
             'amount_text' => $amountText,
             'reschedule_url' => $rescheduleUrl,
-            'cancel_review_url' => $cancelReviewUrl,
         ],
         $serviceName,
         $staffDisplayName
@@ -747,7 +743,11 @@ function booking_email_worker_render_paid_customer(
         . ($isPaidConfirmation ? "Status płatności: Opłacono\n" : '')
         . ($amountText !== '' ? "Kwota: {$amountText}\n" : '')
         . ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '')
-        . ($rescheduleUrl !== '' ? "\nPrzełóż rezerwację: {$rescheduleUrl}\n" : '');
+        . ($rescheduleUrl !== '' ? "\nPrzełóż rezerwację: {$rescheduleUrl}\n" : '')
+        . "\nChcesz anulować rezerwację?\n"
+        . 'Jeśli chcesz anulować rezerwację, skontaktuj się bezpośrednio z '
+        . ($companyName !== '' ? 'firmą ' . $companyName : 'firmą, w której dokonano rezerwacji')
+        . ".\n";
 
     return [
         'ok' => true,

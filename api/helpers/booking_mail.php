@@ -527,7 +527,6 @@ if (!function_exists('booking_mail_build_client_html')) {
         $paymentStatus = trim((string)($payment['status_label'] ?? ''));
         $paymentAmount = trim((string)($payment['amount_text'] ?? ''));
         $rescheduleUrl = trim((string)($payment['reschedule_url'] ?? ''));
-        $cancelReviewUrl = trim((string)($payment['cancel_review_url'] ?? ''));
         $bookedServiceName = trim($bookedServiceName);
         $staffDisplayName = trim($staffDisplayName);
 
@@ -558,13 +557,13 @@ if (!function_exists('booking_mail_build_client_html')) {
               '</div>'
             : '';
 
-        $cancelReviewSection = $cancelReviewUrl !== ''
-            ? '<div style="padding:12px 20px;text-align:center;">'
-                . '<a href="' . htmlspecialchars($cancelReviewUrl, ENT_QUOTES, 'UTF-8')
-                . '" style="color:#1d4ed8;">Poproś firmę o anulowanie rezerwacji</a>'
-                . '<p style="font-size:12px;color:#607284;">Zgłoszenie nie jest anulowaniem ani zwrotem płatności.</p>'
-                . '</div>'
-            : '';
+        $companyContact = trim($companyName) !== ''
+            ? 'firmą <strong>' . htmlspecialchars(trim($companyName), ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</strong>'
+            : 'firmą, w której dokonano rezerwacji';
+        $cancelInfoSection = '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:18px 20px;margin:20px 0;">'
+            . '<p style="margin:0 0 8px 0;font-size:16px;color:#17324d;"><strong>Chcesz anulować rezerwację?</strong></p>'
+            . '<p style="margin:0;font-size:14px;line-height:1.6;color:#4f6478;">Jeśli chcesz anulować rezerwację, skontaktuj się bezpośrednio z ' . $companyContact . '.</p>'
+            . '</div>';
 
         return
             '<div style="margin:0;padding:0;background:#f4f7fb;">' .
@@ -587,7 +586,7 @@ if (!function_exists('booking_mail_build_client_html')) {
                             $paymentRows .
                         '</div>' .
                         $rescheduleSection .
-                        $cancelReviewSection .
+                        $cancelInfoSection .
 
                         '<p style="font-size:14px;line-height:1.6;color:#4f6478;">W razie pytań po prostu odpowiedz na tę wiadomość.</p>' .
                     '</div>' .
@@ -622,7 +621,10 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
         $time = trim((string)($booking['booking_time'] ?? $booking['time'] ?? ''));
         $staffDisplayName = trim((string)($booking['staff_display_name'] ?? ''));
 
-        $companyName = (string)($tenantData['client_name'] ?? '');
+        $companyName = trim((string)($tenantData['client_name'] ?? ''));
+        if ($companyName === '') {
+            $companyName = trim((string)($tenantData['company_full_name'] ?? ''));
+        }
         $plan = (string)($tenantData['plan'] ?? 'basic');
         $footerMode = (string)($tenantData['email_footer_mode'] ?? 'system');
         $footerCustom = (string)($tenantData['email_footer_custom'] ?? '');
@@ -665,7 +667,6 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
                 'status_label' => (string)($payment['status_label'] ?? ''),
                 'amount_text' => $paymentAmountText,
                 'reschedule_url' => (string)($payment['reschedule_url'] ?? ''),
-                'cancel_review_url' => (string)($payment['cancel_review_url'] ?? ''),
             ],
             $bookedServiceName,
             $staffDisplayName
@@ -686,11 +687,10 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
                 ? "\nChcesz zmienić termin?\nJeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.\nPrzełóż rezerwację: {$payment['reschedule_url']}\nLink jest ważny do momentu rozpoczęcia rezerwacji.\n"
                 : '') .
             "\n";
-        $plainCancelUrl = trim((string)($payment['cancel_review_url'] ?? ''));
-        if ($plainCancelUrl !== '') {
-            $clientAltBody .= "\nProśba o anulowanie (nie anuluje automatycznie rezerwacji): "
-                . $plainCancelUrl . "\n";
-        }
+        $clientAltBody .= "Chcesz anulować rezerwację?\n"
+            . "Jeśli chcesz anulować rezerwację, skontaktuj się bezpośrednio z "
+            . ($companyName !== '' ? 'firmą ' . $companyName : 'firmą, w której dokonano rezerwacji')
+            . ".\n";
 
         $mail = new PHPMailer(true);
         booking_mail_configure_mailer($mail, $emailSettings);

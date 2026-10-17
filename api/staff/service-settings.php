@@ -299,6 +299,19 @@ function staff_service_settings_fallback_settings(array $staff, array $calendar)
     return staff_service_settings_effective_settings([], $staff, $calendar);
 }
 
+/** Cancelled bookings are retained for history, but must not occupy staff calendar slots. */
+function staff_service_settings_filter_live_calendar_bookings(array $rows): array
+{
+    return array_values(array_filter($rows, static function ($row): bool {
+        if (!is_array($row)) {
+            return false;
+        }
+
+        $status = strtolower(trim((string) ($row['status'] ?? '')));
+        return !in_array($status, ['cancelled', 'canceled', 'deleted'], true);
+    }));
+}
+
 function staff_service_settings_occupied_intervals(array $bookings, array $servicesById, array $fallbackSettings, string $tenantId, string $refSecret): array
 {
     $intervals = [];
@@ -751,26 +764,47 @@ $blockedTimeRows = is_array($blockedTimeResult['data'] ?? null) ? $blockedTimeRe
 
 $bookingsUrl = $supabaseUrl
     . '/rest/v1/bookings'
-    . '?select=id,booking_date,booking_time,name,email,phone,service_id,service_name_snapshot,reschedule_count,rescheduled_at'
+    . '?select=id,booking_date,booking_time,name,email,phone,service_id,service_name_snapshot,reschedule_count,rescheduled_at,status'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&staff_id=eq.' . rawurlencode($staffId)
     . '&booking_date=eq.' . rawurlencode($date);
 
 $bookingsResult = staff_service_settings_request('GET', $bookingsUrl, $supabaseKey, $schema);
-$bookingRows = is_array($bookingsResult['data'] ?? null) ? $bookingsResult['data'] : [];
+if (
+    $bookingsResult['response'] === false
+    || $bookingsResult['error'] !== ''
+    || $bookingsResult['httpCode'] < 200
+    || $bookingsResult['httpCode'] >= 300
+    || !is_array($bookingsResult['data'] ?? null)
+    || !array_is_list($bookingsResult['data'])
+) {
+    // Do not falsely expose busy slots as available after a provider failure.
+    staff_service_settings_json(['success' => false, 'error' => 'Nie udało się pobrać rezerwacji personelu.'], 503);
+}
+$bookingRows = staff_service_settings_filter_live_calendar_bookings($bookingsResult['data']);
 
 [$monthStart, $monthEnd] = staff_service_settings_month_bounds($date);
 
 $monthBookingsUrl = $supabaseUrl
     . '/rest/v1/bookings'
-    . '?select=booking_date,reschedule_count,rescheduled_at'
+    . '?select=booking_date,reschedule_count,rescheduled_at,status'
     . '&tenant_id=eq.' . rawurlencode($tenantId)
     . '&staff_id=eq.' . rawurlencode($staffId)
     . '&booking_date=gte.' . rawurlencode($monthStart)
     . '&booking_date=lte.' . rawurlencode($monthEnd);
 
 $monthBookingsResult = staff_service_settings_request('GET', $monthBookingsUrl, $supabaseKey, $schema);
-$monthBookingRows = is_array($monthBookingsResult['data'] ?? null) ? $monthBookingsResult['data'] : [];
+if (
+    $monthBookingsResult['response'] === false
+    || $monthBookingsResult['error'] !== ''
+    || $monthBookingsResult['httpCode'] < 200
+    || $monthBookingsResult['httpCode'] >= 300
+    || !is_array($monthBookingsResult['data'] ?? null)
+    || !array_is_list($monthBookingsResult['data'])
+) {
+    staff_service_settings_json(['success' => false, 'error' => 'Nie udało się pobrać kalendarza rezerwacji personelu.'], 503);
+}
+$monthBookingRows = staff_service_settings_filter_live_calendar_bookings($monthBookingsResult['data']);
 
 $monthBlockedDateUrl = $supabaseUrl
     . '/rest/v1/blocked_dates'

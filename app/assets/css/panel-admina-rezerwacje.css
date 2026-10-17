@@ -588,6 +588,42 @@ td.col-contact {
   box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
 }
 
+/* Historical bookings keep their details accessible, but have no write actions. */
+.booking-actions .booking-archive-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 4px 9px;
+  border: 1px solid var(--reservations-border-color);
+  border-radius: 10px;
+  background: var(--reservations-table-color);
+  color: var(--reservations-muted-color);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  line-height: 1.1;
+  text-align: center;
+}
+
+/* Booking state: visible independently of payment status and archive state. */
+.booking-actions .booking-cancelled-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  padding: 4px 9px;
+  border: 1px solid #ef9a9a;
+  border-radius: 10px;
+  background: #fff1f2;
+  color: #991b1b;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.035em;
+  line-height: 1.1;
+  text-align: center;
+}
+
 /* ===== SZCZEGÓŁY ===== */
 
 #bookingList tr.booking-details-row {
@@ -742,6 +778,19 @@ td.col-contact {
     0 5px 12px rgba(15, 23, 42, 0.08),
     inset 0 1px 0 rgba(255, 255, 255, 0.7);
   opacity: 1 !important;
+}
+
+/* Anulowana i opłacona rezerwacja: przypomnienie pod kwotą, bez statusu zwrotu. */
+.booking-payment-review-notice {
+  display: block;
+  max-width: 150px;
+  margin: 7px auto 0;
+  color: var(--color-danger-text, #b42318) !important;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  text-align: center;
+  overflow-wrap: break-word;
 }
 
 .payment-badge small {
