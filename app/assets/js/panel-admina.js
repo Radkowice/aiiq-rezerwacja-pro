@@ -1558,6 +1558,7 @@ function buildBookingActionSnapshot(item, bookingRef, staffRef, serviceRef, hasS
     booking_time: item?.booking_time || '',
     time: item?.time || '',
     reschedule_count: item?.reschedule_count ?? null,
+    updated_at: item?.updated_at ?? null,
     status: item?.status || '',
     payment_status: item?.payment_status || '',
     payment_required: item?.payment_required,
@@ -2533,7 +2534,8 @@ async function changeBookingStaff(actionRef) {
         booking_date: getBookingDateValue(booking),
         booking_time: getBookingTimeValue(booking),
         expected_staff_ref: String(actionData?.staff_ref || ''),
-        expected_revision: booking.reschedule_count
+        expected_revision: booking.reschedule_count,
+        expected_updated_at: String(booking.updated_at || '')
       })
     });
 
@@ -2622,7 +2624,8 @@ async function detachBookingStaff(actionRef) {
         booking_date: getBookingDateValue(booking),
         booking_time: getBookingTimeValue(booking),
         expected_staff_ref: String(actionData?.staff_ref || ''),
-        expected_revision: booking.reschedule_count
+        expected_revision: booking.reschedule_count,
+        expected_updated_at: String(booking.updated_at || '')
       })
     });
 

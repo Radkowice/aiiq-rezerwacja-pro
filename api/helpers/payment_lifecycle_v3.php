@@ -35,9 +35,8 @@ function payment_lifecycle_v3_allowed_rpc_names(): array
         'booking_postprocess_intent_claim',
         'booking_postprocess_intent_record_result',
         'booking_legacy_postprocess_enqueue',
-        'booking_staff_change_apply',
-        'booking_staff_change_apply_snapshot_r3',
-        'booking_staff_change_mark_client_email_sent',
+        // R4 is the sole transport-exposed staff mutation RPC.
+        'booking_staff_change_apply_snapshot_r4',
         'booking_reschedule_apply',
         'booking_legacy_atomic_reschedule_apply',
         'booking_cancel_review_request_create',

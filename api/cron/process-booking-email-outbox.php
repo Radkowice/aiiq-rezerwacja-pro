@@ -1634,9 +1634,16 @@ try {
                     || ($paymentId !== '' && $currentPaymentStatus === 'paid'
                         && ($payload['manual_refund_in_payu'] ?? null) === true)),
             'booking_staff_changed_customer', 'booking_staff_detached_customer' =>
-                $paymentId === ''
-                && ($booking['payment_lifecycle_version'] ?? null) === null
-                && !in_array($currentBookingStatus, ['cancelled','canceled','deleted'], true),
+                (($paymentId === ''
+                    && ($booking['payment_lifecycle_version'] ?? null) === null
+                    && $currentPaymentStatus === 'not_required'
+                    && $currentBookingStatus === 'new')
+                 || ($paymentId !== ''
+                    && (string) ($booking['payment_lifecycle_version'] ?? '') === '1'
+                    && (string) ($booking['payment_lifecycle_payment_id'] ?? '') === $paymentId
+                    && ($booking['payment_required'] ?? null) === true
+                    && $currentPaymentStatus === 'paid'
+                    && $currentBookingStatus === 'confirmed')),
             'booking_created_admin' =>
                 $paymentId !== ''
                 || (

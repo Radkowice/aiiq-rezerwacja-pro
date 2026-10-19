@@ -518,9 +518,9 @@ try {
                 continue;
             }
 
-            // Legacy-only UPDATE: preserve immutable booking duration. Paid V1
-            // retains its current worker behavior until separate Paid review.
-            if ($action === 'update' && $legacyNoPayment === true) {
+            // REVIEW ONLY: both free and Paid V1 update immutable booking duration.
+            // Never replace historical duration when staff/service settings have changed.
+            if ($action === 'update') {
                 $snapshotDuration = $booking['duration_minutes'] ?? null;
                 if (!is_int($snapshotDuration) || $snapshotDuration < 1 || $snapshotDuration > 1440) {
                     booking_calendar_worker_log('context_invalid');

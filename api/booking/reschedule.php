@@ -478,6 +478,22 @@ function reschedule_effective_settings(array $service, array $staff, array $cale
     ];
 }
 
+function reschedule_paid_immutable_slot_settings(array $booking, array $effective): array
+{
+    if ((int) ($booking['payment_lifecycle_version'] ?? 0) !== 1) {
+        return $effective;
+    }
+    $duration = $booking['schedule_duration_minutes'] ?? null;
+    $break = $booking['schedule_break_minutes'] ?? null;
+    if (!is_int($duration) || $duration < 1 || $duration > 1440
+        || !is_int($break) || $break < 0 || $break > 1440) {
+        reschedule_error('Nie można potwierdzić pierwotnego czasu rezerwacji.', 'paid_schedule_snapshot_invalid', 409);
+    }
+    $effective['consultation_duration'] = $duration;
+    $effective['consultation_break'] = $break;
+    return $effective;
+}
+
 function reschedule_slot_respects_buffer(string $date, string $time, int $bufferMinutes): bool
 {
     $bufferMinutes = max(0, $bufferMinutes);
@@ -566,6 +582,9 @@ function reschedule_load_booking(string $supabaseUrl, string $key, string $schem
         'google_event_id',
         'reschedule_count',
         'manage_token_expires_at',
+        'schedule_duration_minutes',
+        'schedule_break_minutes',
+        'booking_staff_detached',
     ]);
 
     return reschedule_fetch_single($supabaseUrl, $key, $schema, 'bookings', [
@@ -856,6 +875,8 @@ function reschedule_availability(
     $bookingId = (string) ($booking['id'] ?? '');
     $staffId = trim((string) ($booking['staff_id'] ?? ''));
     $serviceId = trim((string) ($booking['service_id'] ?? ''));
+    $paidSnapshot = (int) ($booking['payment_lifecycle_version'] ?? 0) === 1;
+    $bookingDetached = $paidSnapshot && ($booking['booking_staff_detached'] ?? false) === true;
     $calendar = reschedule_load_calendar($supabaseUrl, $key, $schema, $tenantId);
     reschedule_assert_date_in_calendar_range($date, $calendar);
 
@@ -881,7 +902,7 @@ function reschedule_availability(
             reschedule_error('Osoba obsługująca nie obsługuje tej usługi.', 'staff_service_mismatch', 409);
         }
 
-        $settings = reschedule_effective_settings($service, $staff, $calendar);
+        $settings = reschedule_paid_immutable_slot_settings($booking, reschedule_effective_settings($service, $staff, $calendar));
         $availability = reschedule_fetch_rows($supabaseUrl, $key, $schema, 'staff_availability', [
             'select=weekday,start_time,end_time,is_active',
             'tenant_id=eq.' . rawurlencode($tenantId),
@@ -898,7 +919,7 @@ function reschedule_availability(
         $slots = reschedule_slots_from_ranges($availability, $settings, $date);
         $staffFilter = '&or=(staff_id.is.null,staff_id.eq.' . rawurlencode($staffId) . ')';
     } else {
-        $settings = reschedule_effective_settings($service, [], $calendar);
+        $settings = reschedule_paid_immutable_slot_settings($booking, reschedule_effective_settings($service, [], $calendar));
         $ranges = [[
             'start_time' => substr((string) ($calendar['work_start'] ?? '09:00'), 0, 5),
             'end_time' => substr((string) ($calendar['work_end'] ?? '17:00'), 0, 5),
@@ -908,13 +929,14 @@ function reschedule_availability(
         $staffFilter = '&staff_id=is.null';
     }
 
+    // Detached is capacity-free, but explicit GLOBAL manual closure still applies.
     $blockedDate = reschedule_fetch_single_required($supabaseUrl, $key, $schema, 'blocked_dates', [
         'select=date',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'date=eq.' . rawurlencode($date) . $staffFilter,
     ], 'Nie udało się sprawdzić blokady daty.', 'blocked_dates_lookup_failed');
 
-    if (!$hasAvailabilityException && is_array($blockedDate)) {
+    if (($bookingDetached || !$hasAvailabilityException) && is_array($blockedDate)) {
         return [];
     }
 
@@ -922,6 +944,7 @@ function reschedule_availability(
         'select=time,staff_id,booking_id',
         'tenant_id=eq.' . rawurlencode($tenantId),
         'date=eq.' . rawurlencode($date) . $staffFilter,
+        ...($bookingDetached ? ['booking_id=is.null'] : []),
     ], 'Nie udało się sprawdzić blokad godzinowych.', 'blocked_times_lookup_failed');
 
     if (!empty($blockedTimes)) {
@@ -929,6 +952,9 @@ function reschedule_availability(
         $staffBlockedTimes = [];
         foreach ($blockedTimes as $row) {
             if (!is_array($row) || empty($row['time'])) {
+                if ($bookingDetached) {
+                    reschedule_error('Niejednoznaczna blokada terminu.', 'manual_block_invalid', 409);
+                }
                 continue;
             }
 
@@ -942,6 +968,9 @@ function reschedule_availability(
 
             if ($blockedTime === 'all') {
                 return [];
+            }
+            if ($bookingDetached && !preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $blockedTime)) {
+                reschedule_error('Nieprawidłowa blokada godziny.', 'manual_block_invalid', 409);
             }
 
             if (trim((string) ($row['staff_id'] ?? '')) === '') {
@@ -957,6 +986,7 @@ function reschedule_availability(
         }));
     }
 
+
     if ((int) ($settings['booking_buffer'] ?? 0) > 0) {
         $bufferMinutes = (int) $settings['booking_buffer'];
         $slots = array_values(array_filter($slots, static function (string $time) use ($date, $bufferMinutes): bool {
@@ -970,15 +1000,19 @@ function reschedule_availability(
         'booking_date=eq.' . rawurlencode($date),
     ];
 
-    if ($staffId !== '') {
+    if ($paidSnapshot) {
+        // Symmetric tenant-day scan: staff candidates also conflict with GLOBAL bookings.
+        $bookingQuery[0] = 'select=id,booking_time,service_id,status,staff_id,booking_staff_detached,schedule_duration_minutes,schedule_break_minutes';
+    } elseif ($staffId !== '') {
         $bookingQuery[] = 'staff_id=eq.' . rawurlencode($staffId);
     } else {
         $bookingQuery[] = 'staff_id=is.null';
-        // R1 detached bookings are not global reservations.
         $bookingQuery[] = 'booking_staff_detached=eq.false';
     }
 
-    $bookings = reschedule_fetch_rows_required(
+    // PAID detached is not capacity-consuming: SQL skips all conflict/shadow checks.
+    // Do not fetch or interpret unrelated tenant-day bookings for this case.
+    $bookings = $bookingDetached ? [] : reschedule_fetch_rows_required(
         $supabaseUrl,
         $key,
         $schema,
@@ -1035,6 +1069,23 @@ function reschedule_availability(
             $start = reschedule_time_to_minutes($time);
             $rowServiceId = trim((string) ($row['service_id'] ?? ''));
             $rowSettings = isset($serviceSettingsById[$rowServiceId]) ? $serviceSettingsById[$rowServiceId] : $settings;
+            if ($paidSnapshot) {
+                if ($bookingDetached || ($row['booking_staff_detached'] ?? false) === true) {
+                    continue;
+                }
+                $otherStaff = trim((string) ($row['staff_id'] ?? ''));
+                if ($staffId !== '' && $otherStaff !== '' && $otherStaff !== $staffId) {
+                    continue;
+                }
+                $otherDuration = $row['schedule_duration_minutes'] ?? null;
+                $otherBreak = $row['schedule_break_minutes'] ?? null;
+                if (!is_int($otherDuration) || $otherDuration < 1 || $otherDuration > 1440
+                    || !is_int($otherBreak) || $otherBreak < 0 || $otherBreak > 1440) {
+                    reschedule_error('Brak bezpiecznego odczytu istniejących terminów.', 'occupied_snapshot_invalid', 409);
+                }
+                $rowSettings['consultation_duration'] = $otherDuration;
+                $rowSettings['consultation_break'] = $otherBreak;
+            }
             $occupied[] = [
                 'start' => $start,
                 'end' => reschedule_interval_end($start, $rowSettings),

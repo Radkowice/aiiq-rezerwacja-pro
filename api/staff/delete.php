@@ -193,36 +193,7 @@ function staff_delete_has_future_bookings(
     return !empty(staff_delete_fetch_rows($supabaseUrl, $supabaseKey, $schema, 'bookings', $query));
 }
 
-function staff_delete_detach_past_bookings(
-    string $supabaseUrl,
-    string $supabaseKey,
-    string $schema,
-    string $tenantId,
-    string $staffId
-): void {
-    date_default_timezone_set('Europe/Warsaw');
-
-    $today = date('Y-m-d');
-    $currentTime = date('H:i');
-    $pastFilter = '(booking_date.lt.' . $today
-        . ',and(booking_date.eq.' . $today
-        . ',booking_time.lt.' . $currentTime . '))';
-
-    $url = $supabaseUrl
-        . '/rest/v1/bookings'
-        . '?tenant_id=eq.' . rawurlencode($tenantId)
-        . '&staff_id=eq.' . rawurlencode($staffId)
-        . '&or=' . rawurlencode($pastFilter);
-
-    $result = staff_delete_request('PATCH', $url, $supabaseKey, $schema, ['staff_id' => null]);
-
-    if ($result['response'] === false || $result['error'] !== '' || $result['httpCode'] >= 400) {
-        staff_delete_fail(
-            'Nie udało się usunąć pracownika, ponieważ system wykrył dodatkowe powiązane dane. Sprawdź przypisane usługi, grafik, blokady lub rezerwacje i spróbuj ponownie.',
-            'delete_failed_related_data'
-        );
-    }
-}
+// Legacy historical bulk PATCH retired in R2; all changes must use audited booking RPC.
 
 function staff_delete_related_records(
     string $supabaseUrl,
@@ -474,7 +445,23 @@ if (staff_delete_has_future_bookings($supabaseUrl, $supabaseKey, $schema, $tenan
     ], 409);
 }
 
-staff_delete_detach_past_bookings($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffId);
+// R2 fail-closed: staff deletion with ANY historical bookings is not atomic and must
+// not run the legacy bulk PATCH outside the booking staff audit/outbox transaction.
+$historic = staff_delete_fetch_rows(
+    $supabaseUrl, $supabaseKey, $schema, 'bookings',
+    'select=id&tenant_id=eq.' . rawurlencode($tenantId)
+    . '&staff_id=eq.' . rawurlencode($staffId) . '&limit=1'
+);
+if ($historic !== []) {
+    staff_delete_security_event('staff_delete_has_booking_history', 'staff_has_booking_history', 409, 'failed', 'high', $tenantId, $staffId);
+    staff_delete_json([
+        'success' => false,
+        'error' => 'Nie można usunąć pracownika z historią rezerwacji. Dezaktywuj konto i zachowaj historię.',
+        'code' => 'staff_has_booking_history',
+        'reason' => 'staff_has_booking_history',
+    ], 409);
+}
+// No direct PATCH of bookings.staff_id is permitted on this path.
 
 staff_delete_related_records($supabaseUrl, $supabaseKey, $schema, $tenantId, $staffId);
 

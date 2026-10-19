@@ -1018,7 +1018,12 @@ $bookingDateHint = trim((string) ($input['booking_date'] ?? ''));
 $bookingTimeHint = trim((string) ($input['booking_time'] ?? ''));
 $expectedStaffRef = trim((string) ($input['expected_staff_ref'] ?? ''));
 $expectedRevisionRaw = $input['expected_revision'] ?? null;
-if (($expectedStaffRef !== '' && !booking_staff_is_valid_staff_ref($expectedStaffRef))
+$expectedUpdatedAtRaw = $input['expected_updated_at'] ?? null;
+$expectedUpdatedAt = is_string($expectedUpdatedAtRaw) ? trim($expectedUpdatedAtRaw) : '';
+$timestampValid = $expectedUpdatedAt !== ''
+    && strlen($expectedUpdatedAt) <= 48
+    && preg_match('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/D', $expectedUpdatedAt) === 1;
+if (!$timestampValid || ($expectedStaffRef !== '' && !booking_staff_is_valid_staff_ref($expectedStaffRef))
     || !is_int($expectedRevisionRaw) || $expectedRevisionRaw < 0 || $expectedRevisionRaw > 3
     || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $bookingDateHint)
     || !preg_match('/^([01][0-9]|2[0-3]):[0-5][0-9]$/', $bookingTimeHint)) {
@@ -1253,15 +1258,14 @@ if ($action === 'change_staff') {
 
     $newStaffName = booking_staff_text((string) ($newStaff['display_name'] ?? ''), 'Nowy specjalista');
 
-    booking_staff_assert_staff_available_for_booking(
-        $supabaseUrl,
-        $supabaseKey,
-        $schema,
-        $tenantId,
-        $booking,
-        $newStaff,
-        $newStaffId
-    );
+    // Paid V1 validates the immutable schedule snapshot atomically in SQL.
+    // PHP legacy preflight uses mutable configuration and may reject paid history.
+    if (($booking['payment_lifecycle_version'] ?? null) === null) {
+        booking_staff_assert_staff_available_for_booking(
+            $supabaseUrl, $supabaseKey, $schema, $tenantId,
+            $booking, $newStaff, $newStaffId
+        );
+    }
 }
 
 if ($action === 'detach_staff' && $oldStaffId === '') {
@@ -1286,7 +1290,8 @@ if ($action === 'detach_staff' && $oldStaffId === '') {
 
 // R3 deployment barrier: prevent a partial PHP/SQL rollout from mutating
 // staff assignments before the outbox/worker contract is fully installed.
-if (getenv('REZERWIA_H3_R3_STAFF_EMAIL_OUTBOX_ENABLED') !== '1') {
+if (getenv('REZERWIA_H3_R3_STAFF_EMAIL_OUTBOX_ENABLED') !== '1'
+    || getenv('REZERWIA_STAFF_R4_ENABLED') !== '1') {
     booking_staff_json([
         'success' => false,
         'error' => 'Zmiana personelu jest chwilowo niedostępna podczas aktualizacji systemu.'
@@ -1300,7 +1305,7 @@ if (!booking_staff_is_uuid($adminUserId)) {
     ], 403);
 }
 
-$applyResult = payment_lifecycle_v3_rpc('booking_staff_change_apply_snapshot_r3', [
+$applyResult = payment_lifecycle_v3_rpc('booking_staff_change_apply_snapshot_r4', [
     'p_tenant_id' => $tenantId,
     'p_booking_id' => $bookingId,
     'p_expected_old_staff_id' => $oldStaffId !== '' ? $oldStaffId : null,
@@ -1310,6 +1315,7 @@ $applyResult = payment_lifecycle_v3_rpc('booking_staff_change_apply_snapshot_r3'
     'p_expected_booking_date' => $bookingDateHint,
     'p_expected_booking_time' => $bookingTimeHint,
     'p_expected_revision' => $expectedRevisionRaw,
+    'p_expected_updated_at' => $expectedUpdatedAt,
 ]);
 
 if (empty($applyResult['ok']) || !is_array($applyResult['data'] ?? null)) {
@@ -1354,6 +1360,16 @@ if (!$applied) {
         $message = 'Ta rezerwacja nie ma przypisanego pracownika.';
     } elseif ($applyReason === 'schedule_conflict') {
         $message = 'Wybrany pracownik nie jest już dostępny w tym terminie.';
+    } elseif ($applyReason === 'calendar_not_quiescent'
+        || $applyReason === 'calendar_binding_unresolved') {
+        $message = 'Poprzednia operacja Google Calendar wymaga weryfikacji.';
+    } elseif ($applyReason === 'email_not_quiescent') {
+        $message = 'Poprzednia wiadomość wymaga zakończenia lub weryfikacji.';
+    } elseif ($applyReason === 'paid_state_invalid'
+        || $applyReason === 'payment_state_ambiguous') {
+        $message = 'Stan płatności wymaga weryfikacji przed zmianą personelu.';
+    } elseif ($applyReason === 'booking_started') {
+        $message = 'Nie można zmienić personelu po rozpoczęciu rezerwacji.';
     } elseif ($applyReason === 'unsupported_payment_lifecycle') {
         $message = 'Ta rezerwacja nie obsługuje zmiany personelu w tym trybie.';
     }
@@ -1444,6 +1460,7 @@ booking_staff_json([
     'success' => true,
     'mail_sent' => false, // Async only: delivery evidence belongs to outbox.sent_at
     'mail_queued' => $mailQueued,
+    'calendar_queued' => ($applyData['calendar_queued'] ?? false) === true,
     'message' => $action === 'change_staff'
         ? 'Zmieniono pracownika przypisanego do rezerwacji.'
         : 'Odłączono pracownika od rezerwacji.'
