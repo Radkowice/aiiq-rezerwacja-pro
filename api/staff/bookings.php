@@ -183,7 +183,18 @@ if (
     ], 401);
 }
 
-$today = (new DateTimeImmutable('today'))->format('Y-m-d');
+$viewRaw = $_GET['view'] ?? 'today';
+if (!is_string($viewRaw)) {
+    staff_bookings_json(['success' => false, 'error' => 'Nieprawidłowy widok rezerwacji.'], 400);
+}
+$view = strtolower(trim($viewRaw));
+$allowedViews = ['today', 'upcoming', 'past', 'all', 'cancelled'];
+if (!in_array($view, $allowedViews, true)) {
+    staff_bookings_json(['success' => false, 'error' => 'Nieprawidłowy widok rezerwacji.'], 400);
+}
+$now = new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'));
+$today = $now->format('Y-m-d');
+$currentTime = $now->modify('-15 minutes')->format('H:i');
 
 function staff_bookings_unique_ids(array $rows, string $field): array
 {
@@ -311,16 +322,33 @@ function staff_bookings_public_bookings(array $bookings, string $tenantId, strin
     return $publicBookings;
 }
 
-function staff_bookings_filter_active_future_rows(array $rows, string $today): array
+function staff_bookings_filter_by_view(array $rows, string $view, string $today, string $currentTime): array
 {
-    return array_values(array_filter($rows, static function ($row) use ($today): bool {
+    return array_values(array_filter($rows, static function ($row) use ($view, $today, $currentTime): bool {
         if (!is_array($row)) {
             return false;
         }
-
-        $bookingDate = trim((string) ($row['booking_date'] ?? ''));
-
-        return $bookingDate === '' || $bookingDate >= $today;
+        $status = strtolower(trim((string) ($row['status'] ?? '')));
+        $cancelled = $status === 'cancelled' || $status === 'canceled';
+        if ($view === 'cancelled') {
+            return $cancelled;
+        }
+        if ($cancelled) {
+            return false;
+        }
+        $date = trim((string) ($row['booking_date'] ?? ''));
+        $time = substr(trim((string) ($row['booking_time'] ?? '')), 0, 5);
+        switch ($view) {
+            case 'today':
+                return $date === $today && $time >= $currentTime;
+            case 'upcoming':
+                return $date > $today;
+            case 'past':
+                return $date < $today || ($date === $today && $time < $currentTime);
+            case 'all':
+                return true;
+        }
+        return false;
     }));
 }
 
@@ -370,15 +398,41 @@ function staff_bookings_fetch_by_ids(
     return is_array($result['data'] ?? null) ? $result['data'] : [];
 }
 
-$currentBookingsUrl = $supabaseUrl
-    . '/rest/v1/bookings'
-    . '?select=id,booking_date,booking_time,name,email,phone,notes,status,payment_required,payment_status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id'
-    . '&tenant_id=eq.' . rawurlencode($sessionTenantId)
-    . '&staff_id=eq.' . rawurlencode($sessionStaffId)
-    . '&booking_date=gte.' . rawurlencode($today)
-    . '&order=booking_date.asc'
-    . '&order=booking_time.asc'
-    . '&limit=100';
+$query = [
+    'select=id,booking_date,booking_time,name,email,phone,notes,status,payment_required,payment_status,service_id,service_name_snapshot,reschedule_count,rescheduled_at,staff_id',
+    'tenant_id=eq.' . rawurlencode($sessionTenantId),
+    'staff_id=eq.' . rawurlencode($sessionStaffId),
+];
+
+if ($view === 'cancelled') {
+    $query[] = 'status=in.(cancelled,canceled)';
+} elseif ($view === 'past') {
+    // A single logical `and` preserves both the status and time constraints.
+    $query[] = 'and=('
+        . 'or(status.is.null,status.not.in.(cancelled,canceled))'
+        . ',or(booking_date.lt.' . rawurlencode($today)
+        . ',and(booking_date.eq.' . rawurlencode($today)
+        . ',booking_time.lt.' . rawurlencode($currentTime) . '))'
+        . ')';
+} else {
+    $query[] = 'or=(status.is.null,status.not.in.(cancelled,canceled))';
+}
+
+switch ($view) {
+    case 'today':
+        $query[] = 'booking_date=eq.' . rawurlencode($today);
+        $query[] = 'booking_time=gte.' . rawurlencode($currentTime);
+        break;
+    case 'upcoming':
+        $query[] = 'booking_date=gt.' . rawurlencode($today);
+        break;
+}
+
+$descending = in_array($view, ['past', 'cancelled'], true);
+$query[] = 'order=booking_date.' . ($descending ? 'desc' : 'asc');
+$query[] = 'order=booking_time.' . ($descending ? 'desc' : 'asc');
+$query[] = 'limit=100';
+$currentBookingsUrl = $supabaseUrl . '/rest/v1/bookings?' . implode('&', $query);
 
 $currentBookingsResult = staff_bookings_request('GET', $currentBookingsUrl, $supabaseKey, $schema);
 
@@ -394,9 +448,9 @@ if (
     ], 500);
 }
 
-$currentBookings = staff_bookings_filter_active_future_rows(
+$currentBookings = staff_bookings_filter_by_view(
     is_array($currentBookingsResult['data'] ?? null) ? $currentBookingsResult['data'] : [],
-    $today
+    $view, $today, $currentTime
 );
 
 $changesUrl = $supabaseUrl
@@ -526,17 +580,19 @@ foreach ($removedBookings as $booking) {
     $currentBookingsById[$bookingId] = $booking;
 }
 
-$bookings = array_values($currentBookingsById);
+$bookings = staff_bookings_filter_by_view(array_values($currentBookingsById), $view, $today, $currentTime);
 
-usort($bookings, static function (array $a, array $b): int {
+usort($bookings, static function (array $a, array $b) use ($descending): int {
     $aDate = (string) ($a['booking_date'] ?? '');
     $bDate = (string) ($b['booking_date'] ?? '');
 
     if ($aDate !== $bDate) {
-        return strcmp($aDate, $bDate);
+        $order = strcmp($aDate, $bDate);
+        return $descending ? -$order : $order;
     }
 
-    return strcmp((string) ($a['booking_time'] ?? ''), (string) ($b['booking_time'] ?? ''));
+    $order = strcmp((string) ($a['booking_time'] ?? ''), (string) ($b['booking_time'] ?? ''));
+    return $descending ? -$order : $order;
 });
 
 staff_bookings_json([

@@ -1669,6 +1669,7 @@ function staff_slot_is_free(
 {
     $query = 'tenant_id=eq.' . rawurlencode($tenantId)
         . '&booking_date=eq.' . rawurlencode($date)
+        . '&or=(status.is.null,status.neq.cancelled)'
         . '&select=id,booking_time,service_id';
 
     $query .= $staffId !== ''
@@ -1989,7 +1990,8 @@ function booking_quick_slot_is_free(string $baseUrl, array $headers, string $ten
     $query = 'select=id,payment_status,status'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&booking_date=eq.' . rawurlencode($date)
-        . '&booking_time=eq.' . rawurlencode($time);
+        . '&booking_time=eq.' . rawurlencode($time)
+        . '&or=(status.is.null,status.neq.cancelled)';
 
     $query .= $staffId !== ''
         ? '&staff_id=eq.' . rawurlencode($staffId)

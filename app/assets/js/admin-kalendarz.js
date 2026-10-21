@@ -1019,7 +1019,9 @@
       phone: booking?.phone || '-',
       time: normalizeBookingTime(booking?.booking_time || booking?.time || fallbackTime),
       service: booking?.service_name_snapshot || booking?.service_name || serviceName || 'Usługa',
-      notes: booking?.notes || booking?.description || ''
+      notes: booking?.notes || booking?.description || '',
+      reschedule_count: booking?.reschedule_count ?? 0,
+      rescheduled_at: booking?.rescheduled_at || ''
     };
   }
 
@@ -1704,7 +1706,7 @@
           ${isReserved ? `data-reservation-detail="${escapeHtmlAttr(detailId)}" aria-expanded="false" aria-controls="${escapeHtmlAttr(detailId)}"` : ''}
         >
           <strong>${escapeHtmlText(slot.time)}</strong>
-          ${isReserved ? '<span class="badge-r admin-service-slot-r">R</span>' : ''}
+          ${isReserved ? `<span class="badge-r admin-service-slot-r" title="${isReservationRescheduled(slot.reservation) ? 'Rezerwacja przełożona' : 'Rezerwacja'}">${isReservationRescheduled(slot.reservation) ? 'R↻' : 'R'}</span>` : ''}
           <small>${escapeHtmlText(getAdminServiceSlotStatusLabel(status))}</small>
         </button>
         ${isReserved ? `
@@ -1788,6 +1790,13 @@
 
     if (safeReservation.notes) {
       rows.push(['📝', 'Notatka', safeReservation.notes]);
+    }
+
+    if (isReservationRescheduled(safeReservation)) {
+      const count = getReservationRescheduleCount(safeReservation);
+      rows.push(['↻', 'Przeniesiona', count > 0 ? `${count} z 3` : 'Tak']);
+      const changedAt = formatAdminBookingDateTime(safeReservation.rescheduled_at);
+      if (changedAt) rows.push(['📅', 'Ostatnia zmiana terminu', changedAt]);
     }
 
     return `

@@ -1989,3 +1989,52 @@ body.modal-open {
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* Moje rezerwacje — widoki jak w panelu administratora. */
+.employee-booking-view-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 12px;
+}
+
+.employee-booking-view-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 38px;
+  padding: 8px 17px;
+  border: 1px solid var(--employee-border-strong);
+  border-radius: 12px;
+  background: var(--employee-card);
+  color: var(--employee-text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+
+.employee-booking-view-btn:hover,
+.employee-booking-view-btn:focus-visible,
+.employee-booking-view-btn.is-active {
+  background: var(--employee-primary-soft);
+  border-color: var(--employee-primary);
+  box-shadow: 0 0 0 2px var(--employee-focus-ring);
+}
+
+.employee-booking-view-btn:focus-visible {
+  outline: 2px solid var(--employee-primary);
+  outline-offset: 2px;
+}
+
+@media (max-width: 520px) {
+  .employee-booking-view-tabs {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .employee-booking-view-btn { padding: 9px 8px; }
+}

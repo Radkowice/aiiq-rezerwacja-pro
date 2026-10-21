@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Panel personelu</title>
-  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=6">
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=7">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body class="employee-panel-body">
@@ -66,12 +66,20 @@
             <div class="employee-panel-card-header">
               <div>
                 <h2>Moje rezerwacje</h2>
-                <p>Najbliższe rezerwacje przypisane do Twojego konta.</p>
+                <p>Rezerwacje przypisane do Twojego konta.</p>
               </div>
 
               <button type="button" class="employee-panel-secondary-btn" id="employeeRefreshBookingsBtn">
                 Odśwież
               </button>
+            </div>
+
+            <div class="employee-booking-view-tabs" id="employeeBookingViewTabs" role="group" aria-label="Filtr rezerwacji">
+              <button type="button" class="employee-booking-view-btn is-active" data-employee-bookings-view="today" aria-pressed="true">Dzisiejsze</button>
+              <button type="button" class="employee-booking-view-btn" data-employee-bookings-view="upcoming" aria-pressed="false">Nadchodzące</button>
+              <button type="button" class="employee-booking-view-btn" data-employee-bookings-view="past" aria-pressed="false">Historia</button>
+              <button type="button" class="employee-booking-view-btn" data-employee-bookings-view="all" aria-pressed="false">Wszystkie</button>
+              <button type="button" class="employee-booking-view-btn" data-employee-bookings-view="cancelled" aria-pressed="false">Anulowane</button>
             </div>
 
             <div class="employee-booking-search">
@@ -326,7 +334,7 @@
     </div>
   </div>
 
-  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=5"></script>
+  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=6"></script>
   <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>

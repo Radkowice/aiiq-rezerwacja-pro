@@ -50,8 +50,30 @@ function systemMailIconForTitle(string $title, string $intro = ''): string
     return '📬';
 }
 
-function buildSystemMailLayout(string $title, string $intro, string $messageHtml, string $footerNote = ''): string
+function buildSystemMailLayout(
+    string $title,
+    string $intro,
+    string $messageHtml,
+    string $footerNote = '',
+    string $companyName = '',
+    string $recipientName = ''
+): string
 {
+    $companyName = trim($companyName);
+    $recipientName = trim($recipientName);
+    // Never add control characters or unbounded text to the header/greeting.
+    $companyName = strlen($companyName) <= 256 && preg_match('/[\x00-\x1F\x7F]/', $companyName) !== 1
+        ? $companyName : '';
+    $recipientName = strlen($recipientName) <= 256 && preg_match('/[\x00-\x1F\x7F]/', $recipientName) !== 1
+        ? $recipientName : '';
+    $companySubtitle = $companyName !== ''
+        ? '<p style="margin:12px 0 0;font-size:17px;font-weight:600;line-height:1.5;">'
+            . htmlspecialchars($companyName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>'
+        : '';
+    $greeting = $recipientName !== ''
+        ? '<p style="margin:0 0 14px;">Dzień dobry, <strong>'
+            . htmlspecialchars($recipientName, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</strong>.</p>'
+        : '';
     $icon = htmlspecialchars(systemMailIconForTitle($title, $intro), ENT_QUOTES, 'UTF-8');
     $footerNote = trim($footerNote);
 
@@ -68,11 +90,12 @@ function buildSystemMailLayout(string $title, string $intro, string $messageHtml
         . '<div style="background:linear-gradient(135deg,#071b2d,#0f2d47);padding:32px 24px;text-align:center;color:#ffffff;">'
         . '<div style="font-size:42px;line-height:1;margin-bottom:12px;" aria-hidden="true">' . $icon . '</div>'
         . '<h1 style="margin:0;font-size:28px;line-height:1.25;">' . htmlspecialchars($title, ENT_QUOTES, 'UTF-8') . '</h1>'
+        . $companySubtitle
         . '<p style="margin:12px 0 0 0;font-size:16px;line-height:1.55;opacity:0.95;">' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '</p>'
         . '</div>'
         . '<div style="padding:32px 24px;">'
         . '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:0 0 24px 0;">'
-        . '<div style="font-size:16px;line-height:1.8;color:#17324d;">' . $messageHtml . '</div>'
+        . '<div style="font-size:16px;line-height:1.8;color:#17324d;">' . $greeting . $messageHtml . '</div>'
         . '</div>'
         . '<p style="margin:24px 0 0 0;font-size:14px;line-height:1.6;color:#4f6478;">🔒 Wiadomość systemowa Rezerwia. Prosimy nie odpowiadać na tę wiadomość.</p>'
         . $footerHtml

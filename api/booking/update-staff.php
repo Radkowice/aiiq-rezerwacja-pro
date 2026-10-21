@@ -1387,7 +1387,9 @@ if (!$applied) {
 
     booking_staff_json([
         'success' => false,
-        'error' => $message
+        'error' => $message,
+        'error_code' => in_array($applyReason, ['calendar_not_quiescent', 'calendar_binding_unresolved'], true)
+            ? 'google_calendar_requires_review' : 'booking_change_rejected'
     ], $statusCode);
 }
 

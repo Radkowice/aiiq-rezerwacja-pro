@@ -21,6 +21,8 @@
   let employeeSelectedBlocksDate = '';
   let employeeCalendarDays = {};
   let employeeBookingsData = [];
+  let employeeBookingsView = 'today';
+  let employeeBookingsLoadSeq = 0;
   let employeeBookingSearchQuery = '';
   let employeeBookingSearchTimer = null;
 
@@ -686,7 +688,7 @@
     if (filteredBookings.length === 0) {
       list.innerHTML = `
         <tr>
-          <td colspan="6" class="employee-bookings-empty">${hasSearch ? 'Brak rezerwacji pasujących do wyszukiwania.' : 'Nie masz jeszcze przypisanych rezerwacji.'}</td>
+          <td colspan="6" class="employee-bookings-empty">${hasSearch ? 'Brak rezerwacji pasujących do wyszukiwania.' : 'Brak rezerwacji w wybranym widoku.'}</td>
         </tr>
       `;
       return;
@@ -1160,7 +1162,35 @@
     }
   }
 
+  const EMPLOYEE_BOOKING_VIEWS = ['today', 'upcoming', 'past', 'all', 'cancelled'];
+
+  function setEmployeeBookingsView(view) {
+    if (!EMPLOYEE_BOOKING_VIEWS.includes(view)) return;
+    employeeBookingsView = view;
+    document.querySelectorAll('[data-employee-bookings-view]').forEach((button) => {
+      const active = button.dataset.employeeBookingsView === view;
+      button.classList.toggle('is-active', active);
+      button.setAttribute('aria-pressed', active ? 'true' : 'false');
+    });
+  }
+
+  function initEmployeeBookingViews() {
+    const tabs = getElement('employeeBookingViewTabs');
+    if (!tabs) return;
+    tabs.addEventListener('click', (event) => {
+      const button = event.target?.closest?.('[data-employee-bookings-view]');
+      if (!button || !tabs.contains(button)) return;
+      const view = button.dataset.employeeBookingsView;
+      if (!EMPLOYEE_BOOKING_VIEWS.includes(view) || employeeBookingsView === view) return;
+      setEmployeeBookingsView(view);
+      loadBookings();
+    });
+    setEmployeeBookingsView(employeeBookingsView);
+  }
+
   async function loadBookings() {
+    const requestSeq = ++employeeBookingsLoadSeq;
+    const requestedView = employeeBookingsView;
     const refreshBtn = getElement('employeeRefreshBookingsBtn');
 
     if (refreshBtn) {
@@ -1171,7 +1201,7 @@
     setMessage('', '');
 
     try {
-      const response = await fetch(BOOKINGS_ENDPOINT, {
+      const response = await fetch(`${BOOKINGS_ENDPOINT}?view=${encodeURIComponent(requestedView)}`, {
         method: 'GET',
         credentials: 'include',
         headers: {
@@ -1180,6 +1210,7 @@
       });
 
       const data = await response.json().catch(() => null);
+      if (requestSeq !== employeeBookingsLoadSeq) return;
 
       if (response.status === 401) {
         redirectToLogin();
@@ -1197,11 +1228,12 @@
       employeeBookingsData = Array.isArray(data.bookings) ? data.bookings : [];
       renderBookings(employeeBookingsData);
     } catch (error) {
+      if (requestSeq !== employeeBookingsLoadSeq) return;
       employeeBookingsData = [];
       renderBookings(employeeBookingsData);
       setMessage(error.message || 'Nie udało się pobrać rezerwacji.', 'error');
     } finally {
-      if (refreshBtn) {
+      if (refreshBtn && requestSeq === employeeBookingsLoadSeq) {
         refreshBtn.disabled = false;
         refreshBtn.textContent = 'Odśwież';
       }
@@ -1470,6 +1502,7 @@
     bindTabs();
     bindPasswordToggles();
     initEmployeeBookingSearch();
+    initEmployeeBookingViews();
 
     employeeSelectedBlocksDate = formatLocalDate(new Date());
     employeeBlocksViewDate = dateFromLocalString(employeeSelectedBlocksDate);

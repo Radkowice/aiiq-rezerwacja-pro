@@ -237,7 +237,7 @@ function booking_admin_map_calendar_booking(array $booking, array $staffDisplayN
     ]);
 }
 
-$allowedViews = ['upcoming', 'today', 'past', 'all'];
+$allowedViews = ['upcoming', 'today', 'past', 'all', 'cancelled'];
 $view = strtolower(trim((string)($_GET['view'] ?? 'upcoming')));
 
 if (!in_array($view, $allowedViews, true)) {
@@ -251,11 +251,25 @@ $query = [
     'tenant_id=eq.' . rawurlencode($TENANT_ID),
 ];
 
+// Cancellation remains an immutable booking state, not a deleted database row.
+// Filter at the backend, keeping the separate cancelled view tenant-bound.
+if ($view === 'cancelled') {
+    $query[] = 'status=in.(cancelled,canceled)';
+} elseif ($view !== 'past') {
+    // Include legacy rows with NULL status without exposing cancelled bookings.
+    $query[] = 'or=(status.is.null,status.not.in.(cancelled,canceled))';
+}
+
 $timezone = new DateTimeZone('Europe/Warsaw');
 $now = new DateTimeImmutable('now', $timezone);
 $currentTime = $now->modify('-15 minutes')->format('H:i');
 
 switch ($view) {
+    case 'cancelled':
+        $query[] = 'order=booking_date.desc';
+        $query[] = 'order=booking_time.desc';
+        break;
+
     case 'today':
         // Dzisiejsze:
         // tylko dzisiejsze rezerwacje od aktualnej godziny wzwy¿.
@@ -268,10 +282,13 @@ switch ($view) {
         // Historia:
         // - wszystkie dni wczeœniejsze ni¿ dzisiaj,
         // - oraz dzisiejsze rezerwacje, których godzina ju¿ minê³a.
-        $query[] = 'or=('
-            . 'booking_date.lt.' . rawurlencode($today)
+        // Keep status and historical-date predicates within a single PostgREST
+        // logical filter; two separate `or=` parameters are not relied upon.
+        $query[] = 'and=('
+            . 'or(status.is.null,status.not.in.(cancelled,canceled))'
+            . ',or(booking_date.lt.' . rawurlencode($today)
             . ',and(booking_date.eq.' . rawurlencode($today)
-            . ',booking_time.lt.' . rawurlencode($currentTime) . ')'
+            . ',booking_time.lt.' . rawurlencode($currentTime) . '))'
             . ')';
         $query[] = 'order=booking_date.desc';
         $query[] = 'order=booking_time.desc';

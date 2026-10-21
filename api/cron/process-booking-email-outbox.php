@@ -552,6 +552,32 @@ function booking_email_worker_format_datetime(string $value): string
     }
 }
 
+function booking_email_worker_company_name(array $context): string
+{
+    $branding = is_array($context['branding'] ?? null) ? $context['branding'] : [];
+    $settings = is_array($context['service_settings'] ?? null) ? $context['service_settings'] : [];
+    $name = trim((string) ($branding['client_name'] ?? ''));
+    return $name !== '' ? $name : trim((string) ($settings['company_full_name'] ?? ''));
+}
+
+function booking_email_worker_customer_name(array $context, string $recipientEmail): string
+{
+    $booking = is_array($context['booking'] ?? null) ? $context['booking'] : [];
+    $actualRecipient = strtolower(trim((string) ($booking['email'] ?? '')));
+    $requestedRecipient = strtolower(trim($recipientEmail));
+    if ($actualRecipient === '' || $requestedRecipient === ''
+        || !hash_equals($actualRecipient, $requestedRecipient)) {
+        return '';
+    }
+    return trim((string) ($booking['name'] ?? ''));
+}
+
+function booking_email_worker_greeting_alt(string $name): string
+{
+    $name = trim($name);
+    return $name !== '' ? 'Dzień dobry, ' . $name . ".\n" : '';
+}
+
 function booking_email_worker_summary_html(
     array $booking,
     bool $includeContact,
@@ -883,12 +909,18 @@ function booking_email_worker_render_rescheduled(
         $footer = 'Powiadomienie administracyjne dotyczące zmiany terminu rezerwacji.';
     }
 
-    $html = buildSystemMailLayout($title, $preheader, $message, $footer);
-    $alt = trim(html_entity_decode(
-        strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $message)),
-        ENT_QUOTES | ENT_HTML5,
-        'UTF-8'
-    ));
+    $recipientName = $eventType === 'booking_rescheduled_customer'
+        ? booking_email_worker_customer_name($context, $recipientEmail) : '';
+    $html = buildSystemMailLayout(
+        $title, $preheader, $message, $footer,
+        booking_email_worker_company_name($context), $recipientName
+    );
+    $alt = booking_email_worker_greeting_alt($recipientName)
+        . trim(html_entity_decode(
+            strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $message)),
+            ENT_QUOTES | ENT_HTML5,
+            'UTF-8'
+        ));
 
     return [
         'ok' => true,
@@ -1131,8 +1163,15 @@ function booking_email_worker_render_generic(
             ];
     }
 
-    $html = buildSystemMailLayout($title, $preheader, $message, $footer);
-    $alt = trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $message)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
+    $customerEvent = str_ends_with($eventType, '_customer')
+        || in_array($eventType, ['appointment_reminder_day_before', 'appointment_reminder_same_day'], true);
+    $recipientName = $customerEvent ? booking_email_worker_customer_name($context, $recipientEmail) : '';
+    $html = buildSystemMailLayout(
+        $title, $preheader, $message, $footer,
+        booking_email_worker_company_name($context), $recipientName
+    );
+    $alt = booking_email_worker_greeting_alt($recipientName)
+        . trim(html_entity_decode(strip_tags(str_replace(['<br>', '<br/>', '<br />'], "\n", $message)), ENT_QUOTES | ENT_HTML5, 'UTF-8'));
 
     return [
         'ok' => true,
@@ -1170,13 +1209,14 @@ function booking_email_worker_render_review_requested(array $context): array
         'subject' => 'Nowy wniosek o anulowanie rezerwacji',
         'html' => buildSystemMailLayout('Wniosek o anulowanie',
             'Nowy wniosek klienta', $html,
-            'To automatyczne powiadomienie nie potwierdza anulowania.'),
+            'To automatyczne powiadomienie nie potwierdza anulowania.',
+            booking_email_worker_company_name($context)),
         'alt' => 'Klient złożył wniosek o anulowanie rezerwacji. Termin: '
             .$payload['booking_date'].' '.$payload['booking_time'].'. Otwórz panel administratora.',
     ];
 }
 
-function booking_email_worker_render_cancelled(array $context): array
+function booking_email_worker_render_cancelled(array $context, string $recipientEmail): array
 {
     $booking = $context['booking'] ?? [];
     $payload = $context['outbox_payload'] ?? [];
@@ -1205,7 +1245,7 @@ function booking_email_worker_render_cancelled(array $context): array
         return ['ok' => false, 'retryable' => false, 'error_code' => 'cancellation_snapshot_invalid'];
     }
     $service = trim((string)($payload['service_name'] ?? ''));
-    $company = trim((string)($payload['company_name'] ?? ''));
+    $company = booking_email_worker_company_name($context);
     $esc = static fn(string $v): string => htmlspecialchars($v, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     $rows = [
         '<p>Twoja rezerwacja została anulowana przez administratora firmy.</p>',
@@ -1213,27 +1253,28 @@ function booking_email_worker_render_cancelled(array $context): array
     ];
     if ($service !== '') { $rows[] = '<p><strong>Usługa:</strong> '.$esc($service).'</p>'; }
     if ($company !== '') { $rows[] = '<p><strong>Firma:</strong> '.$esc($company).'</p>'; }
-    if ($paidCancellation) {
-        $rows[] = '<p><strong>Płatność:</strong> anulowanie rezerwacji nie oznacza automatycznego zwrotu pieniędzy. Ewentualny zwrot obsługuje firma samodzielnie w PayU. W sprawie rozliczenia skontaktuj się z firmą.</p>';
-    }
     $rows[] = '<p>Jeżeli nie wiesz, dlaczego anulowano rezerwację, skontaktuj się z firmą, korzystając ze znanych Ci danych kontaktowych.</p>';
     $message = implode('', $rows);
-    $alt = "Twoja rezerwacja została anulowana przez administratora firmy.\n"
+    $recipientName = booking_email_worker_customer_name($context, $recipientEmail);
+    $alt = booking_email_worker_greeting_alt($recipientName)
+         . "Twoja rezerwacja została anulowana przez administratora firmy.\n"
          . "Data: $date\nGodzina: $time\n"
          . ($service !== '' ? "Usługa: $service\n" : '')
          . ($company !== '' ? "Firma: $company\n" : '')
-         . ($paidCancellation ? 'Anulowanie rezerwacji nie oznacza automatycznego zwrotu pieniędzy. Ewentualny zwrot obsługuje firma samodzielnie w PayU.' . "\n" : '')
          . 'W sprawie anulowania skontaktuj się bezpośrednio z firmą.';
     return [
         'ok' => true, 'retryable' => false, 'error_code' => '',
         'subject' => 'Twoja rezerwacja została anulowana',
-        'html' => buildSystemMailLayout('Rezerwacja anulowana','Informacja o anulowaniu rezerwacji',$message,'Wiadomość systemowa Rezerwia.'),
+        'html' => buildSystemMailLayout(
+            'Rezerwacja anulowana', 'Informacja o anulowaniu rezerwacji', $message,
+            'Wiadomość systemowa Rezerwia.', booking_email_worker_company_name($context), $recipientName
+        ),
         'alt' => $alt,
     ];
 }
 
 
-function booking_email_worker_render_staff(string $eventType, array $context): array
+function booking_email_worker_render_staff(string $eventType, array $context, string $recipientEmail): array
 {
     $booking = $context['booking'];
     $payload = $context['outbox_payload'] ?? null;
@@ -1259,7 +1300,8 @@ function booking_email_worker_render_staff(string $eventType, array $context): a
     $oldName = trim($payload['old_staff_name']);
     $newName = trim($payload['new_staff_name']);
     $esc = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
-    $client = $esc(trim((string) ($booking['name'] ?? '')) ?: 'Kliencie');
+    $validatedClient = booking_email_worker_customer_name($context, $recipientEmail);
+    $client = $esc($validatedClient);
     $old = $esc($oldName !== '' ? $oldName : 'Nieprzypisany');
     $new = $esc($newName !== '' ? $newName : 'Nieprzypisany');
     $service = $esc(trim((string) ($booking['service_name_snapshot'] ?? '')) ?: 'Usługa');
@@ -1270,7 +1312,7 @@ function booking_email_worker_render_staff(string $eventType, array $context): a
     $description = $action === 'change_staff'
         ? '<p>Nowy specjalista: <strong>' . $new . '</strong></p>'
         : '<p>Nowy specjalista nie został jeszcze przypisany.</p>';
-    $message = '<p>Dzień dobry, <strong>' . $client . '</strong>.</p>'
+    $message = ($validatedClient !== '' ? '<p>Dzień dobry, <strong>' . $client . '</strong>.</p>' : '')
         . '<p>Informujemy o zmianie przypisania specjalisty do Twojej rezerwacji.</p>'
         . '<p>Poprzedni specjalista: <strong>' . $old . '</strong></p>'
         . $description
@@ -1282,7 +1324,8 @@ function booking_email_worker_render_staff(string $eventType, array $context): a
         'ok' => true, 'retryable' => false, 'error_code' => '',
         'subject' => $title,
         'html' => buildSystemMailLayout($title, $title, $message,
-            'Wiadomość została wysłana automatycznie przez system Rezerwia.'),
+            'Wiadomość została wysłana automatycznie przez system Rezerwia.',
+            booking_email_worker_company_name($context)),
         'alt' => $alt,
     ];
 }
@@ -1296,13 +1339,13 @@ function booking_email_worker_render(
     if (in_array($eventType, [
         'booking_staff_changed_customer', 'booking_staff_detached_customer'
     ], true)) {
-        return booking_email_worker_render_staff($eventType, $context);
+        return booking_email_worker_render_staff($eventType, $context, $recipientEmail);
     }
     if ($eventType === 'cancel_review_requested_admin') {
         return booking_email_worker_render_review_requested($context);
     }
     if ($eventType === 'booking_cancelled_customer') {
-        return booking_email_worker_render_cancelled($context);
+        return booking_email_worker_render_cancelled($context, $recipientEmail);
     }
     if (in_array($eventType, ['payment_paid_customer', 'booking_created_customer'], true)) {
         return booking_email_worker_render_paid_customer(

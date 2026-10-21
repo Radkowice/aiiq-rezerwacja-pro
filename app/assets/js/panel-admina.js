@@ -410,7 +410,8 @@ const BOOKING_VIEWS = {
   today: 'Dzisiejsze',
   upcoming: 'Nadchodzące',
   past: 'Historia',
-  all: 'Wszystkie'
+  all: 'Wszystkie',
+  cancelled: 'Anulowane'
 };
 
 const ADMIN_NOTIFICATIONS_POLL_INTERVAL_MS = 15000;
@@ -1473,7 +1474,7 @@ function sortBookingsForView(bookings, view) {
     const aTime = getBookingTimestamp(a);
     const bTime = getBookingTimestamp(b);
 
-    if (view === 'past') {
+    if (view === 'past' || view === 'cancelled') {
       return bTime - aTime;
     }
 
@@ -1616,6 +1617,7 @@ async function fetchBookingsByView(view) {
 }
 
 function getEmptyBookingsText(view) {
+  if (view === 'cancelled') return 'Brak anulowanych rezerwacji';
   if (view === 'today') return 'Brak rezerwacji na dziś';
   if (view === 'past') return 'Brak rezerwacji w historii';
   if (view === 'all') return 'Brak rezerwacji';
@@ -1672,11 +1674,19 @@ function filterBookingsBySearch(bookings) {
     .some(value => normalizeBookingSearchText(value).includes(query)));
 }
 
+function isCancelledBooking(item) {
+  return ['cancelled', 'canceled'].includes(String(item?.status || '').trim().toLowerCase());
+}
+
 function renderBookingList(bookings) {
   const bookingList = document.getElementById('bookingList');
   if (!bookingList) return;
 
-  const data = Array.isArray(bookings) ? bookings : [];
+  const received = Array.isArray(bookings) ? bookings : [];
+  // UI fallback: still isolate cancelled rows if API/client versions temporarily differ.
+  const data = received.filter(item => currentBookingsView === 'cancelled'
+    ? isCancelledBooking(item)
+    : !isCancelledBooking(item));
   const filteredData = filterBookingsBySearch(data);
   const hasSearch = getActiveBookingSearchQuery() !== '' && data.length > 0;
 
@@ -1858,7 +1868,7 @@ const today = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-
   const todayCount = Array.isArray(bookings)
     ? bookings.filter(item => {
         const itemDate = item.booking_date || item.date || '';
-        return itemDate === today;
+        return itemDate === today && !isCancelledBooking(item);
       }).length
     : 0;
 
@@ -2493,6 +2503,33 @@ async function openBookingStaffConfirmModal(booking, staffOptions, actionRef) {
   }
 }
 
+async function showBookingStaffFailure(message, code = '', action = 'change') {
+  const calendarError = code === 'google_calendar_requires_review'
+    || String(message || '').trim() === 'Poprzednia operacja Google Calendar wymaga weryfikacji.';
+
+  if (calendarError) {
+    await openAdminConfirm({
+      title: 'Sprawdź połączenie z Google Calendar',
+      html: '<p>Nie można teraz bezpiecznie zmienić lub odłączyć specjalisty. ' +
+        'Poprzednia operacja w Google Calendar wymaga sprawdzenia.</p>' +
+        '<p>Przejdź do <strong>Integracje → Google Calendar</strong> i w razie potrzeby ' +
+        'ponownie podłącz konto. Następnie sprawdź, czy wydarzenie tej rezerwacji ' +
+        'jest prawidłowo zapisane w kalendarzu.</p>' +
+        '<p><strong>Ważne:</strong> samo ponowne połączenie nie musi rozwiązać problemu. ' +
+        'Jeżeli komunikat pozostanie, nie ponawiaj zmiany bez weryfikacji ' +
+        'wcześniejszej operacji.</p>',
+      confirmText: 'Rozumiem',
+      showCancel: false,
+      variant: 'primary',
+      icon: '📅'
+    });
+    return;
+  }
+
+  await showBookingActionNotice(action === 'detach' ? 'Nie można odłączyć specjalisty' : 'Nie można zmienić specjalisty',
+    String(message || 'Nie potwierdzono wyniku operacji. Odśwież rezerwację przed kolejną próbą.'));
+}
+
 async function changeBookingStaff(actionRef) {
   const actionData = getBookingAction(actionRef);
   const bookingRef = actionData?.booking_ref || '';
@@ -2540,7 +2577,7 @@ async function changeBookingStaff(actionRef) {
     });
 
     if (!data?.success) {
-      alert(data?.error || 'Nie udało się zmienić personelu.');
+      await showBookingStaffFailure(data?.error || 'Nie udało się zmienić personelu.', data?.error_code || '');
       return;
     }
 
@@ -2556,7 +2593,8 @@ async function changeBookingStaff(actionRef) {
 await refreshBookingsAfterStaffChange();
   } catch (error) {
     console.error('changeBookingStaff error:', error);
-    alert(error.message || 'Błąd zmiany personelu.');
+    await showBookingStaffFailure(error.message || 'Błąd zmiany personelu.',
+      error?.data?.error_code || error?.error_code || '');
   }
 }
 
@@ -2630,7 +2668,7 @@ async function detachBookingStaff(actionRef) {
     });
 
     if (!data?.success) {
-      alert(data?.error || 'Nie udało się odłączyć personelu.');
+      await showBookingStaffFailure(data?.error || 'Nie udało się odłączyć personelu.', data?.error_code || '', 'detach');
       return;
     }
 
@@ -2646,7 +2684,8 @@ async function detachBookingStaff(actionRef) {
 await refreshBookingsAfterStaffChange();
   } catch (error) {
     console.error('detachBookingStaff error:', error);
-    alert(error.message || 'Błąd odłączania personelu.');
+    await showBookingStaffFailure(error.message || 'Błąd odłączania personelu.',
+      error?.data?.error_code || error?.error_code || '', 'detach');
   }
 }
 
@@ -2790,7 +2829,7 @@ function renderTodayBookings(bookings = []) {
 
   const todayList = bookings.filter(item => {
     const d = item.booking_date || item.date || '';
-    return d === today;
+    return d === today && !isCancelledBooking(item);
   });
 
   if (todayList.length === 0) {

@@ -206,7 +206,8 @@ if (!function_exists('booking_mail_system_confirmation_html')) {
             'Potwierdzenie rezerwacji',
             'Podstawowe potwierdzenie rezerwacji wysłane przez Rezerwia.',
             $message,
-            'Wiadomość została wysłana awaryjnie, ponieważ firma nie skonfigurowała własnej wysyłki e-mail lub szablonu wiadomości.'
+            'Wiadomość została wysłana awaryjnie, ponieważ firma nie skonfigurowała własnej wysyłki e-mail lub szablonu wiadomości.',
+            $companyName, $name
         );
     }
 }
@@ -355,7 +356,8 @@ if (!function_exists('booking_mail_system_admin_notification_html')) {
             'Nowa rezerwacja',
             'Powiadomienie administratora o rezerwacji zapisanej w systemie.',
             $message,
-            'Wysłanie tego powiadomienia nie wpływa na zapis rezerwacji.'
+            'Wysłanie tego powiadomienia nie wpływa na zapis rezerwacji.',
+            $companyName
         );
     }
 }
@@ -978,7 +980,7 @@ if (!function_exists('booking_mail_send_system_booking_reminder')) {
         $message = ''
             . '<div style="font-size:36px;line-height:1;margin:0 0 12px;text-align:center;">' . $reminderIcon . '</div>'
             . '<p style="margin:0 0 14px;"><strong>' . $reminderIcon . ' Przypomnienie o rezerwacji.</strong></p>'
-            . '<p style="margin:0 0 14px;">Dzień dobry ' . htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') . ', ' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '</p>'
+            . '<p style="margin:0 0 14px;">Dzień dobry, ' . htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') . ', ' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '</p>'
             . ($detailsRows !== ''
                 ? '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-top:18px;border-collapse:collapse;">' . $detailsRows . '</table>'
                 : '')
@@ -988,7 +990,8 @@ if (!function_exists('booking_mail_send_system_booking_reminder')) {
             $subject,
             'Przypomnienie o rezerwacji.',
             $message,
-            'To przypomnienie zostało wysłane przez system Rezerwia.'
+            'To przypomnienie zostało wysłane przez system Rezerwia.',
+            trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''))
         );
 
         return sendSystemMail(
@@ -1087,7 +1090,7 @@ if (!function_exists('booking_mail_send_booking_reminder')) {
                 : '')
             . '</div>'
             . '<div style="padding:32px 24px;">'
-            . '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Dzień dobry ' . htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') . ',</p>'
+            . '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">Dzień dobry, ' . htmlspecialchars($displayName, ENT_QUOTES, 'UTF-8') . ',</p>'
             . '<p style="margin:0 0 16px 0;font-size:17px;line-height:1.55;color:#17324d;">' . htmlspecialchars($intro, ENT_QUOTES, 'UTF-8') . '</p>'
             . ($detailsRows !== ''
                 ? '<div style="background:#f7fafc;border:1px solid #d8e3ee;border-radius:14px;padding:20px;margin:24px 0;">'
@@ -1104,7 +1107,7 @@ if (!function_exists('booking_mail_send_booking_reminder')) {
 
         $altBody =
             $subject . "\n\n"
-            . "Dzień dobry {$displayName},\n\n"
+            . "Dzień dobry, {$displayName}.\n\n"
             . $intro . "\n\n"
             . ($serviceName !== '' ? "Usługa: {$serviceName}\n" : '')
             . ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '')
