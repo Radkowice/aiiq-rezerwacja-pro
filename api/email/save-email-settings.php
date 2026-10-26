@@ -98,6 +98,34 @@ function email_settings_text($value, int $maxLength, bool $required = false): ?s
     return $text;
 }
 
+// Zapisane hasło SMTP może pozostać tylko dla tego samego konta i serwera.
+// Zmiana samego adresu nadawcy (from_email) nie zmienia konta SMTP.
+function email_settings_can_reuse_smtp_password(
+    array $existing,
+    string $smtpHost,
+    int $smtpPort,
+    string $smtpUsername
+): bool {
+    $existingPassword = $existing['smtp_password'] ?? null;
+    $existingHost = strtolower(rtrim(trim((string) ($existing['smtp_host'] ?? '')), '.'));
+    $existingPort = $existing['smtp_port'] ?? null;
+    $existingUsername = trim((string) ($existing['smtp_username'] ?? ''));
+
+    if (
+        !is_string($existingPassword)
+        || $existingPassword === ''
+        || $existingHost === ''
+        || $existingUsername === ''
+        || !(is_int($existingPort) || (is_string($existingPort) && ctype_digit($existingPort)))
+    ) {
+        return false;
+    }
+
+    return hash_equals($existingHost, $smtpHost)
+        && (int) $existingPort === $smtpPort
+        && hash_equals($existingUsername, $smtpUsername);
+}
+
 function email_settings_allowed_smtp_ports(): array
 {
     $default = [25, 465, 587, 2525];
@@ -365,7 +393,28 @@ if ($section === 'all' || $section === 'smtp') {
     }
 
     $existingEmailSettings = $emailSettingsReadResult['json'][0] ?? [];
+    if (!is_array($existingEmailSettings)) {
+        email_settings_security_event('email_settings_current_fetch_failed', 'current_settings_invalid', 500, 'error', 'high', $tenantId, $userId, 'smtp');
+        email_settings_json([
+            'success' => false,
+            'error' => 'Nie udało się odczytać obecnych ustawień SMTP.'
+        ], 500);
+    }
+
     $newSmtpPassword = trim((string) ($input['smtp_pass'] ?? ''));
+
+    // Nie łączymy starego hasła z nowym serwerem ani z innym loginem.
+    // Puste hasło przy niezmienionym koncie SMTP pozostaje dozwolone.
+    if (
+        $newSmtpPassword === ''
+        && !email_settings_can_reuse_smtp_password($existingEmailSettings, $smtpHost, $smtpPort, (string) $smtpUsername)
+    ) {
+        email_settings_security_event('email_settings_validation_failed', 'stored_smtp_password_context_mismatch', 422, 'denied', 'high', $tenantId, $userId, 'smtp_password_binding');
+        email_settings_json([
+            'success' => false,
+            'error' => 'Zmieniono host, port lub login SMTP. Wpisz hasło SMTP dla nowej konfiguracji.'
+        ], 422);
+    }
 
     try {
         $smtpPasswordToSave = $newSmtpPassword !== ''

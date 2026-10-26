@@ -77,7 +77,17 @@ $rateLimitResult = security_rate_limit_check(
     ]
 );
 
-if (empty($rateLimitResult['ok'])) {
+$rateLimitRaw = is_array($rateLimitResult['raw'] ?? null)
+    ? $rateLimitResult['raw']
+    : [];
+$rateLimitAllowed = $rateLimitRaw['allowed'] ?? $rateLimitRaw['is_allowed'] ?? null;
+
+if (
+    ($rateLimitResult['ok'] ?? null) !== true
+    || ($rateLimitRaw['rule_found'] ?? null) !== true
+    || !is_bool($rateLimitAllowed)
+    || ($rateLimitResult['allowed'] ?? null) !== $rateLimitAllowed
+) {
     http_response_code(503);
     echo json_encode([
         'success' => false,
@@ -86,7 +96,7 @@ if (empty($rateLimitResult['ok'])) {
     exit;
 }
 
-if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+if ($rateLimitAllowed === false) {
     http_response_code(429);
 
     $rateLimitPayload = security_neutral_rate_limit_response($rateLimitResult);

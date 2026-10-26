@@ -1389,7 +1389,9 @@ if (!$applied) {
         'success' => false,
         'error' => $message,
         'error_code' => in_array($applyReason, ['calendar_not_quiescent', 'calendar_binding_unresolved'], true)
-            ? 'google_calendar_requires_review' : 'booking_change_rejected'
+            ? 'google_calendar_requires_review'
+            : ($applyReason === 'concurrency_conflict'
+                ? 'booking_change_conflict' : 'booking_change_rejected')
     ], $statusCode);
 }
 

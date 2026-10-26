@@ -49,6 +49,17 @@ if (!session_tenant_matches_current_host($SUPABASE_URL, $SUPABASE_KEY, $SUPABASE
     exit;
 }
 
+// This endpoint lists all bookings for the tenant. Staff must use the
+// tenant- and staff-scoped /api/staff/bookings.php endpoint instead.
+if (strtolower(trim((string) ($_SESSION['user']['role'] ?? ''))) !== 'administrator') {
+    http_response_code(403);
+    echo json_encode([
+        'success' => false,
+        'error' => 'Brak uprawnien administratora'
+    ], JSON_UNESCAPED_UNICODE);
+    exit;
+}
+
 $TENANT_ID = (string) $_SESSION['user']['tenant_id'];
 
 if ($TENANT_ID === '') {
@@ -430,9 +441,9 @@ foreach ($data as $booking) {
         continue;
     }
 
-    $bookings[] = $view === 'all'
-        ? booking_admin_map_calendar_booking($booking, $staffDisplayNames, $TENANT_ID, $refSecret)
-        : booking_admin_map_booking($booking, $staffDisplayNames, $TENANT_ID, $refSecret);
+    // All editable views must return the same CAS snapshot fields (including
+    // updated_at, payment state and Google Calendar link status).
+    $bookings[] = booking_admin_map_booking($booking, $staffDisplayNames, $TENANT_ID, $refSecret);
 }
 
 echo json_encode(public_response_sanitize($bookings), JSON_UNESCAPED_UNICODE);

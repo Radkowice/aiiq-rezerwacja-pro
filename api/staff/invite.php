@@ -291,7 +291,37 @@ $rateLimitResult = security_rate_limit_check(
     ]
 );
 
-if (isset($rateLimitResult['allowed']) && $rateLimitResult['allowed'] === false) {
+$rateLimitRaw = is_array($rateLimitResult['raw'] ?? null)
+    ? $rateLimitResult['raw']
+    : [];
+$rateLimitAllowed = $rateLimitRaw['allowed'] ?? $rateLimitRaw['is_allowed'] ?? null;
+
+if (
+    ($rateLimitResult['ok'] ?? null) !== true
+    || ($rateLimitRaw['rule_found'] ?? null) !== true
+    || !is_bool($rateLimitAllowed)
+    || ($rateLimitResult['allowed'] ?? null) !== $rateLimitAllowed
+) {
+    security_log_event('staff_invite_send_rate_limit_unavailable', [
+        'action_key' => 'staff_invite_send',
+        'endpoint' => $securityEndpoint,
+        'http_method' => $securityMethod,
+        'actor_type' => 'tenant_user',
+        'severity' => 'high',
+        'response_status' => 503,
+        'result' => 'error',
+        'details' => [
+            'reason' => 'rate_limit_unavailable',
+        ],
+    ]);
+
+    staff_invite_json([
+        'success' => false,
+        'error' => 'Nie udało się teraz wysłać zaproszenia. Spróbuj ponownie później.',
+    ], 503);
+}
+
+if ($rateLimitAllowed === false) {
     security_log_event('staff_invite_send_rate_limited', [
         'action_key' => 'staff_invite_send',
         'ip_address' => $securityIp,

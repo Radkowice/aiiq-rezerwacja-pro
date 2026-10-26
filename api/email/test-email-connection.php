@@ -267,7 +267,18 @@ $rateLimit = security_rate_limit_check(
     ]
 );
 
-if (empty($rateLimit['ok'])) {
+// Fail-closed: akceptujemy jedynie jednoznaczny wynik istniejącej reguły.
+$rateLimitRaw = is_array($rateLimit['raw'] ?? null)
+    ? $rateLimit['raw']
+    : [];
+$rateLimitAllowed = $rateLimitRaw['allowed'] ?? $rateLimitRaw['is_allowed'] ?? null;
+
+if (
+    ($rateLimit['ok'] ?? null) !== true
+    || ($rateLimitRaw['rule_found'] ?? null) !== true
+    || !is_bool($rateLimitAllowed)
+    || ($rateLimit['allowed'] ?? null) !== $rateLimitAllowed
+) {
     smtp_test_security_event(
         'email_smtp_test_rate_limit_unavailable',
         'rate_limit_unavailable',
@@ -284,7 +295,7 @@ if (empty($rateLimit['ok'])) {
     ]);
 }
 
-if (empty($rateLimit['allowed'])) {
+if ($rateLimitAllowed === false) {
     $retryAfter = max(1, (int) ($rateLimit['retry_after_seconds'] ?? 60));
     header('Retry-After: ' . $retryAfter);
 
@@ -377,7 +388,7 @@ if (!filter_var($smtpUsername, FILTER_VALIDATE_EMAIL)) {
 if ($smtpPassword === '') {
 
     $url = $supabaseUrl
-        . '/rest/v1/email_settings?select=smtp_password'
+        . '/rest/v1/email_settings?select=smtp_password,smtp_host,smtp_port,smtp_username'
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&is_active=eq.true'
         . '&limit=1';
@@ -407,9 +418,43 @@ if ($smtpPassword === '') {
     }
 
     $rows = json_decode((string) $response, true);
-    $storedSmtpPassword = (string) ($rows[0]['smtp_password'] ?? '');
+
+    if (!is_array($rows) || (isset($rows[0]) && !is_array($rows[0]))) {
+        smtp_test_security_event('email_smtp_test_password_fetch_failed', 'stored_credentials_invalid', 500, 'error', 'high', $tenantId, $userId, 'stored_credentials_lookup');
+        smtp_test_json(500, [
+            'success' => false,
+            'error' => 'Nie udało się pobrać zapisanej konfiguracji SMTP.'
+        ]);
+    }
+
+    $storedSettings = is_array($rows[0] ?? null) ? $rows[0] : [];
+    $storedSmtpPassword = (string) ($storedSettings['smtp_password'] ?? '');
 
     if ($storedSmtpPassword !== '') {
+        // Zapisane hasło wolno użyć tylko z zapisanym hostem, portem i loginem SMTP.
+        // Chroni to przed wysłaniem sekretu na serwer podstawiony w żądaniu.
+        $storedHost = strtolower(rtrim(trim((string) ($storedSettings['smtp_host'] ?? '')), '.'));
+        $requestedHost = strtolower(rtrim($smtpHost, '.'));
+        $storedPort = $storedSettings['smtp_port'] ?? null;
+        $storedPortValid = is_int($storedPort)
+            || (is_string($storedPort) && $storedPort !== '' && ctype_digit($storedPort));
+        $storedUsername = trim((string) ($storedSettings['smtp_username'] ?? ''));
+
+        if (
+            $storedHost === ''
+            || !hash_equals($storedHost, $requestedHost)
+            || !$storedPortValid
+            || (int) $storedPort !== $smtpPort
+            || $storedUsername === ''
+            || !hash_equals($storedUsername, $smtpUsername)
+        ) {
+            smtp_test_security_event('email_smtp_test_validation_failed', 'stored_credentials_context_mismatch', 422, 'denied', 'high', $tenantId, $userId, 'stored_credentials_binding');
+            smtp_test_json(422, [
+                'success' => false,
+                'error' => 'Zmieniono host, port lub login SMTP. Wpisz hasło SMTP dla nowej konfiguracji.'
+            ]);
+        }
+
         try {
             $smtpPassword = decrypt_smtp_password_secret($storedSmtpPassword);
         } catch (Throwable $e) {

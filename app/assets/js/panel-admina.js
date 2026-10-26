@@ -1516,7 +1516,8 @@ const BOOKING_SAFE_VIEW_FIELDS = [
   'payment_provider',
   'payment_expires_at',
   'reschedule_count',
-  'rescheduled_at'
+  'rescheduled_at',
+  'google_calendar_synced'
 ];
 
 function buildSafeBookingViewItem(item, actionRef) {
@@ -1563,6 +1564,7 @@ function buildBookingActionSnapshot(item, bookingRef, staffRef, serviceRef, hasS
     status: item?.status || '',
     payment_status: item?.payment_status || '',
     payment_required: item?.payment_required,
+    google_calendar_synced: item?.google_calendar_synced === true,
     source: item?.source || '',
     name: item?.name || '',
     staff_display_name: item?.staff_display_name || '',
@@ -2503,21 +2505,42 @@ async function openBookingStaffConfirmModal(booking, staffOptions, actionRef) {
   }
 }
 
-async function showBookingStaffFailure(message, code = '', action = 'change') {
-  const calendarError = code === 'google_calendar_requires_review'
-    || String(message || '').trim() === 'Poprzednia operacja Google Calendar wymaga weryfikacji.';
+// Status is read only after a staff change is rejected. No access token or
+// customer data is ever read into this UI. UNKNOWN must fail closed.
+async function readBookingGoogleConnectionState() {
+  try {
+    const result = await apiFetch('/api/system/integrations.php', { cache: 'no-store' });
+    if (result?.success !== true) return 'unknown';
 
-  if (calendarError) {
+    const google = result?.integrations?.google_calendar;
+    if (!google || google.enabled !== true || google.disconnected_at || !google.connected_at) return 'disconnected';
+
+    const settings = google.settings || {};
+    const token = google.secrets_status || {};
+    return settings.calendar_id && settings.connection_generation
+      && (token.refresh_token_saved === true || token.access_token_saved === true)
+      ? 'connected' : 'disconnected';
+  } catch (error) {
+    console.warn('Google Calendar state check unavailable', error);
+    return 'unknown';
+  }
+}
+
+async function showBookingStaffFailure(message, code = '', action = 'change', booking = null) {
+  const calendarReview = code === 'google_calendar_requires_review'
+    || String(message || '').trim() === 'Poprzednia operacja Google Calendar wymaga weryfikacji.';
+  const concurrencyConflict = code === 'booking_change_conflict';
+  const linkedToGoogle = booking?.google_calendar_synced === true;
+  const needsGoogleStatus = calendarReview || (concurrencyConflict && linkedToGoogle);
+  const connectionState = needsGoogleStatus
+    ? await readBookingGoogleConnectionState() : 'unknown';
+
+  if (needsGoogleStatus && connectionState === 'disconnected') {
     await openAdminConfirm({
-      title: 'Sprawdź połączenie z Google Calendar',
-      html: '<p>Nie można teraz bezpiecznie zmienić lub odłączyć specjalisty. ' +
-        'Poprzednia operacja w Google Calendar wymaga sprawdzenia.</p>' +
-        '<p>Przejdź do <strong>Integracje → Google Calendar</strong> i w razie potrzeby ' +
-        'ponownie podłącz konto. Następnie sprawdź, czy wydarzenie tej rezerwacji ' +
-        'jest prawidłowo zapisane w kalendarzu.</p>' +
-        '<p><strong>Ważne:</strong> samo ponowne połączenie nie musi rozwiązać problemu. ' +
-        'Jeżeli komunikat pozostanie, nie ponawiaj zmiany bez weryfikacji ' +
-        'wcześniejszej operacji.</p>',
+      title: 'Google Calendar odłączony',
+      html: '<p>Ta rezerwacja jest powiązana z Google Calendar. ' +
+        'Aby zmienić lub odłączyć pracownika, ponownie połącz Google Calendar ' +
+        'w zakładce <strong>Integracje</strong>.</p>',
       confirmText: 'Rozumiem',
       showCancel: false,
       variant: 'primary',
@@ -2526,87 +2549,199 @@ async function showBookingStaffFailure(message, code = '', action = 'change') {
     return;
   }
 
-  await showBookingActionNotice(action === 'detach' ? 'Nie można odłączyć specjalisty' : 'Nie można zmienić specjalisty',
-    String(message || 'Nie potwierdzono wyniku operacji. Odśwież rezerwację przed kolejną próbą.'));
+  if (needsGoogleStatus && connectionState === 'connected') {
+    const explanation = concurrencyConflict
+      ? '<p>Google Calendar jest ponownie połączony, ale stan rezerwacji zmienił się ' +
+        'w stosunku do danych użytych przy próbie zmiany personelu.</p>'
+      : '<p>Google Calendar jest połączony, ale wcześniejsza operacja ' +
+        'synchronizacji tej rezerwacji nadal wymaga weryfikacji.</p>';
+    await openAdminConfirm({
+      title: action === 'detach' ? 'Nie można odłączyć personelu' : 'Nie można zmienić personelu',
+      html: explanation +
+        '<p>Odśwież listę rezerwacji i sprawdź, czy wydarzenie w Google Calendar ' +
+        'ma prawidłowy termin i przypisanego pracownika.</p>' +
+        '<p>Jeśli błąd nadal występuje, nie ponawiaj wielokrotnie operacji. ' +
+        'Wymagana jest weryfikacja aktualnego stanu rezerwacji i wcześniejszej synchronizacji.</p>',
+      confirmText: 'Rozumiem',
+      showCancel: false,
+      variant: 'primary',
+      icon: '📅'
+    });
+    return;
+  }
+
+  if (calendarReview) {
+    // Unknown connection state must never suggest a successful reconnect.
+    await openAdminConfirm({
+      title: 'Sprawdź stan Google Calendar',
+      html: '<p>Nie można bezpiecznie zmienić lub odłączyć personelu. ' +
+        'Stan poprzedniej operacji Google Calendar wymaga weryfikacji.</p>' +
+        '<p>Sprawdź połączenie w zakładce <strong>Integracje</strong> oraz ' +
+        'powiązane wydarzenie. Nie ponawiaj operacji przed ustaleniem stanu.</p>',
+      confirmText: 'Rozumiem',
+      showCancel: false,
+      variant: 'primary',
+      icon: '📅'
+    });
+    return;
+  }
+
+  await showBookingActionNotice(
+    action === 'detach' ? 'Nie można odłączyć specjalisty' : 'Nie można zmienić specjalisty',
+    String(message || 'Nie potwierdzono wyniku operacji. Odśwież rezerwację przed kolejną próbą.')
+  );
+}
+
+// Read the booking again before showing choices and immediately before POST.
+// Never replace the expected CAS snapshot silently: a changed booking needs
+// new administrator confirmation and new staff availability checks.
+const bookingStaffActionsInFlight = new Set();
+
+function bookingStaffSnapshotSignature(booking) {
+  if (!booking || typeof booking !== 'object') return null;
+  const updatedAt = booking.updated_at;
+  const revision = booking.reschedule_count;
+  const bookingRef = String(booking.booking_ref || '').trim();
+  const date = getBookingDateValue(booking);
+  const time = getBookingTimeValue(booking);
+  if (!/^bk_[0-9a-f]{48}$/.test(bookingRef)
+      || typeof updatedAt !== 'string'
+      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(updatedAt)
+      || !/^\d{4}-\d{2}-\d{2}$/.test(date)
+      || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)
+      || !Number.isInteger(revision) || revision < 0 || revision > 3) {
+    return null;
+  }
+  return JSON.stringify([
+    bookingRef,
+    date,
+    time,
+    String(booking.staff_ref || ''),
+    revision,
+    updatedAt,
+    String(booking.status || ''),
+    String(booking.service_ref || ''),
+    String(booking.payment_status || ''),
+    booking.payment_required === true,
+    String(booking.source || ''),
+    booking.google_calendar_synced === true
+  ]);
+}
+
+async function getCurrentBookingStaffSnapshot(actionData, originalBooking) {
+  const bookingRef = String(actionData?.booking_ref || '').trim();
+  const originalSignature = bookingStaffSnapshotSignature(originalBooking);
+  if (!originalSignature || String(originalBooking.booking_ref || '') !== bookingRef) {
+    await showBookingActionNotice(
+      'Nie można sprawdzić rezerwacji',
+      'Brakuje danych wymaganych do bezpiecznej zmiany personelu. Odśwież listę rezerwacji.'
+    );
+    return null;
+  }
+
+  let fresh;
+  try {
+    // The selected view preserves the same backend filters as the visible row.
+    // No frontend-provided tenant/staff identifiers are trusted by the API.
+    const view = isValidBookingsView(currentBookingsView) ? currentBookingsView : 'upcoming';
+    const rows = await fetchBookingsByView(view);
+    if (!Array.isArray(rows)) throw new Error('Invalid booking response');
+    const matches = rows.filter(row => String(row?.booking_ref || '') === bookingRef);
+    fresh = matches.length === 1 ? matches[0] : null;
+  } catch (error) {
+    console.warn('Staff snapshot preflight unavailable', error);
+    await showBookingActionNotice(
+      'Nie można sprawdzić rezerwacji',
+      'Nie udało się pobrać aktualnego stanu rezerwacji. Zmiana personelu nie została wykonana.'
+    );
+    return null;
+  }
+
+  const currentSignature = bookingStaffSnapshotSignature(fresh);
+  if (!currentSignature || currentSignature !== originalSignature || isBookingArchived(fresh)
+      || ['cancelled', 'canceled', 'deleted'].includes(String(fresh?.status || '').toLowerCase())) {
+    // Refresh the user's view but do not silently carry forward the old choice.
+    await loadBookings(currentBookingsView);
+    await showBookingActionNotice(
+      'Rezerwacja została zaktualizowana',
+      'Dane rezerwacji zmieniły się. Lista została odświeżona. Sprawdź aktualny termin i personel, a następnie rozpocznij operację ponownie.'
+    );
+    return null;
+  }
+  return fresh;
 }
 
 async function changeBookingStaff(actionRef) {
   const actionData = getBookingAction(actionRef);
-  const bookingRef = actionData?.booking_ref || '';
-  const booking = getBookingByActionRef(actionRef);
+  const bookingRef = String(actionData?.booking_ref || '').trim();
+  const originalBooking = actionData?.booking;
 
-  if (!booking) {
-    alert('Nie znaleziono rezerwacji.');
+  if (!originalBooking || !bookingRef) {
+    await showBookingActionNotice('Nie można zmienić personelu', 'Odśwież listę rezerwacji.');
     return;
   }
-
-  if (!bookingRef) {
-    alert('Brak identyfikatora rezerwacji.');
-    return;
-  }
+  if (bookingStaffActionsInFlight.has(bookingRef)) return;
+  bookingStaffActionsInFlight.add(bookingRef);
 
   try {
+    const booking = await getCurrentBookingStaffSnapshot(actionData, originalBooking);
+    if (!booking) return;
     const staffOptions = await loadBookingStaffOptions(booking);
 
     if (!staffOptions.length) {
-      alert('Brak aktywnych pracowników do przypisania.');
+      await showBookingActionNotice('Brak personelu', 'Brak aktywnych pracowników do przypisania.');
       return;
     }
 
     const selectedStaffRef = await openBookingStaffConfirmModal(booking, staffOptions, actionRef);
+    if (!selectedStaffRef) return;
 
-    if (!selectedStaffRef) {
-      return;
-    }
+    // State could change while the administrator is choosing another worker.
+    const latest = await getCurrentBookingStaffSnapshot(actionData, booking);
+    if (!latest) return;
 
     const data = await apiFetch('/api/booking/update-staff.php', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'change_staff',
         booking_ref: bookingRef,
         staff_ref: selectedStaffRef,
-        booking_date: getBookingDateValue(booking),
-        booking_time: getBookingTimeValue(booking),
-        expected_staff_ref: String(actionData?.staff_ref || ''),
-        expected_revision: booking.reschedule_count,
-        expected_updated_at: String(booking.updated_at || '')
+        booking_date: getBookingDateValue(latest),
+        booking_time: getBookingTimeValue(latest),
+        expected_staff_ref: String(latest.staff_ref || ''),
+        expected_revision: latest.reschedule_count,
+        expected_updated_at: latest.updated_at
       })
     });
 
     if (!data?.success) {
-      await showBookingStaffFailure(data?.error || 'Nie udało się zmienić personelu.', data?.error_code || '');
+      await showBookingStaffFailure(data?.error || 'Nie udało się zmienić personelu.', data?.error_code || '', 'change', latest);
+      if (data?.error_code === 'booking_change_conflict') await loadBookings(currentBookingsView);
       return;
     }
 
-   await openAdminConfirm({
-  title: 'Personel zmieniony',
-  message: data.message || 'Zmieniono personel rezerwacji.',
-  confirmText: 'OK',
-  variant: 'primary',
-  icon: '✅',
-  showCancel: false
-});
-
-await refreshBookingsAfterStaffChange();
+    await openAdminConfirm({
+      title: 'Personel zmieniony',
+      message: data.message || 'Zmieniono personel rezerwacji.',
+      confirmText: 'OK', variant: 'primary', icon: '✅', showCancel: false
+    });
+    await refreshBookingsAfterStaffChange();
   } catch (error) {
     console.error('changeBookingStaff error:', error);
     await showBookingStaffFailure(error.message || 'Błąd zmiany personelu.',
-      error?.data?.error_code || error?.error_code || '');
+      error?.data?.error_code || error?.error_code || '', 'change', originalBooking);
+  } finally {
+    bookingStaffActionsInFlight.delete(bookingRef);
   }
 }
 
 async function refreshBookingsAfterStaffChange() {
   clearBookingStaffOptionsCache();
-
   await loadBookings(currentBookingsView);
-
   if (typeof window.refreshAdminCalendarData === 'function') {
     await window.refreshAdminCalendarData();
   }
-
   if (typeof window.loadAdminNotifications === 'function') {
     await window.loadAdminNotifications();
   }
@@ -2614,78 +2749,65 @@ async function refreshBookingsAfterStaffChange() {
 
 async function detachBookingStaff(actionRef) {
   const actionData = getBookingAction(actionRef);
-  const bookingRef = actionData?.booking_ref || '';
-  const booking = getBookingByActionRef(actionRef);
+  const bookingRef = String(actionData?.booking_ref || '').trim();
+  const originalBooking = actionData?.booking;
 
-  if (!booking) {
-    alert('Nie znaleziono rezerwacji.');
+  if (!originalBooking || !bookingRef) {
+    await showBookingActionNotice('Nie można odłączyć personelu', 'Odśwież listę rezerwacji.');
     return;
   }
-
-  if (!bookingRef) {
-    alert('Brak identyfikatora rezerwacji.');
-    return;
-  }
-
-  const confirmed = await openAdminConfirm({
-    title: 'Odłączyć personel?',
-    html: `
-      <p>
-        Czy na pewno chcesz odłączyć personel od tej rezerwacji?
-      </p>
-      <p>
-        <strong>${escapeHtml(getCurrentBookingTermLabel(booking) || 'Brak terminu')}</strong><br>
-        Klient: <strong>${escapeHtml(booking.name || 'Brak danych')}</strong><br>
-        Obecny personel: <strong>${escapeHtml(getBookingStaffName(booking))}</strong>
-      </p>
-      <p>
-        Klient otrzyma wiadomość e-mail, że specjalista nie jest już przypisany.
-      </p>
-    `,
-    confirmText: 'Odłącz personel',
-    cancelText: 'Anuluj'
-  });
-
-  if (!confirmed) {
-    return;
-  }
+  if (bookingStaffActionsInFlight.has(bookingRef)) return;
+  bookingStaffActionsInFlight.add(bookingRef);
 
   try {
+    const booking = await getCurrentBookingStaffSnapshot(actionData, originalBooking);
+    if (!booking) return;
+
+    const confirmed = await openAdminConfirm({
+      title: 'Odłączyć personel?',
+      html: `<p>Czy na pewno chcesz odłączyć personel od tej rezerwacji?</p>
+        <p><strong>${escapeHtml(getCurrentBookingTermLabel(booking) || 'Brak terminu')}</strong><br>
+        Klient: <strong>${escapeHtml(booking.name || 'Brak danych')}</strong><br>
+        Obecny personel: <strong>${escapeHtml(getBookingStaffName(booking))}</strong></p>
+        <p>Klient otrzyma wiadomość e-mail, że specjalista nie jest już przypisany.</p>`,
+      confirmText: 'Odłącz personel', cancelText: 'Anuluj'
+    });
+    if (!confirmed) return;
+
+    const latest = await getCurrentBookingStaffSnapshot(actionData, booking);
+    if (!latest) return;
+
     const data = await apiFetch('/api/booking/update-staff.php', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'detach_staff',
         booking_ref: bookingRef,
-        booking_date: getBookingDateValue(booking),
-        booking_time: getBookingTimeValue(booking),
-        expected_staff_ref: String(actionData?.staff_ref || ''),
-        expected_revision: booking.reschedule_count,
-        expected_updated_at: String(booking.updated_at || '')
+        booking_date: getBookingDateValue(latest),
+        booking_time: getBookingTimeValue(latest),
+        expected_staff_ref: String(latest.staff_ref || ''),
+        expected_revision: latest.reschedule_count,
+        expected_updated_at: latest.updated_at
       })
     });
 
     if (!data?.success) {
-      await showBookingStaffFailure(data?.error || 'Nie udało się odłączyć personelu.', data?.error_code || '', 'detach');
+      await showBookingStaffFailure(data?.error || 'Nie udało się odłączyć personelu.', data?.error_code || '', 'detach', latest);
+      if (data?.error_code === 'booking_change_conflict') await loadBookings(currentBookingsView);
       return;
     }
-
-   await openAdminConfirm({
-  title: 'Personel odłączony',
-  message: data.message || 'Odłączono personel od rezerwacji.',
-  confirmText: 'OK',
-  variant: 'primary',
-  icon: '✅',
-  showCancel: false
-});
-
-await refreshBookingsAfterStaffChange();
+    await openAdminConfirm({
+      title: 'Personel odłączony',
+      message: data.message || 'Odłączono personel od rezerwacji.',
+      confirmText: 'OK', variant: 'primary', icon: '✅', showCancel: false
+    });
+    await refreshBookingsAfterStaffChange();
   } catch (error) {
     console.error('detachBookingStaff error:', error);
     await showBookingStaffFailure(error.message || 'Błąd odłączania personelu.',
-      error?.data?.error_code || error?.error_code || '', 'detach');
+      error?.data?.error_code || error?.error_code || '', 'detach', originalBooking);
+  } finally {
+    bookingStaffActionsInFlight.delete(bookingRef);
   }
 }
 

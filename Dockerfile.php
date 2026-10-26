@@ -1,4 +1,4 @@
-FROM php:8.2-fpm-alpine
+FROM php:8.2.35-fpm-alpine@sha256:62acd0827698068d9605bf236fb2fc3c0b10052fd98974d7e9b3ab05ae7291ca
 
 RUN apk add --no-cache \
         freetype \
