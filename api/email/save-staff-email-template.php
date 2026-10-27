@@ -6,9 +6,11 @@ require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/security.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, private');
 start_secure_session();
 
 function save_staff_email_security_event(
@@ -136,18 +138,23 @@ function save_staff_email_resolve_staff_ref(
 function save_staff_email_public_staff(array $row, string $tenantId, string $refSecret): array
 {
     $staffId = trim((string) ($row['id'] ?? ''));
-    unset($row['id'], $row['staff_id'], $row['tenant_id'], $row['company_id'], $row['user_id']);
 
-    if ($staffId !== '') {
-        $row['staff_ref'] = public_response_staff_ref($tenantId, $staffId, $refSecret);
-    }
-
-    return $row;
+    // W odpowiedzi wyłącznie pola potrzebne formularzowi administratora.
+    return [
+        'staff_ref' => $staffId !== ''
+            ? public_response_staff_ref($tenantId, $staffId, $refSecret)
+            : '',
+        'display_name' => (string) ($row['display_name'] ?? ''),
+        'email_subject' => $row['email_subject'] ?? null,
+        'email_heading' => $row['email_heading'] ?? null,
+        'email_body' => $row['email_body'] ?? null,
+        'has_custom_template' => true,
+    ];
 }
 
 function save_staff_email_text($value, int $maxLength, bool $required = false): ?string
 {
-    if (is_array($value) || is_object($value)) {
+    if ($value !== null && !is_string($value)) {
         save_staff_email_security_event('staff_email_template_validation_failed', 'validation_failed', 422, 'failed', 'low', null, null, 'text_type');
         save_staff_email_json(['success' => false, 'error' => 'Nieprawidłowe dane wejściowe.'], 422);
     }
@@ -171,6 +178,168 @@ function save_staff_email_text($value, int $maxLength, bool $required = false): 
     return $text;
 }
 
+
+// Podmiot i nagłówek to tekst zwykły, bez znaczników i znaków sterujących.
+function save_staff_email_is_plain_text(?string $text): bool
+{
+    return $text === null || (
+        preg_match('/[\x00-\x1F\x7F]/', $text) !== 1
+        && preg_match('~<\s*/?\s*[a-z][^>]*>~i', $text) !== 1
+    );
+}
+
+// Serializer nie przenosi żadnych atrybutów ani elementów spoza allowlisty.
+// Nie wykonuje HTML. Dla niedozwolonej konstrukcji zwraca null (fail closed).
+function save_staff_email_html_nodes(DOMNode $parent, int $depth = 0): ?string
+{
+    if ($depth > 32) {
+        return null;
+    }
+
+    $safe = '';
+
+    foreach ($parent->childNodes as $node) {
+        if ($node->nodeType === XML_TEXT_NODE) {
+            $safe .= htmlspecialchars(
+                (string) $node->nodeValue,
+                ENT_NOQUOTES | ENT_SUBSTITUTE | ENT_HTML5,
+                'UTF-8'
+            );
+            continue;
+        }
+
+        if (!$node instanceof DOMElement || $node->nodeType !== XML_ELEMENT_NODE) {
+            return null;
+        }
+
+        $tag = strtolower($node->tagName);
+        if (!in_array($tag, ['b', 'strong', 'i', 'em', 'br', 'a'], true)) {
+            return null;
+        }
+
+        if ($tag === 'br') {
+            if ($node->attributes->length !== 0 || $node->hasChildNodes()) {
+                return null;
+            }
+            $safe .= '<br>';
+            continue;
+        }
+
+        $href = null;
+        if ($tag === 'a') {
+            foreach ($node->attributes as $attribute) {
+                $attrName = strtolower($attribute->name);
+                if (!in_array($attrName, ['href', 'target', 'rel'], true)) {
+                    return null;
+                }
+                if ($attrName === 'target' && $attribute->value !== '_blank') {
+                    return null;
+                }
+                if ($attrName === 'rel'
+                    && trim((string) $attribute->value) !== 'noopener noreferrer') {
+                    return null;
+                }
+            }
+
+            if (!$node->hasAttribute('href')) {
+                return null;
+            }
+
+            $href = trim($node->getAttribute('href'));
+            $parts = parse_url($href);
+            if (
+                $href === '' || strlen($href) > 2048
+                || preg_match('/[\x00-\x20\x7F]/', $href) === 1
+                || !is_array($parts)
+                || !isset($parts['scheme'], $parts['host'])
+                || !in_array(strtolower((string) $parts['scheme']), ['http', 'https'], true)
+                || (string) $parts['host'] === ''
+                || isset($parts['user']) || isset($parts['pass'])
+                || filter_var($href, FILTER_VALIDATE_URL) === false
+            ) {
+                return null;
+            }
+        } elseif ($node->attributes->length !== 0) {
+            return null;
+        }
+
+        $children = save_staff_email_html_nodes($node, $depth + 1);
+        if ($children === null) {
+            return null;
+        }
+
+        if ($tag === 'a') {
+            $escapedHref = htmlspecialchars(
+                $href,
+                ENT_QUOTES | ENT_SUBSTITUTE | ENT_HTML5,
+                'UTF-8'
+            );
+            $safe .= '<a href="' . $escapedHref
+                . '" target="_blank" rel="noopener noreferrer">'
+                . $children . '</a>';
+        } else {
+            $safe .= '<' . $tag . '>' . $children . '</' . $tag . '>';
+        }
+    }
+
+    return $safe;
+}
+
+// Wejście jest fragmentem wiadomości, a nie całym dokumentem HTML.
+function save_staff_email_validate_html(string $html): ?string
+{
+    if (!mb_check_encoding($html, 'UTF-8')
+        || preg_match('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/', $html) === 1
+        || preg_match('/<\s*[!?]/', $html) === 1) {
+        return null;
+    }
+
+    $dom = new DOMDocument('1.0', 'UTF-8');
+    $prior = libxml_use_internal_errors(true);
+    try {
+        $loaded = $dom->loadHTML(
+            '<!DOCTYPE html><html><head><meta charset="UTF-8"></head>'
+            . '<body><div id="aiiq-email-root">' . $html . '</div></body></html>',
+            LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING
+        );
+    } finally {
+        libxml_clear_errors();
+        libxml_use_internal_errors($prior);
+    }
+
+    if (!$loaded || !$dom->documentElement instanceof DOMElement) {
+        return null;
+    }
+
+    $htmlElement = $dom->documentElement;
+    if (strtolower($htmlElement->tagName) !== 'html'
+        || $htmlElement->childNodes->length !== 2
+        || $htmlElement->firstChild?->nodeName !== 'head'
+        || $htmlElement->lastChild?->nodeName !== 'body') {
+        return null;
+    }
+
+    $head = $htmlElement->firstChild;
+    if ($head->childNodes->length !== 1
+        || $head->firstChild?->nodeName !== 'meta'
+        || !$head->firstChild instanceof DOMElement
+        || $head->firstChild->getAttribute('charset') !== 'UTF-8') {
+        return null;
+    }
+
+    $body = $htmlElement->lastChild;
+    if ($body->childNodes->length !== 1
+        || !$body->firstChild instanceof DOMElement
+        || strtolower($body->firstChild->tagName) !== 'div'
+        || $body->firstChild->getAttribute('id') !== 'aiiq-email-root'
+        || $body->firstChild->attributes->length !== 1) {
+        return null;
+    }
+
+    $safe = save_staff_email_html_nodes($body->firstChild);
+    return $safe !== null && mb_strlen($safe, 'UTF-8') <= 10000 ? $safe : null;
+}
+
 if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
     save_staff_email_security_event('staff_email_template_method_not_allowed', 'method_not_allowed', 405, 'failed', 'low');
     header('Allow: POST');
@@ -182,13 +351,29 @@ if (empty($_SESSION['user']['tenant_id'])) {
     save_staff_email_json(['success' => false, 'error' => 'Brak autoryzacji.'], 401);
 }
 
-$tenantId = (string) $_SESSION['user']['tenant_id'];
-$input = json_decode(file_get_contents('php://input') ?: '{}', true);
+$sessionRole = strtolower(trim((string) ($_SESSION['user']['role'] ?? '')));
+if (!in_array($sessionRole, ['admin', 'administrator'], true)) {
+    save_staff_email_security_event('staff_email_template_forbidden', 'forbidden_role', 403, 'denied', 'high');
+    save_staff_email_json(['success' => false, 'error' => 'Brak uprawnień.'], 403);
+}
 
-if (!is_array($input)) {
+// CSRF jest wymagany dla każdej autoryzowanej próby zapisu.
+require_csrf_token();
+
+$tenantId = (string) $_SESSION['user']['tenant_id'];
+$rawBody = file_get_contents('php://input', false, null, 0, 131073);
+if ($rawBody === false || strlen($rawBody) > 131072) {
+    save_staff_email_security_event('staff_email_template_validation_failed', 'payload_too_large', 413, 'failed', 'low', $tenantId);
+    save_staff_email_json(['success' => false, 'error' => 'Żądanie jest zbyt duże.'], 413);
+}
+
+// JSON musi zawierać obiekt, nie listę ani wartość skalarną.
+$decoded = json_decode($rawBody, false, 32);
+if (!$decoded instanceof stdClass || json_last_error() !== JSON_ERROR_NONE) {
     save_staff_email_security_event('staff_email_template_invalid_json', 'invalid_json', 400, 'failed', 'low', $tenantId);
     save_staff_email_json(['success' => false, 'error' => 'Brak danych wejściowych.'], 400);
 }
+$input = get_object_vars($decoded);
 
 $staffRef = save_staff_email_normalize_staff_ref($input['staff_ref'] ?? null);
 
@@ -197,9 +382,26 @@ if ($staffRef === '') {
     save_staff_email_json(['success' => false, 'error' => 'Wybierz pracownika, aby edytować jego szablon e-mail.'], 422);
 }
 
+if (preg_match('/\Ast_[0-9a-f]{48}\z/', $staffRef) !== 1) {
+    save_staff_email_security_event('staff_email_template_validation_failed', 'invalid_staff_ref', 400, 'failed', 'low', $tenantId);
+    save_staff_email_json(['success' => false, 'error' => 'Nieprawidłowa referencja pracownika.'], 400);
+}
+
 $subject = save_staff_email_text($input['email_subject'] ?? null, 255, true);
 $heading = save_staff_email_text($input['email_heading'] ?? null, 255, false);
 $body = save_staff_email_text($input['email_body'] ?? null, 10000, true);
+
+if (!save_staff_email_is_plain_text($subject) || !save_staff_email_is_plain_text($heading)) {
+    save_staff_email_security_event('staff_email_template_validation_failed', 'invalid_plain_text', 422, 'failed', 'low', $tenantId);
+    save_staff_email_json(['success' => false, 'error' => 'Nieprawidłowy temat lub nagłówek.'], 422);
+}
+
+$safeBody = save_staff_email_validate_html($body);
+if ($safeBody === null) {
+    save_staff_email_security_event('staff_email_template_validation_failed', 'invalid_html', 422, 'failed', 'medium', $tenantId);
+    save_staff_email_json(['success' => false, 'error' => 'Treść wiadomości zawiera niedozwolone formatowanie HTML.'], 422);
+}
+$body = $safeBody;
 
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
@@ -237,7 +439,7 @@ $url = $supabaseUrl
     . '?tenant_id=eq.' . rawurlencode($tenantId)
     . '&id=eq.' . rawurlencode($staffId)
     . '&is_active=eq.true'
-    . '&select=id,display_name,email,email_subject,email_heading,email_body';
+    . '&select=id,display_name,email_subject,email_heading,email_body';
 
 $payload = [
     'email_subject' => $subject,

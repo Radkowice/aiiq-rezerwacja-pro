@@ -8,6 +8,7 @@ require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store, private');
 start_secure_session();
 
 function staff_email_json(array $payload, int $statusCode = 200): void
@@ -106,6 +107,12 @@ if (empty($_SESSION['user']['tenant_id'])) {
     staff_email_json(['success' => false, 'error' => 'Brak autoryzacji.'], 401);
 }
 
+// Dostęp do szablonów pracowników jest zarezerwowany dla administratora tenanta.
+$sessionRole = strtolower(trim((string) ($_SESSION['user']['role'] ?? '')));
+if (!in_array($sessionRole, ['admin', 'administrator'], true)) {
+    staff_email_json(['success' => false, 'error' => 'Brak uprawnień.'], 403);
+}
+
 $tenantId = (string) $_SESSION['user']['tenant_id'];
 $supabaseUrl = rtrim((string) getenv('SUPABASE_URL'), '/');
 $supabaseKey = (string) (getenv('SUPABASE_SERVICE_ROLE_KEY') ?: getenv('SUPABASE_KEY') ?: '');
@@ -128,8 +135,17 @@ if (!tenant_has_feature($tenantId, 'staff_module')) {
 }
 
 $refSecret = public_response_ref_secret($supabaseKey);
-$staffRef = staff_email_normalize_staff_ref($_GET['staff_ref'] ?? null);
 $staffId = '';
+$staffRef = '';
+
+// Brak parametru oznacza listę, ale błędna referencja nie może uruchamiać listowania.
+if (array_key_exists('staff_ref', $_GET)) {
+    $staffRef = staff_email_normalize_staff_ref($_GET['staff_ref']);
+
+    if (preg_match('/\Ast_[0-9a-f]{48}\z/', $staffRef) !== 1) {
+        staff_email_json(['success' => false, 'error' => 'Nieprawidłowa referencja pracownika.'], 400);
+    }
+}
 
 if ($staffRef !== '') {
     $staffId = staff_email_resolve_staff_ref($staffRef, $supabaseUrl, $supabaseKey, $schema, $tenantId, $refSecret);
@@ -139,7 +155,8 @@ if ($staffRef !== '') {
     }
 }
 
-$select = 'id,display_name,email,is_active,email_subject,email_heading,email_body';
+// Pobieramy wyłącznie pola używane przez formularz administratora.
+$select = 'id,display_name,email_subject,email_heading,email_body';
 $url = $supabaseUrl
     . '/rest/v1/staff_profiles'
     . '?select=' . rawurlencode($select)
