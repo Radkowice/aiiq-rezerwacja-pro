@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
 require_once __DIR__ . '/../helpers/public_response.php';
@@ -230,6 +231,11 @@ function services_require_context(array $allowedMethods): array
             'success' => false,
             'error' => 'Nieprawidłowa sesja'
         ], 401);
+    }
+
+    // Enforce CSRF for authenticated state-changing service requests.
+    if ($method === 'POST') {
+        require_csrf_token();
     }
 
     return [

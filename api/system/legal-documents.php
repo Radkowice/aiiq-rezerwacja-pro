@@ -4,6 +4,7 @@ declare(strict_types=1);
 header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/supabase.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
@@ -83,6 +84,22 @@ if ($tenantId === '' || $userId === '') {
         'error' => 'Brak danych użytkownika w sesji'
     ], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $role = (string) ($_SESSION['user']['role'] ?? '');
+
+    if (!in_array($role, ['admin', 'administrator'], true)) {
+        legal_documents_security_event('system_legal_documents_save_denied', 'role_forbidden', 403, 'denied', 'medium', 'authorization');
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Brak uprawnień',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    require_csrf_token();
 }
 
 function legal_clean_text(mixed $value, int $maxLength = 0): string

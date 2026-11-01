@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 require_once __DIR__ . '/../helpers/session.php';
+require_once __DIR__ . '/../helpers/csrf.php';
 require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../helpers/public_response.php';
 require_once __DIR__ . '/../helpers/plan_features.php';
@@ -66,6 +67,32 @@ if (!session_tenant_matches_current_host($supabaseUrl, $serviceRoleKey, $schema)
         'error' => 'Sesja nie pasuje do domeny'
     ], JSON_UNESCAPED_UNICODE);
     exit;
+}
+
+// Zapis ustawien firmy wymaga administratora i waznego tokenu CSRF.
+if ($method === 'POST') {
+    $userId = (string) ($_SESSION['user']['id'] ?? '');
+    $role = (string) ($_SESSION['user']['role'] ?? '');
+
+    if ($userId === '' || !in_array($role, ['admin', 'administrator'], true)) {
+        service_settings_security_event(
+            'system_service_settings_save_denied',
+            'role_forbidden',
+            403,
+            'denied',
+            'medium',
+            'authorization'
+        );
+
+        http_response_code(403);
+        echo json_encode([
+            'success' => false,
+            'error' => 'Brak uprawnień',
+        ], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
+    require_csrf_token();
 }
 
 function sendServiceSettingsJson(array $payload, int $statusCode = 200): void
