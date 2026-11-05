@@ -1473,6 +1473,48 @@ img {
   line-height: 1.75;
 }
 
+#aiiq-rezerwacja-pro .aiiq-rp-footer-social {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 22px;
+}
+
+#aiiq-rezerwacja-pro .aiiq-rp-social-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 12px;
+  color: #e3effb;
+  background: rgba(255, 255, 255, 0.08);
+  text-decoration: none;
+}
+
+#aiiq-rezerwacja-pro .aiiq-rp-social-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+#aiiq-rezerwacja-pro a.aiiq-rp-social-icon:hover {
+  color: #fff;
+  background: #2c69aa;
+  border-color: #79ade2;
+}
+
+#aiiq-rezerwacja-pro a.aiiq-rp-social-icon:focus-visible {
+  outline: 3px solid rgba(121, 173, 226, 0.65);
+  outline-offset: 3px;
+}
+
+#aiiq-rezerwacja-pro .aiiq-rp-social-icon--soon {
+  opacity: 0.58;
+  cursor: default;
+}
+
 #aiiq-rezerwacja-pro .aiiq-rp-footer-heading {
   margin: 0 0 18px;
   color: #ffffff;

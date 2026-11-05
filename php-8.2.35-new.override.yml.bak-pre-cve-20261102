@@ -1,0 +1,3 @@
+services:
+  php:
+    image: aiiq-rezerwacja-pro-php:8.2.35-candidate-20261023

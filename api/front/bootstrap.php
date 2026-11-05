@@ -1303,7 +1303,8 @@ function front_bootstrap_get_blocked(
 
 function front_bootstrap_build_static_bundle(string $supabaseUrl, string $serviceRoleKey, string $schema): array
 {
-    $tenantLookup = getTenantLookupFromHost($supabaseUrl, $serviceRoleKey, $schema);
+    // Rozpoznawanie domen używa wyłącznie osobnego JWT, nie service_role.
+    $tenantLookup = getTenantLookupFromHost($supabaseUrl, '', $schema);
 
     if (($tenantLookup['status'] ?? '') === 'not_found') {
         front_bootstrap_json([

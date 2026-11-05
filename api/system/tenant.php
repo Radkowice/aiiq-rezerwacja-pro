@@ -26,6 +26,10 @@ function tenant_debug_log(string $label, $data): void
             'domain',
             'matched_domain',
             'tenant_id',
+            'candidates',
+            'HTTP_X_ORIGINAL_HOST',
+            'HTTP_HOST',
+            'SERVER_NAME',
             'authorization',
             'cookie',
             'payload',
@@ -164,10 +168,73 @@ function tenant_lookup_retry_delay_us(int $attempt, int $httpCode): int
     }
 }
 
+/**
+ * Odczyt poświadczeń tylko dla rozpoznawania domen.
+ * Nie wolno używać service_role jako fallbacku przy braku JWT.
+ * Ścieżka wskazuje PLIK w podmontowanym tylko-do-odczytu KATALOGU.
+ */
+function tenant_lookup_runtime_credentials(): ?array
+{
+    $anonKey = trim((string) getenv('SUPABASE_ANON_KEY'));
+    $tokenPath = trim((string) getenv('REZERWIA_DOMAIN_LOOKUP_JWT_FILE'));
+
+    if ($anonKey === '' || $tokenPath === '' || $tokenPath[0] !== '/'
+        || strlen($tokenPath) > 512 || str_contains($tokenPath, "\0")) {
+        return null;
+    }
+
+    // Blokada błędnej konfiguracji podającej pełny klucz zamiast anon.
+    $serviceKey = (string) getenv('SUPABASE_SERVICE_ROLE_KEY');
+    if ($serviceKey !== '' && hash_equals($serviceKey, $anonKey)) {
+        return null;
+    }
+
+    clearstatcache(true, $tokenPath);
+    $st = @lstat($tokenPath);
+    if (!is_array($st)
+        || ($st['mode'] & 0170000) !== 0100000
+        || ($st['mode'] & 0777) !== 0640
+        || $st['uid'] !== 0
+        || $st['gid'] !== 82
+        || !is_readable($tokenPath)) {
+        return null;
+    }
+
+    // Rotator wymienia plik atomowo; odczyt ograniczamy do 4 KiB.
+    $token = @file_get_contents($tokenPath, false, null, 0, 4097);
+    if (!is_string($token) || $token === '' || strlen($token) > 4096
+        || $token !== trim($token)) {
+        return null;
+    }
+
+    $parts = explode('.', $token);
+    if (count($parts) !== 3 || preg_match('/\A[A-Za-z0-9_-]+\z/D', $parts[1]) !== 1) {
+        return null;
+    }
+
+    $payload = base64_decode(strtr($parts[1], '-_', '+/'), true);
+    $claims = is_string($payload) ? json_decode($payload, true) : null;
+    if (!is_array($claims)
+        || ($claims['role'] ?? null) !== 'rezerwia_domain_lookup_runtime'
+        || !is_string($claims['sub'] ?? null)
+        || !is_int($claims['iat'] ?? null)
+        || !is_int($claims['exp'] ?? null)
+        || $claims['exp'] - $claims['iat'] !== 3600
+        || $claims['iat'] > time() + 60
+        || $claims['exp'] <= time() + 60) {
+        return null;
+    }
+
+    // Kontrola claims lokalnie NIE zastępuje weryfikacji podpisu po stronie Supabase.
+    return ['anon_key' => $anonKey, 'token' => $token];
+}
+
 function tenant_lookup_request(
     string $url,
-    string $SUPABASE_KEY,
+    string $anonKey,
+    string $accessToken,
     string $SCHEMA,
+    string $host,
     ?callable $diagnosticLogger = null
 ): array
 {
@@ -176,7 +243,7 @@ function tenant_lookup_request(
     $attempts = 3;
     $requestCacheKey = hash(
         'sha256',
-        $url . "\n" . $SCHEMA . "\n" . hash('sha256', $SUPABASE_KEY)
+        $url . "\n" . $SCHEMA . "\n" . $host . "\n" . hash('sha256', $accessToken)
     );
 
     if (array_key_exists($requestCacheKey, $requestCache)) {
@@ -193,12 +260,27 @@ function tenant_lookup_request(
         'json_valid' => false,
     ];
 
+    $body = json_encode(['p_domain' => $host], JSON_THROW_ON_ERROR);
+    $headers = [
+        'Content-Type: application/json',
+        'Accept: application/json',
+        'apikey: ' . $anonKey,
+        'Authorization: Bearer ' . $accessToken,
+        'Accept-Profile: ' . $SCHEMA,
+        'Content-Profile: ' . $SCHEMA,
+    ];
+
     for ($attempt = 1; $attempt <= $attempts; $attempt++) {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $body,
+            CURLOPT_CONNECTTIMEOUT => 5,
             CURLOPT_TIMEOUT => 10,
-            CURLOPT_HTTPHEADER => supabaseHeaders($SUPABASE_KEY, $SCHEMA),
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_HTTPHEADER => $headers,
         ]);
 
         $response = curl_exec($ch);
@@ -209,30 +291,37 @@ function tenant_lookup_request(
         curl_close($ch);
 
         if (function_exists('booking_supabase_request_record')) {
-            booking_supabase_request_record('GET', $url, 'tenant_lookup', $httpCode);
+            booking_supabase_request_record('POST', $url, 'tenant_lookup', $httpCode);
         }
 
         $data = json_decode((string) $response, true);
         $jsonValid = json_last_error() === JSON_ERROR_NONE;
+        $validRow = is_array($data) && count($data) === 1
+            && array_is_list($data)
+            && is_array($data[0])
+            && count($data[0]) === 1
+            && is_string($data[0]['tenant_id'] ?? null)
+            && $data[0]['tenant_id'] !== '';
+        $validPayload = is_array($data) && ($data === [] || $validRow);
+
         $retryable = $response === false
             || $curlError !== ''
             || $httpCode === 429
             || $httpCode >= 500
             || $httpCode === 0
-            || ($httpCode >= 200 && $httpCode < 300 && !$jsonValid);
+            || ($httpCode >= 200 && $httpCode < 300 && !$validPayload);
 
         $lastResult = [
             'ok' => $response !== false
                 && $curlError === ''
-                && $httpCode >= 200
-                && $httpCode < 300
+                && $httpCode === 200
                 && $jsonValid
-                && is_array($data),
+                && $validPayload,
             'retryable' => $retryable,
             'response' => $response,
             'curl_error' => $curlError,
             'http_code' => $httpCode,
-            'data' => $data,
+            'data' => $validPayload ? $data : null,
             'json_valid' => $jsonValid,
         ];
 
@@ -240,11 +329,10 @@ function tenant_lookup_request(
             try {
                 $diagnosticLogger([
                     'stage' => 'tenant_lookup',
-                    'method' => 'GET',
-                    'endpoint' => $url,
+                    'method' => 'POST',
+                    'endpoint' => '/rest/v1/rpc/rezerwia_domain_lookup_active',
                     'http_code' => $httpCode,
                     'curl_errno' => $curlErrno,
-                    'curl_error' => $curlError,
                     'attempt' => $attempt,
                     'max_attempts' => $attempts,
                     'json_valid' => $jsonValid,
@@ -288,6 +376,18 @@ function getTenantLookupFromHost(
         ];
     }
 
+    // Argument SUPABASE_KEY pozostaje wyłącznie dla zgodności starszych wywołań.
+    // Nie używamy go do autoryzacji ani nie przechodzimy awaryjnie na service_role.
+    $credentials = tenant_lookup_runtime_credentials();
+    if ($credentials === null) {
+        tenant_debug_log('TENANT_RUNTIME_AUTH_UNAVAILABLE', ['available' => false]);
+        return [
+            'status' => 'technical_error',
+            'http_code' => 503,
+            'message' => 'Nie udało się potwierdzić domeny kalendarza.',
+        ];
+    }
+
     $persistentCacheKey = '';
     $requestCountBefore = function_exists('booking_supabase_request_count_for_stage')
         ? booking_supabase_request_count_for_stage('tenant_lookup')
@@ -298,6 +398,7 @@ function getTenantLookupFromHost(
             'hosts' => $hosts,
             'supabase_url' => rtrim($SUPABASE_URL, '/'),
             'schema' => $SCHEMA,
+            'lookup_runtime' => 'domain-lookup-rpc-v1',
         ]);
         $cachedLookup = booking_context_cache_read('tenant_lookup', $persistentCacheKey);
 
@@ -313,13 +414,16 @@ function getTenantLookupFromHost(
     $technicalError = null;
 
     foreach ($hosts as $host) {
-        $url = rtrim($SUPABASE_URL, '/') . '/rest/v1/tenant_domains'
-            . '?select=tenant_id,domain,is_active'
-            . '&domain=eq.' . rawurlencode($host)
-            . '&is_active=eq.true'
-            . '&limit=1';
+        $url = rtrim($SUPABASE_URL, '/') . '/rest/v1/rpc/rezerwia_domain_lookup_active';
 
-        $result = tenant_lookup_request($url, $SUPABASE_KEY, $SCHEMA, $diagnosticLogger);
+        $result = tenant_lookup_request(
+            $url,
+            $credentials['anon_key'],
+            $credentials['token'],
+            $SCHEMA,
+            $host,
+            $diagnosticLogger
+        );
         $decodedResponse = is_array($result['data'] ?? null) ? $result['data'] : null;
         $responseCount = is_array($decodedResponse) ? count($decodedResponse) : 0;
 
