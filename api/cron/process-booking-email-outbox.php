@@ -13,6 +13,7 @@ if (PHP_SAPI !== 'cli') {
     exit;
 }
 
+// Zapisuje do logów tylko dozwoloną kategorię zdarzenia.
 function booking_email_worker_log(string $event): void
 {
     $allowed = [
@@ -35,6 +36,7 @@ function booking_email_worker_log(string $event): void
     error_log('BOOKING_EMAIL_WORKER ' . $event);
 }
 
+// Wyznacza identyfikator procesu odpowiedzialnego za kolejkę.
 function booking_email_worker_id(): string
 {
     $host = function_exists('gethostname') ? trim((string) gethostname()) : '';
@@ -44,6 +46,7 @@ function booking_email_worker_id(): string
     return 'booking-email-v1:h-' . $hostHash . ':p-' . $pid;
 }
 
+// Sprawdza format technicznego identyfikatora UUID.
 function booking_email_worker_uuid(string $value): bool
 {
     return preg_match(
@@ -52,6 +55,7 @@ function booking_email_worker_uuid(string $value): bool
     ) === 1;
 }
 
+// Waliduje długość i znaki technicznego tekstu.
 function booking_email_worker_safe_text(string $value, int $maxBytes = 128): bool
 {
     return $value !== ''
@@ -60,6 +64,7 @@ function booking_email_worker_safe_text(string $value, int $maxBytes = 128): boo
         && preg_match('/[\x00-\x1F\x7F]/', $value) !== 1;
 }
 
+// Pobiera ograniczoną liczbę rekordów z dozwolonej tabeli.
 function booking_email_worker_rows(
     array $config,
     string $table,
@@ -71,6 +76,7 @@ function booking_email_worker_rows(
         'email_settings',
         'tenant_branding',
         'tenant_service_settings',
+        'tenant_services',
         'email_templates',
         'staff_profiles',
         'tenant_domains',
@@ -176,6 +182,7 @@ function booking_email_worker_rows(
     ];
 }
 
+// Pobiera pojedynczy rekord i odrzuca niejednoznaczność.
 function booking_email_worker_single(
     array $config,
     string $table,
@@ -216,6 +223,7 @@ function booking_email_worker_single(
     ];
 }
 
+// Sprawdza format i rozmiar danych wiadomości z kolejki.
 function booking_email_worker_payload_valid($payload): bool
 {
     if (!is_array($payload)) {
@@ -260,6 +268,114 @@ function booking_email_worker_payload_valid($payload): bool
     return true;
 }
 
+// Sprawdza bieżącą politykę usługi i wyznacza czytelny termin zmiany rezerwacji.
+// Zwraca brak przycisku po każdym błędzie, niepełnym powiązaniu lub przekroczeniu terminu.
+// Rozstrzyga, czy w e-mailu wolno pokazać link i datę graniczną.
+function booking_email_worker_reschedule_offer(
+    array $booking,
+    ?array $service,
+    string $eventType,
+    DateTimeImmutable $now
+): array {
+    $denied = ['allowed' => false, 'notice' => ''];
+
+    // Wymaga jednoznacznego powiązania usługi z tym samym tenantem.
+    if ($service === null
+        || (string)($service['id'] ?? '') === ''
+        || (string)($service['id'] ?? '') !== (string)($booking['service_id'] ?? '')
+        || (string)($service['tenant_id'] ?? '') !== (string)($booking['tenant_id'] ?? '')
+        || ($service['customer_reschedule_enabled'] ?? null) !== true
+    ) {
+        return $denied;
+    }
+
+    // Nie dopuszcza błędnego limitu ani wykorzystania czwartej zmiany terminu.
+    $days = $service['customer_reschedule_cutoff_days'] ?? null;
+    $revision = $booking['reschedule_count'] ?? null;
+    if (!is_int($days) || $days < 0 || $days > 365
+        || !is_int($revision) || $revision < 0 || $revision >= 3
+    ) {
+        return $denied;
+    }
+
+    // Dopuszcza wyłącznie aktualną, nieanulowaną rezerwację danego rodzaju.
+    $legacy = $eventType === 'booking_created_customer'
+        && ($booking['source'] ?? null) === 'www'
+        && ($booking['status'] ?? null) === 'new'
+        && ($booking['payment_required'] ?? null) === false
+        && ($booking['payment_status'] ?? null) === 'not_required'
+        && ($booking['payment_lifecycle_version'] ?? null) === null
+        && ($booking['payment_lifecycle_payment_id'] ?? null) === null
+        && ($booking['payment_provider'] ?? null) === null
+        && ($booking['payment_order_id'] ?? null) === null;
+    $paid = $eventType === 'payment_paid_customer'
+        && ($booking['status'] ?? null) === 'confirmed'
+        && ($booking['payment_required'] ?? null) === true
+        && ($booking['payment_status'] ?? null) === 'paid'
+        && ($booking['payment_resolution_required'] ?? null) === false
+        && (string)($booking['payment_lifecycle_version'] ?? '') === '1'
+        && booking_email_worker_uuid((string)($booking['payment_lifecycle_payment_id'] ?? ''));
+    if (!$legacy && !$paid) {
+        return $denied;
+    }
+
+    // Potwierdza, że token jest obecny i nie wygasł.
+    $token = trim((string)($booking['manage_token'] ?? ''));
+    $expiresRaw = trim((string)($booking['manage_token_expires_at'] ?? ''));
+    if ($token === '' || strlen($token) > 512 || $expiresRaw === '') {
+        return $denied;
+    }
+    try {
+        $expires = new DateTimeImmutable($expiresRaw);
+    } catch (Throwable $e) {
+        return $denied;
+    }
+    if ($now >= $expires) {
+        return $denied;
+    }
+
+    // Odrzuca niepoprawną datę i godzinę, bez normalizowania ich po cichu.
+    $date = (string)($booking['booking_date'] ?? '');
+    $time = substr((string)($booking['booking_time'] ?? ''), 0, 5);
+    if (preg_match('/\A\d{4}-\d{2}-\d{2}\z/D', $date) !== 1
+        || preg_match('/\A(?:[01]\d|2[0-3]):[0-5]\d\z/D', $time) !== 1
+    ) {
+        return $denied;
+    }
+
+    $tz = new DateTimeZone('Europe/Warsaw');
+    $localDay = DateTimeImmutable::createFromFormat('!Y-m-d', $date, $tz);
+    if (!$localDay || $localDay->format('Y-m-d') !== $date) {
+        return $denied;
+    }
+    $start = $localDay->setTime((int)substr($time, 0, 2), (int)substr($time, 3, 2));
+    if ($start->format('H:i') !== $time || $now >= $start) {
+        return $denied;
+    }
+
+    // Zero dni oznacza możliwość zmiany do rozpoczęcia wizyty.
+    if ($days === 0) {
+        return [
+            'allowed' => true,
+            'notice' => 'Termin możesz przełożyć do rozpoczęcia wizyty, o ile link pozostaje aktywny.',
+        ];
+    }
+
+    // Wylicza termin graniczny z daty wizyty i limitu dni pobranego z bazy.
+    // W e-mailu podaje wyłącznie ostatni dzień, w którym można zmienić termin.
+    $blockedFrom = $localDay->modify('-' . $days . ' days');
+    if ($now >= $blockedFrom) {
+        return $denied;
+    }
+    $lastDay = $blockedFrom->modify('-1 day');
+    return [
+        'allowed' => true,
+        'notice' => 'Termin możesz przełożyć do końca dnia '
+            . $lastDay->format('d.m.Y') . '.',
+    ];
+}
+
+// Pobiera i wiąże dane wiadomości z właściwym tenantem i rezerwacją.
 function booking_email_worker_fetch_context(
     array $config,
     string $tenantId,
@@ -273,9 +389,10 @@ function booking_email_worker_fetch_context(
         'bookings',
         'select=id,tenant_id,name,email,phone,booking_date,booking_time,service_name_snapshot,staff_id,'
             . 'payment_amount,payment_currency,payment_status,status,payment_required,source,'
+            . 'payment_resolution_required,'
             . 'payment_lifecycle_version,payment_lifecycle_payment_id,payment_provider,payment_order_id,'
             . 'payment_started_at,paid_at,payment_url,payment_expires_at,'
-            . 'manage_token,manage_token_expires_at,reschedule_count'
+            . 'service_id,manage_token,manage_token_expires_at,reschedule_count'
             . '&' . $tenantQuery
             . '&id=eq.' . rawurlencode($bookingId),
         true
@@ -370,6 +487,7 @@ function booking_email_worker_fetch_context(
     $emailTemplate = null;
     $staff = null;
     $tenantDomain = '';
+    $rescheduleOffer = ['allowed' => false, 'notice' => ''];
 
     if (in_array($eventType, ['payment_paid_customer', 'booking_created_customer'], true)) {
         $templateResult = booking_email_worker_single(
@@ -432,21 +550,50 @@ function booking_email_worker_fetch_context(
             }
         }
 
-        $token = trim((string) ($booking['manage_token'] ?? ''));
-        $expiresAt = trim((string) ($booking['manage_token_expires_at'] ?? ''));
-        $mayReschedule = false;
-
-        if ($token !== '' && $expiresAt !== '') {
-            try {
-                $expires = new DateTimeImmutable($expiresAt);
-                $mayReschedule = $expires > new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'))
-                    && tenant_has_feature($tenantId, 'reschedule_booking');
-            } catch (Throwable $e) {
-                $mayReschedule = false;
-            }
+        // Sprawdza plan i identyfikator usługi przed odczytem prywatnej polityki.
+        $serviceId = trim((string)($booking['service_id'] ?? ''));
+        $featureAllowed = false;
+        try {
+            $featureAllowed = tenant_has_feature($tenantId, 'reschedule_booking') === true;
+        } catch (Throwable $e) {
+            $featureAllowed = false;
         }
 
-        if ($token !== '' && $expiresAt !== '' && isset($expires) && $expires > new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'))) {
+        if ($featureAllowed && booking_email_worker_uuid($serviceId)) {
+            // Odczytuje wyłącznie ustawienia usługi przypisanej do rezerwacji danego tenanta.
+            $policyResult = booking_email_worker_single(
+                $config,
+                'tenant_services',
+                'select=id,tenant_id,customer_reschedule_enabled,customer_reschedule_cutoff_days'
+                    . '&' . $tenantQuery
+                    . '&id=eq.' . rawurlencode($serviceId)
+            );
+            if (!$policyResult['ok']) {
+                return $policyResult;
+            }
+
+            $servicePolicy = $policyResult['row'];
+            if (is_array($servicePolicy) && (
+                (string)($servicePolicy['tenant_id'] ?? '') !== $tenantId
+                || (string)($servicePolicy['id'] ?? '') !== $serviceId
+            )) {
+                return [
+                    'ok' => false,
+                    'retryable' => false,
+                    'error_code' => 'email_context_binding_invalid',
+                ];
+            }
+
+            $rescheduleOffer = booking_email_worker_reschedule_offer(
+                $booking,
+                is_array($servicePolicy) ? $servicePolicy : null,
+                $eventType,
+                new DateTimeImmutable('now', new DateTimeZone('Europe/Warsaw'))
+            );
+        }
+
+        // Domenę odczytuje tylko wtedy, gdy wszystkie kontrole dopuściły przycisk.
+        if ($rescheduleOffer['allowed'] === true) {
             $domainResult = booking_email_worker_rows(
                 $config,
                 'tenant_domains',
@@ -532,9 +679,11 @@ function booking_email_worker_fetch_context(
         'email_template' => is_array($emailTemplate) ? $emailTemplate : null,
         'staff' => is_array($staff) ? $staff : null,
         'tenant_domain' => $tenantDomain,
+        'reschedule_offer' => $rescheduleOffer,
     ];
 }
 
+// Formatuje czas wiadomości w strefie systemu.
 function booking_email_worker_format_datetime(string $value): string
 {
     $value = trim($value);
@@ -552,6 +701,7 @@ function booking_email_worker_format_datetime(string $value): string
     }
 }
 
+// Wyznacza nazwę firmy w wiadomości.
 function booking_email_worker_company_name(array $context): string
 {
     $branding = is_array($context['branding'] ?? null) ? $context['branding'] : [];
@@ -560,6 +710,7 @@ function booking_email_worker_company_name(array $context): string
     return $name !== '' ? $name : trim((string) ($settings['company_full_name'] ?? ''));
 }
 
+// Wyznacza bezpieczną nazwę odbiorcy wiadomości.
 function booking_email_worker_customer_name(array $context, string $recipientEmail): string
 {
     $booking = is_array($context['booking'] ?? null) ? $context['booking'] : [];
@@ -572,12 +723,14 @@ function booking_email_worker_customer_name(array $context, string $recipientEma
     return trim((string) ($booking['name'] ?? ''));
 }
 
+// Buduje powitanie dla tekstowej wersji e-maila.
 function booking_email_worker_greeting_alt(string $name): string
 {
     $name = trim($name);
     return $name !== '' ? 'Dzień dobry, ' . $name . ".\n" : '';
 }
 
+// Buduje sekcję szczegółów rezerwacji w HTML.
 function booking_email_worker_summary_html(
     array $booking,
     bool $includeContact,
@@ -625,6 +778,7 @@ function booking_email_worker_summary_html(
         . '</table>';
 }
 
+// Buduje potwierdzenie klienta z opcjonalnym linkiem do przekładania.
 function booking_email_worker_render_paid_customer(
     string $tenantId,
     string $recipientEmail,
@@ -723,14 +877,18 @@ function booking_email_worker_render_paid_customer(
     );
 
     $rescheduleUrl = '';
+    $rescheduleNotice = '';
     $tenantDomain = trim((string) ($context['tenant_domain'] ?? ''));
     $manageToken = trim((string) ($booking['manage_token'] ?? ''));
+    $offer = is_array($context['reschedule_offer'] ?? null)
+        ? $context['reschedule_offer'] : [];
 
-    if ($tenantDomain !== '' && $manageToken !== '') {
-        if (tenant_has_feature($tenantId, 'reschedule_booking')) {
-            $rescheduleUrl = 'https://' . $tenantDomain
-                . '/przeloz-rezerwacje.html?token=' . rawurlencode($manageToken);
-        }
+    // Nie pokazuje przycisku bez potwierdzenia bieżącej polityki usługi.
+    if (($offer['allowed'] ?? false) === true
+        && $tenantDomain !== '' && $manageToken !== '') {
+        $rescheduleUrl = 'https://' . $tenantDomain
+            . '/przeloz-rezerwacje.html?token=' . rawurlencode($manageToken);
+        $rescheduleNotice = (string)($offer['notice'] ?? '');
     }
 
     $isPaidConfirmation = $eventType === 'payment_paid_customer';
@@ -754,6 +912,7 @@ function booking_email_worker_render_paid_customer(
             'status_label' => $isPaidConfirmation ? 'Opłacono' : '',
             'amount_text' => $amountText,
             'reschedule_url' => $rescheduleUrl,
+            'reschedule_notice' => $rescheduleNotice,
         ],
         $serviceName,
         $staffDisplayName
@@ -769,7 +928,7 @@ function booking_email_worker_render_paid_customer(
         . ($isPaidConfirmation ? "Status płatności: Opłacono\n" : '')
         . ($amountText !== '' ? "Kwota: {$amountText}\n" : '')
         . ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '')
-        . ($rescheduleUrl !== '' ? "\nPrzełóż rezerwację: {$rescheduleUrl}\n" : '')
+        . ($rescheduleUrl !== '' ? "\nPrzełóż rezerwację: {$rescheduleUrl}\n{$rescheduleNotice}\n" : '')
         . "\nChcesz anulować rezerwację?\n"
         . 'Jeśli chcesz anulować rezerwację, skontaktuj się bezpośrednio z '
         . ($companyName !== '' ? 'firmą ' . $companyName : 'firmą, w której dokonano rezerwacji')
@@ -786,6 +945,7 @@ function booking_email_worker_render_paid_customer(
 }
 
 
+// Buduje powiadomienie o wykonanym przełożeniu.
 function booking_email_worker_render_rescheduled(
     string $eventType,
     string $recipientEmail,
@@ -932,6 +1092,7 @@ function booking_email_worker_render_rescheduled(
     ];
 }
 
+// Weryfikuje adres operatora płatności przed użyciem.
 function booking_email_worker_valid_payu_url(string $url): bool
 {
     $url = trim($url);
@@ -957,6 +1118,7 @@ function booking_email_worker_valid_payu_url(string $url): bool
         && !isset($parts['pass']);
 }
 
+// Buduje pozostałe obsługiwane typy wiadomości.
 function booking_email_worker_render_generic(
     string $eventType,
     string $recipientEmail,
@@ -1183,6 +1345,7 @@ function booking_email_worker_render_generic(
     ];
 }
 
+// Buduje powiadomienie administratora o wniosku anulowania.
 function booking_email_worker_render_review_requested(array $context): array
 {
     $payload = $context['outbox_payload'] ?? null;
@@ -1216,6 +1379,7 @@ function booking_email_worker_render_review_requested(array $context): array
     ];
 }
 
+// Buduje potwierdzenie anulowania dla klienta.
 function booking_email_worker_render_cancelled(array $context, string $recipientEmail): array
 {
     $booking = $context['booking'] ?? [];
@@ -1274,6 +1438,7 @@ function booking_email_worker_render_cancelled(array $context, string $recipient
 }
 
 
+// Buduje powiadomienie o zmianie przypisanego personelu.
 function booking_email_worker_render_staff(string $eventType, array $context, string $recipientEmail): array
 {
     $booking = $context['booking'];
@@ -1330,6 +1495,7 @@ function booking_email_worker_render_staff(string $eventType, array $context, st
     ];
 }
 
+// Wybiera renderer zgodny z rodzajem zdarzenia.
 function booking_email_worker_render(
     string $tenantId,
     string $eventType,
@@ -1371,6 +1537,7 @@ function booking_email_worker_render(
     );
 }
 
+// Zapisuje wynik dostarczenia przez zatwierdzony RPC.
 function booking_email_worker_record_result(
     string $outboxId,
     string $claimToken,
@@ -1416,6 +1583,7 @@ function booking_email_worker_record_result(
     return false;
 }
 
+// Rejestruje błąd przed wysyłką, z uwzględnieniem ponowienia.
 function booking_email_worker_record_pre_send_failure(
     string $outboxId,
     string $claimToken,

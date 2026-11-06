@@ -1,3 +1,4 @@
+// Uruchamia izolowany moduł obsługi usług i płatności panelu administracyjnego.
 (function () {
   let initialized = false;
 
@@ -14,10 +15,12 @@
     deletingRef: null,
     loadSequence: 0,
     searchQuery: '',
+    servicesLoaded: false,
   };
 
   const els = {};
 
+  // Inicjalizuje moduł usług, wiąże zdarzenia i pobiera dane administratora.
   window.initAdminServicePaymentsModule = async function initAdminServicePaymentsModule() {
     if (initialized) return;
 
@@ -33,10 +36,12 @@
     await loadServicePaymentsData();
   };
 
+  // Udostępnia innym modułom ręczne odświeżenie listy usług.
   window.refreshAdminServicePaymentsData = function refreshAdminServicePaymentsData() {
     return loadServicePaymentsData({ forceRefresh: true });
   };
 
+  // Zapamiętuje kontrolki formularza, aby pracować na właściwej sekcji.
   function cacheElements(section) {
     els.section = section;
     els.refreshButton = section.querySelector('#service-payments-refresh-btn');
@@ -57,6 +62,9 @@
     els.breakMinutes = section.querySelector('#service-break-minutes');
     els.minNoticeValue = section.querySelector('#service-min-notice-value');
     els.minNoticeUnit = section.querySelector('#service-min-notice-unit');
+    els.rescheduleOptions = section.querySelector('#service-reschedule-options');
+    els.rescheduleEnabled = section.querySelector('#service-reschedule-enabled');
+    els.rescheduleCutoffDays = section.querySelector('#service-reschedule-cutoff-days');
     els.priceAmount = section.querySelector('#service-price-amount');
     els.priceCurrency = section.querySelector('#service-price-currency');
     els.paymentsEnabled = section.querySelector('#service-payments-enabled');
@@ -76,6 +84,7 @@
     els.globalSaveButton = section.querySelector('#global-service-save-btn');
   }
 
+  // Ujednolica wygląd przycisku odświeżania listy.
   function normalizeRefreshButtonLayout() {
     if (!els.refreshButton) return;
 
@@ -92,7 +101,9 @@
     els.refreshButton.style.whiteSpace = 'nowrap';
   }
 
+  // Przypina zdarzenia dla formularza, listy usług i ustawień.
   function bindEvents() {
+    // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
     els.newButton?.addEventListener('click', () => {
       populateForm(null);
       setMessage(els.formMessage, '', '');
@@ -105,8 +116,10 @@
     els.globalSaveButton?.addEventListener('click', saveGlobalServiceSettings);
     els.searchInput?.addEventListener('input', updateServiceSearch);
     els.searchInput?.addEventListener('change', updateServiceSearch);
+    els.rescheduleEnabled?.addEventListener('change', updateRescheduleSettingsAvailability);
 
     window.addEventListener('aiiq:staff-updated', refreshStaffAfterUpdate);
+    // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
     window.addEventListener('aiiq:section-shown', (event) => {
       if (event?.detail?.section === 'usluga-platnosci') {
         loadServicePaymentsData({ forceRefresh: true });
@@ -114,6 +127,7 @@
     });
   }
 
+  // Pobiera usługi i personel; nie udostępnia ustawień przed pełnym odczytem.
   async function loadServicePaymentsData(options = {}) {
     if (state.loading && !options.forceRefresh) return;
 
@@ -121,6 +135,8 @@
     state.loadSequence = loadId;
 
     state.loading = true;
+    state.servicesLoaded = false;
+    updateRescheduleSettingsAvailability();
     setMessage(els.listMessage, 'Ładowanie usług...', 'muted');
 
     try {
@@ -136,6 +152,7 @@
 
       state.services = Array.isArray(servicesData.services) ? servicesData.services.map(normalizeService) : [];
       state.staff = Array.isArray(staffData.staff) ? staffData.staff.map(normalizeStaff) : [];
+      state.servicesLoaded = true;
 
       mergeAssignedStaffFromServices();
       renderServiceList();
@@ -154,6 +171,8 @@
         return;
       }
 
+      state.servicesLoaded = false;
+      updateRescheduleSettingsAvailability();
       setMessage(els.listMessage, error.message || 'Nie udało się załadować usług.', 'error');
       setMessage(els.staffMessage, 'Nie udało się załadować pracowników do przypisania.', 'error');
       renderServiceList();
@@ -165,6 +184,7 @@
     }
   }
 
+  // Odświeża dane pracowników po zmianie w ich module.
   async function refreshStaffAfterUpdate() {
     const selectedStaffRefs = getCurrentSelectedStaffRefs();
     setMessage(els.staffMessage, 'Odświeżanie listy pracowników...', 'muted');
@@ -181,6 +201,7 @@
     }
   }
 
+  // Obsługuje ręczne odświeżenie z komunikatem o wyniku.
   async function refreshServicePaymentsFromButton() {
     if (!els.refreshButton) return;
 
@@ -194,6 +215,7 @@
       setMessage(els.listMessage, error.message || 'Nie udało się odświeżyć danych usług.', 'error');
       setButtonState(els.refreshButton, 'Błąd', true);
     } finally {
+      // Przywraca stan interfejsu po krótkim opóźnieniu.
       window.setTimeout(() => {
         if (!els.refreshButton) return;
         els.refreshButton.textContent = originalText || 'Odśwież';
@@ -202,6 +224,7 @@
     }
   }
 
+  // Pobiera ustawienia globalne i informacje o funkcjach planu.
   async function loadGlobalServiceSettings(options = {}) {
     try {
       const url = options.forceRefresh ? cacheBustUrl('/api/system/service-settings.php') : '/api/system/service-settings.php';
@@ -216,12 +239,15 @@
     }
   }
 
+  // Dodaje parametr zapobiegający użyciu przestarzałej pamięci podręcznej.
   function cacheBustUrl(url) {
     const separator = url.includes('?') ? '&' : '?';
     return `${url}${separator}_=${Date.now()}`;
   }
 
+  // Uspójnia obsługę liczb w formularzu bez zastępowania walidacji serwera.
   function bindSmartNumberInputs(root = document) {
+    // Wykonuje operację na każdym elemencie kolekcji.
     root.querySelectorAll('input[type="number"]').forEach((input) => {
       if (input.dataset.smartNumberBound === '1') {
         return;
@@ -229,12 +255,14 @@
 
       input.dataset.smartNumberBound = '1';
 
+      // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
       input.addEventListener('focus', () => {
         if (input.value === '0') {
           input.select();
         }
       });
 
+      // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
       input.addEventListener('input', () => {
         const normalized = normalizeSmartNumberInputValue(input.value, isDecimalNumberInput(input));
 
@@ -243,6 +271,7 @@
         }
       });
 
+      // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
       input.addEventListener('blur', () => {
         if (input.value.trim() !== '' || !input.required) {
           return;
@@ -254,11 +283,13 @@
     });
   }
 
+  // Sprawdza, czy pole dopuszcza wartości dziesiętne.
   function isDecimalNumberInput(input) {
     const step = String(input.getAttribute('step') || '');
     return step === 'any' || step.includes('.') || step.includes(',');
   }
 
+  // Normalizuje wpisywaną liczbę bez zmiany jej znaczenia.
   function normalizeSmartNumberInputValue(value, allowDecimal) {
     let text = String(value || '');
 
@@ -289,6 +320,7 @@
     return `${sign}${normalizeIntegerLeadingZeros(text)}`;
   }
 
+  // Usuwa zbędne zera wiodące z liczby całkowitej.
   function normalizeIntegerLeadingZeros(value) {
     const digits = String(value || '');
 
@@ -301,6 +333,7 @@
     return normalized === '' ? '0' : normalized;
   }
 
+  // Uzupełnia formularz wartościami globalnymi odebranymi z serwera.
   function fillGlobalSettings(settings) {
     state.globalSettings = { ...settings };
 
@@ -315,11 +348,13 @@
     updatePaymentFieldsAvailability();
   }
 
+  // Sprawdza dostępność płatności według funkcji bieżącego planu.
   function servicePaymentsAllowed() {
     const features = state.planContext?.features || {};
     return features.online_payments === true && features.payu === true;
   }
 
+  // Włącza lub blokuje pola płatnicze według uprawnień planu.
   function updatePaymentFieldsAvailability() {
     const allowed = servicePaymentsAllowed();
 
@@ -334,6 +369,7 @@
       els.priceCurrency,
       els.paymentsEnabled,
       els.paymentMessage,
+    // Wykonuje operację na każdym elemencie kolekcji.
     ].forEach((field) => {
       if (field) field.disabled = !allowed;
     });
@@ -344,6 +380,7 @@
     }
   }
 
+  // Waliduje i zbiera dane globalne do wysłania na serwer.
   function readGlobalSettingsPayload() {
     if (!servicePaymentsAllowed()) {
       return {
@@ -381,6 +418,7 @@
     };
   }
 
+  // Zapisuje ustawienia globalne i wyświetla wynik operacji.
   async function saveGlobalServiceSettings() {
     if (state.savingGlobal) return;
 
@@ -418,6 +456,7 @@
     }
   }
 
+  // Pobiera nazwę firmy do podglądu ustawień usługi.
   async function loadServiceCompanyNamePreview() {
     const previewEl = document.getElementById('service-company-name-preview');
 
@@ -438,12 +477,17 @@
     }
   }
 
+  // Łączy personel z listy i przypisań, bez duplikowania osób.
   function mergeAssignedStaffFromServices() {
     const staffByRef = new Map(state.staff
+      // Odfiltrowuje elementy niespełniające warunków widoku.
       .filter((person) => person.staffRef)
+      // Odwzorowuje elementy kolekcji na dane potrzebne w widoku.
       .map((person) => [person.staffRef, person]));
 
+    // Wykonuje operację na każdym elemencie kolekcji.
     state.services.forEach((service) => {
+      // Wykonuje operację na każdym elemencie kolekcji.
       service.staff.forEach((person) => {
         if (person.staffRef && !staffByRef.has(person.staffRef)) {
           staffByRef.set(person.staffRef, person);
@@ -451,6 +495,7 @@
       });
     });
 
+    // Porządkuje pracowników do prezentacji w interfejsie.
     state.staff = Array.from(staffByRef.values()).sort((a, b) => {
       const activeDiff = Number(b.is_active) - Number(a.is_active);
       if (activeDiff !== 0) return activeDiff;
@@ -458,6 +503,7 @@
     });
   }
 
+  // Normalizuje dane pojedynczej usługi otrzymane z API.
   function normalizeService(row) {
     return {
       serviceRef: row?.service_ref ? String(row.service_ref) : '',
@@ -466,6 +512,8 @@
       duration_minutes: normalizeInteger(row?.duration_minutes, 60),
       break_minutes: normalizeInteger(row?.break_minutes, 0),
       booking_buffer_minutes: normalizeInteger(row?.booking_buffer_minutes, 0),
+      customer_reschedule_enabled: row?.customer_reschedule_enabled === true,
+      customer_reschedule_cutoff_days: normalizeInteger(row?.customer_reschedule_cutoff_days, 0),
       price_amount: row?.price_amount !== null && row?.price_amount !== undefined ? String(row.price_amount) : '',
       price_currency: row?.price_currency ? String(row.price_currency).toUpperCase() : 'PLN',
       payments_enabled: row?.payments_enabled === true,
@@ -478,6 +526,7 @@
     };
   }
 
+  // Normalizuje dane pracownika otrzymane z API.
   function normalizeStaff(row) {
     return {
       staffRef: row?.staff_ref ? String(row.staff_ref) : '',
@@ -490,6 +539,46 @@
     };
   }
 
+  // Ukrywa nowe pola do czasu odczytu i blokuje liczbę dni po wyłączeniu opcji.
+  function updateRescheduleSettingsAvailability() {
+    // Nie pokazuje ani nie aktywuje pól przed skutecznym odczytem usług.
+    if (!els.rescheduleOptions || !els.rescheduleEnabled || !els.rescheduleCutoffDays) return;
+
+    const ready = state.servicesLoaded;
+    els.rescheduleOptions.hidden = !ready;
+    els.rescheduleEnabled.disabled = !ready;
+    els.rescheduleCutoffDays.disabled = !ready || !els.rescheduleEnabled.checked;
+  }
+
+  // Weryfikuje obie kontrolki i tworzy atomowy zestaw ustawień przekładania.
+  function readRescheduleSettingsPayload() {
+    // Na starym formularzu zachowuje dotychczasowy kontrakt API.
+    if (!els.rescheduleOptions && !els.rescheduleEnabled && !els.rescheduleCutoffDays) {
+      return {};
+    }
+
+    // Przy niekompletnym formularzu odmawia zapisu zamiast nadpisywać ustawienia.
+    if (!els.rescheduleOptions || !els.rescheduleEnabled || !els.rescheduleCutoffDays || !state.servicesLoaded) {
+      throw new Error('Ustawienia przekładania nie zostały poprawnie załadowane. Odśwież panel.');
+    }
+
+    const rawDays = String(els.rescheduleCutoffDays.value ?? '').trim();
+    if (!/^(0|[1-9]\d{0,2})$/.test(rawDays)) {
+      throw new Error('Liczba dni blokady musi być liczbą całkowitą od 0 do 365.');
+    }
+
+    const days = Number(rawDays);
+    if (!Number.isSafeInteger(days) || days > 365) {
+      throw new Error('Liczba dni blokady musi być liczbą całkowitą od 0 do 365.');
+    }
+
+    return {
+      customer_reschedule_enabled: els.rescheduleEnabled.checked === true,
+      customer_reschedule_cutoff_days: days,
+    };
+  }
+
+  // Skraca opis pracownika do tekstu prezentowanego w formularzu.
   function getStaffDescriptionLabel(person) {
     const description = String(person?.description || '').trim();
 
@@ -502,29 +591,36 @@
       : description;
   }
 
+  // Zwraca liczbę całkowitą albo wskazaną wartość domyślną.
   function normalizeInteger(value, defaultValue) {
     const number = Number.parseInt(String(value ?? ''), 10);
     return Number.isFinite(number) ? number : defaultValue;
   }
 
+  // Normalizuje dodatni czas przeznaczony na płatność.
   function normalizePaymentTimeLimitValue(value) {
     const number = normalizeInteger(value, 48);
     return number > 0 ? number : 48;
   }
 
+  // Dopuszcza wyłącznie godziny albo dni jako jednostkę terminu.
   function normalizePaymentTimeLimitUnit(value) {
     return ['hours', 'days'].includes(String(value || '')) ? String(value) : 'hours';
   }
 
+  // Odnajduje zaznaczoną usługę po jej publicznym identyfikatorze.
   function findSelectedService() {
+    // Wyszukuje wskazaną usługę lub pracownika w pamięci modułu.
     return state.services.find((service) => service.serviceRef === state.selectedRef) || null;
   }
 
+  // Odczytuje frazę wyszukiwania i odświeża listę.
   function updateServiceSearch() {
     state.searchQuery = els.searchInput?.value || '';
     renderServiceList();
   }
 
+  // Przygotowuje tekst usługi do lokalnego wyszukiwania.
   function getServiceSearchText(service) {
     return [
       service.name,
@@ -533,6 +629,7 @@
     ].join(' ').toLowerCase();
   }
 
+  // Filtruje usługi według frazy wpisanej przez administratora.
   function getFilteredServices() {
     const query = state.searchQuery.trim().toLowerCase();
 
@@ -540,9 +637,11 @@
       return state.services;
     }
 
+    // Odfiltrowuje elementy niespełniające warunków widoku.
     return state.services.filter((service) => getServiceSearchText(service).includes(query));
   }
 
+  // Scala odpowiedź zapisu z listą usług i aktualizuje formularz.
   function applySavedServiceResponse(data) {
     const freshStaffRefs = Array.isArray(data?.staff_refs)
       ? data.staff_refs.map(String)
@@ -559,6 +658,7 @@
       return null;
     }
 
+    // Wyszukuje wskazaną usługę lub pracownika w pamięci modułu.
     const existingIndex = state.services.findIndex((service) => service.serviceRef === savedServiceRef);
     const existingService = existingIndex >= 0 ? state.services[existingIndex] : null;
 
@@ -573,6 +673,7 @@
         service_ref: existingService.serviceRef,
         staff_refs: existingService.staffRefs,
         staff: Array.isArray(existingService.staff)
+          // Odwzorowuje elementy kolekcji na dane potrzebne w widoku.
           ? existingService.staff.map((person) => ({ ...person, staff_ref: person.staffRef }))
           : [],
       }
@@ -589,6 +690,7 @@
       if (!Array.isArray(responseService?.staff)) {
         const freshStaffSet = new Set(freshStaffRefs);
         mergedRaw.staff = Array.isArray(existingService?.staff)
+          // Odfiltrowuje elementy niespełniające warunków widoku.
           ? existingService.staff.filter((person) => freshStaffSet.has(person.staffRef))
           : [];
       }
@@ -611,6 +713,7 @@
     return updatedService;
   }
 
+  // Powiadamia pozostałe moduły o zmianie usługi.
   function dispatchServicesUpdatedEvent(service, data) {
     if (typeof window.dispatchEvent !== 'function') {
       return;
@@ -626,6 +729,7 @@
     window.dispatchEvent(new CustomEvent('aiiq:services-updated', { detail }));
   }
 
+  // Buduje listę usług z bezpiecznym kodowaniem treści.
   function renderServiceList() {
     if (!els.list) return;
 
@@ -649,6 +753,7 @@
       setMessage(els.listMessage, '', '');
     }
 
+    // Odwzorowuje elementy kolekcji na dane potrzebne w widoku.
     els.list.innerHTML = visibleServices.map((service) => {
       const selected = service.serviceRef === state.selectedRef ? ' is-selected' : '';
       const inactive = service.is_active ? '' : ' is-inactive';
@@ -688,20 +793,28 @@
       `;
     }).join('');
 
+    // Wykonuje operację na każdym elemencie kolekcji.
     els.list.querySelectorAll('[data-action="edit"]').forEach((button) => {
+      // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
       button.addEventListener('click', () => selectService(button.dataset.serviceRef || ''));
     });
 
+    // Wykonuje operację na każdym elemencie kolekcji.
     els.list.querySelectorAll('[data-action="deactivate"]').forEach((button) => {
+      // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
       button.addEventListener('click', () => deactivateService(button.dataset.serviceRef || '', button));
     });
 
+    // Wykonuje operację na każdym elemencie kolekcji.
     els.list.querySelectorAll('[data-action="delete"]').forEach((button) => {
+      // Obsługuje zdarzenie użytkownika lub zdarzenie odświeżenia modułu.
       button.addEventListener('click', () => deleteService(button.dataset.serviceRef || '', button));
     });
   }
 
+  // Wybiera usługę do edycji i uzupełnia jej ustawienia.
   function selectService(serviceRef) {
+    // Wyszukuje wskazaną usługę lub pracownika w pamięci modułu.
     const service = state.services.find((item) => item.serviceRef === serviceRef) || null;
     if (!service) return;
 
@@ -711,6 +824,7 @@
     renderServiceList();
   }
 
+  // Dzieli wyprzedzenie rezerwacji na liczbę i jednostkę czasu.
   function splitNoticeMinutes(totalMinutes) {
     const minutes = Math.max(0, parseInt(totalMinutes || 0, 10) || 0);
 
@@ -734,6 +848,7 @@
     };
   }
 
+  // Przelicza wyprzedzenie rezerwacji na minuty.
   function readMinNoticeMinutes() {
     const value = Math.max(0, parseInt(els.minNoticeValue?.value || '0', 10) || 0);
     const unit = els.minNoticeUnit?.value || 'minutes';
@@ -749,6 +864,7 @@
     return value;
   }
 
+  // Ustawia pola formularza według zaznaczonej lub nowej usługi.
   function populateForm(service) {
     const selected = service || null;
     state.selectedRef = selected ? selected.serviceRef : null;
@@ -762,6 +878,9 @@
     const minNotice = splitNoticeMinutes(selected?.booking_buffer_minutes || 0);
     setFieldValue(els.minNoticeValue, minNotice.value);
     setFieldValue(els.minNoticeUnit, minNotice.unit);
+    setCheckboxValue(els.rescheduleEnabled, selected?.customer_reschedule_enabled === true);
+    setFieldValue(els.rescheduleCutoffDays, selected?.customer_reschedule_cutoff_days ?? 0);
+    updateRescheduleSettingsAvailability();
 
     setFieldValue(els.priceAmount, selected?.price_amount || '');
     setFieldValue(els.priceCurrency, selected?.price_currency || 'PLN');
@@ -779,10 +898,12 @@
     updatePaymentFieldsAvailability();
   }
 
+  // Pokazuje pracowników dostępnych do przypisania usłudze.
   function renderStaffCheckboxes(selectedStaffRefs) {
     if (!els.staffList) return;
 
     const selectedSet = new Set((Array.isArray(selectedStaffRefs) ? selectedStaffRefs : []).map(String));
+    // Odfiltrowuje elementy niespełniające warunków widoku.
     const availableStaff = state.staff.filter((person) => person.staffRef && (person.is_active || selectedSet.has(person.staffRef)));
 
     if (availableStaff.length === 0) {
@@ -793,6 +914,7 @@
 
     els.staffList.classList.toggle('is-scrollable', availableStaff.length > 6);
 
+    // Odwzorowuje elementy kolekcji na dane potrzebne w widoku.
     els.staffList.innerHTML = availableStaff.map((person) => {
       const isSelected = selectedSet.has(person.staffRef);
       const isInactive = !person.is_active;
@@ -814,9 +936,11 @@
     }).join('');
   }
 
+  // Zwraca zaznaczonych pracowników w postaci publicznych referencji.
   function getCurrentSelectedStaffRefs() {
     if (els.staffList) {
       return Array.from(els.staffList.querySelectorAll('input[type="checkbox"]:checked'))
+        // Odwzorowuje elementy kolekcji na dane potrzebne w widoku.
         .map((input) => input.value)
         .filter(Boolean);
     }
@@ -825,6 +949,7 @@
     return selectedService ? selectedService.staffRefs : [];
   }
 
+  // Waliduje i buduje żądanie zapisu pojedynczej usługi.
   function readServicePayload() {
     const name = els.name.value.trim();
     const description = els.description.value.trim();
@@ -869,6 +994,7 @@
     }
 
     const staffRefs = Array.from(els.staffList.querySelectorAll('input[type="checkbox"]:checked:not(:disabled)'))
+      // Odwzorowuje elementy kolekcji na dane potrzebne w widoku.
       .map((input) => input.value)
       .filter(Boolean);
 
@@ -887,9 +1013,11 @@
       visible_on_front: Boolean(els.visibleOnFront.checked),
       sort_order: sortOrder,
       staff_refs: staffRefs,
+      ...readRescheduleSettingsPayload(),
     };
   }
 
+  // Weryfikuje pole liczby całkowitej w określonym przedziale.
   function readInteger(input, label, min, max = null) {
     const value = Number.parseInt(String(input.value || ''), 10);
     const hasMax = max !== null && max !== undefined;
@@ -905,10 +1033,12 @@
     return value;
   }
 
+  // Odczytuje cenę usługi z formularza.
   function readPrice() {
     return readMoneyValue(els.priceAmount, 'Cena');
   }
 
+  // Sprawdza format kwoty z maksymalnie dwoma miejscami dziesiętnymi.
   function readMoneyValue(input, label) {
     const raw = input.value.trim().replace(',', '.');
 
@@ -923,6 +1053,7 @@
     return Number(raw).toFixed(2);
   }
 
+  // Wysyła zapis usługi i obsługuje odpowiedź backendu.
   async function saveService(event) {
     event?.preventDefault();
     event?.stopPropagation();
@@ -964,7 +1095,9 @@
     }
   }
 
+  // Potwierdza i wykonuje wyłączenie usługi.
   async function deactivateService(serviceRef, button) {
+    // Wyszukuje wskazaną usługę lub pracownika w pamięci modułu.
     const service = state.services.find((item) => item.serviceRef === serviceRef) || null;
 
     if (!service || state.deactivatingRef) return;
@@ -1015,6 +1148,7 @@
     }
   }
 
+  // Przygotowuje komunikat wyjaśniający ograniczenia usuwania.
   function serviceDeleteBlockMessage() {
     return 'Nie można usunąć tej usługi.\n'
       + 'Usługę możesz usunąć dopiero wtedy, gdy nie będzie miała przypisanych rezerwacji ani pracowników.\n'
@@ -1024,6 +1158,7 @@
       + '2. upewnij się, że nie ma aktywnych/przyszłych rezerwacji przypisanych do tej usługi.';
   }
 
+  // Pokazuje informację o blokadzie usunięcia usługi.
   async function showServiceDeleteBlockInfo() {
     const message = serviceDeleteBlockMessage();
 
@@ -1043,6 +1178,7 @@
     setMessage(els.listMessage, message, 'error');
   }
 
+  // Prosi administratora o potwierdzenie nieodwracalnego usunięcia.
   async function showServiceDeleteConfirm() {
     if (typeof window.openAdminConfirm !== 'function') {
       setMessage(els.listMessage, 'Nie można pokazać okna potwierdzenia.', 'error');
@@ -1059,6 +1195,7 @@
     });
   }
 
+  // Rozpoznaje biznesowy błąd blokujący usunięcie usługi.
   function isServiceDeleteBlockedError(error) {
     const data = error && error.data ? error.data : null;
     const reason = String(data?.reason || data?.code || '').toLowerCase();
@@ -1069,7 +1206,9 @@
       || Boolean(data?.has_active_bookings);
   }
 
+  // Sprawdza możliwość usunięcia i obsługuje żądanie administratora.
   async function deleteService(serviceRef, button) {
+    // Wyszukuje wskazaną usługę lub pracownika w pamięci modułu.
     const service = state.services.find((item) => item.serviceRef === serviceRef) || null;
 
     if (!service || state.deletingRef) return;
@@ -1138,6 +1277,7 @@
     }
   }
 
+  // Wysyła żądanie API, sprawdza odpowiedź i zwraca dane JSON.
   async function requestJson(url, options = {}) {
     if (typeof window.apiFetch === 'function') {
       const data = await window.apiFetch(url, {
@@ -1191,6 +1331,7 @@
     return data;
   }
 
+  // Ustawia treść i rodzaj komunikatu na formularzu.
   function setMessage(element, text, type) {
     if (!element) return;
 
@@ -1199,23 +1340,28 @@
     element.hidden = !text;
   }
 
+  // Ustawia wartość kontrolki tylko wtedy, gdy istnieje.
   function setFieldValue(element, value) {
     if (!element) return;
     element.value = value ?? '';
   }
 
+  // Ustawia stan zaznaczenia istniejącego checkboxa.
   function setCheckboxValue(element, value) {
     if (!element) return;
     element.checked = Boolean(value);
   }
 
+  // Zmienia podpis i dostępność przycisku.
   function setButtonState(button, text, disabled = false) {
     if (!button) return;
     button.textContent = text;
     button.disabled = disabled;
   }
 
+  // Przywraca podpis przycisku po zakończonej operacji.
   function resetButtonLater(button, text) {
+    // Przywraca stan interfejsu po krótkim opóźnieniu.
     window.setTimeout(() => {
       if (!button || state.saving) return;
       button.textContent = text;
@@ -1223,17 +1369,20 @@
     }, 900);
   }
 
+  // Formatuje kwotę do dwóch miejsc po przecinku.
   function formatPrice(value) {
     const number = Number(value);
     return Number.isFinite(number) ? number.toFixed(2) : String(value || '0.00');
   }
 
+  // Dobiera poprawną polską formę liczby pracowników.
   function formatStaffCount(count) {
     if (count === 1) return 'pracownik';
     if (count > 1 && count < 5) return 'pracowników';
     return 'pracowników';
   }
 
+  // Koduje znaki specjalne przed wstawieniem treści do HTML.
   function escapeHtml(value) {
     return String(value ?? '')
       .replace(/&/g, '&amp;')
@@ -1243,6 +1392,7 @@
       .replace(/'/g, '&#039;');
   }
 
+  // Koduje treść umieszczaną w atrybutach HTML.
   function escapeHtmlAttr(value) {
     return escapeHtml(value);
   }

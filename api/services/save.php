@@ -5,6 +5,7 @@ header('Content-Type: application/json; charset=utf-8');
 
 require_once __DIR__ . '/_common.php';
 
+// Waliduje pole tekstowe usługi oraz ogranicza jego długość i typ.
 function services_save_text($value, string $field, int $maxLength, bool $required = false): ?string
 {
     if (is_array($value) || is_object($value)) {
@@ -40,6 +41,7 @@ function services_save_text($value, string $field, int $maxLength, bool $require
     return $text;
 }
 
+// Sprawdza liczbę całkowitą i dozwolony zakres wartości.
 function services_save_integer($value, string $field, int $min, int $max): int
 {
     if (is_bool($value) || is_array($value) || is_object($value)
@@ -65,6 +67,7 @@ function services_save_integer($value, string $field, int $min, int $max): int
     return $integer;
 }
 
+// Waliduje cenę usługi i normalizuje kwotę do dwóch miejsc po przecinku.
 function services_save_price($value): ?float
 {
     if ($value === null || (is_string($value) && trim($value) === '')) {
@@ -102,6 +105,7 @@ function services_save_price($value): ?float
     return round($price, 2);
 }
 
+// Odczytuje i kontroluje wartość logiczną w danych wejściowych.
 function services_save_boolean($value, string $field): bool
 {
     if (is_bool($value)) {
@@ -135,6 +139,7 @@ function services_save_boolean($value, string $field): bool
     return (bool) $value;
 }
 
+// Rozpoznaje publiczny identyfikator usługi wyłącznie wewnątrz tenanta zalogowanego administratora.
 function services_save_service_id_from_ref(
     string $supabaseUrl,
     string $supabaseKey,
@@ -157,6 +162,7 @@ function services_save_service_id_from_ref(
         . '?select=id'
         . '&tenant_id=eq.' . rawurlencode($tenantId);
 
+    // Odczytuje identyfikatory usług tylko dla aktualnego tenanta.
     $servicesResult = services_request('GET', $servicesUrl, $supabaseKey, $schema);
 
     if ($servicesResult['response'] === false || $servicesResult['error'] !== '') {
@@ -192,6 +198,7 @@ function services_save_service_id_from_ref(
     ], 400);
 }
 
+// Weryfikuje publiczne identyfikatory pracowników i mapuje je na rekordy bieżącego tenanta.
 function services_save_staff_ids_from_refs(
     string $supabaseUrl,
     string $supabaseKey,
@@ -238,6 +245,7 @@ function services_save_staff_ids_from_refs(
         . '?select=id'
         . '&tenant_id=eq.' . rawurlencode($tenantId);
 
+    // Pobiera pracowników z filtrem tenant_id; odpowiedź jest następnie weryfikowana.
     $staffResult = services_request('GET', $staffUrl, $supabaseKey, $schema);
 
     if ($staffResult['response'] === false || $staffResult['error'] !== '') {
@@ -287,6 +295,7 @@ function services_save_staff_ids_from_refs(
     return array_keys($staffIds);
 }
 
+// Pobiera wskazanych pracowników i sprawdza, czy wszyscy należą do właściwej firmy.
 function services_save_fetch_staff(
     string $supabaseUrl,
     string $supabaseKey,
@@ -307,6 +316,7 @@ function services_save_fetch_staff(
         . '&is_active=eq.true'
         . '&id=in.(' . $staffIdList . ')';
 
+    // Pobiera pracowników z filtrem tenant_id; odpowiedź jest następnie weryfikowana.
     $staffResult = services_request('GET', $staffUrl, $supabaseKey, $schema);
 
     if ($staffResult['response'] === false || $staffResult['error'] !== '') {
@@ -354,6 +364,7 @@ function services_save_fetch_staff(
     return $staffById;
 }
 
+// Pobiera bieżące przypisania personelu do wskazanej usługi i tenanta.
 function services_save_fetch_current_staff_ids(
     string $supabaseUrl,
     string $supabaseKey,
@@ -371,6 +382,7 @@ function services_save_fetch_current_staff_ids(
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&service_id=eq.' . rawurlencode($serviceId);
 
+    // Odczytuje powiązania personelu wyłącznie dla bieżącej usługi i firmy.
     $relationsResult = services_request('GET', $relationsUrl, $supabaseKey, $schema);
 
     if ($relationsResult['response'] === false || $relationsResult['error'] !== '') {
@@ -404,6 +416,7 @@ function services_save_fetch_current_staff_ids(
     return array_keys($staffIds);
 }
 
+// Pobiera minimalne dane personelu potrzebne do odpowiedzi panelu.
 function services_save_fetch_staff_for_response(
     string $supabaseUrl,
     string $supabaseKey,
@@ -424,6 +437,7 @@ function services_save_fetch_staff_for_response(
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&id=in.(' . $staffIdList . ')';
 
+    // Pobiera pracowników z filtrem tenant_id; odpowiedź jest następnie weryfikowana.
     $staffResult = services_request('GET', $staffUrl, $supabaseKey, $schema);
 
     if ($staffResult['response'] === false || $staffResult['error'] !== '') {
@@ -466,6 +480,7 @@ function services_save_fetch_staff_for_response(
     return $staff;
 }
 
+// Odczytuje zapisaną usługę z nowymi ustawieniami i maskuje identyfikatory techniczne.
 function services_save_fetch_saved_service(
     string $supabaseUrl,
     string $supabaseKey,
@@ -482,6 +497,7 @@ function services_save_fetch_saved_service(
         . '&id=eq.' . rawurlencode($serviceId)
         . '&limit=1';
 
+    // Odczytuje zapisany rekord usługi z filtrem tenanta i identyfikatora.
     $serviceResult = services_request('GET', $serviceUrl, $supabaseKey, $schema);
 
     if ($serviceResult['response'] === false || $serviceResult['error'] !== '') {
@@ -530,6 +546,7 @@ function services_save_fetch_saved_service(
     return $service;
 }
 
+// Zachowuje zgodność starszej ścieżki synchronizacji pracowników po zapisie usługi.
 function services_save_sync_staff_assignments(
     string $supabaseUrl,
     string $supabaseKey,
@@ -556,6 +573,7 @@ function services_save_sync_staff_assignments(
             . '&service_id=eq.' . rawurlencode($serviceId)
             . '&staff_id=in.(' . implode(',', array_map('rawurlencode', $staffIdsToDelete)) . ')';
 
+        // Starsza ścieżka usuwa wyłącznie wskazane powiązania personelu bieżącego tenanta.
         $deleteResult = services_request('DELETE', $deleteUrl, $supabaseKey, $schema);
 
         if ($deleteResult['response'] === false || $deleteResult['error'] !== '') {
@@ -588,6 +606,7 @@ function services_save_sync_staff_assignments(
     }
 
     $insertUrl = $supabaseUrl . '/rest/v1/tenant_service_staff';
+    // Starsza ścieżka dodaje przypisania po sprawdzeniu właściciela usługi i personelu.
     $insertResult = services_request('POST', $insertUrl, $supabaseKey, $schema, $rows);
 
     if ($insertResult['response'] === false || $insertResult['error'] !== '') {
@@ -605,6 +624,7 @@ function services_save_sync_staff_assignments(
     }
 }
 
+// Normalizuje odpowiedź RPC Supabase i wyciąga potwierdzenie zapisu.
 function services_save_decode_rpc_result($data)
 {
     if (is_array($data) && isset($data[0]) && is_array($data[0])) {
@@ -634,6 +654,7 @@ function services_save_decode_rpc_result($data)
     return null;
 }
 
+// Zlicza aktywne usługi danego tenanta na potrzeby limitów abonamentu.
 function services_save_count_active_services(
     string $supabaseUrl,
     string $supabaseKey,
@@ -646,6 +667,7 @@ function services_save_count_active_services(
         . '&tenant_id=eq.' . rawurlencode($tenantId)
         . '&is_active=eq.true';
 
+    // Pobiera identyfikatory aktywnych usług tylko z bieżącego tenanta.
     $result = services_request('GET', $url, $supabaseKey, $schema);
 
     if ($result['response'] === false || $result['error'] !== '') {
@@ -665,6 +687,7 @@ function services_save_count_active_services(
     return is_array($result['data'] ?? null) ? count($result['data']) : 0;
 }
 
+// Egzekwuje limit aktywnych usług dla aktualnego planu firmy.
 function services_save_enforce_services_limit(
     string $supabaseUrl,
     string $supabaseKey,
@@ -717,6 +740,46 @@ require_tenant_feature($tenantId, 'multiple_services');
 $servicePaymentsAllowed = tenant_has_feature($tenantId, 'online_payments') && tenant_has_feature($tenantId, 'payu');
 
 $input = services_read_json_input();
+
+// Kontroluje kompletność nowych pól; starszy interfejs może nie przesyłać żadnego z nich.
+$hasRescheduleEnabled = array_key_exists('customer_reschedule_enabled', $input);
+$hasRescheduleCutoff = array_key_exists('customer_reschedule_cutoff_days', $input);
+
+if ($hasRescheduleEnabled !== $hasRescheduleCutoff) {
+    services_json([
+        'success' => false,
+        'error' => 'Ustawienia przekładania muszą być przesłane razem.',
+        'field' => 'customer_reschedule_enabled',
+    ], 422);
+}
+
+// Wymusza ścisłe typy JSON, aby ciągi znaków i obiekty nie omijały walidacji.
+$hasRescheduleSettings = $hasRescheduleEnabled;
+if ($hasRescheduleSettings) {
+    if (!is_bool($input['customer_reschedule_enabled'])) {
+        services_json([
+            'success' => false,
+            'error' => 'Zezwolenie na przekładanie musi być wartością logiczną.',
+            'field' => 'customer_reschedule_enabled',
+        ], 422);
+    }
+    if (!is_int($input['customer_reschedule_cutoff_days'])) {
+        services_json([
+            'success' => false,
+            'error' => 'Liczba dni blokady musi być liczbą całkowitą.',
+            'field' => 'customer_reschedule_cutoff_days',
+        ], 422);
+    }
+
+    $rescheduleEnabled = $input['customer_reschedule_enabled'];
+    $rescheduleCutoffDays = services_save_integer(
+        $input['customer_reschedule_cutoff_days'],
+        'customer_reschedule_cutoff_days',
+        0,
+        365
+    );
+}
+
 $serviceRefInput = $input['service_ref'] ?? '';
 
 if (is_array($serviceRefInput) || is_object($serviceRefInput)) {
@@ -830,6 +893,7 @@ if ($isUpdate) {
         . '&id=eq.' . rawurlencode($serviceId)
         . '&limit=1';
 
+    // Pobiera właściwości edytowanej usługi tylko dla bieżącego tenanta.
     $existingResult = services_request('GET', $existingUrl, $supabaseKey, $schema);
 
     if ($existingResult['response'] === false || $existingResult['error'] !== '') {
@@ -907,7 +971,18 @@ $rpcPayload = [
     'p_staff_ids' => $rpcStaffIds,
 ];
 
-$rpcUrl = $supabaseUrl . '/rest/v1/rpc/save_tenant_service_with_staff';
+// Nowy interfejs używa atomowego RPC; starszy nadal zapisuje usługę bez dotykania polityki przekładania.
+if ($hasRescheduleSettings) {
+    $rpcPayload['p_customer_reschedule_enabled'] = $rescheduleEnabled;
+    $rpcPayload['p_customer_reschedule_cutoff_days'] = $rescheduleCutoffDays;
+}
+
+$rpcName = $hasRescheduleSettings
+    ? 'save_tenant_service_with_staff_reschedule_v1'
+    : 'save_tenant_service_with_staff';
+
+// Uruchamia wyłącznie jawnie wybrany RPC na bazie kontekstu tenanta zatwierdzonego przez backend.
+$rpcUrl = $supabaseUrl . '/rest/v1/rpc/' . $rpcName;
 $rpcResult = services_request(
     'POST',
     $rpcUrl,
@@ -967,7 +1042,9 @@ if (!is_array($rpcDecoded) || ($rpcDecoded['success'] ?? null) !== true || !serv
     ], 500);
 }
 
-if ($hasStaffPayload) {
+// Nowy RPC synchronizuje pracowników we własnej transakcji; pomijamy osobne zapisy HTTP.
+// Zachowujemy dotychczasową synchronizację tylko dla starszej ścieżki API.
+if ($hasStaffPayload && !$hasRescheduleSettings) {
     services_save_sync_staff_assignments(
         $supabaseUrl,
         $supabaseKey,

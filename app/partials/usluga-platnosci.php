@@ -152,6 +152,27 @@
             </small>
           </label>
 
+          <!-- Opcja dotyczy samodzielnego przekładania rezerwacji przez klienta, nie administratora. -->
+          <div class="full" id="service-reschedule-options" hidden>
+            <div class="service-payments-form-grid">
+              <label class="service-payments-switch full">
+                <input type="checkbox" id="service-reschedule-enabled">
+                <span>
+                  <strong>Klient może przełożyć rezerwację</strong>
+                  <small>Dotyczy tej usługi oraz linku w wiadomości e-mail dla klienta.</small>
+                </span>
+              </label>
+
+              <label class="full">
+                <span>Wpisz, ile dni przed wizytą klient może jeszcze przełożyć rezerwację.</span>
+                <input type="number" id="service-reschedule-cutoff-days" min="0" max="365" step="1" inputmode="numeric" value="0" aria-describedby="service-reschedule-cutoff-help">
+                <small class="service-field-hint" id="service-reschedule-cutoff-help">
+                  0 dni – klient może zmienić termin aż do rozpoczęcia wizyty. Przykład: 3 dni – jeśli wizyta jest zaplanowana na 20 listopada, możliwość zmiany terminu zostanie zablokowana 17 listopada o godz. 00:00.
+                </small>
+              </label>
+            </div>
+          </div>
+
           <label>
             <span>Kolejność</span>
             <input type="number" id="service-sort-order" min="0" step="1" value="0" placeholder="10">

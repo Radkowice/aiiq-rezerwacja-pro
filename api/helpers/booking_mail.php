@@ -11,6 +11,7 @@ use PHPMailer\PHPMailer\PHPMailer;
 use PHPMailer\PHPMailer\Exception;
 
 if (!function_exists('booking_mail_replace_placeholders')) {
+    // Podstawia wartości w szablonie wiadomości tekstowej.
     function booking_mail_replace_placeholders(string $text, array $data): string
     {
         return str_replace(array_keys($data), array_values($data), $text);
@@ -18,6 +19,7 @@ if (!function_exists('booking_mail_replace_placeholders')) {
 }
 
 if (!function_exists('booking_mail_replace_html_placeholders')) {
+    // Podstawia dane do HTML po zakodowaniu znaków specjalnych.
     function booking_mail_replace_html_placeholders(string $html, array $data): string
     {
         $escaped = [];
@@ -31,6 +33,7 @@ if (!function_exists('booking_mail_replace_html_placeholders')) {
 }
 
 if (!function_exists('booking_mail_system_footer')) {
+    // Zwraca stopkę systemową wiadomości.
     function booking_mail_system_footer(): string
     {
         return
@@ -41,6 +44,7 @@ if (!function_exists('booking_mail_system_footer')) {
 }
 
 if (!function_exists('booking_mail_build_footer')) {
+    // Wybiera stopkę zależnie od planu i ustawień firmy.
     function booking_mail_build_footer(string $plan, string $mode, string $custom): string
     {
         if ($plan === 'basic') {
@@ -68,6 +72,7 @@ if (!function_exists('booking_mail_build_footer')) {
 }
 
 if (!function_exists('booking_mail_format_amount')) {
+    // Formatuje kwotę i oznaczenie waluty.
     function booking_mail_format_amount($amount, string $currency = 'PLN'): string
 {
     if ($amount === null || $amount === '') {
@@ -85,6 +90,7 @@ if (!function_exists('booking_mail_format_amount')) {
 }
 
 if (!function_exists('booking_mail_has_usable_smtp')) {
+    // Sprawdza, czy dostępna jest użyteczna konfiguracja SMTP firmy.
     function booking_mail_has_usable_smtp(?array $emailSettings): bool
     {
         if (!$emailSettings) {
@@ -99,6 +105,7 @@ if (!function_exists('booking_mail_has_usable_smtp')) {
 }
 
 if (!function_exists('booking_mail_default_client_template')) {
+    // Zwraca standardowy szablon potwierdzenia klienta.
     function booking_mail_default_client_template(): array
     {
         return [
@@ -110,6 +117,7 @@ if (!function_exists('booking_mail_default_client_template')) {
 }
 
 if (!function_exists('booking_mail_company_contact_email')) {
+    // Wyznacza adres kontaktowy firmy dla wiadomości.
     function booking_mail_company_contact_email(array $tenantData, ?array $emailSettings = null): string
     {
         $candidates = [
@@ -136,6 +144,7 @@ if (!function_exists('booking_mail_company_contact_email')) {
 }
 
 if (!function_exists('booking_mail_payment_status_label')) {
+    // Zamienia techniczny status płatności na czytelny opis.
     function booking_mail_payment_status_label(string $status): string
     {
         return match (strtolower(trim($status))) {
@@ -151,6 +160,7 @@ if (!function_exists('booking_mail_payment_status_label')) {
 }
 
 if (!function_exists('booking_mail_system_confirmation_html')) {
+    // Buduje systemowe potwierdzenie rezerwacji w HTML.
     function booking_mail_system_confirmation_html(array $tenantData, array $booking, array $payment = [], string $companyEmail = ''): string
     {
         $companyName = trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''));
@@ -213,6 +223,7 @@ if (!function_exists('booking_mail_system_confirmation_html')) {
 }
 
 if (!function_exists('booking_mail_send_system_confirmation')) {
+    // Wysyła systemowe potwierdzenie rezerwacji.
     function booking_mail_send_system_confirmation(array $tenantData, array $booking, array $payment = [], ?array $emailSettings = null): bool
     {
         $email = trim((string)($booking['email'] ?? ''));
@@ -238,6 +249,7 @@ if (!function_exists('booking_mail_send_system_confirmation')) {
 }
 
 if (!function_exists('booking_mail_send_client_confirmation_with_fallback')) {
+    // Wysyła potwierdzenie, z bezpiecznym kanałem zapasowym.
     function booking_mail_send_client_confirmation_with_fallback(
         ?array $emailSettings,
         ?array $emailTemplate,
@@ -274,6 +286,7 @@ if (!function_exists('booking_mail_send_client_confirmation_with_fallback')) {
 }
 
 if (!function_exists('booking_mail_admin_notification_enabled')) {
+    // Sprawdza, czy włączono powiadomienia administratora.
     function booking_mail_admin_notification_enabled(?array $emailSettings): bool
     {
         return !is_array($emailSettings)
@@ -283,6 +296,7 @@ if (!function_exists('booking_mail_admin_notification_enabled')) {
 }
 
 if (!function_exists('booking_mail_admin_notification_email')) {
+    // Wybiera i weryfikuje adres powiadomień administratora.
     function booking_mail_admin_notification_email(
         array $tenantData,
         ?array $emailSettings = null,
@@ -310,6 +324,7 @@ if (!function_exists('booking_mail_admin_notification_email')) {
 }
 
 if (!function_exists('booking_mail_system_admin_notification_html')) {
+    // Buduje systemowe powiadomienie administratora w HTML.
     function booking_mail_system_admin_notification_html(array $tenantData, array $booking): string
     {
         $companyName = trim((string)($tenantData['client_name'] ?? $tenantData['company_full_name'] ?? ''));
@@ -363,6 +378,7 @@ if (!function_exists('booking_mail_system_admin_notification_html')) {
 }
 
 if (!function_exists('booking_mail_send_admin_notification_with_fallback')) {
+    // Wysyła powiadomienie administratora z kanałem zapasowym.
     function booking_mail_send_admin_notification_with_fallback(
         ?array $emailSettings,
         array $tenantData,
@@ -416,6 +432,7 @@ if (!function_exists('booking_mail_send_admin_notification_with_fallback')) {
 }
 
 if (!function_exists('booking_mail_configure_mailer')) {
+    // Konfiguruje bezpieczne połączenie SMTP dla wiadomości.
     function booking_mail_configure_mailer(PHPMailer $mail, array $emailSettings): void
     {
         $smtpHost = trim((string) ($emailSettings['smtp_host'] ?? ''));
@@ -512,7 +529,21 @@ if (!function_exists('booking_mail_configure_mailer')) {
     }
 }
 
+if (!function_exists('booking_mail_safe_reschedule_notice')) {
+    // Akceptuje tylko krótki tekst o terminie bez znaków sterujących.
+    function booking_mail_safe_reschedule_notice(array $payment): string
+    {
+        $notice = $payment['reschedule_notice'] ?? '';
+        if (!is_string($notice) || strlen($notice) > 240
+            || preg_match('/[\x00-\x1F\x7F]/', $notice) !== 0) {
+            return '';
+        }
+        return trim($notice);
+    }
+}
+
 if (!function_exists('booking_mail_build_client_html')) {
+    // Buduje e-mail klienta; dodaje przycisk i komunikat tylko dla podanego linku.
     function booking_mail_build_client_html(
         string $introHtml,
         string $companyName,
@@ -529,6 +560,8 @@ if (!function_exists('booking_mail_build_client_html')) {
         $paymentStatus = trim((string)($payment['status_label'] ?? ''));
         $paymentAmount = trim((string)($payment['amount_text'] ?? ''));
         $rescheduleUrl = trim((string)($payment['reschedule_url'] ?? ''));
+        // Komunikat o terminie pochodzi z polityki usługi sprawdzonej przed wysyłką.
+        $rescheduleNotice = booking_mail_safe_reschedule_notice($payment);
         $bookedServiceName = trim($bookedServiceName);
         $staffDisplayName = trim($staffDisplayName);
 
@@ -555,7 +588,10 @@ if (!function_exists('booking_mail_build_client_html')) {
                 '<h2 style="margin:0 0 10px 0;font-size:20px;color:#17324d;">Chcesz zmienić termin?</h2>' .
                 '<p style="margin:0 0 16px 0;font-size:15px;line-height:1.6;color:#4f6478;">Jeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.</p>' .
                 '<a href="' . htmlspecialchars($rescheduleUrl, ENT_QUOTES, 'UTF-8') . '" style="display:inline-block;padding:12px 20px;border-radius:999px;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;">Przełóż rezerwację</a>' .
-                '<p style="margin:14px 0 0 0;font-size:13px;line-height:1.5;color:#607284;">Link jest ważny do momentu rozpoczęcia rezerwacji.</p>' .
+                ($rescheduleNotice !== ''
+                    ? '<p style="margin:14px 0 0 0;font-size:13px;line-height:1.5;color:#607284;">'
+                        . htmlspecialchars($rescheduleNotice, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8') . '</p>'
+                    : '') .
               '</div>'
             : '';
 
@@ -601,6 +637,7 @@ if (!function_exists('booking_mail_build_client_html')) {
 }
 
 if (!function_exists('booking_mail_send_client_confirmation')) {
+    // Wysyła potwierdzenie SMTP w wersji HTML i tekstowej.
     function booking_mail_send_client_confirmation(
         array $emailSettings,
         array $emailTemplate,
@@ -656,6 +693,9 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
             (string)($payment['currency'] ?? $booking['payment_currency'] ?? 'PLN')
         );
 
+        // Ten sam bezpieczny komunikat jest używany w HTML i w tekście e-maila.
+        $rescheduleNotice = booking_mail_safe_reschedule_notice($payment);
+
         $clientHtml = booking_mail_build_client_html(
             $introHtml,
             $companyName,
@@ -669,6 +709,7 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
                 'status_label' => (string)($payment['status_label'] ?? ''),
                 'amount_text' => $paymentAmountText,
                 'reschedule_url' => (string)($payment['reschedule_url'] ?? ''),
+                'reschedule_notice' => $rescheduleNotice,
             ],
             $bookedServiceName,
             $staffDisplayName
@@ -686,7 +727,10 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
             ($paymentAmountText !== '' ? "Kwota: {$paymentAmountText}\n" : '') .
             ($staffDisplayName !== '' ? "Osoba obsługująca: {$staffDisplayName}\n" : '') .
             ((string)($payment['reschedule_url'] ?? '') !== ''
-                ? "\nChcesz zmienić termin?\nJeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.\nPrzełóż rezerwację: {$payment['reschedule_url']}\nLink jest ważny do momentu rozpoczęcia rezerwacji.\n"
+                ? "\nChcesz zmienić termin?\nJeśli ten termin Ci nie pasuje, możesz przełożyć rezerwację na inny dostępny termin.\nPrzełóż rezerwację: {$payment['reschedule_url']}\n"
+                    . ($rescheduleNotice !== ''
+                        ? $rescheduleNotice . "\n"
+                        : '')
                 : '') .
             "\n";
         $clientAltBody .= "Chcesz anulować rezerwację?\n"
@@ -708,6 +752,7 @@ if (!function_exists('booking_mail_send_client_confirmation')) {
 }
 
 if (!function_exists('booking_mail_send_reschedule_confirmation')) {
+    // Wysyła potwierdzenie zmiany terminu rezerwacji.
     function booking_mail_send_reschedule_confirmation(
         array $emailSettings,
         array $tenantData,
@@ -886,6 +931,7 @@ if (!function_exists('booking_mail_send_reschedule_confirmation')) {
 }
 
 if (!function_exists('booking_mail_reminder_subject_context')) {
+    // Tworzy kontekst nagłówka przypomnienia rezerwacji.
     function booking_mail_reminder_subject_context(array $tenantData, array $booking): string
     {
         $context = trim((string)($booking['service_name_snapshot'] ?? $booking['service_name'] ?? ''));
@@ -916,6 +962,7 @@ if (!function_exists('booking_mail_reminder_subject_context')) {
 }
 
 if (!function_exists('booking_mail_booking_reminder_subject')) {
+    // Buduje temat przypomnienia o wizycie.
     function booking_mail_booking_reminder_subject(array $tenantData, array $booking, string $type): string
     {
         $base = $type === 'day_before'
@@ -928,6 +975,7 @@ if (!function_exists('booking_mail_booking_reminder_subject')) {
 }
 
 if (!function_exists('booking_mail_send_system_booking_reminder')) {
+    // Wysyła systemowe przypomnienie o rezerwacji.
     function booking_mail_send_system_booking_reminder(
         array $tenantData,
         array $booking,
@@ -1005,6 +1053,7 @@ if (!function_exists('booking_mail_send_system_booking_reminder')) {
 }
 
 if (!function_exists('booking_mail_send_booking_reminder')) {
+    // Wysyła przypomnienie o rezerwacji przez SMTP firmy.
     function booking_mail_send_booking_reminder(
         array $emailSettings,
         array $tenantData,
@@ -1130,6 +1179,7 @@ if (!function_exists('booking_mail_send_booking_reminder')) {
 }
 
 if (!function_exists('booking_mail_send_booking_reminder_with_fallback')) {
+    // Wysyła przypomnienie z opcjonalnym kanałem zapasowym.
     function booking_mail_send_booking_reminder_with_fallback(
         ?array $emailSettings,
         array $tenantData,
@@ -1170,6 +1220,7 @@ if (!class_exists('BookingMailV7TrackedSMTP', false)) {
         private bool $v7RecipientAccepted = false;
         private int $v7RecipientSmtpCode = 0;
 
+        // Sprawdza wynik uwierzytelniania SMTP i zapisuje stan odpowiedzi.
         public function authenticate($username, $password, $authtype = null, $OAuth = null)
         {
             $this->v7AuthAttempted = true;
@@ -1183,6 +1234,7 @@ if (!class_exists('BookingMailV7TrackedSMTP', false)) {
             return $ok;
         }
 
+        // Sprawdza odpowiedź serwera SMTP dla odbiorcy.
         public function recipient($address, $dsn = '')
         {
             $this->v7RecipientAttempted = true;
@@ -1196,6 +1248,7 @@ if (!class_exists('BookingMailV7TrackedSMTP', false)) {
             return $ok;
         }
 
+        // Sprawdza odpowiedź serwera SMTP po przesłaniu wiadomości.
         public function data($msg_data)
         {
             $this->v7DataState = 'data_started';
@@ -1233,16 +1286,19 @@ if (!class_exists('BookingMailV7TrackedSMTP', false)) {
             return false;
         }
 
+        // Udostępnia stan potwierdzenia przesłania wiadomości SMTP.
         public function v7DataState(): string
         {
             return $this->v7DataState;
         }
 
+        // Zwraca kod SMTP ostatniego potwierdzenia wiadomości.
         public function v7DataSmtpCode(): int
         {
             return $this->v7DataSmtpCode;
         }
 
+        // Zwraca kod błędu uwierzytelniania SMTP.
         public function v7AuthFailureSmtpCode(): int
         {
             return $this->v7AuthAttempted && !$this->v7AuthAccepted
@@ -1250,6 +1306,7 @@ if (!class_exists('BookingMailV7TrackedSMTP', false)) {
                 : 0;
         }
 
+        // Zwraca kod błędu odbiorcy SMTP.
         public function v7RecipientFailureSmtpCode(): int
         {
             return $this->v7RecipientAttempted && !$this->v7RecipientAccepted
@@ -1260,6 +1317,7 @@ if (!class_exists('BookingMailV7TrackedSMTP', false)) {
 }
 
 if (!function_exists('booking_mail_v7_result')) {
+    // Tworzy ujednolicony wynik obsługi wysyłki e-mail.
     function booking_mail_v7_result(
         string $result,
         string $errorCode = '',
@@ -1307,6 +1365,7 @@ if (!function_exists('booking_mail_v7_result')) {
 }
 
 if (!function_exists('booking_mail_v7_valid_identifier')) {
+    // Waliduje identyfikator przekazywany do wysyłki.
     function booking_mail_v7_valid_identifier(string $value, int $maxBytes = 128): bool
     {
         return $value !== ''
@@ -1317,6 +1376,7 @@ if (!function_exists('booking_mail_v7_valid_identifier')) {
 }
 
 if (!function_exists('booking_mail_v7_allowed_tenant_smtp_ports')) {
+    // Zwraca listę dopuszczonych portów SMTP firmy.
     function booking_mail_v7_allowed_tenant_smtp_ports(): array
     {
         $default = [25, 465, 587, 2525];
@@ -1348,6 +1408,7 @@ if (!function_exists('booking_mail_v7_allowed_tenant_smtp_ports')) {
 }
 
 if (!function_exists('booking_mail_v7_public_smtp_target')) {
+    // Sprawdza, czy cel SMTP jest publiczny i dozwolony.
     function booking_mail_v7_public_smtp_target(string $host): array
     {
         $host = strtolower(rtrim(trim($host), '.'));
@@ -1454,6 +1515,7 @@ if (!function_exists('booking_mail_v7_public_smtp_target')) {
 }
 
 if (!function_exists('booking_mail_v7_validate_message')) {
+    // Sprawdza poprawność i bezpieczeństwo treści wiadomości.
     function booking_mail_v7_validate_message(
         string $tenantId,
         string $recipientEmail,
@@ -1507,6 +1569,7 @@ if (!function_exists('booking_mail_v7_validate_message')) {
 }
 
 if (!function_exists('booking_mail_v7_classify_send')) {
+    // Klasyfikuje wynik próby wysyłki SMTP.
     function booking_mail_v7_classify_send(
         BookingMailV7TrackedSMTP $smtp,
         string $deliverySource
@@ -1545,6 +1608,7 @@ if (!function_exists('booking_mail_v7_classify_send')) {
 }
 
 if (!function_exists('booking_mail_v7_send_configured')) {
+    // Wykonuje wysyłkę z przygotowaną konfiguracją SMTP.
     function booking_mail_v7_send_configured(
         PHPMailer $mail,
         BookingMailV7TrackedSMTP $smtp,
@@ -1561,6 +1625,7 @@ if (!function_exists('booking_mail_v7_send_configured')) {
 }
 
 if (!function_exists('booking_mail_v7_prepare_common_mailer')) {
+    // Konfiguruje wspólne parametry bezpiecznej wysyłki.
     function booking_mail_v7_prepare_common_mailer(
         PHPMailer $mail,
         BookingMailV7TrackedSMTP $smtp,
@@ -1630,6 +1695,7 @@ if (!function_exists('booking_mail_v7_prepare_common_mailer')) {
 }
 
 if (!function_exists('booking_mail_v7_send_tenant_smtp')) {
+    // Wysyła wiadomość przez SMTP właściwego tenanta.
     function booking_mail_v7_send_tenant_smtp(
         string $tenantId,
         array $emailSettings,
@@ -1735,6 +1801,7 @@ if (!function_exists('booking_mail_v7_send_tenant_smtp')) {
 }
 
 if (!function_exists('booking_mail_v7_send_system_smtp')) {
+    // Wysyła wiadomość przez systemową bramkę SMTP.
     function booking_mail_v7_send_system_smtp(
         string $recipientEmail,
         string $subject,
@@ -1827,6 +1894,7 @@ if (!function_exists('booking_mail_v7_send_system_smtp')) {
 }
 
 if (!function_exists('booking_mail_v7_deliver')) {
+    // Wybiera dozwolony kanał i zwraca wynik dostarczenia.
     function booking_mail_v7_deliver(
         string $tenantId,
         string $deliveryChannel,

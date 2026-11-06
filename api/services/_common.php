@@ -10,6 +10,7 @@ require_once __DIR__ . '/../helpers/security.php';
 require_once __DIR__ . '/../system/tenant.php';
 
 
+// Zapisuje zdarzenie bezpieczeństwa zarządzania usługami bez ujawniania zbędnych danych.
 function services_security_event(string $eventKey, array $context = []): void
 {
     $details = [];
@@ -58,6 +59,7 @@ function services_security_event(string $eventKey, array $context = []): void
     ]);
 }
 
+// Uzupełnia kontekst audytowy o identyfikator firmy i użytkownika z bieżącej sesji.
 function services_security_context(array $context, array $extra = []): array
 {
     return array_merge([
@@ -67,6 +69,7 @@ function services_security_context(array $context, array $extra = []): array
     ], $extra);
 }
 
+// Wysyła zminimalizowaną odpowiedź JSON po sanitizacji danych i kończy żądanie.
 function services_json(array $payload, int $statusCode = 200): void
 {
     http_response_code($statusCode);
@@ -74,6 +77,7 @@ function services_json(array $payload, int $statusCode = 200): void
     exit;
 }
 
+// Wykonuje żądanie HTTP do Supabase z nagłówkami schematu i zwraca wynik.
 function services_request(
     string $method,
     string $url,
@@ -137,6 +141,7 @@ function services_request(
     ];
 }
 
+// Weryfikuje metodę HTTP, sesję administratora, zgodność tenanta z domeną i token CSRF.
 function services_require_context(array $allowedMethods): array
 {
     $method = $_SERVER['REQUEST_METHOD'] ?? '';
@@ -233,7 +238,7 @@ function services_require_context(array $allowedMethods): array
         ], 401);
     }
 
-    // Enforce CSRF for authenticated state-changing service requests.
+    // Wymaga poprawnego tokenu CSRF dla żądań zmieniających dane usługi.
     if ($method === 'POST') {
         require_csrf_token();
     }
@@ -247,12 +252,14 @@ function services_require_context(array $allowedMethods): array
     ];
 }
 
+// Sprawdza, czy przekazany identyfikator ma poprawny format UUID.
 function services_is_uuid($value): bool
 {
     return is_string($value)
         && preg_match('/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i', $value) === 1;
 }
 
+// Odczytuje żądanie JSON i odrzuca niepoprawną strukturę wejściową.
 function services_read_json_input(): array
 {
     $input = json_decode(file_get_contents('php://input') ?: '{}', true);
@@ -267,6 +274,7 @@ function services_read_json_input(): array
     return $input;
 }
 
+// Określa kolumny odczytywane dla usługi, także nowe ustawienia przekładania.
 function services_select_fields(): string
 {
     return implode(',', [
@@ -277,6 +285,8 @@ function services_select_fields(): string
         'duration_minutes',
         'break_minutes',
         'booking_buffer_minutes',
+        'customer_reschedule_enabled',
+        'customer_reschedule_cutoff_days',
         'price_amount',
         'price_currency',
         'payments_enabled',
@@ -289,6 +299,7 @@ function services_select_fields(): string
     ]);
 }
 
+// Normalizuje dane usługi i nowe ustawienia do bezpiecznej odpowiedzi API.
 function services_normalize_record(array $row, array $staffIds = [], array $staff = []): array
 {
     return [
@@ -297,6 +308,8 @@ function services_normalize_record(array $row, array $staffIds = [], array $staf
         'duration_minutes' => isset($row['duration_minutes']) ? (int) $row['duration_minutes'] : null,
         'break_minutes' => isset($row['break_minutes']) ? (int) $row['break_minutes'] : null,
         'booking_buffer_minutes' => isset($row['booking_buffer_minutes']) ? (int) $row['booking_buffer_minutes'] : null,
+        'customer_reschedule_enabled' => ($row['customer_reschedule_enabled'] ?? false) === true,
+        'customer_reschedule_cutoff_days' => (int) ($row['customer_reschedule_cutoff_days'] ?? 0),
         'price_amount' => array_key_exists('price_amount', $row) && $row['price_amount'] !== null
             ? (string) $row['price_amount']
             : null,
