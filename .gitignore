@@ -16,3 +16,7 @@ docker-compose.yml.backup-*
 data/
 app/data/
 api/data/
+
+# Wykluczone kopie konfiguracji Docker
+/docker-compose.yml.bak-booking-hmac-20261002_135936
+/docker-compose.yml.bak-pre-cve-20261102
