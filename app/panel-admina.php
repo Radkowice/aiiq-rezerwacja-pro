@@ -22,7 +22,7 @@ if (empty($_SESSION['csrf'])) {
   <link rel="stylesheet" href="/assets/css/panel-admina.css?v=7">
   <link rel="stylesheet" href="/assets/css/panel-admina-blokady.css?v=2">
   <link rel="stylesheet" href="/assets/css/panel-admina-rezerwacje.css?v=2">
-  <link rel="stylesheet" href="/assets/css/panel-admina-layout.css">
+  <link rel="stylesheet" href="/assets/css/panel-admina-layout.css?v=20261110-mobile-2">
   <link rel="stylesheet" href="/assets/css/admin-personel.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-email.css?v=1">
   <link rel="stylesheet" href="/assets/css/admin-ustawienia.css?v=2">
@@ -47,7 +47,7 @@ if (empty($_SESSION['csrf'])) {
   <script src="/assets/js/admin-email.js?v=smtp-fix-1" defer></script>
   <script src="/assets/js/admin-modal.js" defer></script>
   <script src="/assets/js/admin-kalendarz.js?v=20260615-2" defer></script>
-  <script src="/assets/js/panel-admina.js?v=20261021-05-freshness-1" defer></script>
+  <script src="/assets/js/panel-admina.js?v=20261110-mobile-1" defer></script>
   <script src="/assets/js/admin-personel.js?v=2" defer></script>
   <script src="/assets/js/admin-ustawienia.js" defer></script>
   <script src="/assets/js/admin-integracje.js?v=2"></script>
@@ -68,11 +68,17 @@ if (empty($_SESSION['csrf'])) {
   <div class="admin-page">
     <div class="admin-layout">
 
-      <aside class="sidebar">
+      <!-- Przyciemnienie tła jest aktywne wyłącznie przy otwartym menu mobilnym. -->
+      <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true" hidden></div>
+
+      <aside id="adminSidebar" class="sidebar" aria-label="Menu administratora">
         <div class="sidebar-header">
-  <div class="sidebar-logo">Rezerwia</div>
-  <button id="sidebarToggle" class="sidebar-toggle">☰</button>
-</div>
+          <!-- Na komputerze zwija pasek, na telefonie zamyka wysunięte menu. -->
+          <button id="sidebarToggle" class="sidebar-toggle" type="button"
+                  aria-controls="adminSidebar" aria-expanded="true" aria-label="Zwiń menu">
+            <span class="sidebar-toggle-icon" aria-hidden="true">☰</span>
+          </button>
+        </div>
 
         <nav class="sidebar-menu">
         <button class="menu-item active" type="button">
@@ -150,7 +156,17 @@ if (empty($_SESSION['csrf'])) {
       <div class="main-content">
         <header class="topbar">
           <div class="topbar-left">
-            <h1>Rezerwia</h1>
+            <div class="topbar-brand-row">
+              <!-- Przycisk na telefonach: otwiera menu schowane poza ekranem. -->
+              <button id="sidebarMobileOpen" class="sidebar-mobile-trigger" type="button"
+                      aria-controls="adminSidebar" aria-expanded="false" aria-label="Otwórz menu">
+                <span aria-hidden="true">☰</span>
+              </button>
+              <!-- Niezależne ciemnogranatowe tło gwarantuje kontrast białego logo w każdym motywie. -->
+              <h1 class="topbar-brand">
+                <img src="/assets/media/logo-rezerwia.png" alt="Rezerwia" width="2172" height="724" decoding="async">
+              </h1>
+            </div>
             <p>Panel administratora</p>
           </div>
           <div class="plan-upgrade-bar" id="planUpgradeNotice" hidden>

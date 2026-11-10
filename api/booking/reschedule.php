@@ -644,6 +644,8 @@ function reschedule_load_service(string $supabaseUrl, string $key, string $schem
         'price_amount' => null,
         'price_currency' => null,
         'payments_enabled' => null,
+        'customer_reschedule_enabled' => false,
+        'customer_reschedule_cutoff_days' => null,
     ];
 
     if ($serviceId === '') {
@@ -651,7 +653,7 @@ function reschedule_load_service(string $supabaseUrl, string $key, string $schem
     }
 
     $serviceRow = reschedule_fetch_single($supabaseUrl, $key, $schema, 'tenant_services', [
-        'select=' . rawurlencode('id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled,is_active,visible_on_front'),
+        'select=' . rawurlencode('id,name,description,duration_minutes,break_minutes,booking_buffer_minutes,price_amount,price_currency,payments_enabled,is_active,visible_on_front,customer_reschedule_enabled,customer_reschedule_cutoff_days'),
         'tenant_id=eq.' . rawurlencode($tenantId),
         'id=eq.' . rawurlencode($serviceId),
     ]);
@@ -671,7 +673,80 @@ function reschedule_load_service(string $supabaseUrl, string $key, string $schem
         'price_amount' => reschedule_float_or_null($serviceRow['price_amount'] ?? null),
         'price_currency' => (string) ($serviceRow['price_currency'] ?? 'PLN'),
         'payments_enabled' => array_key_exists('payments_enabled', $serviceRow) ? (bool) $serviceRow['payments_enabled'] : null,
+        'customer_reschedule_enabled' => ($serviceRow['customer_reschedule_enabled'] ?? null) === true,
+        'customer_reschedule_cutoff_days' => filter_var($serviceRow['customer_reschedule_cutoff_days'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 365]]),
     ];
+}
+
+/**
+ * Doradcza polityka dla interfejsu. Operację zapisu nadal autoryzuje RPC w PostgreSQL.
+ * Zwraca minimalny status i bezpieczny komunikat bez identyfikatorów technicznych.
+ */
+function reschedule_customer_policy_for_front(array $booking, array $service): array
+{
+    $bookingServiceId = trim((string) ($booking['service_id'] ?? ''));
+    $resolvedServiceId = trim((string) ($service['id'] ?? ''));
+
+    if ($bookingServiceId === '' || $resolvedServiceId === '' || !hash_equals($bookingServiceId, $resolvedServiceId)) {
+        return ['allowed' => false, 'message' => 'Nie można potwierdzić zasad przekładania tej rezerwacji. Skontaktuj się z obsługą firmy.'];
+    }
+
+    if (($service['customer_reschedule_enabled'] ?? false) !== true) {
+        return ['allowed' => false, 'message' => 'Samodzielne przekładanie tej usługi jest wyłączone. Skontaktuj się z obsługą firmy.'];
+    }
+
+    $cutoffDays = $service['customer_reschedule_cutoff_days'] ?? null;
+
+    if (!is_int($cutoffDays) || $cutoffDays < 0 || $cutoffDays > 365) {
+        return ['allowed' => false, 'message' => 'Nie można potwierdzić terminu przekładania tej rezerwacji. Skontaktuj się z obsługą firmy.'];
+    }
+
+    if ($cutoffDays === 0) {
+        return ['allowed' => true, 'message' => ''];
+    }
+
+    $bookingDate = trim((string) ($booking['booking_date'] ?? ''));
+    $timezone = new DateTimeZone('Europe/Warsaw');
+    $startOfBookingDay = DateTimeImmutable::createFromFormat('!Y-m-d', $bookingDate, $timezone);
+
+    if (!$startOfBookingDay || $startOfBookingDay->format('Y-m-d') !== $bookingDate) {
+        return ['allowed' => false, 'message' => 'Nie można potwierdzić terminu rezerwacji. Skontaktuj się z obsługą firmy.'];
+    }
+
+    $firstDeniedDay = $startOfBookingDay->modify('-' . $cutoffDays . ' days');
+    $now = new DateTimeImmutable('now', $timezone);
+
+    if ($now >= $firstDeniedDay) {
+        $lastAllowedDay = $firstDeniedDay->modify('-1 day')->format('d.m.Y');
+        return [
+            'allowed' => false,
+            'message' => 'Nie możesz już samodzielnie przełożyć tej rezerwacji. Zmiana była możliwa do końca dnia ' . $lastAllowedDay . '. Skontaktuj się z obsługą firmy.',
+        ];
+    }
+
+    return ['allowed' => true, 'message' => ''];
+}
+
+
+/**
+ * Najwcześniejsza nowa data zgodna z tym samym warunkiem co RPC PostgreSQL.
+ * Dla N>0: dzień docelowy musi przypadać po (dzisiaj + N dni).
+ * Dla N=0: ograniczenie dotyczy jedynie przyszłej godziny wizyty.
+ * To informacja dla widoku, nie autoryzacja zapisu.
+ */
+function reschedule_first_allowed_new_date(array $service): ?string
+{
+    if (($service['customer_reschedule_enabled'] ?? false) !== true) {
+        return null;
+    }
+
+    $days = $service['customer_reschedule_cutoff_days'] ?? null;
+    if (!is_int($days) || $days < 0 || $days > 365) {
+        return null;
+    }
+
+    $today = new DateTimeImmutable('today', new DateTimeZone('Europe/Warsaw'));
+    return $today->modify('+' . ($days > 0 ? $days + 1 : 0) . ' days')->format('Y-m-d');
 }
 
 function reschedule_load_staff(string $supabaseUrl, string $key, string $schema, string $tenantId, array $booking, bool $forAvailability = false): ?array
@@ -1456,20 +1531,37 @@ $service = reschedule_load_service($supabaseUrl, $supabaseKey, $schema, $tenantI
 $staff = reschedule_load_staff($supabaseUrl, $supabaseKey, $schema, $tenantId, $booking);
 
 $rescheduleLimitReached = reschedule_limit_reached($booking);
+$frontPolicy = reschedule_customer_policy_for_front($booking, $service);
+$firstAllowedNewDate = reschedule_first_allowed_new_date($service);
+$canRescheduleOnFront = !$rescheduleLimitReached && $frontPolicy['allowed'] && $firstAllowedNewDate !== null;
+$frontPolicyMessage = $rescheduleLimitReached ? reschedule_limit_message() : $frontPolicy['message'];
 
 if ($method === 'GET') {
     $date = trim((string) ($_GET['date'] ?? ''));
 
     if ($date !== '') {
-        if ($rescheduleLimitReached) {
-            reschedule_error(reschedule_limit_message(), 'reschedule_limit_reached', 409);
+        if (!$canRescheduleOnFront) {
+            reschedule_error($frontPolicyMessage, 'reschedule_unavailable', 409);
         }
 
         reschedule_validate_date($date);
 
+        // Nie udostępniamy godzin dla dat odrzucanych przez politykę usługi.
+        // Ostateczna autoryzacja zapisu pozostaje w atomowych RPC PostgreSQL.
+        if ($date < $firstAllowedNewDate) {
+            reschedule_json([
+                'success' => false,
+                'code' => 'target_before_reschedule_cutoff',
+                'message' => 'Nowy termin możesz wybrać najwcześniej ' .
+                    DateTimeImmutable::createFromFormat('!Y-m-d', $firstAllowedNewDate, new DateTimeZone('Europe/Warsaw'))->format('d.m.Y') . '.',
+                'first_allowed_new_date' => $firstAllowedNewDate,
+            ], 409);
+        }
+
         reschedule_json([
             'success' => true,
-            'can_reschedule' => !$rescheduleLimitReached,
+            'can_reschedule' => true,
+            'first_allowed_new_date' => $firstAllowedNewDate,
             'date' => $date,
             'date_label' => reschedule_format_date_label($date),
             'availableTimes' => reschedule_availability($supabaseUrl, $supabaseKey, $schema, $tenantId, $booking, $service, $date),
@@ -1478,8 +1570,9 @@ if ($method === 'GET') {
 
     reschedule_json([
         'success' => true,
-        'can_reschedule' => !$rescheduleLimitReached,
-        'message' => $rescheduleLimitReached ? reschedule_limit_message() : '',
+        'can_reschedule' => $canRescheduleOnFront,
+        'message' => $frontPolicyMessage,
+        'first_allowed_new_date' => $canRescheduleOnFront ? $firstAllowedNewDate : null,
         'booking' => reschedule_booking_response($booking, $service, $staff, $tenantId, $refSecret),
     ]);
 }
@@ -1630,7 +1723,8 @@ if ($isLifecycleV1) {
 
     reschedule_json([
         'success' => true,
-        'can_reschedule' => !reschedule_limit_reached($updatedBooking),
+        'can_reschedule' => !reschedule_limit_reached($updatedBooking) && reschedule_customer_policy_for_front($updatedBooking, $updatedService)['allowed'],
+        'first_allowed_new_date' => reschedule_first_allowed_new_date($updatedService),
         'message' => reschedule_success_message($updatedBooking),
         'booking' => reschedule_booking_response(
             $updatedBooking,
@@ -1752,7 +1846,8 @@ reschedule_security_event(
 
 reschedule_json([
     'success' => true,
-    'can_reschedule' => !reschedule_limit_reached($updatedBooking),
+    'can_reschedule' => !reschedule_limit_reached($updatedBooking) && reschedule_customer_policy_for_front($updatedBooking, $updatedService)['allowed'],
+    'first_allowed_new_date' => reschedule_first_allowed_new_date($updatedService),
     'message' => reschedule_success_message($updatedBooking),
     'booking' => reschedule_booking_response($updatedBooking, $updatedService, $updatedStaff, $tenantId, $refSecret),
 ]);

@@ -1939,3 +1939,77 @@ img {
   #aiiq-rezerwacja-pro .aiiq-rp-mail-paper { padding: 14px; }
   #aiiq-rezerwacja-pro .aiiq-rp-mail-paper dl > div { grid-template-columns: minmax(70px,.46fr) minmax(0,1fr); }
 }
+
+/* === Oferta: subtelne logo produktu w nagłówku sekcji hero === */
+#aiiq-rezerwacja-pro .aiiq-rp-product-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0 0 24px;
+  padding: 10px 17px;
+  border: 1px solid rgba(170, 205, 244, 0.24);
+  border-radius: 14px;
+  background: rgba(5, 18, 36, 0.42);
+  box-shadow: 0 8px 24px rgba(7, 16, 31, 0.17);
+}
+
+#aiiq-rezerwacja-pro .aiiq-rp-product-mark img {
+  display: block;
+  width: clamp(136px, 16vw, 184px);
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* === Oferta: rzeczywisty zrzut ustawień przełożenia rezerwacji === */
+#aiiq-rezerwacja-pro .aiiq-rp-reschedule-illustration {
+  min-width: 0;
+  padding: clamp(19px, 3.4vw, 38px);
+  border: 1px solid #d6e3f1;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 90% 14%, rgba(71, 135, 201, 0.22), transparent 45%),
+    linear-gradient(135deg, #e7f0f9 0%, #f4f8fc 100%);
+}
+
+/* Pokazujemy oryginalny obraz bez powiększania ponad jego rozdzielczość. */
+#aiiq-rezerwacja-pro .aiiq-rp-reschedule-image-link {
+  display: block;
+  width: 100%;
+  max-width: 562px;
+  margin: 0 auto;
+  border-radius: 15px;
+}
+
+#aiiq-rezerwacja-pro .aiiq-rp-reschedule-image-link:focus-visible {
+  outline: 3px solid var(--aiiq-rp-blue-700);
+  outline-offset: 4px;
+}
+
+#aiiq-rezerwacja-pro .aiiq-rp-reschedule-image-link .aiiq-rp-image {
+  width: 100%;
+  height: auto;
+  border: 1px solid #c8d4e0;
+  background: #d5dce4;
+  box-sizing: border-box;
+}
+
+@media (max-width: 520px) {
+  #aiiq-rezerwacja-pro .aiiq-rp-product-mark {
+    margin-bottom: 20px;
+    padding: 9px 14px;
+  }
+
+  #aiiq-rezerwacja-pro .aiiq-rp-product-mark img {
+    width: 146px;
+  }
+
+  #aiiq-rezerwacja-pro .aiiq-rp-reschedule-illustration {
+    padding: 13px;
+    border-radius: 17px;
+  }
+
+  /* Zrzut pozostaje responsywny i można go otworzyć w pełnym rozmiarze. */
+}

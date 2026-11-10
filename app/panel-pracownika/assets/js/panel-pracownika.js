@@ -1414,42 +1414,122 @@
   }
 
   function initEmployeeSidebarToggle() {
+    // Ten moduł obsługuje wyłącznie nawigację: menu desktopowe i wysuwane mobilne.
     const layout = document.querySelector('.employee-panel-layout');
-    const sidebar = document.querySelector('.employee-panel-sidebar');
+    const sidebar = document.getElementById('employeePanelSidebar');
     const toggleBtn = getElement('employeeSidebarToggle');
-    const desktopMedia = window.matchMedia('(min-width: 1101px)');
+    const openBtn = getElement('employeeSidebarMobileOpen');
+    const backdrop = getElement('employeeSidebarBackdrop');
+    const mobileMedia = window.matchMedia('(max-width: 1100px)');
 
-    if (!layout || !sidebar || !toggleBtn) {
+    if (!layout || !sidebar || !toggleBtn || !openBtn || !backdrop) {
       return;
     }
 
-    const setCollapsed = (collapsed) => {
-      sidebar.classList.toggle('collapsed', collapsed);
-      layout.classList.toggle('sidebar-collapsed', collapsed);
-      toggleBtn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-      toggleBtn.setAttribute('aria-label', collapsed ? 'Rozwiń panel boczny' : 'Zwiń panel boczny');
+    // Zachowujemy stan zwinięcia desktopu po zmianie szerokości okna.
+    let desktopCollapsed = sidebar.classList.contains('collapsed');
+    let mobileOpen = false;
+
+    // Synchronizuje wygląd, dostępność klawiatury oraz stan dla czytników ekranu.
+    const syncSidebar = () => {
+      const mobile = mobileMedia.matches;
+      const drawerOpen = mobile && mobileOpen;
+
+      sidebar.classList.toggle('collapsed', !mobile && desktopCollapsed);
+      layout.classList.toggle('sidebar-collapsed', !mobile && desktopCollapsed);
+      sidebar.classList.toggle('mobile-open', drawerOpen);
+      backdrop.hidden = !drawerOpen;
+      document.body.classList.toggle('employee-mobile-menu-open', drawerOpen);
+
+      // Ukryta nawigacja mobilna nie może otrzymywać fokusu przez Tab.
+      sidebar.inert = mobile && !drawerOpen;
+      if (mobile && !drawerOpen) {
+        sidebar.setAttribute('aria-hidden', 'true');
+      } else {
+        sidebar.removeAttribute('aria-hidden');
+      }
+
+      openBtn.setAttribute('aria-expanded', drawerOpen ? 'true' : 'false');
+      toggleBtn.setAttribute('aria-expanded', mobile ? (drawerOpen ? 'true' : 'false') : (desktopCollapsed ? 'false' : 'true'));
+      toggleBtn.setAttribute('aria-label', mobile ? 'Zamknij menu personelu' : (desktopCollapsed ? 'Rozwiń panel boczny' : 'Zwiń panel boczny'));
     };
 
+    // Zamyka mobilne menu i opcjonalnie oddaje fokus przyciskowi otwierania.
+    const closeMobile = (returnFocus = true) => {
+      if (!mobileOpen) return;
+      mobileOpen = false;
+      syncSidebar();
+      if (returnFocus && mobileMedia.matches) {
+        openBtn.focus();
+      }
+    };
+
+    openBtn.addEventListener('click', () => {
+      if (!mobileMedia.matches) return;
+      mobileOpen = true;
+      syncSidebar();
+      toggleBtn.focus();
+    });
+
     toggleBtn.addEventListener('click', () => {
-      if (!desktopMedia.matches) {
-        setCollapsed(false);
+      if (mobileMedia.matches) {
+        closeMobile();
+      } else {
+        desktopCollapsed = !desktopCollapsed;
+        syncSidebar();
+      }
+    });
+
+    backdrop.addEventListener('click', () => closeMobile());
+
+    // Wybranie zakładki zamyka szufladę, bez zmiany istniejącej logiki zakładek.
+    sidebar.querySelectorAll('[data-panel-tab]').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        if (mobileMedia.matches) closeMobile();
+      });
+    });
+
+    // Escape zamyka menu; Tab i Shift+Tab nie wychodzą poza otwartą nawigację.
+    document.addEventListener('keydown', (event) => {
+      if (!mobileMedia.matches || !mobileOpen) return;
+
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMobile();
         return;
       }
 
-      setCollapsed(!sidebar.classList.contains('collapsed'));
+      if (event.key !== 'Tab') return;
+
+      const items = Array.from(sidebar.querySelectorAll('button:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])'))
+        .filter((element) => !element.hidden && element.getClientRects().length > 0);
+      if (!items.length) return;
+
+      const first = items[0];
+      const last = items[items.length - 1];
+      const active = document.activeElement;
+
+      if (event.shiftKey && (active === first || !sidebar.contains(active))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && (active === last || !sidebar.contains(active))) {
+        event.preventDefault();
+        first.focus();
+      }
     });
 
-    const handleDesktopChange = (event) => {
-      if (!event.matches) {
-        setCollapsed(false);
-      }
+    // Przejście z telefonu na komputer zamyka drawer i odblokowuje przewijanie.
+    const handleBreakpoint = () => {
+      mobileOpen = false;
+      syncSidebar();
     };
-
-    if (typeof desktopMedia.addEventListener === 'function') {
-      desktopMedia.addEventListener('change', handleDesktopChange);
-    } else if (typeof desktopMedia.addListener === 'function') {
-      desktopMedia.addListener(handleDesktopChange);
+    if (typeof mobileMedia.addEventListener === 'function') {
+      mobileMedia.addEventListener('change', handleBreakpoint);
+    } else if (typeof mobileMedia.addListener === 'function') {
+      mobileMedia.addListener(handleBreakpoint);
     }
+
+    syncSidebar();
   }
 
   function initEmployeeBookingSearch() {

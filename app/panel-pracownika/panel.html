@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" type="image/png" href="/favicon.png">
   <title>Panel personelu</title>
-  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=7">
+  <link rel="stylesheet" href="/panel-pracownika/assets/css/panel-pracownika.css?v=20261110-menu-1">
   <link rel="stylesheet" href="/assets/css/app-footer.css">
 </head>
 <body class="employee-panel-body">
@@ -17,16 +17,19 @@
   </main>
 
   <div class="employee-panel-layout" hidden>
-    <aside class="employee-panel-sidebar" aria-label="Nawigacja panelu personelu">
+    <!-- Tło wysuwanego menu jest aktywne wyłącznie na urządzeniach mobilnych. -->
+    <div id="employeeSidebarBackdrop" class="employee-sidebar-backdrop" aria-hidden="true" hidden></div>
+    <aside id="employeePanelSidebar" class="employee-panel-sidebar" aria-label="Nawigacja panelu personelu">
       <div class="employee-panel-brand">
-        <div class="sidebar-logo employee-panel-brand-mark">Rezerwia</div>
+        <!-- Na komputerze zwija pasek boczny; na telefonie zamyka wysunięte menu. -->
         <button
           type="button"
           id="employeeSidebarToggle"
           class="employee-sidebar-toggle"
           aria-label="Zwiń panel boczny"
+          aria-controls="employeePanelSidebar"
           aria-expanded="true"
-        >&#9776;</button>
+        ><span aria-hidden="true">&#9776;</span></button>
       </div>
 
       <nav class="employee-panel-tabs" aria-label="Zakładki panelu personelu">
@@ -47,10 +50,27 @@
 
     <div class="employee-panel-main">
       <header class="employee-panel-topbar">
-        <div>
+        <!-- Dane firmy pozostają osobno od logo, aby logo można było centrować. -->
+        <div class="employee-panel-company-header">
           <p class="employee-panel-eyebrow">Firma</p>
           <h1 id="employeePanelTitle">Ładowanie danych firmy...</h1>
           <p id="employeePanelSubtitle">Ładowanie danych personelu...</p>
+        </div>
+
+        <div class="employee-panel-brand-row">
+          <!-- Przycisk otwiera menu mobilne; JS zarządza stanem i dostępnością. -->
+          <button
+            type="button"
+            id="employeeSidebarMobileOpen"
+            class="employee-sidebar-mobile-trigger"
+            aria-controls="employeePanelSidebar"
+            aria-expanded="false"
+            aria-label="Otwórz menu personelu"
+          ><span aria-hidden="true">&#9776;</span></button>
+
+          <div class="employee-panel-topbar-logo">
+            <img src="/assets/media/logo-rezerwia.png" alt="Rezerwia" width="2172" height="724" decoding="async">
+          </div>
         </div>
 
         <button type="button" class="employee-panel-logout" id="employeeLogoutBtn">
@@ -334,7 +354,7 @@
     </div>
   </div>
 
-  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=6"></script>
+  <script src="/panel-pracownika/assets/js/panel-pracownika.js?v=20261110-menu-1"></script>
   <script src="/assets/js/app-footer.js" defer></script>
 </body>
 </html>

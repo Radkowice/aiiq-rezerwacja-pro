@@ -676,3 +676,194 @@
     animation-iteration-count: 1 !important;
   }
 }
+
+
+/* ===== REZERWIA: LOGOTYP I MENU MOBILNE ===== */
+/* Tło logotypu ma stały kolor niezależny od motywów jasny/szary/ciemny. */
+.topbar-brand-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 10px;
+  background: #102b4e;
+  border: 1px solid #25476f;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.topbar-brand img {
+  display: block;
+  width: 204px;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
+
+/* Po usunięciu napisu z menu przycisk zwijania pozostaje po prawej. */
+.sidebar-header {
+  justify-content: flex-end;
+}
+
+.sidebar-toggle,
+.sidebar-mobile-trigger {
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-card-soft);
+  color: var(--color-text);
+  cursor: pointer;
+  font-size: 22px;
+}
+
+.sidebar-toggle {
+  display: inline-flex;
+}
+
+.sidebar-mobile-trigger,
+.sidebar-backdrop {
+  display: none;
+}
+
+.sidebar-toggle:hover,
+.sidebar-mobile-trigger:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+/* Używamy obecnego progu 1100 px, przy którym layout przestawał być boczny. */
+@media (max-width: 1100px) {
+  .admin-layout,
+  .admin-layout.sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar-mobile-trigger {
+    display: inline-flex;
+  }
+
+  /* Menu wysuwa się z lewej, nie zajmuje miejsca ponad treścią panelu. */
+  .sidebar {
+    position: fixed;
+    z-index: 1001;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(340px, calc(100vw - 48px));
+    max-height: 100vh;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-top: max(16px, env(safe-area-inset-top));
+    border-radius: 0 14px 14px 0;
+    transform: translateX(calc(-100% - 10px));
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.22s ease;
+    box-shadow: 12px 0 32px rgba(0, 0, 0, 0.25);
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+  }
+
+  .sidebar-menu {
+    display: flex;
+    flex-direction: column;
+    grid-template-columns: none;
+  }
+
+  .sidebar-account-summary {
+    display: block;
+    grid-template-columns: none;
+  }
+
+  .sidebar-account-row + .sidebar-account-row {
+    margin-top: 12px;
+  }
+
+  /* Przyciemnienie blokuje przypadkowe kliknięcia w panel za otwartym menu. */
+  .sidebar-backdrop:not([hidden]) {
+    display: block;
+    position: fixed;
+    z-index: 1000;
+    inset: 0;
+    background: rgba(10, 22, 40, 0.58);
+  }
+
+  body.sidebar-mobile-open {
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 520px) {
+  .topbar-brand img {
+    width: min(174px, calc(100vw - 126px));
+  }
+}
+
+
+/* REZERWIA — telefon: stały, subtelny przycisk menu i logo na środku belki. */
+/* Zmieniamy tylko małe ekrany; desktop i tablet zachowują dotychczasowy układ. */
+@media (max-width: 767px) {
+  /* Na telefonie belka ma pełną szerokość dla dokładnego centrowania logo. */
+  .topbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .topbar-left {
+    width: 100%;
+    min-width: 0;
+  }
+
+  /* Przycisk nie zajmuje miejsca w wierszu, więc nie przesuwa logo w prawo. */
+  .topbar-brand-row {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .topbar-brand {
+    margin-inline: auto;
+  }
+
+  .topbar-left > p {
+    text-align: center;
+  }
+
+  /* Pozycja fixed utrzymuje przycisk w rogu również podczas przewijania. */
+  .sidebar-mobile-trigger {
+    position: fixed;
+    z-index: 999; /* Poniżej tła menu (1000) i wysuniętego menu (1001). */
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    width: 40px;
+    height: 40px;
+    min-width: 40px;
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    background: var(--color-card);
+    color: var(--color-text);
+    box-shadow: 0 3px 12px rgba(15, 23, 42, 0.12);
+    opacity: 0.92;
+  }
+
+  .sidebar-mobile-trigger:focus-visible {
+    opacity: 1;
+  }
+}

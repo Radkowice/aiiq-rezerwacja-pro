@@ -370,9 +370,7 @@ function booking_email_worker_reschedule_offer(
     $lastDay = $blockedFrom->modify('-1 day');
     return [
         'allowed' => true,
-        'notice' => 'Termin możesz przełożyć do końca dnia '
-            . $lastDay->format('d.m.Y') . '.',
-    ];
+   ];
 }
 
 // Pobiera i wiąże dane wiadomości z właściwym tenantem i rezerwacją.

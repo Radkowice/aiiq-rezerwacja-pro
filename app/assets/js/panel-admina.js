@@ -866,17 +866,133 @@ function applyPlanLocks() {
   setPlanMarketingCtasVisible(true);
 }
 
+// Obsługa menu: na komputerze zwijamy kolumnę, na telefonie wysuwamy szufladę.
 function initSidebar() {
   const toggleBtn = document.getElementById('sidebarToggle');
-  const sidebar = document.querySelector('.sidebar');
+  const toggleIcon = toggleBtn?.querySelector('.sidebar-toggle-icon');
+  const mobileOpenBtn = document.getElementById('sidebarMobileOpen');
+  const backdrop = document.getElementById('sidebarBackdrop');
+  const sidebar = document.getElementById('adminSidebar');
   const layout = document.querySelector('.admin-layout');
 
-  if (!toggleBtn || !sidebar || !layout) return;
+  if (!toggleBtn || !toggleIcon || !mobileOpenBtn || !backdrop || !sidebar || !layout) return;
 
+  // Ten sam próg szerokości obowiązuje w arkuszu panel-admina-layout.css.
+  const mobileViewport = window.matchMedia('(max-width: 1100px)');
+  let desktopCollapsed = sidebar.classList.contains('collapsed');
+  let mobileOpen = false;
+
+  // Ustawia stan otwarcia mobilnego menu i jego dostępność dla klawiatury.
+  function setMobileOpen(shouldOpen, restoreFocus = false) {
+    if (!mobileViewport.matches) return;
+
+    mobileOpen = Boolean(shouldOpen);
+    sidebar.classList.toggle('mobile-open', mobileOpen);
+    backdrop.hidden = !mobileOpen;
+    document.body.classList.toggle('sidebar-mobile-open', mobileOpen);
+    sidebar.inert = !mobileOpen;
+    sidebar.setAttribute('aria-hidden', String(!mobileOpen));
+    mobileOpenBtn.setAttribute('aria-expanded', String(mobileOpen));
+    toggleBtn.setAttribute('aria-expanded', String(mobileOpen));
+
+    if (mobileOpen) {
+      toggleBtn.focus();
+    } else if (restoreFocus) {
+      mobileOpenBtn.focus();
+    }
+  }
+
+  // Przełączenie telefon/komputer usuwa nieaktualne klasy i przywraca szeroki układ.
+  function syncSidebarViewport() {
+    mobileOpen = false;
+    sidebar.classList.remove('mobile-open');
+    backdrop.hidden = true;
+    document.body.classList.remove('sidebar-mobile-open');
+    mobileOpenBtn.setAttribute('aria-expanded', 'false');
+
+    if (mobileViewport.matches) {
+      sidebar.classList.remove('collapsed');
+      layout.classList.remove('sidebar-collapsed');
+      sidebar.inert = true;
+      sidebar.setAttribute('aria-hidden', 'true');
+      toggleBtn.setAttribute('aria-label', 'Zamknij menu');
+      toggleBtn.setAttribute('aria-expanded', 'false');
+      toggleIcon.textContent = '×';
+    } else {
+      sidebar.inert = false;
+      sidebar.removeAttribute('aria-hidden');
+      sidebar.classList.toggle('collapsed', desktopCollapsed);
+      layout.classList.toggle('sidebar-collapsed', desktopCollapsed);
+      toggleBtn.setAttribute('aria-label', desktopCollapsed ? 'Rozwiń menu' : 'Zwiń menu');
+      toggleBtn.setAttribute('aria-expanded', String(!desktopCollapsed));
+      toggleIcon.textContent = '☰';
+    }
+  }
+
+  // Główny przycisk istniejący w menu obsługuje jego zamknięcie lub zwinięcie.
   toggleBtn.addEventListener('click', () => {
-    sidebar.classList.toggle('collapsed');
-    layout.classList.toggle('sidebar-collapsed');
+    if (mobileViewport.matches) {
+      setMobileOpen(false, true);
+      return;
+    }
+
+    desktopCollapsed = !desktopCollapsed;
+    sidebar.classList.toggle('collapsed', desktopCollapsed);
+    layout.classList.toggle('sidebar-collapsed', desktopCollapsed);
+    toggleBtn.setAttribute('aria-label', desktopCollapsed ? 'Rozwiń menu' : 'Zwiń menu');
+    toggleBtn.setAttribute('aria-expanded', String(!desktopCollapsed));
   });
+
+  mobileOpenBtn.addEventListener('click', () => setMobileOpen(true));
+  backdrop.addEventListener('click', () => setMobileOpen(false, true));
+
+  // Po wybraniu sekcji zamykamy szufladę, pozostawiając działanie initMenu().
+  sidebar.querySelectorAll('.menu-item').forEach(item => {
+    item.addEventListener('click', () => {
+      if (mobileOpen) setMobileOpen(false, true);
+    });
+  });
+
+  // Escape zamyka menu; Tab i Shift+Tab nie przenoszą fokusu pod przyciemnione tło.
+  document.addEventListener('keydown', event => {
+    if (!mobileViewport.matches || !mobileOpen) return;
+
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      setMobileOpen(false, true);
+      return;
+    }
+
+    if (event.key !== 'Tab') return;
+
+    const focusable = [...sidebar.querySelectorAll(
+      'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+    )].filter(element => element.getClientRects().length > 0);
+
+    if (focusable.length === 0) {
+      event.preventDefault();
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (event.shiftKey && (document.activeElement === first || !sidebar.contains(document.activeElement))) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && (document.activeElement === last || !sidebar.contains(document.activeElement))) {
+      event.preventDefault();
+      first.focus();
+    }
+  });
+
+  // Przełączenie breakpointu nie pozostawia otwartej, niewidocznej nakładki.
+  if (typeof mobileViewport.addEventListener === 'function') {
+    mobileViewport.addEventListener('change', syncSidebarViewport);
+  } else {
+    mobileViewport.addListener(syncSidebarViewport);
+  }
+
+  syncSidebarViewport();
 }
 
 function initTopbarActions() {

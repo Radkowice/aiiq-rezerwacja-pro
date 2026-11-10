@@ -2038,3 +2038,176 @@ body.modal-open {
   }
   .employee-booking-view-btn { padding: 9px 8px; }
 }
+
+
+/* ===============================================================
+   PANEL PERSONELU — logo Rezerwii oraz wysuwane menu mobilne.
+   Zmiana wizualna: nie modyfikuje uprawnień, API ani funkcji rezerwacji.
+   =============================================================== */
+
+/* Na komputerze: nazwa firmy po lewej, logo pośrodku, wylogowanie po prawej. */
+@media (min-width: 901px) {
+  .employee-panel-topbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
+    gap: 14px;
+  }
+
+  .employee-panel-company-header { grid-column: 1; grid-row: 1; min-width: 0; }
+  .employee-panel-brand-row { grid-column: 2; grid-row: 1; }
+  .employee-panel-logout { grid-column: 3; grid-row: 1; justify-self: end; }
+}
+
+/* Logo jest osobną zawartością nagłówka, nie tekstem w bocznym menu. */
+.employee-panel-brand-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  min-width: 0;
+}
+
+.employee-panel-topbar-logo {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 7px 11px;
+  border: 1px solid #25476f;
+  border-radius: 12px;
+  background: #102b4e;
+  flex: 0 0 auto;
+}
+
+.employee-panel-topbar-logo img {
+  display: block;
+  width: 174px;
+  height: auto;
+  max-width: 100%;
+  object-fit: contain;
+}
+
+/* Przycisk mobilny jest niewidoczny, gdy działa zwijany pasek desktopowy. */
+.employee-sidebar-mobile-trigger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--employee-border-strong);
+  border-radius: 12px;
+  background: var(--employee-card);
+  box-shadow: var(--employee-shadow-soft);
+  color: var(--employee-primary);
+  font: inherit;
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.employee-sidebar-mobile-trigger:hover,
+.employee-sidebar-mobile-trigger:focus-visible {
+  background: var(--employee-primary-soft);
+  border-color: var(--employee-primary);
+}
+
+.employee-sidebar-mobile-trigger:focus-visible {
+  outline: 2px solid var(--employee-primary);
+  outline-offset: 2px;
+}
+
+/* Tło za menu. Ukryty atrybut HTML zawsze ma pierwszeństwo. */
+.employee-sidebar-backdrop[hidden] { display: none !important; }
+.employee-sidebar-backdrop { display: none; }
+
+@media (max-width: 1100px) {
+  /* Nawigacja wysuwa się z lewej zamiast zajmować pierwszy wiersz strony. */
+  .employee-panel-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1101;
+    width: min(310px, calc(100vw - 48px));
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: calc(16px + env(safe-area-inset-top, 0px)) 16px 16px;
+    border-radius: 0 16px 16px 0;
+    transform: translateX(-105%);
+    visibility: hidden;
+    pointer-events: none;
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+
+  .employee-panel-sidebar.mobile-open {
+    transform: translateX(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition: transform 0.2s ease, visibility 0s linear 0s;
+  }
+
+  .employee-panel-sidebar .employee-panel-brand { justify-content: flex-end; }
+  .employee-panel-sidebar .employee-sidebar-toggle { display: inline-flex; }
+  .employee-panel-sidebar .employee-panel-tabs { grid-template-columns: 1fr; }
+  .employee-panel-sidebar .employee-panel-tab { justify-content: space-between; text-align: left; }
+
+  .employee-sidebar-backdrop:not([hidden]) {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 1100;
+    background: rgba(8, 19, 37, 0.52);
+  }
+
+  body.employee-mobile-menu-open { overflow: hidden; }
+
+  .employee-sidebar-mobile-trigger {
+    display: inline-flex;
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+}
+
+@media (max-width: 900px) {
+  /* Pierwszy wiersz: logo na środku; poniżej firma i przycisk Wyloguj. */
+  .employee-panel-topbar {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .employee-panel-brand-row {
+    order: -1;
+    width: 100%;
+    min-height: 72px;
+  }
+
+  .employee-panel-company-header { min-width: 0; }
+}
+
+@media (max-width: 767px) {
+  /* Dyskretny przycisk ☰ jest stale widoczny także podczas przewijania. */
+  .employee-sidebar-mobile-trigger {
+    position: fixed;
+    left: calc(12px + env(safe-area-inset-left, 0px));
+    top: calc(14px + env(safe-area-inset-top, 0px));
+    z-index: 1099;
+    transform: none;
+    opacity: 0.92;
+    width: 40px;
+    height: 40px;
+  }
+
+  .employee-panel-brand-row { justify-content: center; }
+  .employee-panel-topbar-logo img { width: 158px; }
+}
+
+/* Tablet: przycisk obok wyśrodkowanego logo, bez zasłaniania grafiki. */
+@media (min-width: 901px) and (max-width: 1100px) {
+  .employee-sidebar-mobile-trigger { left: -54px; }
+}

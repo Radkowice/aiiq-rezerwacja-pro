@@ -21,7 +21,8 @@ const rescheduleState = {
   selectedTime: '',
   viewDate: new Date(),
   saving: false,
-  canReschedule: true,
+  canReschedule: false,
+  minNewDate: '',
   calendarSettings: {
     booking_start_month_offset: 0,
     booking_month_range: 1,
@@ -229,6 +230,28 @@ function normalizeRescheduleTime(value) {
   }
 
   return `${String(match[1]).padStart(2, '0')}:${match[2]}`;
+}
+
+// Daty ISO porównujemy jako tekst, bez strefy czasowej przeglądarki.
+// Granicę wyznacza backend w strefie Europe/Warsaw.
+function isTargetDateAllowedByPolicy(dateStr) {
+  const minDate = normalizeRescheduleDate(rescheduleState.minNewDate);
+  const target = normalizeRescheduleDate(dateStr);
+  return !!minDate && !!target && target >= minDate;
+}
+
+function formatPolishIsoDate(dateStr) {
+  const date = normalizeRescheduleDate(dateStr);
+  return date ? `${date.slice(8, 10)}.${date.slice(5, 7)}.${date.slice(0, 4)}` : '';
+}
+
+function updateReschedulePolicyInfo() {
+  const el = getEl('reschedulePolicyInfo');
+  if (!el) return;
+  el.hidden = !rescheduleState.canReschedule || !rescheduleState.minNewDate;
+  el.textContent = el.hidden
+    ? ''
+    : `Najwcześniejszy nowy termin: ${formatPolishIsoDate(rescheduleState.minNewDate)}. Wcześniejsze dni są niedostępne.`;
 }
 
 function getCurrentBookingDate() {
@@ -455,7 +478,9 @@ function updateSubmitState() {
 
   if (!btn) return;
 
-  btn.disabled = !rescheduleState.canReschedule || rescheduleState.saving || !rescheduleState.selectedDate || !rescheduleState.selectedTime;
+  btn.disabled = !rescheduleState.canReschedule
+    || !isTargetDateAllowedByPolicy(rescheduleState.selectedDate)
+    || rescheduleState.saving || !rescheduleState.selectedTime;
   btn.textContent = rescheduleState.saving ? 'Zapisywanie...' : 'Zmień rezerwację';
 }
 
@@ -560,6 +585,7 @@ function renderCalendar() {
     const dayAvailability = monthAvailability && monthAvailability[dateStr] ? monthAvailability[dateStr] : null;
     const hasAvailableTimes = dayAvailability && dayAvailability.available === true && Number(dayAvailability.times_count || 0) > 0;
     const disabled = !rescheduleState.canReschedule
+      || !isTargetDateAllowedByPolicy(dateStr)
       || date < today
       || !isDateWithinAllowedRange(date)
       || !hasAvailableTimes;
@@ -592,6 +618,20 @@ async function loadAvailableTimes(date) {
 
   const data = await res.json();
 
+  // Po zmianie daty w Warszawie serwer może zwrócić nowszą granicę.
+  const currentMinimum = normalizeRescheduleDate(data.first_allowed_new_date);
+  if (currentMinimum && currentMinimum > rescheduleState.minNewDate) {
+    rescheduleState.minNewDate = currentMinimum;
+    if (!isTargetDateAllowedByPolicy(rescheduleState.selectedDate)) {
+      rescheduleState.selectedDate = '';
+      rescheduleState.selectedTime = '';
+      setTimeOptions([], 'Wybierz późniejszą datę');
+    }
+    updateReschedulePolicyInfo();
+    renderCalendar();
+    updateSubmitState();
+  }
+
   if (!res.ok || data.success !== true || !Array.isArray(data.availableTimes)) {
     throw new Error(data.message || 'Nie udało się pobrać dostępnych godzin.');
   }
@@ -612,6 +652,11 @@ async function loadAvailableTimes(date) {
 }
 
 async function selectDate(date) {
+  if (!rescheduleState.canReschedule || !isTargetDateAllowedByPolicy(date)) {
+    showError('Ten dzień jest niedostępny. Najwcześniejszy termin: ' + formatPolishIsoDate(rescheduleState.minNewDate) + '.');
+    return;
+  }
+
   rescheduleState.selectedDate = date;
   rescheduleState.selectedTime = '';
   clearMessages();
@@ -663,6 +708,7 @@ function renderBooking(booking) {
     content.hidden = false;
   }
 
+  updateReschedulePolicyInfo();
   renderCalendar();
   setTimeOptions([], 'Najpierw wybierz datę');
   updateSubmitState();
@@ -680,7 +726,9 @@ async function loadBooking(token) {
   }
 
   const booking = data.booking || {};
-  rescheduleState.canReschedule = data.can_reschedule !== false;
+  rescheduleState.minNewDate = normalizeRescheduleDate(data.first_allowed_new_date);
+  // Brak pola nowej granicy nie daje domyślnego zezwolenia.
+  rescheduleState.canReschedule = data.can_reschedule === true && !!rescheduleState.minNewDate;
   await loadRescheduleCalendarSettings();
   renderBooking(booking);
 
@@ -695,7 +743,9 @@ async function loadBooking(token) {
 }
 
 async function submitReschedule() {
-  if (rescheduleState.saving || !rescheduleState.selectedDate || !rescheduleState.selectedTime) {
+  if (rescheduleState.saving || !rescheduleState.canReschedule
+      || !isTargetDateAllowedByPolicy(rescheduleState.selectedDate)
+      || !rescheduleState.selectedTime) {
     return;
   }
 
@@ -730,7 +780,8 @@ async function submitReschedule() {
       throw new Error(data.message || 'Nie udało się zmienić terminu rezerwacji.');
     }
 
-    rescheduleState.canReschedule = data.can_reschedule !== false;
+    rescheduleState.minNewDate = normalizeRescheduleDate(data.first_allowed_new_date);
+    rescheduleState.canReschedule = data.can_reschedule === true && !!rescheduleState.minNewDate;
     renderBooking(data.booking || {});
     rescheduleState.selectedDate = '';
     rescheduleState.selectedTime = '';

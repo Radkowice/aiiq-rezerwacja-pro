@@ -210,6 +210,166 @@ function plan_features_request(
     return $result;
 }
 
+/**
+ * Oznacza błąd odczytu wspólnego katalogu planów.
+ * Nie wolno w takiej sytuacji przywrócić płatnych uprawnień z twardych wartości PHP.
+ */
+function plan_features_catalog_unavailable_flag(?bool $value = null): bool
+{
+    static $unavailable = false;
+
+    if ($value !== null) {
+        $unavailable = $value;
+    }
+
+    return $unavailable;
+}
+
+/**
+ * Pobiera globalny katalog planów przez RPC z ograniczonym JWT.
+ * Nie korzysta z service_role ani z ogólnego helpera plan_features_request().
+ * W razie błędu zwraca ok=false i nie ujawnia danych uwierzytelniających.
+ */
+function plan_features_catalog_rpc_request(
+    array $config,
+    ?callable $diagnosticLogger = null
+): array {
+    $baseUrl = rtrim((string) ($config['supabase_url'] ?? ''), '/');
+    $schema = (string) ($config['schema'] ?? '');
+    $anonKey = trim((string) getenv('SUPABASE_ANON_KEY'));
+    $jwtPath = trim((string) getenv('REZERWIA_PLAN_READ_JWT_FILE'));
+    $rpcUrl = $baseUrl . '/rest/v1/rpc/rezerwia_plan_catalog_readonly';
+    $result = [
+        'ok' => false,
+        'http_code' => 0,
+        'data' => null,
+        'attempts' => 0,
+        'temporary' => true,
+    ];
+
+    // Nie wykonujemy żadnego odczytu przez uprzywilejowany klucz.
+    if (
+        $baseUrl === ''
+        || $schema !== 'rezerwacja_pro'
+        || $anonKey === ''
+        || $jwtPath === ''
+        || !str_starts_with($jwtPath, '/')
+        || !is_file($jwtPath)
+        || !is_readable($jwtPath)
+    ) {
+        plan_features_log('catalog_rpc_configuration_unavailable');
+        return $result;
+    }
+
+    for ($attempt = 1; $attempt <= 3; $attempt++) {
+        // Odczytujemy JWT ponownie przy każdej próbie, bo plik podlega rotacji.
+        $jwt = @file_get_contents($jwtPath);
+        $jwt = is_string($jwt) ? trim($jwt) : '';
+
+        if ($jwt === '') {
+            plan_features_log('catalog_rpc_jwt_unavailable');
+            return $result;
+        }
+
+        $ch = curl_init($rpcUrl);
+
+        if ($ch === false) {
+            plan_features_log('catalog_rpc_curl_unavailable');
+            return $result;
+        }
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => '{}',
+            CURLOPT_HTTPHEADER => [
+                'apikey: ' . $anonKey,
+                'Authorization: Bearer ' . $jwt,
+                'Content-Type: application/json',
+                'Content-Profile: ' . $schema,
+                'Accept-Profile: ' . $schema,
+            ],
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
+        $durationMs = (int) round(
+            ((float) curl_getinfo($ch, CURLINFO_TOTAL_TIME)) * 1000
+        );
+        curl_close($ch);
+
+        $decoded = is_string($response) && $response !== ''
+            ? json_decode($response, true)
+            : null;
+        $jsonValid = json_last_error() === JSON_ERROR_NONE;
+        $ok = $curlErrno === 0
+            && $httpCode === 200
+            && $jsonValid
+            && is_array($decoded)
+            && array_is_list($decoded);
+
+        if (function_exists('booking_supabase_request_record')) {
+            booking_supabase_request_record('POST', $rpcUrl, 'plan_global_limits', $httpCode);
+        }
+
+        $result = [
+            'ok' => $ok,
+            'http_code' => $httpCode,
+            'data' => $ok ? $decoded : null,
+            'attempts' => $attempt,
+            'temporary' => !$ok,
+        ];
+
+        if ($ok) {
+            return $result;
+        }
+
+        // Logi diagnostyczne zawierają tylko metadane, nigdy JWT ani apikey.
+        if ($diagnosticLogger !== null) {
+            try {
+                $diagnosticLogger([
+                    'stage' => 'plan_global_limits',
+                    'method' => 'POST',
+                    'http_code' => $httpCode,
+                    'curl_errno' => $curlErrno,
+                    'attempt' => $attempt,
+                    'max_attempts' => 3,
+                    'json_valid' => $jsonValid,
+                    'duration_ms' => $durationMs,
+                    'tenant_id' => '',
+                ]);
+            } catch (Throwable $e) {
+                // Diagnostyka nie może zmieniać decyzji o uprawnieniach.
+            }
+        }
+
+        // Ponawiamy wyłącznie usterki chwilowe; 401/403 są odmową dostępu.
+        $retryable = $curlErrno !== 0
+            || $httpCode === 0
+            || $httpCode === 429
+            || $httpCode >= 500;
+
+        if (!$retryable || $attempt === 3) {
+            break;
+        }
+
+        usleep(plan_features_retry_delay_us($attempt, $httpCode));
+    }
+
+    plan_features_log('catalog_rpc_read_failed', [
+        'http_code' => $result['http_code'],
+        'attempts' => $result['attempts'],
+    ]);
+
+    return $result;
+}
+
 function plan_features_temporary_error_flag(?bool $value = null): bool
 {
     static $flag = false;
@@ -477,26 +637,23 @@ function plan_features_fetch_single(
     return is_array($result['data'][0] ?? null) ? $result['data'][0] : null;
 }
 
+/**
+ * Rejestracja własnej domeny VIP wymaga potwierdzonej flagi z katalogu RPC.
+ * Niedostępny katalog nigdy nie oznacza pozwolenia na rejestrację.
+ */
 function plan_features_public_registration_custom_domain_enabled(string $planCode): bool
 {
-    $planCode = strtolower(trim($planCode));
-
-    if ($planCode !== 'vip') {
+    if (strtolower(trim($planCode)) !== 'vip') {
         return false;
     }
 
-    $limit = plan_features_fetch_single(
-        'subscription_plan_limits',
-        'select=' . rawurlencode('plan_code,custom_domain_enabled,is_active')
-            . '&plan_code=eq.vip'
-            . '&is_active=eq.true',
-        plan_features_config()
-    );
+    $dictionary = plan_features_get_global_limits_dictionary(plan_features_config());
+    $vip = is_array($dictionary['vip'] ?? null) ? $dictionary['vip'] : null;
 
-    return is_array($limit)
-        && strtolower(trim((string) ($limit['plan_code'] ?? ''))) === 'vip'
-        && ($limit['is_active'] ?? null) === true
-        && ($limit['custom_domain_enabled'] ?? null) === true;
+    return is_array($vip)
+        && strtolower(trim((string) ($vip['plan_code'] ?? ''))) === 'vip'
+        && ($vip['is_active'] ?? null) === true
+        && ($vip['custom_domain_enabled'] ?? null) === true;
 }
 
 function plan_features_global_limits_select(): string
@@ -504,100 +661,137 @@ function plan_features_global_limits_select(): string
     return 'plan_code,plan_name,max_services,max_staff,staff_enabled,payments_enabled,google_calendar_enabled,legal_documents_enabled,branding_enabled,custom_domain_enabled,sms_enabled,service_payments_enabled,reminders_enabled,reschedule_enabled,is_active';
 }
 
+/**
+ * Odczytuje i buforuje wyłącznie globalny katalog planów.
+ * Gdy cache nie jest wczytany, wykonuje bezpośrednio bezpieczny odczyt RPC.
+ * Błąd katalogu nie powoduje przejścia na service_role.
+ */
 function plan_features_get_global_limits_dictionary(
     array $config,
     ?callable $diagnosticLogger = null
 ): ?array {
-    if (
-        $config['supabase_url'] === ''
-        || $config['supabase_key'] === ''
-        || !function_exists('booking_context_cache_key')
-        || !function_exists('booking_context_cache_read')
-        || !function_exists('booking_context_cache_write')
-        || !function_exists('booking_context_cache_acquire_lock')
-        || !function_exists('booking_context_cache_release_lock')
-        || !function_exists('booking_context_cache_global_plan_ttl')
-    ) {
+    static $requestCache = [];
+
+    if (trim((string) ($config['supabase_url'] ?? '')) === '') {
+        plan_features_catalog_unavailable_flag(true);
+        plan_features_temporary_error_flag(true);
         return null;
     }
+
+    $requestKey = hash(
+        'sha256',
+        $config['supabase_url'] . "\n" . ($config['schema'] ?? '') . "\nreadonly_catalog_v2"
+    );
+
+    if (isset($requestCache[$requestKey])) {
+        return $requestCache[$requestKey];
+    }
+
+    // Cache jest opcjonalny: dostęp do katalogu nie zależy od include innego modułu.
+    $cacheAvailable = function_exists('booking_context_cache_key')
+        && function_exists('booking_context_cache_read')
+        && function_exists('booking_context_cache_write')
+        && function_exists('booking_context_cache_acquire_lock')
+        && function_exists('booking_context_cache_release_lock')
+        && function_exists('booking_context_cache_global_plan_ttl');
 
     $stage = 'plan_global_limits';
-    $cacheKey = booking_context_cache_key($stage, [
-        'supabase_url' => $config['supabase_url'],
-        'schema' => $config['schema'],
-        'version' => 1,
-    ]);
-    $cached = booking_context_cache_read($stage, $cacheKey);
+    $cacheKey = '';
 
-    if (is_array($cached['limits'] ?? null)) {
-        return $cached['limits'];
-    }
-
-    $lockHandle = booking_context_cache_acquire_lock($cacheKey, 5000);
-
-    if (!is_resource($lockHandle)) {
-        return null;
-    }
-
-    try {
-        $cached = booking_context_cache_read($stage, $cacheKey, false);
+    if ($cacheAvailable) {
+        $cacheKey = booking_context_cache_key($stage, [
+            'supabase_url' => $config['supabase_url'],
+            'schema' => $config['schema'],
+            'version' => 2,
+            'source' => 'readonly_rpc',
+        ]);
+        $cached = booking_context_cache_read($stage, $cacheKey);
 
         if (is_array($cached['limits'] ?? null)) {
-            return $cached['limits'];
+            $requestCache[$requestKey] = $cached['limits'];
+            return $requestCache[$requestKey];
+        }
+    }
+
+    $lockHandle = $cacheAvailable
+        ? booking_context_cache_acquire_lock($cacheKey, 5000)
+        : null;
+
+    try {
+        if (is_resource($lockHandle)) {
+            // Po zdobyciu blokady ponownie sprawdzamy, czy inny proces uzupełnił cache.
+            $cached = booking_context_cache_read($stage, $cacheKey, false);
+
+            if (is_array($cached['limits'] ?? null)) {
+                $requestCache[$requestKey] = $cached['limits'];
+                return $requestCache[$requestKey];
+            }
         }
 
-        $url = $config['supabase_url']
-            . '/rest/v1/subscription_plan_limits'
-            . '?select=' . rawurlencode(plan_features_global_limits_select())
-            . '&is_active=eq.true';
-        $result = plan_features_request(
-            $url,
-            $config['supabase_key'],
-            $config['schema'],
-            $stage,
-            '',
-            $diagnosticLogger
-        );
+        $result = plan_features_catalog_rpc_request($config, $diagnosticLogger);
 
-        if (!$result['ok'] || !is_array($result['data'] ?? null)) {
+        if (!$result['ok'] || !is_array($result['data'])) {
+            plan_features_catalog_unavailable_flag(true);
+            plan_features_temporary_error_flag(true);
             return null;
         }
 
         $dictionary = [];
+        $requiredFields = explode(',', plan_features_global_limits_select());
 
         foreach ($result['data'] as $row) {
-            if (!is_array($row) || empty($row['plan_code'])) {
+            if (!is_array($row) || array_diff($requiredFields, array_keys($row)) !== []) {
+                plan_features_catalog_unavailable_flag(true);
+                plan_features_temporary_error_flag(true);
+                return null;
+            }
+
+            $rawCode = strtolower(trim((string) ($row['plan_code'] ?? '')));
+
+            if (!in_array($rawCode, ['free', 'pro', 'vip', 'business', 'biznes'], true)) {
+                plan_features_catalog_unavailable_flag(true);
+                plan_features_temporary_error_flag(true);
+                return null;
+            }
+
+            if (($row['is_active'] ?? null) !== true) {
                 continue;
             }
 
-            $rawPlanCode = strtolower(trim((string)$row['plan_code']));
+            $storageCode = $rawCode === 'business' ? 'biznes' : $rawCode;
 
-            if (!in_array($rawPlanCode, ['free', 'pro', 'vip', 'business', 'biznes'], true)) {
-                continue;
+            if (isset($dictionary[$storageCode])) {
+                plan_features_catalog_unavailable_flag(true);
+                plan_features_temporary_error_flag(true);
+                return null;
             }
 
-            $storagePlanCode = $rawPlanCode === 'business' ? 'biznes' : $rawPlanCode;
-
-            if (!isset($dictionary[$storagePlanCode])) {
-                $dictionary[$storagePlanCode] = $row;
-            }
+            $dictionary[$storageCode] = $row;
         }
 
-        if (empty($dictionary)) {
+        if ($dictionary === [] || !isset($dictionary['free'])) {
+            plan_features_catalog_unavailable_flag(true);
+            plan_features_temporary_error_flag(true);
             return null;
         }
 
-        booking_context_cache_write(
-            $stage,
-            $cacheKey,
-            ['limits' => $dictionary],
-            booking_context_cache_global_plan_ttl(),
-            max(1, (int)($result['attempts'] ?? 1))
-        );
+        $requestCache[$requestKey] = $dictionary;
+
+        if ($cacheAvailable && is_resource($lockHandle)) {
+            booking_context_cache_write(
+                $stage,
+                $cacheKey,
+                ['limits' => $dictionary],
+                booking_context_cache_global_plan_ttl(),
+                max(1, (int) ($result['attempts'] ?? 1))
+            );
+        }
 
         return $dictionary;
     } finally {
-        booking_context_cache_release_lock($lockHandle);
+        if (is_resource($lockHandle)) {
+            booking_context_cache_release_lock($lockHandle);
+        }
     }
 }
 
@@ -781,21 +975,15 @@ function plan_features_get_context_from_database(
     $fallbackFeatures = $featuresMap[$effectivePlanCode] ?? $featuresMap['free'];
     $fallbackLimits = $limitsMap[$effectivePlanCode] ?? $limitsMap['free'];
 
-    $globalSelect = 'select=' . rawurlencode(plan_features_global_limits_select());
+    // Dane planu pochodzą wyłącznie ze zweryfikowanego katalogu RPC.
     $globalLimits = plan_features_get_global_limits_dictionary($config, $diagnosticLogger);
     $global = is_array($globalLimits[$storagePlanCode] ?? null)
         ? $globalLimits[$storagePlanCode]
-        : plan_features_fetch_single(
-            'subscription_plan_limits',
-            $globalSelect
-                . '&plan_code=eq.' . rawurlencode($storagePlanCode)
-                . '&is_active=eq.true',
-            $config,
-            $tenantId,
-            $diagnosticLogger
-        );
+        : null;
 
     if (!is_array($global)) {
+        plan_features_catalog_unavailable_flag(true);
+        plan_features_temporary_error_flag(true);
         return null;
     }
 
@@ -818,23 +1006,20 @@ function plan_features_get_context_from_database(
         if ($overrideStoragePlanCode !== $storagePlanCode) {
             $overrideGlobal = is_array($globalLimits[$overrideStoragePlanCode] ?? null)
                 ? $globalLimits[$overrideStoragePlanCode]
-                : plan_features_fetch_single(
-                    'subscription_plan_limits',
-                    $globalSelect
-                        . '&plan_code=eq.' . rawurlencode($overrideStoragePlanCode)
-                        . '&is_active=eq.true',
-                    $config,
-                    $tenantId,
-                    $diagnosticLogger
-                );
+                : null;
 
-            if (is_array($overrideGlobal)) {
-                $global = $overrideGlobal;
-                $effectivePlanCode = $overridePlanCode;
-                $storagePlanCode = $overrideStoragePlanCode;
-                $fallbackFeatures = $featuresMap[$effectivePlanCode] ?? $featuresMap['free'];
-                $fallbackLimits = $limitsMap[$effectivePlanCode] ?? $limitsMap['free'];
+            if (!is_array($overrideGlobal)) {
+                // Nie przyznajemy uprawnień dla planu bez definicji w katalogu RPC.
+                plan_features_catalog_unavailable_flag(true);
+                plan_features_temporary_error_flag(true);
+                return null;
             }
+
+            $global = $overrideGlobal;
+            $effectivePlanCode = $overridePlanCode;
+            $storagePlanCode = $overrideStoragePlanCode;
+            $fallbackFeatures = $featuresMap[$effectivePlanCode] ?? $featuresMap['free'];
+            $fallbackLimits = $limitsMap[$effectivePlanCode] ?? $limitsMap['free'];
         }
     }
 
@@ -868,6 +1053,7 @@ function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger
     }
 
     plan_features_temporary_error_flag(false);
+    plan_features_catalog_unavailable_flag(false);
 
     $config = plan_features_config();
     $persistentCacheKey = '';
@@ -880,6 +1066,8 @@ function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger
             'tenant_id' => trim($tenantId),
             'supabase_url' => $config['supabase_url'],
             'schema' => $config['schema'],
+            'version' => 2,
+            'global_catalog' => 'readonly_rpc',
         ]);
         $cachedContext = booking_context_cache_read('plan_context', $persistentCacheKey);
 
@@ -918,6 +1106,22 @@ function plan_features_get_context(string $tenantId, ?callable $diagnosticLogger
             );
         }
 
+        return $context;
+    }
+
+    // Błąd katalogu nie może uruchomić domyślnych uprawnień Pro/VIP/Business.
+    if (plan_features_catalog_unavailable_flag()) {
+        plan_features_log('catalog_unavailable_restricted_context', [
+            'tenant_id_set' => trim($tenantId) !== '',
+        ]);
+        $context = plan_features_get_context_fallback(
+            $tenantId,
+            plan_features_default_subscription(),
+            $diagnosticLogger
+        );
+        $context['source'] = 'catalog_unavailable';
+        $context['temporary_error'] = true;
+        $cache[$cacheKey] = $context;
         return $context;
     }
 
