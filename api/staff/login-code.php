@@ -104,14 +104,16 @@ $rateAction = $action === 'request'
     : 'auth_login_code_verify_staff';
 $rateLimit = login_security_rate_limit($rateAction, 'staff', (string) $tenantId, $email);
 
-if (empty($rateLimit['ok'])) {
+// Błąd obowiązkowej reguły oznacza odmowę logowania (fail-closed).
+if (($rateLimit['ok'] ?? null) !== true) {
     staff_login_code_json([
         'success' => false,
         'error' => 'Logowanie jest chwilowo niedostępne.',
     ], 503);
 }
 
-if (($rateLimit['allowed'] ?? true) === false) {
+// Bez jawnego zezwolenia ze wszystkich warstw nie uwierzytelniamy użytkownika.
+if (($rateLimit['allowed'] ?? null) !== true) {
     $payload = security_neutral_rate_limit_response($rateLimit);
     $payload['error'] = (string) ($payload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
     staff_login_code_json($payload, 429);

@@ -92,14 +92,16 @@ $rateAction = $action === 'request'
     : 'auth_login_code_verify_admin';
 $rateLimit = login_security_rate_limit($rateAction, 'admin', (string) $tenantId, $email);
 
-if (empty($rateLimit['ok'])) {
+// Błąd obowiązkowej reguły oznacza odmowę logowania (fail-closed).
+if (($rateLimit['ok'] ?? null) !== true) {
     admin_login_code_json([
         'success' => false,
         'error' => 'Logowanie jest chwilowo niedostępne.',
     ], 503);
 }
 
-if (($rateLimit['allowed'] ?? true) === false) {
+// Bez jawnego zezwolenia ze wszystkich warstw nie uwierzytelniamy użytkownika.
+if (($rateLimit['allowed'] ?? null) !== true) {
     $payload = security_neutral_rate_limit_response($rateLimit);
     $payload['error'] = (string) ($payload['message'] ?? 'Zbyt wiele prób. Spróbuj ponownie za chwilę.');
     admin_login_code_json($payload, 429);
@@ -231,7 +233,9 @@ if (!login_security_verify_code(
     ], 401);
 }
 
+// Rotujemy identyfikator sesji i token CSRF po uwierzytelnieniu kodem.
 session_regenerate_id(true);
+$_SESSION['csrf'] = bin2hex(random_bytes(32));
 unset($_SESSION['staff_user']);
 $_SESSION['user'] = [
     'id' => $userId,

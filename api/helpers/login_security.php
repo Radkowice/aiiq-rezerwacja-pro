@@ -163,6 +163,167 @@ function login_security_storage_available(
     return true;
 }
 
+// Wspólny, zamknięty wynik odmowy przy błędzie kontroli bezpieczeństwa.
+function login_security_rate_limit_unavailable(): array
+{
+    return [
+        'ok' => false,
+        'allowed' => false,
+        'retry_after_seconds' => null,
+        'remaining' => null,
+        'raw' => null,
+        'error' => 'login_code_rate_limit_unavailable',
+    ];
+}
+
+// Weryfikuje integralność odpowiedzi z obowiązkowej reguły PostgreSQL.
+// Nie wolno uznać braku reguły ani nieprawidłowej decyzji za zezwolenie.
+function login_security_valid_rate_result(array $result, string $expectedAction): bool
+{
+    $raw = $result['raw'] ?? null;
+
+    return ($result['ok'] ?? null) === true
+        && is_array($raw)
+        && ($raw['rule_found'] ?? null) === true
+        && ($raw['action_key'] ?? null) === $expectedAction
+        && is_bool($raw['allowed'] ?? null)
+        && ($result['allowed'] ?? null) === $raw['allowed'];
+}
+
+// Wywołuje istniejącą funkcję PostgreSQL z JAWNYM kluczem zakresu.
+// W przeciwieństwie do ogólnego helpera, nie dopisuje automatycznie IP ani e-maila.
+// Wariant account: tenant + typ konta + znormalizowany e-mail, bez IP.
+// Wariant ip: tenant + IP, bez e-maila. IP jest wykorzystywane wyłącznie przy liczeniu.
+function login_security_fixed_scope_rate_limit(
+    string $actionKey,
+    string $scopeKind,
+    string $actorType,
+    string $tenantId,
+    string $email
+): array {
+    $unavailable = login_security_rate_limit_unavailable();
+
+    try {
+        $actorType = login_security_actor($actorType);
+        $email = login_security_normalize_email($email);
+        $tenantId = trim($tenantId);
+        $ipAddress = security_client_ip();
+
+        if ($tenantId === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            return $unavailable;
+        }
+
+        if ($scopeKind === 'account') {
+            // Nie wkładamy IP ani identyfikatora sesji do klucza konta.
+            $scopeIdentity = [
+                'action' => $actionKey,
+                'kind' => 'account',
+                'tenant_id' => $tenantId,
+                'actor_type' => $actorType,
+                'email' => $email,
+            ];
+            $scopeType = 'tenant_actor_email';
+        } elseif ($scopeKind === 'ip' && $ipAddress !== null) {
+            // Nie wkładamy e-maila do klucza IP: rotacja adresów nie omija limitu.
+            $scopeIdentity = [
+                'action' => $actionKey,
+                'kind' => 'ip',
+                'tenant_id' => $tenantId,
+                'ip' => $ipAddress,
+            ];
+            $scopeType = 'tenant_ip';
+        } else {
+            return $unavailable;
+        }
+
+        // JSON zapewnia jednoznaczne kodowanie pól bez kolizji separatorów.
+        $encodedScope = json_encode($scopeIdentity, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR);
+        $scopeHash = security_hash_value($encodedScope, 'rate_limit_scope');
+
+        if (!is_string($scopeHash) || strlen($scopeHash) !== 64) {
+            return $unavailable;
+        }
+
+        $payload = [
+            'p_action_key' => $actionKey,
+            'p_scope_hash' => $scopeHash,
+            'p_scope_type' => $scopeType,
+            // W bazie nie zapisujemy surowego IP w nowej warstwie licznika.
+            'p_ip_address' => null,
+            'p_ip_hash' => security_ip_hash($ipAddress),
+            'p_email_hash' => security_email_hash($email),
+            'p_tenant_hash' => security_tenant_hash($tenantId),
+            'p_user_hash' => null,
+            'p_user_agent_hash' => security_user_agent_hash(security_user_agent()),
+            'p_endpoint' => (string) ($_SERVER['SCRIPT_NAME'] ?? ''),
+            'p_http_method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'POST')),
+            'p_request_id' => null,
+            'p_session_hash' => null,
+            'p_metadata' => [
+                'reason' => 'login_code_' . $scopeKind . '_limit',
+                'actor_type' => $actorType,
+            ],
+        ];
+
+        // Dostęp do RPC odbywa się przez istniejącą rolę runtime z security.php.
+        $rpcResult = security_supabase_rpc('security_rate_limit_check', $payload);
+        $raw = $rpcResult['data'] ?? null;
+
+        if (($rpcResult['ok'] ?? null) !== true || !is_array($raw)) {
+            return $unavailable;
+        }
+
+        $result = [
+            'ok' => true,
+            'allowed' => $raw['allowed'] ?? null,
+            'retry_after_seconds' => isset($raw['retry_after_seconds']) && is_numeric($raw['retry_after_seconds'])
+                ? max(0, (int) $raw['retry_after_seconds'])
+                : null,
+            'remaining' => isset($raw['remaining']) && is_numeric($raw['remaining'])
+                ? max(0, (int) $raw['remaining'])
+                : null,
+            'raw' => $raw,
+        ];
+
+        if (!login_security_valid_rate_result($result, $actionKey)
+            || ($raw['scope_type'] ?? null) !== $scopeType) {
+            return $unavailable;
+        }
+
+        return $result;
+    } catch (Throwable $e) {
+        // Niedostępny JWT, błąd RPC lub HMAC nie mogą otworzyć logowania.
+        return $unavailable;
+    }
+}
+
+// Łączy wyłącznie prawidłowe decyzje kilku niezależnych liczników.
+function login_security_combine_rate_results(array $results): array
+{
+    $allowed = true;
+    $retryAfter = 0;
+
+    foreach ($results as $result) {
+        if (!is_array($result) || ($result['ok'] ?? null) !== true
+            || !is_bool($result['allowed'] ?? null)) {
+            return login_security_rate_limit_unavailable();
+        }
+        $allowed = $allowed && $result['allowed'];
+        $retryAfter = max($retryAfter, (int) ($result['retry_after_seconds'] ?? 0));
+    }
+
+    return [
+        'ok' => true,
+        'allowed' => $allowed,
+        'retry_after_seconds' => $retryAfter > 0 ? $retryAfter : null,
+        'remaining' => null,
+        'raw' => null,
+    ];
+}
+
+// Chroni samodzielne logowanie kodem, bez wymagania hasła.
+// Wysyłanie: limit złożony + rzeczywisty limit IP + niezależny limit e-mail/konto.
+// Weryfikacja: limit złożony + długookresowy licznik konta niezależny od IP.
 function login_security_rate_limit(
     string $actionKey,
     string $actorType,
@@ -170,70 +331,79 @@ function login_security_rate_limit(
     string $email,
     ?string $subjectId = null
 ): array {
-    $actorType = login_security_actor($actorType);
-    $identity = [
-        'tenant_id' => $tenantId,
-        'email' => login_security_normalize_email($email),
-        'ip' => security_client_ip(),
-    ];
+    $unavailable = login_security_rate_limit_unavailable();
 
-    if ($actorType === 'admin' && $subjectId !== null && $subjectId !== '') {
-        $identity['user_id'] = $subjectId;
-    }
+    try {
+        $actorType = login_security_actor($actorType);
+        $isRequest = $actionKey === 'auth_login_code_request_' . $actorType;
+        $isVerify = $actionKey === 'auth_login_code_verify_' . $actorType;
 
-    if ($actorType === 'staff' && $subjectId !== null && $subjectId !== '') {
-        $identity['staff_account_id'] = $subjectId;
-    }
+        if (!$isRequest && !$isVerify) {
+            return $unavailable;
+        }
 
-    $context = [
-        'endpoint' => (string) ($_SERVER['SCRIPT_NAME'] ?? ''),
-        'http_method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'POST')),
-        'actor_type' => $actorType === 'admin' ? 'tenant_user' : 'staff_user',
-        'tenant_id' => $tenantId,
-        'email' => $email,
-        'ip_address' => security_client_ip(),
-        'metadata' => [
-            'reason' => $actionKey,
-        ],
-    ];
-    $primary = security_rate_limit_check($actionKey, $identity, $context);
-
-    if (strpos($actionKey, 'auth_login_code_request_') !== 0) {
-        return $primary;
-    }
-
-    $ipResult = security_rate_limit_check(
-        $actionKey . '_ip',
-        [
+        // Zachowujemy dotychczasowy, złożony limit tenant + e-mail + IP.
+        $identity = [
             'tenant_id' => $tenantId,
+            'email' => login_security_normalize_email($email),
             'ip' => security_client_ip(),
-        ],
-        $context
-    );
-
-    if (empty($primary['ok']) || empty($ipResult['ok'])) {
-        return [
-            'ok' => false,
-            'allowed' => false,
-            'retry_after_seconds' => null,
-            'remaining' => null,
-            'raw' => null,
-            'error' => 'login_code_rate_limit_unavailable',
         ];
+
+        if ($actorType === 'admin' && $subjectId !== null && $subjectId !== '') {
+            $identity['user_id'] = $subjectId;
+        }
+        if ($actorType === 'staff' && $subjectId !== null && $subjectId !== '') {
+            $identity['staff_account_id'] = $subjectId;
+        }
+
+        $context = [
+            'endpoint' => (string) ($_SERVER['SCRIPT_NAME'] ?? ''),
+            'http_method' => strtoupper((string) ($_SERVER['REQUEST_METHOD'] ?? 'POST')),
+            'actor_type' => $actorType === 'admin' ? 'tenant_user' : 'staff_user',
+            'tenant_id' => $tenantId,
+            'email' => $email,
+            'ip_address' => security_client_ip(),
+            'metadata' => ['reason' => $actionKey],
+        ];
+        $primary = security_rate_limit_check($actionKey, $identity, $context);
+
+        if (!login_security_valid_rate_result($primary, $actionKey)) {
+            return $unavailable;
+        }
+        if ($primary['allowed'] !== true) {
+            return $primary;
+        }
+
+        if ($isRequest) {
+            // Istniejąca reguła *_ip, ale z poprawnym kluczem tenant + IP.
+            $ipActionKey = $actionKey . '_ip';
+            $ipLimit = login_security_fixed_scope_rate_limit(
+                $ipActionKey, 'ip', $actorType, $tenantId, $email
+            );
+            if (($ipLimit['ok'] ?? null) !== true) {
+                return $unavailable;
+            }
+            if ($ipLimit['allowed'] !== true) {
+                return login_security_combine_rate_results([$primary, $ipLimit]);
+            }
+
+            // Ta sama istniejąca reguła wysyłki, lecz drugi, niezależny klucz na konto.
+            // Nie potrzeba nowej reguły SQL dla limitu żądań kodu na e-mail.
+            $accountLimit = login_security_fixed_scope_rate_limit(
+                $actionKey, 'account', $actorType, $tenantId, $email
+            );
+            return login_security_combine_rate_results([$primary, $ipLimit, $accountLimit]);
+        }
+
+        // Osobna reguła konta weryfikacyjnego musi istnieć PRZED wdrożeniem PHP.
+        $accountActionKey = $actionKey . '_account';
+        $accountLimit = login_security_fixed_scope_rate_limit(
+            $accountActionKey, 'account', $actorType, $tenantId, $email
+        );
+        return login_security_combine_rate_results([$primary, $accountLimit]);
+    } catch (Throwable $e) {
+        return $unavailable;
     }
-
-    $retryAfter = max(
-        (int) ($primary['retry_after_seconds'] ?? 0),
-        (int) ($ipResult['retry_after_seconds'] ?? 0)
-    );
-
-    return [
-        'ok' => true,
-        'allowed' => ($primary['allowed'] ?? true) === true && ($ipResult['allowed'] ?? true) === true,
-        'retry_after_seconds' => $retryAfter > 0 ? $retryAfter : null,
-        'remaining' => null,
-        'raw' => null,
-    ];
 }
 
 function login_security_code_hash(

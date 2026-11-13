@@ -48,8 +48,9 @@ function plan_features_limits_map(): array
             'staff_count' => 20,
         ],
         'vip' => [
-            'services_count' => null,
-            'staff_count' => null,
+            // Plan VIP ma twardy limit 60 usług i 40 pracowników, zgodny z katalogiem Supabase.
+            'services_count' => 60,
+            'staff_count' => 40,
         ],
         'business' => [
             'services_count' => null,
